@@ -14,7 +14,7 @@
 | 스프라이트 | **Aseprite** | `.aseprite` → PNG 아틀라스 + JSON |
 | 테스트 | Vitest | `shared/sim` 유닛 테스트 중심 |
 | 린트/포맷 | ESLint + Prettier | pre-commit 훅 |
-| 배포 | 클라: Cloudflare Pages / 서버: Fly.io | WebSocket 상주 필요 |
+| 배포 | 클라: GitHub Pages + 홈서버 / 서버: 홈서버 | Cloudflare Tunnel로 `wss://` 노출 (§9) |
 
 ### 1.1 선정 근거
 
@@ -274,14 +274,126 @@ new Phaser.Game({
 
 ## 9. 배포 / 인프라
 
-| 대상 | 서비스 | 비고 |
+### 9.1 구성
+
+클라이언트는 **GitHub Pages와 홈서버 양쪽에 배포**하고, 게임 서버는 **홈서버**가 단독으로 맡는다.
+
+```
+                    심사위원 브라우저
+                          │
+       ┌──────────────────┴──────────────────┐
+       │                                     │
+  [ 클라이언트 ]                        [ 게임 서버 ]
+  https://<id>.github.io/DropFall/     wss://game.<도메인>
+  https://dropfall.<도메인>              └ Colyseus (홈서버 :2567)
+   (둘 다 동일 빌드 산출물)                  Cloudflare Tunnel 경유
+```
+
+| 대상 | 위치 | 비고 |
 |---|---|---|
-| 클라이언트 | Cloudflare Pages (또는 Vercel) | 정적 빌드, main 머지 시 자동 배포 |
-| 게임 서버 | Fly.io / Railway | WebSocket 상주. 무료 티어로 데모 충분 |
+| 클라이언트 (주) | **GitHub Pages** | 공모전 제출 링크. `main` 머지 시 Actions 자동 배포 |
+| 클라이언트 (부) | **홈서버** (Caddy 정적 서빙) | 자체 도메인 접속용. Pages 장애 시 대체 |
+| 게임 서버 | **홈서버** (Colyseus) | Cloudflare Tunnel로 `wss://` 노출 |
 | 에셋 | 클라 번들에 포함 | 별도 CDN 불필요 |
 
-- 서버 URL은 `VITE_SERVER_URL` 환경변수로 주입
-- 로컬 개발: `pnpm dev` 한 번으로 클라(5173) + 서버(2567) 동시 기동
+> **왜 클라이언트만 이중화하는가**: 정적 파일은 어디에 올려도 같은 산출물이라 이중화 비용이 0이다.
+> 반면 게임 서버는 상태를 가지므로 이중화하려면 룸 상태 공유가 필요하다 — MVP 범위 밖.
+> 백업 게임 서버는 두지 않는다. 대신 홈서버 자동 재기동을 확실히 해둔다 (§9.5).
+
+**게임 서버를 홈서버로 두는 이유**
+- Fly.io/Railway 무료 티어의 cold start, 유휴 종료, 메모리 제한이 없다
+- 20Hz 틱 4인 룸은 부하가 매우 낮다 (라즈베리파이급으로도 충분)
+- GitHub Pages는 정적 호스팅이라 **Node 상주 프로세스를 올릴 수 없다** → 서버는 어차피 별도 호스트가 필요
+
+### 9.2 필수 제약: HTTPS ↔ WSS
+
+GitHub Pages는 항상 HTTPS로 서빙된다. **HTTPS 페이지에서 `ws://`(비암호화) 연결은 브라우저가 차단한다.**
+자체 서명 인증서도 통하지 않는다.
+
+→ 홈서버는 **도메인 + 유효한 TLS 인증서 + `wss://`** 가 반드시 필요하다.
+
+### 9.3 홈서버 노출: Cloudflare Tunnel
+
+포트포워딩 대신 **Cloudflare Tunnel**을 쓴다. 홈서버가 바깥으로 나가는 연결을 유지하는 방식이라
+CGNAT·유동 IP·ISP의 80/443 차단·공유기 설정·홈 IP 노출 문제가 전부 사라지고 TLS도 자동이다.
+
+```yaml
+# ~/.cloudflared/config.yml
+tunnel: dropfall
+credentials-file: /home/<user>/.cloudflared/<tunnel-id>.json
+ingress:
+  - hostname: game.<도메인>          # 게임 서버 (WebSocket + 매치메이킹 HTTP)
+    service: http://localhost:2567
+  - hostname: dropfall.<도메인>      # 클라이언트 정적 서빙
+    service: http://localhost:8080
+  - service: http_status:404
+```
+
+> **주의**: Cloudflare는 유휴 WebSocket을 약 100초에 끊는다. Colyseus 기본 ping/pong 하트비트로
+> 커버되지만, **로비에서 장시간 대기하는 시나리오는 반드시 실측 테스트**한다.
+
+### 9.4 클라이언트 빌드 — 두 경로 동시 지원
+
+GitHub Pages 프로젝트 사이트는 `/DropFall/` 하위 경로, 홈서버는 루트(`/`)다.
+경로 차이는 **상대 base**로 흡수한다. 빌드 산출물 하나를 양쪽에 그대로 올릴 수 있다.
+
+```ts
+// packages/client/vite.config.ts
+export default defineConfig({
+  base: './',            // 상대 경로 → Pages 하위 경로 / 홈서버 루트 양쪽 동작
+  build: { outDir: 'dist' },
+})
+```
+
+- 런타임에 동적으로 로드하는 에셋 경로는 반드시 `import.meta.env.BASE_URL` 을 붙인다
+- **SPA 라우팅(history API)을 쓰지 않는다.** 씬 전환은 Phaser 내부에서만 처리 →
+  상대 base가 깨질 일이 없다
+
+**서버 주소 주입** — 빌드 시 환경변수 + 런타임 쿼리 오버라이드:
+
+```ts
+// packages/client/src/net/config.ts
+// ?server=ws://localhost:2567 로 시연 중에도 재배포 없이 전환 가능
+const params = new URLSearchParams(location.search)
+export const SERVER_URL = params.get('server') ?? import.meta.env.VITE_SERVER_URL
+```
+
+```
+# packages/client/.env.production
+VITE_SERVER_URL=wss://game.<도메인>
+```
+
+### 9.5 배포 파이프라인
+
+**GitHub Pages** — `main` 푸시 시 Actions 자동 배포
+(`.github/workflows/deploy-pages.yml`, `pnpm --filter client build` → `deploy-pages@v4`)
+
+**홈서버** — 동일 산출물을 정적 서빙. 아래 중 택1
+- Actions에서 SSH/rsync로 푸시 (셀프호스티드 러너 또는 Tunnel SSH)
+- 홈서버에서 주기적으로 `git pull` + 빌드 (cron)
+- 수동 배포 (`pnpm --filter client build && rsync dist/ 홈서버:/srv/dropfall/`)
+
+> 3인 팀 규모에서는 **수동 배포로 시작**하고, 잦아지면 자동화한다. 여기에 시간 쓰지 말 것.
+
+**홈서버 프로세스 관리** — 백업 서버가 없으므로 자동 복구가 유일한 방어선이다.
+
+- Colyseus, `cloudflared`, 정적 서버를 전부 **systemd 서비스**로 등록
+- `Restart=always`, `RestartSec=3`, `WantedBy=multi-user.target` (부팅 시 자동 기동)
+- 재부팅 테스트를 **실제로 한 번 해본다**. 안 해보면 시연 당일에 안 올라온다
+
+### 9.6 로컬 개발
+
+`pnpm dev` 한 번으로 클라(5173) + 서버(2567) 동시 기동. 로컬은 `ws://localhost:2567` 사용
+(HTTP 페이지라 mixed content 제약 없음).
+
+### 9.7 배포 체크리스트 (시연 1주 전 필수)
+
+- [ ] 팀 외부 네트워크(모바일 핫스팟 등)에서 Pages URL 접속 → 홈서버 연결 성공
+- [ ] 홈서버 도메인 URL로도 동일하게 동작
+- [ ] 3인 동시 접속 20분 이상 유지 (Cloudflare WebSocket 타임아웃 실측)
+- [ ] 홈서버 **재부팅 후** Colyseus + cloudflared 자동 기동 확인
+- [ ] 로비 장시간 대기 → 연결 유지 확인
+- [ ] 브라우저 콘솔에 mixed content / 404 에셋 경고 없음
 
 ---
 
@@ -307,5 +419,6 @@ pnpm lint
 | 에셋 제작 병목 | 높음 | 1주차에 플레이스홀더(단색 사각형)로 전 시스템 구현, 아트는 나중에 교체 |
 | 해상도/팔레트 번복 | 높음 | 1주차 확정 후 변경 금지 |
 | 밸런싱 시간 부족 | 중간 | JSON 데이터 주도로 마지막 주에 집중 조정 |
-| 서버 비용/배포 실패 | 중간 | 시연 1주 전 배포 리허설 필수 |
+| **홈서버 단일 장애점** | **높음** | 백업 게임 서버 없음. systemd `Restart=always` + 부팅 자동 기동 + 재부팅 테스트로 방어. 클라이언트는 Pages/홈서버 이중화 |
+| HTTPS↔WSS / 경로 문제 | 중간 | Pages는 HTTPS 강제 → `wss://` 필수, `base: './'`. 시연 1주 전 외부망 배포 리허설 |
 | Flow Field 재계산 부하 | 낮음 | debounce + 프로파일링. 최악의 경우 재계산을 웨이브 시작 시로 제한 |
