@@ -1,0 +1,12 @@
+packages:
+  - 'packages/*'
+
+allowBuilds:
+  esbuild: true
+  msgpackr-extract: true
+
+autoInstallPeers: false
+
+peerDependencyRules:
+  ignoreMissing:
+    - '@colyseus/uwebsockets-transport'
