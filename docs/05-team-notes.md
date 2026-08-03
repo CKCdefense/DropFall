@@ -141,7 +141,20 @@ interface PlayerInputMessage {
 
 ---
 
-## 5. 더 자세히 보려면
+## 5. 에셋 작업
+
+원본은 [assets/](../assets/)에서만 작업하고, `pnpm build:atlas`로
+`packages/client/public/assets/`에 산출물을 만든다. 산출물은 **커밋한다**(Aseprite CLI가
+없는 팀원도 클론 즉시 실행 가능해야 하므로). 명명 규칙·규격은
+[assets/README.md](../assets/README.md), 파이프라인 근거는
+[frontend/07](frontend/07-asset-pipeline.md).
+
+**바이너리는 머지가 안 된다** — 같은 에셋 파일을 두 명이 동시에 수정하지 말 것.
+아틀라스 리빌드는 한 명만 한다.
+
+---
+
+## 6. 더 자세히 보려면
 
 작업 단위로 기획-과정-결과 형식 보고서가 [backend/](backend/)에 있다. 특히 트러블슈팅
 파트는 같은 문제를 또 겪지 않으려고 남긴 것이니, 관련 작업 시작 전에 한 번 훑어보는 걸 권한다.

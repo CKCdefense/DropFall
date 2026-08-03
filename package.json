@@ -14,7 +14,8 @@
     "lint": "eslint .",
     "dev:server": "pnpm --filter @dropfall/server run dev",
     "dev:client": "pnpm --filter @dropfall/client run dev",
-    "typecheck": "pnpm -r --if-present run typecheck"
+    "typecheck": "pnpm -r --if-present run typecheck",
+    "build:atlas": "node tools/build-atlas.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
