@@ -1,7 +1,11 @@
 import { MapSchema, Schema, type } from '@colyseus/schema';
+import { RoomPhase } from '@dropfall/shared';
 
 export class PlayerSchema extends Schema {
   @type('string') nickname = '';
+  /** 선택 전에는 빈 문자열. JobId 값 (docs/frontend/08 참고) */
+  @type('string') job = '';
+  @type('boolean') isReady = false;
   @type('number') x = 0;
   @type('number') y = 0;
   @type('number') aimAngle = 0;
@@ -27,6 +31,10 @@ export class GameRoomState extends Schema {
   @type('string') roomCode = '';
   @type('string') roomName = '';
   @type('boolean') hasPassword = false;
+  /** 'lobby' | 'playing' — RoomPhase */
+  @type('string') phase: string = RoomPhase.LOBBY;
+  /** 방장. 나가면 다음 사람에게 넘어간다 */
+  @type('string') hostSessionId = '';
   @type({ map: PlayerSchema }) players = new MapSchema<PlayerSchema>();
   @type({ map: MonsterSchema }) monsters = new MapSchema<MonsterSchema>();
   @type({ map: ProjectileSchema }) projectiles = new MapSchema<ProjectileSchema>();

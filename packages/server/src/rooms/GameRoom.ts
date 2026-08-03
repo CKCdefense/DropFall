@@ -1,10 +1,16 @@
 import { Client, Room, ServerError, matchMaker } from 'colyseus';
 import {
+  LOBBY_ERROR_MESSAGE,
+  LobbyMessage,
   MAX_CLIENTS_PER_ROOM,
+  PATCH_RATE,
   RoomErrorCode,
+  RoomPhase,
+  StartRejectReason,
   TICK_RATE,
   World,
   generateRoomCode,
+  isJobId,
   sanitizeNickname,
   sanitizePassword,
   sanitizeRoomName,
@@ -12,6 +18,8 @@ import {
   type FireInputMessage,
   type JoinRoomOptions,
   type PlayerInputMessage,
+  type SelectJobMessage,
+  type SetReadyMessage,
 } from '@dropfall/shared';
 import {
   GameRoomState,
@@ -49,10 +57,42 @@ export class GameRoom extends Room {
       this.world.setInput(client.sessionId, payload);
     },
     fire: (client: Client, payload: FireInputMessage) => {
+      if (this.state.phase !== RoomPhase.PLAYING) return;
       this.world.fireWeapon(client.sessionId, payload?.weaponId);
     },
     skipVote: (client: Client) => {
+      if (this.state.phase !== RoomPhase.PLAYING) return;
       this.world.castSkipVote(client.sessionId);
+    },
+
+    // 대기실 메시지. 클라이언트 입력은 신뢰하지 않는다 — 값과 권한을 모두 여기서 검증한다.
+    [LobbyMessage.SELECT_JOB]: (client: Client, payload: SelectJobMessage) => {
+      const player = this.state.players.get(client.sessionId);
+      if (!player || this.state.phase !== RoomPhase.LOBBY) return;
+      if (!isJobId(payload?.job)) return;
+
+      player.job = payload.job;
+      // 직업을 바꾸면 준비를 푼다 — 준비한 채로 바꾸면 팀 구성이 조용히 달라진다.
+      player.isReady = false;
+    },
+
+    [LobbyMessage.SET_READY]: (client: Client, payload: SetReadyMessage) => {
+      const player = this.state.players.get(client.sessionId);
+      if (!player || this.state.phase !== RoomPhase.LOBBY) return;
+      if (typeof payload?.ready !== 'boolean') return;
+      // 직업 없이 준비할 수는 없다
+      if (payload.ready && !isJobId(player.job)) return;
+
+      player.isReady = payload.ready;
+    },
+
+    [LobbyMessage.START_GAME]: (client: Client) => {
+      const reason = this.getStartRejection(client.sessionId);
+      if (reason) {
+        client.send(LOBBY_ERROR_MESSAGE, reason);
+        return;
+      }
+      this.startGame();
     },
   };
 
@@ -81,6 +121,9 @@ export class GameRoom extends Room {
       hasPassword: this.state.hasPassword,
     });
 
+    // Colyseus는 시뮬레이션 틱과 상태 전송 주기가 별개다. patchRate를 명시하지 않으면
+    // 기본값 20Hz로 남아서, 서버를 60Hz로 돌려도 클라이언트는 20Hz로만 본다.
+    this.patchRate = 1000 / PATCH_RATE;
     this.setSimulationInterval(() => this.update(), 1000 / TICK_RATE);
   }
 
@@ -115,6 +158,9 @@ export class GameRoom extends Room {
     );
     this.state.players.set(client.sessionId, player);
 
+    // 첫 입장자가 방장이 된다.
+    if (!this.state.hostSessionId) this.state.hostSessionId = client.sessionId;
+
     console.log(`[GameRoom ${this.roomId}] "${auth.nickname}"(${client.sessionId}) joined`);
   }
 
@@ -122,10 +168,41 @@ export class GameRoom extends Room {
     this.world.removePlayer(client.sessionId);
     this.state.players.delete(client.sessionId);
 
+    // 방장이 나가면 남은 사람 중 첫 번째에게 넘긴다. 아무도 없으면 비워둔다.
+    if (this.state.hostSessionId === client.sessionId) {
+      this.state.hostSessionId = this.state.players.keys().next().value ?? '';
+    }
+
     console.log(`[GameRoom ${this.roomId}] ${client.sessionId} left`);
   }
 
+  /** 시작할 수 없으면 사유 문자열, 가능하면 null */
+  private getStartRejection(sessionId: string): string | null {
+    if (this.state.phase !== RoomPhase.LOBBY) return StartRejectReason.ALREADY_STARTED;
+    if (sessionId !== this.state.hostSessionId) return StartRejectReason.NOT_HOST;
+
+    for (const [id, player] of this.state.players) {
+      if (!isJobId(player.job)) return StartRejectReason.NO_JOB;
+      // 방장은 자기 준비 버튼 대신 시작 버튼을 쓰므로 준비 상태를 요구하지 않는다.
+      if (id !== this.state.hostSessionId && !player.isReady) {
+        return StartRejectReason.NOT_ALL_READY;
+      }
+    }
+
+    return null;
+  }
+
+  private startGame(): void {
+    this.state.phase = RoomPhase.PLAYING;
+    // 시작 후 들어오는 사람이 대기실 상태를 보지 않도록 잠근다.
+    void this.lock();
+    console.log(`[GameRoom ${this.roomId}] game started (${this.state.players.size} players)`);
+  }
+
   private update(): void {
+    // 대기실에서는 시뮬레이션을 돌리지 않는다.
+    if (this.state.phase !== RoomPhase.PLAYING) return;
+
     this.world.tick(1 / TICK_RATE);
 
     for (const [id, player] of this.world.getPlayers()) {

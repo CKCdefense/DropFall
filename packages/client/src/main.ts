@@ -1,6 +1,9 @@
 import type Phaser from 'phaser';
 import './ui/styles.css';
+import { RoomPhase } from '@dropfall/shared';
 import { LobbyApp } from './ui/LobbyApp';
+import { WaitingRoom } from './ui/WaitingRoom';
+import { loadImageAssets } from './ui/assets';
 import { createGame } from './game/createGame';
 import type { GameConnection } from './net/GameConnection';
 import { IS_LOCAL_MODE, readAutoEntry } from './net/config';
@@ -19,19 +22,36 @@ const gameRoot = requireElement('#game-root');
 let game: Phaser.Game | null = null;
 let connection: GameConnection | null = null;
 
-const lobby = new LobbyApp(uiRoot, enterGame);
+const lobby = new LobbyApp(uiRoot, enterRoom);
 
-function enterGame(next: GameConnection): void {
+/**
+ * 화면 전환은 세 단계다.
+ *   타이틀/방 목록 (LobbyApp)  →  대기실 (WaitingRoom)  →  인게임 (Phaser)
+ * 방에 들어가는 것과 게임이 시작되는 것은 별개라 두 단계로 나눠 둔다.
+ */
+function enterRoom(next: GameConnection): void {
   connection = next;
+  next.onDisconnect((reason) => leaveRoom(reason));
+
+  // 오프라인 모드는 대기실을 거치지 않는다 (혼자라 준비할 상대가 없다).
+  if (next.getLobbyView().phase === RoomPhase.PLAYING) {
+    startGame();
+    return;
+  }
+
+  const waiting = new WaitingRoom(uiRoot, next, startGame, () => leaveRoom());
+  waiting.start();
+}
+
+function startGame(): void {
+  if (!connection || game) return;
 
   uiRoot.hidden = true;
   gameRoot.hidden = false;
-
-  game = createGame(gameRoot, next);
-  next.onDisconnect((reason) => leaveGame(reason));
+  game = createGame(gameRoot, connection);
 }
 
-function leaveGame(message = ''): void {
+function leaveRoom(message = ''): void {
   game?.destroy(true);
   game = null;
 
@@ -45,13 +65,16 @@ function leaveGame(message = ''): void {
 
 // ESC로 언제든 로비로 돌아온다. 시연 중 막히는 상황을 만들지 않기 위한 안전장치다.
 window.addEventListener('keydown', (event) => {
-  if (event.key === 'Escape' && game) leaveGame();
+  if (event.key === 'Escape' && connection) leaveRoom();
 });
 
 async function bootstrap(): Promise<void> {
+  // 존재하는 UI 이미지 에셋만 CSS 변수로 등록한다. 없으면 플레이스홀더가 그대로 쓰인다.
+  await loadImageAssets();
+
   if (IS_LOCAL_MODE) {
     // ?local=1 — 로비를 건너뛰고 바로 오프라인 모드로 진입한다.
-    enterGame(new LocalConnection('생존자'));
+    enterRoom(new LocalConnection('생존자'));
     return;
   }
 
@@ -74,7 +97,7 @@ async function bootstrap(): Promise<void> {
             nickname: auto.nickname,
             password: auto.password,
           });
-    enterGame(next);
+    enterRoom(next);
   } catch (err) {
     lobby.start();
     lobby.reset((err as Error).message);

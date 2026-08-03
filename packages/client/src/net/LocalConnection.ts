@@ -1,5 +1,5 @@
-import { TICK_RATE, World, type PlayerInputMessage } from '@dropfall/shared';
-import type { GameConnection, RoomInfo, WorldSnapshot } from './GameConnection';
+import { RoomPhase, TICK_RATE, World, type JobId, type PlayerInputMessage } from '@dropfall/shared';
+import type { GameConnection, LobbyView, RoomInfo, WorldSnapshot } from './GameConnection';
 import { SnapshotInterpolator } from './SnapshotInterpolator';
 
 const LOCAL_SESSION_ID = 'local-player';
@@ -21,6 +21,7 @@ export class LocalConnection implements GameConnection {
   /** world.tick()도 서버와 동일하게 TICK_RATE라 같은 보간이 필요하다(SnapshotInterpolator 참고). */
   private readonly interpolator = new SnapshotInterpolator();
   private readonly nickname: string;
+  private job: JobId | '' = '';
   private timer: ReturnType<typeof setInterval> | null = null;
 
   constructor(nickname: string) {
@@ -58,6 +59,49 @@ export class LocalConnection implements GameConnection {
       });
     }
     return { players };
+  }
+
+  // ---------------------------------------------------------------- 대기실
+
+  /**
+   * 오프라인 모드는 혼자이고 방장이며, 대기실을 거치지 않고 바로 인게임으로 본다.
+   * 직업만 로컬로 기억한다 — 서버가 없으니 동기화할 대상도 없다.
+   */
+  getLobbyView(): LobbyView {
+    return {
+      phase: RoomPhase.PLAYING,
+      players: [
+        {
+          id: LOCAL_SESSION_ID,
+          nickname: this.nickname,
+          job: this.job,
+          isReady: true,
+          isHost: true,
+          isMe: true,
+        },
+      ],
+      amHost: true,
+    };
+  }
+
+  selectJob(job: JobId): void {
+    this.job = job;
+  }
+
+  setReady(): void {
+    // 혼자라 준비 개념이 없다.
+  }
+
+  startGame(): void {
+    // 이미 PLAYING 상태다.
+  }
+
+  onLobbyChange(): void {
+    // 바뀔 상태가 없다.
+  }
+
+  onLobbyError(): void {
+    // 서버가 없으니 거절도 없다.
   }
 
   onDisconnect(): void {

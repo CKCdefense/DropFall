@@ -1,0 +1,100 @@
+{
+  "$comment": "아틀라스 구성. 새 에셋 디렉터리를 추가하면 여기에 등록한다. tools/build-atlas.mjs가 읽는다.",
+  "atlases": [
+    {
+      "name": "game",
+      "$comment": "인게임 월드 스프라이트. 캐릭터/몬스터/아이템/건축물/오브젝트/이펙트",
+      "sources": [
+        "sprites/characters",
+        "sprites/monsters",
+        "sprites/items",
+        "sprites/buildings",
+        "sprites/props",
+        "sprites/fx"
+      ]
+    },
+    {
+      "name": "tiles",
+      "$comment": "타일셋. Tiled가 참조하므로 월드 스프라이트와 분리한다",
+      "sources": [
+        "tiles"
+      ]
+    },
+    {
+      "name": "ui",
+      "$comment": "인게임 HUD(캔버스에 그리는 것만). 로비 DOM용 9-slice는 아틀라스에 넣지 않는다",
+      "sources": [
+        "ui/hud",
+        "ui/icons"
+      ]
+    }
+  ],
+  "copy": [
+    {
+      "$comment": "CSS border-image는 아틀라스 일부를 잘라 쓸 수 없어 개별 파일이 필요하다",
+      "from": "ui/dom",
+      "to": "ui",
+      "extensions": [
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".webp"
+      ]
+    },
+    {
+      "from": "ui/logo",
+      "to": "ui",
+      "extensions": [
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".webp"
+      ]
+    },
+    {
+      "from": "ui/backgrounds",
+      "to": "ui",
+      "extensions": [
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".webp"
+      ]
+    },
+    {
+      "from": "maps",
+      "to": "maps",
+      "extensions": [
+        ".tmj",
+        ".json"
+      ]
+    },
+    {
+      "from": "audio/bgm",
+      "to": "audio",
+      "extensions": [
+        ".ogg",
+        ".mp3"
+      ]
+    },
+    {
+      "from": "audio/sfx",
+      "to": "audio",
+      "extensions": [
+        ".ogg",
+        ".wav",
+        ".mp3"
+      ]
+    },
+    {
+      "from": "fonts",
+      "to": "fonts",
+      "extensions": [
+        ".png",
+        ".xml",
+        ".fnt",
+        ".woff2"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,72 @@
+/*
+ * 디자인 토큰 + 에셋 교체 지점.
+ *
+ * 지금은 모든 시각 요소가 플레이스홀더(단색/테두리)다. 픽셀 에셋이 준비되면
+ * 이 파일의 `--asset-*` 값만 url(...)로 바꾸면 레이아웃 변경 없이 교체된다.
+ * 그래서 슬롯 크기(--logo-w 등)도 여기서 미리 못박아 둔다 — 나중에 에셋이 들어와도
+ * 화면이 밀리지 않게 하기 위함이다.
+ */
+:root {
+  /* ---- 팔레트 (32~48색 고정 팔레트 확정 시 여기만 교체) ---- */
+  --bg: #14161d;
+  --panel: #1e222c;
+  --panel-line: #39404f;
+  --panel-line-strong: #5b6478;
+  --text: #cfd6e4;
+  --text-dim: #79828f;
+  --accent: #6fd08c;
+  --accent-dim: #3f7a55;
+  --danger: #d9756b;
+  --shadow: #0b0d12;
+
+  /* ---- 타이포 ---- */
+  /* TODO: 한글 픽셀 비트맵 폰트 확정 후 교체 (docs/frontend/01 §5) */
+  --font-ui: ui-monospace, 'Malgun Gothic', monospace;
+  --font-display: var(--font-ui);
+
+  /* ---- 픽셀 에셋 배율. 정수배만 쓴다 ---- */
+  --px: 3;
+
+  /* ---- 9-slice 에셋 교체 지점 ----
+   * 값이 none이면 border-image가 무시되고 아래 border(플레이스홀더)가 그대로 보인다.
+   * url(...)을 넣는 순간 자동으로 9-slice가 적용된다. 코드 변경 불필요.
+   */
+  --asset-frame: none;
+  --asset-frame-slice: 6; /* 원본 이미지의 모서리 크기(px) */
+  /* title_button.png 원본 64x64, 테두리 약 15px */
+  --asset-button: none;
+  --asset-button-hover: none;
+  --asset-button-slice: 15;
+  --button-px: 1;
+  /* input.png 원본 64x64, 테두리 약 14px */
+  --asset-input: none;
+  --asset-input-hover: none;
+  --asset-input-slice: 14;
+  /* slice가 커서 --px(3)를 쓰면 테두리가 42px가 된다. 입력창은 1배로 */
+  --input-px: 1;
+  /* 모달 외곽 프레임. title_modal.png 원본 64x64, 테두리 약 15px → slice 16 */
+  --asset-modal: none;
+  --asset-modal-slice: 16;
+  /* 모달만 배율을 따로 둔다 — slice가 커서 --px(3)를 그대로 쓰면 테두리가 지나치게 두꺼워진다 */
+  --modal-px: 2;
+  /* 모달은 창 크기와 무관하게 항상 이 비율/최대폭으로 뜬다 */
+  --modal-w: 760px;
+  --modal-ratio: 1.55; /* 가로 / 세로 */
+
+  /* ---- 이미지 에셋 슬롯 ----
+   * 로고는 화면 폭에 비례해 커진다. 에셋 원본 비율이 정해지면 --logo-ratio를 맞춘다.
+   */
+  /* 값은 런타임에 src/ui/assets.ts가 주입한다 (GitHub Pages 하위경로 대응) */
+  --asset-logo: none;
+  --logo-w: min(960px, 92vw);
+  --logo-ratio: 2.66; /* 가로 / 세로 — logo_title.png 원본 814x306 기준 */
+  --logo-max-h: 42vh; /* 세로가 짧은 창에서 로고가 화면을 다 먹지 않게 */
+
+  /* 랜딩 배경 이미지 */
+  --asset-landing-bg: none;
+
+  /* ---- 간격 ---- */
+  --gap-sm: 8px;
+  --gap: 14px;
+  --gap-lg: 24px;
+}
