@@ -121,6 +121,7 @@ dropfall/
 | 항목 | 값 |
 |---|---|
 | 서버 틱 | **60Hz** (16.67ms). ~~20Hz~~에서 상향([backend/13](backend/13-work-report-tick-rate-60hz.md)) — 홈서버 사양(6코어/11GiB) 여유로 CPU는 문제없고, 클라 렌더(60fps)와 맞춰 반응성 지연을 줄였다 |
+| **상태 전송** | **60Hz** (`PATCH_RATE`). Colyseus `Room.patchRate`는 시뮬레이션 틱과 **별개**이고 기본값이 20Hz다 — 명시하지 않으면 서버를 60Hz로 돌려도 클라이언트는 20Hz로만 본다([frontend/05](frontend/05-work-report-patch-rate.md)) |
 | 클라 렌더 | 60fps |
 | 권위 | **서버 100%** |
 | 클라 → 서버 | 입력만 (이동벡터, 조준각, 발사/상호작용 플래그, seq 번호) |

@@ -1,6 +1,7 @@
 import { Client, Room, ServerError, matchMaker } from 'colyseus';
 import {
   MAX_CLIENTS_PER_ROOM,
+  PATCH_RATE,
   RoomErrorCode,
   TICK_RATE,
   World,
@@ -69,6 +70,9 @@ export class GameRoom extends Room {
       hasPassword: this.state.hasPassword,
     });
 
+    // Colyseus는 시뮬레이션 틱과 상태 전송 주기가 별개다. patchRate를 명시하지 않으면
+    // 기본값 20Hz로 남아서, 서버를 60Hz로 돌려도 클라이언트는 20Hz로만 본다.
+    this.patchRate = 1000 / PATCH_RATE;
     this.setSimulationInterval(() => this.update(), 1000 / TICK_RATE);
   }
 

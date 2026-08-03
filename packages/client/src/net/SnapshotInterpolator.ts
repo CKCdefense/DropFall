@@ -1,4 +1,4 @@
-import { TICK_RATE } from '@dropfall/shared';
+import { PATCH_RATE } from '@dropfall/shared';
 import type { PlayerView, WorldSnapshot } from './GameConnection';
 
 /**
@@ -10,21 +10,25 @@ import type { PlayerView, WorldSnapshot } from './GameConnection';
  * 두 스냅샷 사이에서 선형 보간해서 그리면 매 프레임 부드럽게 움직인다. 대가로 화면에 보이는
  * 위치가 실제보다 INTERP_DELAY_MS만큼 늦게 반영된다.
  *
- * 지연은 **틱 간격의 배수**로 정의한다(하드코딩한 ms 값이 아니라) — TICK_RATE가 바뀌어도
- * (docs/backend/13) 이 파일을 다시 튜닝할 필요가 없다. 2틱 여유를 두는 이유: 1틱만 두면
- * 버퍼가 스냅샷 두 개 사이를 딱 채우는 수준이라 네트워크 지터로 다음 스냅샷이 조금만 늦게
- * 와도 보간할 "미래" 스냅샷이 없어 마지막 값에 스냅(정지)되는 구간이 잦아진다.
+ * 지연의 기준은 **스냅샷이 도착하는 주기(PATCH_RATE)** 다. 서버 내부 틱(TICK_RATE)이 아니다 —
+ * 보간은 "도착한 스냅샷 두 개 사이"를 채우는 일이라 서버가 내부적으로 몇 번 계산했는지와는
+ * 무관하다. 실제로 이 둘을 혼동해서, 틱만 60Hz로 올리고 patchRate를 20Hz 기본값으로 둔 탓에
+ * 지연(33ms)이 실제 도착 간격(63ms)보다 짧아져 프레임의 47%가 외삽으로 그려진 적이 있다
+ * (docs/frontend/05).
  *
- * ColyseusConnection과 LocalConnection 양쪽 다 내부 상태 갱신 주기가 TICK_RATE로 동일해서
- * 같은 문제를 겪는다 — 그래서 이 클래스는 전송 방식과 무관하게 재사용한다.
+ * 2주기 여유를 두는 이유: 1주기만 두면 버퍼가 스냅샷 두 개 사이를 딱 채우는 수준이라
+ * 네트워크 지터로 다음 스냅샷이 조금만 늦게 와도 보간할 "미래" 스냅샷이 없어진다.
+ *
+ * ColyseusConnection과 LocalConnection 양쪽 다 상태 갱신 주기가 동일해서 같은 문제를
+ * 겪는다 — 그래서 이 클래스는 전송 방식과 무관하게 재사용한다.
  */
 
-const INTERP_DELAY_TICKS = 2;
-const INTERP_DELAY_MS = (INTERP_DELAY_TICKS * 1000) / TICK_RATE;
+const INTERP_DELAY_PATCHES = 2;
+const INTERP_DELAY_MS = (INTERP_DELAY_PATCHES * 1000) / PATCH_RATE;
 /** 이보다 오래된 스냅샷은 버린다. 재접속 등으로 버퍼가 무한히 쌓이는 것을 막는다. */
 const MAX_BUFFER_AGE_MS = 1000;
 /**
- * 지연 마진(2틱 ≈ 33ms)보다 새 스냅샷이 늦게 도착하면(네트워크 지터, 프레임 타이밍 등)
+ * 지연 마진(INTERP_DELAY_MS)보다 새 스냅샷이 늦게 도착하면(네트워크 지터, 프레임 타이밍 등)
  * 보간할 "미래" 스냅샷이 없어 그대로 멈춰버린다 — 마진을 늘리면 반응성이 다시 나빠지니,
  * 대신 마지막 두 스냅샷의 속도로 잠깐 외삽(dead reckoning)해서 멈추지 않게 한다.
  * 이 시간을 넘어서도 새 스냅샷이 안 오면(재접속·끊김 등) 엉뚱한 방향으로 계속 튀어나갈

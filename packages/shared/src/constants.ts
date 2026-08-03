@@ -9,6 +9,23 @@
  * docs/backend/05-backend-demo-plan.md §5) — 다시 바꾸게 되면 반드시 팀에 공지할 것.
  */
 export const TICK_RATE = 60;
+
+/**
+ * 서버가 **클라이언트로 상태를 내보내는** 주기(Hz).
+ *
+ * Colyseus에서 시뮬레이션 틱(`setSimulationInterval`)과 상태 전송(`Room.patchRate`)은
+ * 완전히 별개다. `patchRate`를 건드리지 않으면 기본값 20Hz(50ms)로 남아서, 서버를 60Hz로
+ * 돌려도 **클라이언트는 20Hz로만 본다** — 실측 15.9Hz였다(docs/frontend/05).
+ * 그래서 GameRoom이 `this.patchRate = 1000 / PATCH_RATE`를 명시적으로 설정한다.
+ *
+ * 클라이언트의 보간 지연(`SnapshotInterpolator`)은 **틱 간격이 아니라 이 값**을 기준으로
+ * 잡아야 한다. 보간은 "도착한 스냅샷 두 개 사이"를 채우는 것이지 서버 내부 틱과는 무관하다.
+ *
+ * 지금은 틱과 같게 두지만, 대역폭이 문제가 되면 이 값만 낮추면 된다
+ * (틱은 그대로 두고 전송만 줄이는 것이 일반적인 최적화다).
+ */
+export const PATCH_RATE = TICK_RATE;
+
 export const TILE_SIZE = 16;
 /**
  * 화면에 보여줄 월드 영역의 기준 크기(월드 단위 = px).
