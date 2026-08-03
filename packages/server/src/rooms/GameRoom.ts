@@ -9,10 +9,16 @@ import {
   sanitizePassword,
   sanitizeRoomName,
   type CreateRoomOptions,
+  type FireInputMessage,
   type JoinRoomOptions,
   type PlayerInputMessage,
 } from '@dropfall/shared';
-import { GameRoomState, PlayerSchema } from '../schema/GameRoomState';
+import {
+  GameRoomState,
+  MonsterSchema,
+  PlayerSchema,
+  ProjectileSchema,
+} from '../schema/GameRoomState';
 
 /** 방 코드 중복 시 재시도 횟수. 31^4 ≈ 92만 조합이라 실제로는 첫 시도에 끝난다. */
 const ROOM_CODE_MAX_ATTEMPTS = 10;
@@ -41,6 +47,12 @@ export class GameRoom extends Room {
   messages = {
     input: (client: Client, payload: PlayerInputMessage) => {
       this.world.setInput(client.sessionId, payload);
+    },
+    fire: (client: Client, payload: FireInputMessage) => {
+      this.world.fireWeapon(client.sessionId, payload?.weaponId);
+    },
+    skipVote: (client: Client) => {
+      this.world.castSkipVote(client.sessionId);
     },
   };
 
@@ -123,6 +135,60 @@ export class GameRoom extends Room {
       schema.y = player.y;
       schema.aimAngle = player.aimAngle;
       schema.lastProcessedSeq = player.lastProcessedSeq;
+      schema.hp = player.hp;
+    }
+
+    this.syncMonsters();
+    this.syncProjectiles();
+
+    const core = this.world.getCore();
+    this.state.coreHp = core.hp;
+    this.state.coreMaxHp = core.maxHp;
+    this.state.wavePhase = this.world.getWavePhase();
+    this.state.currentWave = this.world.getCurrentWave();
+    this.state.skipVoteCount = this.world.getSkipVoteCount();
+  }
+
+  /** 몬스터는 스폰/처치로 매 틱 등장·소멸하므로, world와 schema를 매번 대조해 맞춘다. */
+  private syncMonsters(): void {
+    const monsters = this.world.getMonsters();
+    const aliveIds = new Set(monsters.keys());
+
+    for (const [id, monster] of monsters) {
+      let schema = this.state.monsters.get(id);
+      if (!schema) {
+        schema = new MonsterSchema();
+        schema.type = monster.type;
+        schema.maxHp = monster.maxHp;
+        this.state.monsters.set(id, schema);
+      }
+      schema.x = monster.x;
+      schema.y = monster.y;
+      schema.hp = monster.hp;
+    }
+
+    for (const id of [...this.state.monsters.keys()]) {
+      if (!aliveIds.has(id)) this.state.monsters.delete(id);
+    }
+  }
+
+  /** 투사체도 몬스터와 동일하게 매 틱 등장·소멸한다. */
+  private syncProjectiles(): void {
+    const projectiles = this.world.getProjectiles();
+    const aliveIds = new Set(projectiles.keys());
+
+    for (const [id, projectile] of projectiles) {
+      let schema = this.state.projectiles.get(id);
+      if (!schema) {
+        schema = new ProjectileSchema();
+        this.state.projectiles.set(id, schema);
+      }
+      schema.x = projectile.x;
+      schema.y = projectile.y;
+    }
+
+    for (const id of [...this.state.projectiles.keys()]) {
+      if (!aliveIds.has(id)) this.state.projectiles.delete(id);
     }
   }
 }

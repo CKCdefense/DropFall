@@ -1,0 +1,32 @@
+{
+  "trash": {
+    "hp": 20,
+    "damage": 5,
+    "speed": 60,
+    "attackRange": 20,
+    "attackInterval": 1
+  },
+  "rusher": {
+    "hp": 15,
+    "damage": 8,
+    "speed": 140,
+    "attackRange": 20,
+    "attackInterval": 0.8,
+    "aggroRadius": 120
+  },
+  "tanker": {
+    "hp": 80,
+    "damage": 10,
+    "speed": 35,
+    "attackRange": 20,
+    "attackInterval": 1.5
+  },
+  "boss": {
+    "hp": 500,
+    "damage": 25,
+    "speed": 40,
+    "attackRange": 20,
+    "attackInterval": 2,
+    "aggroRadius": 200
+  }
+}

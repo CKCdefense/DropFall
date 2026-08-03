@@ -6,6 +6,20 @@ export class PlayerSchema extends Schema {
   @type('number') y = 0;
   @type('number') aimAngle = 0;
   @type('number') lastProcessedSeq = 0;
+  @type('number') hp = 0;
+}
+
+export class MonsterSchema extends Schema {
+  @type('string') type = '';
+  @type('number') x = 0;
+  @type('number') y = 0;
+  @type('number') hp = 0;
+  @type('number') maxHp = 0;
+}
+
+export class ProjectileSchema extends Schema {
+  @type('number') x = 0;
+  @type('number') y = 0;
 }
 
 export class GameRoomState extends Schema {
@@ -14,4 +28,13 @@ export class GameRoomState extends Schema {
   @type('string') roomName = '';
   @type('boolean') hasPassword = false;
   @type({ map: PlayerSchema }) players = new MapSchema<PlayerSchema>();
+  @type({ map: MonsterSchema }) monsters = new MapSchema<MonsterSchema>();
+  @type({ map: ProjectileSchema }) projectiles = new MapSchema<ProjectileSchema>();
+  @type('number') coreHp = 0;
+  @type('number') coreMaxHp = 0;
+  /** 'day' | 'night' | 'victory' | 'defeat' (shared/sim의 GamePhase) */
+  @type('string') wavePhase = 'day';
+  @type('number') currentWave = 0;
+  /** 낮 스킵 투표 동의 인원. 만장일치 기준이라 필요 인원은 players.size다. */
+  @type('number') skipVoteCount = 0;
 }

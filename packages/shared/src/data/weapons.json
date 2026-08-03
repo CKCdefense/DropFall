@@ -1,0 +1,18 @@
+{
+  "club": {
+    "name": "몽둥이",
+    "type": "melee",
+    "damage": 15,
+    "fireRate": 2,
+    "range": 24
+  },
+  "pistol": {
+    "name": "권총",
+    "type": "ranged",
+    "damage": 12,
+    "fireRate": 4,
+    "magazine": 12,
+    "reloadTime": 1.2,
+    "projectileSpeed": 420
+  }
+}

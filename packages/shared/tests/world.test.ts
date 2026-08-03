@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { World } from '../src/sim/world';
+import { wavesData } from '../src/data';
 
 describe('World', () => {
   it('입력받은 방향으로 tick 이후 플레이어가 이동한다', () => {
@@ -21,7 +22,14 @@ describe('World', () => {
     world.tick(1);
 
     const player = world.getPlayers().get('p1');
-    expect(player).toEqual({ id: 'p1', x: 5, y: 5, aimAngle: 0, lastProcessedSeq: 0 });
+    expect(player).toEqual({
+      id: 'p1',
+      x: 5,
+      y: 5,
+      aimAngle: 0,
+      lastProcessedSeq: 0,
+      hp: wavesData.playerHp,
+    });
   });
 
   it('제거된 플레이어는 목록에서 사라진다', () => {
