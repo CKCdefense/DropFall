@@ -32,6 +32,7 @@
 | [frontend/05-work-report-patch-rate.md](frontend/05-work-report-patch-rate.md) | 작업 보고서 — patchRate 미설정으로 60Hz 상향분이 전달되지 않던 문제 |
 | [frontend/06-ui-asset-slots.md](frontend/06-ui-asset-slots.md) | **UI 에셋 슬롯 교체 가이드** — 9-slice/이미지 플레이스홀더, 무스크롤 셸 |
 | [frontend/07-asset-pipeline.md](frontend/07-asset-pipeline.md) | **에셋 파이프라인** — 원본/산출물 분리, 아틀라스 구성, 빌드 옵션 근거 |
+| [frontend/08-lobby-flow.md](frontend/08-lobby-flow.md) | **대기실 흐름** — 화면 전환, 직업/준비/시작 규격, 방 코드 입력 |
 
 ## 한 줄 요약
 

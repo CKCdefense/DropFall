@@ -247,3 +247,58 @@
   transform: rotate(45deg);
   transform-origin: right center;
 }
+
+/* ---------------------------------------------------------------- 방 코드 4칸 */
+
+.code-form-label {
+  color: var(--text-dim);
+  font-size: 14px;
+  text-align: center;
+}
+
+.code-boxes {
+  display: flex;
+  justify-content: center;
+  gap: clamp(8px, 2vw, 16px);
+}
+
+/* 한 칸에도 입력창 9-slice가 그대로 들어간다 (assetAttr('input')) */
+.code-box {
+  --slice: var(--asset-input-slice);
+  width: clamp(48px, 9vw, 68px);
+  aspect-ratio: 1;
+  padding: 0;
+  background: #12141a;
+  color: var(--text);
+  font: inherit;
+  font-size: clamp(20px, 3vw, 30px);
+  text-align: center;
+  text-transform: uppercase;
+  outline: none;
+  border-style: solid;
+  border-width: calc(var(--slice) * 1px * var(--input-px));
+  border-color: var(--panel-line);
+  border-image-source: var(--asset-input);
+  border-image-slice: var(--slice) fill;
+  border-image-width: calc(var(--slice) * 1px * var(--input-px));
+  border-image-repeat: round;
+}
+
+.code-box[data-asset] {
+  background: none;
+  color: #e8eef7;
+}
+
+.code-box[data-asset]:focus {
+  border-image-source: var(--asset-input-hover);
+}
+
+.code-box:not([data-asset]) {
+  border-width: calc(3px * var(--px));
+  border-color: #12141a;
+  box-shadow: inset 0 0 0 1px var(--panel-line);
+}
+
+.code-box:not([data-asset]):focus {
+  box-shadow: inset 0 0 0 1px var(--accent-dim);
+}

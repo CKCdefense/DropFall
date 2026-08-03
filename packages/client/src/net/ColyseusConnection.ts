@@ -1,17 +1,27 @@
 import { Client, type Room } from '@colyseus/sdk';
 import type {
   CreateRoomOptions,
+  JobId,
   JoinRoomOptions,
   PlayerInputMessage,
+  RoomPhase,
 } from '@dropfall/shared';
-import { RoomErrorCode, normalizeRoomCode } from '@dropfall/shared';
+import {
+  LOBBY_ERROR_MESSAGE,
+  LobbyMessage,
+  RoomErrorCode,
+  RoomPhase as RoomPhaseValue,
+  normalizeRoomCode,
+} from '@dropfall/shared';
 import { SERVER_HTTP_URL } from './config';
-import type { GameConnection, RoomInfo, WorldSnapshot } from './GameConnection';
+import type { GameConnection, LobbyView, RoomInfo, WorldSnapshot } from './GameConnection';
 import { SnapshotInterpolator } from './SnapshotInterpolator';
 
 /** 서버 Schema를 클라이언트 관점에서 본 모양. 서버의 GameRoomState와 1:1로 맞춘다. */
 interface RemotePlayerState {
   nickname: string;
+  job: string;
+  isReady: boolean;
   x: number;
   y: number;
   aimAngle: number;
@@ -22,6 +32,8 @@ interface RemoteGameState {
   roomCode: string;
   roomName: string;
   hasPassword: boolean;
+  phase: string;
+  hostSessionId: string;
   players: {
     size: number;
     forEach(callback: (value: RemotePlayerState, key: string) => void): void;
@@ -88,6 +100,8 @@ export class ColyseusConnection implements GameConnection {
 
   /** 서버는 TICK_RATE로만 상태를 보내는데 화면은 60fps로 그리므로, 보간해서 부드럽게 재생한다. */
   private readonly interpolator = new SnapshotInterpolator();
+  private readonly lobbyListeners: (() => void)[] = [];
+  private readonly lobbyErrorListeners: ((message: string) => void)[] = [];
   private latestPing = 0;
 
   constructor(private readonly room: GameRoom) {
@@ -98,6 +112,11 @@ export class ColyseusConnection implements GameConnection {
     // 상태 패치가 도착할 때마다(서버 틱과 동일한 주기) 보간 버퍼에 쌓는다.
     this.room.onStateChange((state) => {
       this.interpolator.push(this.readRawSnapshot(state));
+      for (const listener of this.lobbyListeners) listener();
+    });
+
+    this.room.onMessage(LOBBY_ERROR_MESSAGE, (message: string) => {
+      for (const listener of this.lobbyErrorListeners) listener(message);
     });
   }
 
@@ -141,6 +160,51 @@ export class ColyseusConnection implements GameConnection {
     });
 
     return { players };
+  }
+
+  // ---------------------------------------------------------------- 대기실
+
+  getLobbyView(): LobbyView {
+    const state = this.room.state;
+    const hostId = state?.hostSessionId ?? '';
+    const players: LobbyView['players'] = [];
+
+    state?.players?.forEach((player, id) => {
+      players.push({
+        id,
+        nickname: player.nickname,
+        job: (player.job || '') as JobId | '',
+        isReady: player.isReady,
+        isHost: id === hostId,
+        isMe: id === this.room.sessionId,
+      });
+    });
+
+    return {
+      phase: (state?.phase as RoomPhase) ?? RoomPhaseValue.LOBBY,
+      players,
+      amHost: hostId === this.room.sessionId,
+    };
+  }
+
+  selectJob(job: JobId): void {
+    this.room.send(LobbyMessage.SELECT_JOB, { job });
+  }
+
+  setReady(ready: boolean): void {
+    this.room.send(LobbyMessage.SET_READY, { ready });
+  }
+
+  startGame(): void {
+    this.room.send(LobbyMessage.START_GAME, {});
+  }
+
+  onLobbyChange(callback: () => void): void {
+    this.lobbyListeners.push(callback);
+  }
+
+  onLobbyError(callback: (message: string) => void): void {
+    this.lobbyErrorListeners.push(callback);
   }
 
   onDisconnect(callback: (reason: string) => void): void {

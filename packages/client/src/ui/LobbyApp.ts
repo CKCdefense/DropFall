@@ -15,6 +15,7 @@ import { LocalConnection } from '../net/LocalConnection';
 import { fetchRooms } from '../net/lobbyApi';
 import type { GameConnection } from '../net/GameConnection';
 import { assetAttr, hasAsset } from './assets';
+import { createCodeInput } from './codeInput';
 import { clear, el } from './dom';
 
 type Screen = 'title' | 'browse' | 'create' | 'connecting';
@@ -245,23 +246,37 @@ export class LobbyApp {
     return el('div', {}, [row, el('div', { class: 'room-password-row' }, [password.wrapper])]);
   }
 
-  /** 코드 찾기 — 방 코드로 직접 참가 */
+  /**
+   * 방 코드 입력 모달 (와이어프레임: 방 코드 4칸 / 비밀번호 / Join).
+   * 목록에서 잠긴 방을 고른 경우에는 코드가 이미 정해져 있어 칸을 채운 채 잠근다.
+   */
   private renderCodeForm(): HTMLElement {
-    const code = this.codeField();
-    const password = this.passwordField('비밀번호 (있는 경우)');
+    const password = this.passwordField('비밀번호:');
+    const submit = () => {
+      const value = normalizeRoomCode(code.getValue());
+      if (!isValidRoomCode(value)) {
+        this.fail(`방 코드 ${ROOM_CODE_LENGTH}자리를 모두 입력해 주세요.`);
+        return;
+      }
+      void this.join(value, password.input.value);
+    };
+
+    const code = createCodeInput(() => password.input.focus());
+
+    // 다음 프레임에 첫 칸으로 포커스 — 지금은 아직 DOM에 붙기 전이다.
+    queueMicrotask(() => code.focus());
+
+    // Enter로도 참가되게 (코드 4칸 → 비밀번호 → Enter가 자연스러운 흐름)
+    password.input.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') submit();
+    });
 
     return el('div', { class: 'code-form' }, [
-      el('label', { class: 'field-block' }, [el('span', {}, ['방 코드']), code.wrapper]),
-      el('label', { class: 'field-block' }, [el('span', {}, ['비밀번호']), password.wrapper]),
+      el('div', { class: 'code-form-label' }, ['방 코드']),
+      code.wrapper,
+      password.wrapper,
       el('div', { class: 'modal-actions' }, [
-        this.button('참가', 'primary', () => {
-          const value = normalizeRoomCode(code.input.value);
-          if (!isValidRoomCode(value)) {
-            this.fail(`방 코드는 ${ROOM_CODE_LENGTH}자리다. 다시 확인해 주세요.`);
-            return;
-          }
-          void this.join(value, password.input.value);
-        }),
+        this.button('참가', 'primary', submit),
         this.button('뒤로', 'primary', () => {
           this.browseMode = 'list';
           this.render();
@@ -348,13 +363,6 @@ export class LobbyApp {
     });
   }
 
-  private codeField(): { wrapper: HTMLElement; input: HTMLInputElement } {
-    return this.inputField(
-      '',
-      { type: 'text', maxlength: ROOM_CODE_LENGTH, placeholder: 'A3F9' },
-      'field-code',
-    );
-  }
 
   private button(
     label: string,
