@@ -8,7 +8,7 @@
 | 렌더링 | **Phaser 3** | 픽셀아트, 타일맵, 입력, 카메라 내장 |
 | 멀티플레이 | **Colyseus** (Node + WebSocket) | 룸 관리 + 상태 동기화 |
 | 런타임 | Node 20 LTS | |
-| 빌드 | **Vite** | 클라 번들 + HMR |
+| 빌드 | **Vite**(클라) / **tsup**(서버) | 서버를 tsc로 빌드하면 확장자 없는 ESM import로 실행이 깨진다 (§9.5) |
 | 패키지 | **pnpm workspace** | 모노레포 |
 | 맵 에디터 | **Tiled** | `.tmj` (JSON) 익스포트 |
 | 스프라이트 | **Aseprite** | `.aseprite` → PNG 아틀라스 + JSON |
@@ -245,8 +245,13 @@ new Phaser.Game({
 - 서버가 `collision` 레이어를 읽어 Flow Field 초기 그리드를 만든다 → **맵 데이터는 shared**
 
 ### 7.5 UI
-**DOM UI를 쓰지 않고 캔버스 내부에 픽셀아트로 그린다.** 인벤토리·상점·테크트리가 많으므로
-공통 컴포넌트를 먼저 만든다.
+**인게임 UI는 DOM을 쓰지 않고 캔버스 내부에 픽셀아트로 그린다.** 인벤토리·상점·테크트리가
+많으므로 공통 컴포넌트를 먼저 만든다.
+
+> **예외 — 로비/타이틀 화면은 DOM으로 만든다.** 텍스트 입력·포커스·한글 IME 조합·스크롤
+> 목록을 캔버스에서 재구현하는 비용이 일관성 이득보다 크다. 픽셀 느낌은 CSS로 낸다.
+> 경계는 명확하다: **인게임 화면에 뜨는 것은 전부 캔버스.**
+> 근거: [frontend/01-client-architecture.md §2.2](frontend/01-client-architecture.md)
 
 - `NineSlicePanel` — 창/버튼 프레임 (Phaser `NineSlice` 게임오브젝트)
 - `PixelButton`, `PixelBar`(HP/진행도), `ItemSlot`, `Tooltip`
@@ -374,6 +379,13 @@ VITE_SERVER_URL=wss://game.<도메인>
 - 수동 배포 (`pnpm --filter client build && rsync dist/ 홈서버:/srv/dropfall/`)
 
 > 3인 팀 규모에서는 **수동 배포로 시작**하고, 잦아지면 자동화한다. 여기에 시간 쓰지 말 것.
+
+> **서버는 tsup으로 번들한다** (`packages/server/tsup.config.ts`). `tsc`는
+> `moduleResolution: "bundler"` 하에서 확장자 없는 상대 import를 그대로 출력해
+> `node dist/index.js`가 `ERR_MODULE_NOT_FOUND`로 죽고, `@dropfall/shared`(TS 소스 export)도
+> 번들에 인라인해야 한다. 산출물이 파일 하나라 홈서버 배포도 단순하다.
+>
+> 서버 CORS는 `CLIENT_ORIGIN` 환경변수로 지정한다. 프로덕션 기본값은 `*`가 아니라 빈 값이다.
 
 **홈서버 프로세스 관리** — 백업 서버가 없으므로 자동 복구가 유일한 방어선이다.
 

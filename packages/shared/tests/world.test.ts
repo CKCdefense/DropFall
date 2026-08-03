@@ -47,13 +47,46 @@ describe('World', () => {
   it('범위를 벗어난 moveX/moveY는 -1~1로 clamp된다', () => {
     const world = new World();
     world.addPlayer('p1', 0, 0);
-    world.setInput('p1', { seq: 1, moveX: 999, moveY: -999, aimAngle: 0 });
+    world.setInput('p1', { seq: 1, moveX: 999, moveY: 0, aimAngle: 0 });
 
     world.tick(1);
 
     const player = world.getPlayers().get('p1');
     expect(player?.x).toBe(100); // PLAYER_SPEED(100) * clamp(999→1) * 1s
-    expect(player?.y).toBe(-100);
+    expect(player?.y).toBe(0);
+  });
+
+  it('대각선 입력도 직선과 같은 속도로 이동한다', () => {
+    const straight = new World();
+    straight.addPlayer('p1', 0, 0);
+    straight.setInput('p1', { seq: 1, moveX: 1, moveY: 0, aimAngle: 0 });
+    straight.tick(1);
+
+    const diagonal = new World();
+    diagonal.addPlayer('p1', 0, 0);
+    diagonal.setInput('p1', { seq: 1, moveX: 1, moveY: 1, aimAngle: 0 });
+    diagonal.tick(1);
+
+    const a = straight.getPlayers().get('p1')!;
+    const b = diagonal.getPlayers().get('p1')!;
+
+    // clamp만 하면 대각선이 √2배(약 141%) 빨라진다 — 정규화로 막는다.
+    expect(Math.hypot(b.x, b.y)).toBeCloseTo(Math.hypot(a.x, a.y), 5);
+  });
+
+  it('순서가 뒤바뀌거나 중복된 seq 입력은 무시한다', () => {
+    const world = new World();
+    world.addPlayer('p1', 0, 0);
+
+    world.setInput('p1', { seq: 5, moveX: 1, moveY: 0, aimAngle: 1 });
+    // 늦게 도착한 예전 입력. 받아들이면 lastProcessedSeq가 되감겨 클라이언트가 튄다.
+    world.setInput('p1', { seq: 3, moveX: -1, moveY: 0, aimAngle: 2 });
+    world.tick(1);
+
+    const player = world.getPlayers().get('p1');
+    expect(player?.lastProcessedSeq).toBe(5);
+    expect(player?.x).toBe(100);
+    expect(player?.aimAngle).toBe(1);
   });
 
   it('moveX가 빠지거나 숫자가 아니면 입력 전체를 무시하고 NaN으로 오염시키지 않는다', () => {

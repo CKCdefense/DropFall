@@ -21,6 +21,14 @@
 | [backend/09-work-report-browser-playground.md](backend/09-work-report-browser-playground.md) | 작업 보고서 — 브라우저에서 직접 테스트(Colyseus Playground) |
 | [backend/10-work-report-nan-input-bug.md](backend/10-work-report-nan-input-bug.md) | 작업 보고서 — NaN 오염 버그(입력 타입 미검증) 수정 |
 
+### 역할 C — 클라이언트/렌더/UI 작업 문서 ([frontend/](frontend/))
+
+| 문서 | 내용 |
+|---|---|
+| [frontend/01-client-architecture.md](frontend/01-client-architecture.md) | 클라이언트 구조 — GameConnection 추상화, Scene 구성, DOM/캔버스 경계 |
+| [frontend/02-lobby-room-protocol.md](frontend/02-lobby-room-protocol.md) | 로비/방 규격 — 방 코드, 생성/참여 옵션, 입력 전송 규칙, 에러 코드 |
+| [frontend/03-work-report-client-setup.md](frontend/03-work-report-client-setup.md) | 작업 보고서 — 클라이언트 초기 설정, 로비/HUD, 서버 빌드 수정 |
+
 ## 한 줄 요약
 
 > 낮에는 자원을 모아 거점을 짓고, 밤에는 몰려오는 몬스터로부터 코어를 지키는
