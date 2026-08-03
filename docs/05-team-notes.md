@@ -55,13 +55,34 @@ interface PlayerInputMessage {
   aimAngle: number;  // 라디안
 }
 ```
-서버 → 클라, Schema 상태:
+클라이언트 → 서버, `room.send('fire', payload)` (이동과 달리 클릭할 때마다 1번 보내는
+이산 이벤트 — 위치/조준각은 서버가 이미 아는 값을 쓰므로 안 실어보낸다):
+```ts
+interface FireInputMessage {
+  weaponId: string;  // 'club' | 'pistol' (shared/data/weapons.json)
+}
+```
+클라이언트 → 서버, `room.send('skipVote')` (페이로드 없음 — 낮 페이즈일 때만 유효,
+접속 전원이 보내야 즉시 밤으로 전환된다. 만장일치, [backend/16](backend/16-work-report-defeat-and-day-skip-vote.md)):
+
+서버 → 클라, Schema 상태 ([backend/15](backend/15-work-report-combat-monster-wave.md)로
+몬스터/투사체/코어, [backend/16](backend/16-work-report-defeat-and-day-skip-vote.md)로
+`hp`/`skipVoteCount` 추가):
 ```ts
 {
   roomCode: string, roomName: string, hasPassword: boolean,
-  players: Map<sessionId, { nickname, x, y, aimAngle, lastProcessedSeq }>
+  players: Map<sessionId, { nickname, x, y, aimAngle, lastProcessedSeq, hp }>,
+  monsters: Map<id, { type, x, y, hp, maxHp }>,
+  projectiles: Map<id, { x, y }>,
+  coreHp: number, coreMaxHp: number,
+  wavePhase: 'day' | 'night' | 'victory' | 'defeat', currentWave: number,
+  skipVoteCount: number,  // 필요 정족수 = players.size (만장일치)
 }
 ```
+
+**패배 조건**: 코어 HP 0 또는 접속 중인 플레이어 전원이 다운(hp 0)되면 즉시
+`wavePhase: 'defeat'`. 다운된 플레이어는 웨이브를 클리어하고 다음 낮이 시작되면 자동으로
+전원 부활한다(HP 풀회복). 몬스터는 다운된 플레이어를 추격/공격 대상으로 삼지 않는다.
 
 **입력은 `INPUT_SEND_RATE`(= `TICK_RATE`, 현재 60Hz — [backend/13](backend/13-work-report-tick-rate-60hz.md)로
 20Hz에서 상향)로 보낸다.** 서버는 마지막 입력을 새 입력이 올 때까지 매 틱 반복 적용하므로,
@@ -123,8 +144,10 @@ interface PlayerInputMessage {
 
 ## 4. 역할별 파일 분담 ([04-roadmap.md](04-roadmap.md) 기준)
 
-- `shared/sim`: A(서버) = `world.ts`, `movement.ts`, `ai/flowField.ts` /
-  B(게임플레이) = `combat.ts`, `building.ts`, `wave.ts` — 지금은 `world.ts`만 있다
+- `shared/sim`: A(서버) = `world.ts`, `movement.ts`, `ai/flowField.ts`, `combat.ts`, `wave.ts` /
+  B(게임플레이) = `building.ts` — 원래 분담표는 combat/wave를 B로 뒀지만, 압축 일정상
+  A가 [backend/15](backend/15-work-report-combat-monster-wave.md)에서 먼저 구현했다.
+  전체 흐름은 [06-client-server-state-flow.md](06-client-server-state-flow.md) 참고
 - `shared/protocol`의 메시지 타입은 A가 먼저 정의해두는 게 원칙 (지금 `PlayerInputMessage`가
   그 예시) — B/C가 스텁을 짤 때 이 타입을 그대로 참조하면 된다
 - `client/`는 C가 담당한다. 구조와 경계는
@@ -151,3 +174,7 @@ interface PlayerInputMessage {
 | [backend/12](backend/12-work-report-snapshot-interpolation.md) | 스냅샷 보간으로 20Hz 렌더링 끊김 보강 |
 | [backend/13](backend/13-work-report-tick-rate-60hz.md) | 서버 틱레이트 20Hz → 60Hz 상향 |
 | [backend/14](backend/14-work-report-extrapolation.md) | 보간 버퍼 부족 시 외삽(dead reckoning) 추가 |
+| [backend/15](backend/15-work-report-combat-monster-wave.md) | 전투·몬스터·웨이브 MVP 구현 (서버 시뮬레이션) |
+| [backend/16](backend/16-work-report-defeat-and-day-skip-vote.md) | 전원 다운 즉시패배 + 낮 스킵 투표(만장일치) 구현 |
+| [backend/17](backend/17-work-report-monster-spawn-movement-refinement.md) | 몬스터 스폰/이동 구체화 — 군집 분리·어그로 히스테리시스·스폰 지점 순환 |
+| [backend/18](backend/18-mvp-scope-proposal-resource-building.md) | 제안서 — 자원채집·건축(나무/돌, 도끼/곡괭이, 벽/울타리) MVP 범위 |

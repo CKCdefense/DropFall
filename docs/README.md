@@ -9,6 +9,7 @@
 | [03-git-convention.md](03-git-convention.md) | Git 브랜치 / 커밋 / PR 컨벤션 |
 | [04-roadmap.md](04-roadmap.md) | 마일스톤, 역할 분담, 리스크 |
 | [05-team-notes.md](05-team-notes.md) | **팀 공유 노트 — 작업 시작 전에 알아야 할 것** (실행 방법, 통신 규격, 함정) |
+| [06-client-server-state-flow.md](06-client-server-state-flow.md) | 클라이언트 ↔ 서버 상태 통신 흐름 — 연결부터 렌더링까지 전체 시퀀스 |
 
 ### 역할 A — 서버/네트워크 작업 문서 ([backend/](backend/))
 
@@ -20,6 +21,14 @@
 | [backend/08-work-report-connection-smoke-test.md](backend/08-work-report-connection-smoke-test.md) | 작업 보고서 — client-server 연결 실제 검증(스모크 테스트) |
 | [backend/09-work-report-browser-playground.md](backend/09-work-report-browser-playground.md) | 작업 보고서 — 브라우저에서 직접 테스트(Colyseus Playground) |
 | [backend/10-work-report-nan-input-bug.md](backend/10-work-report-nan-input-bug.md) | 작업 보고서 — NaN 오염 버그(입력 타입 미검증) 수정 |
+| [backend/11-mvp-scope-proposal-combat-wave.md](backend/11-mvp-scope-proposal-combat-wave.md) | 제안서 — 전투·몬스터·웨이브 MVP 범위 (팀 협의용) |
+| [backend/12-work-report-snapshot-interpolation.md](backend/12-work-report-snapshot-interpolation.md) | 작업 보고서 — 스냅샷 보간으로 20Hz 렌더링 끊김 보강 |
+| [backend/13-work-report-tick-rate-60hz.md](backend/13-work-report-tick-rate-60hz.md) | 작업 보고서 — 서버 틱레이트 20Hz → 60Hz 상향 |
+| [backend/14-work-report-extrapolation.md](backend/14-work-report-extrapolation.md) | 작업 보고서 — 보간 버퍼 부족 시 외삽(dead reckoning) 추가 |
+| [backend/15-work-report-combat-monster-wave.md](backend/15-work-report-combat-monster-wave.md) | 작업 보고서 — 전투·몬스터·웨이브 MVP 구현(서버 시뮬레이션) |
+| [backend/16-work-report-defeat-and-day-skip-vote.md](backend/16-work-report-defeat-and-day-skip-vote.md) | 작업 보고서 — 전원 다운 즉시패배 + 낮 스킵 투표(만장일치) 구현 |
+| [backend/17-work-report-monster-spawn-movement-refinement.md](backend/17-work-report-monster-spawn-movement-refinement.md) | 작업 보고서 — 몬스터 스폰/이동 구체화(군집 분리·어그로 히스테리시스·스폰 지점 순환) |
+| [backend/18-mvp-scope-proposal-resource-building.md](backend/18-mvp-scope-proposal-resource-building.md) | 제안서 — 자원채집·건축 MVP 범위(팀 협의용) |
 
 ### 역할 C — 클라이언트/렌더/UI 작업 문서 ([frontend/](frontend/))
 
