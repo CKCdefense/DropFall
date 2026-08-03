@@ -60,7 +60,24 @@ Phaser를 띄우고, 나가면 Phaser를 파괴하고 로비로 돌아온다.
 
 경계는 명확하다. **인게임 화면에 뜨는 것은 전부 캔버스.**
 
-### 2.3 Scene 구성
+### 2.3 렌더링 해상도 — 월드와 UI를 분리한다
+
+**캔버스는 창 크기(네이티브 해상도), 월드 카메라만 정수배(2x~4x) 줌.**
+저해상도 캔버스를 통째로 확대하면 UI 텍스트까지 뭉개진다. 특히 **한글은 8px에서 판독이
+불가능**해서(자소 조합 구조) 저해상도 캔버스와 양립하지 않는다.
+
+| 대상 | 해상도 |
+|---|---|
+| 월드(스프라이트/타일) | 16px 타일을 카메라 줌으로 32~64px로 확대 |
+| HUD | 네이티브 해상도, `uiScale = clamp(zoom / 2, 1, 2)` |
+| 월드 안의 텍스트(닉네임) | 월드 좌표 + `setResolution(zoom)` |
+
+줌 계산은 `computeCameraZoom()`(shared, 유닛 테스트 있음). 캔버스가 창을 따라가므로
+`Phaser.Scale.Events.RESIZE`에서 줌과 HUD 레이아웃을 다시 계산한다.
+
+배경과 검증: [04-work-report-resolution-policy.md](04-work-report-resolution-policy.md)
+
+### 2.4 Scene 구성
 
 | Scene | 역할 |
 |---|---|
@@ -75,7 +92,7 @@ Phaser를 띄우고, 나가면 Phaser를 파괴하고 로비로 돌아온다.
 원래 계획의 `Boot`/`Preload` Scene은 **아직 만들지 않았다.** 로드할 에셋이 없어서 빈 껍데기가
 되기 때문이다. 아틀라스가 생기면 `PreloadScene`을 추가한다.
 
-### 2.4 렌더 동기화 계층
+### 2.5 렌더 동기화 계층
 
 `EntityRenderer`가 스냅샷을 스프라이트에 반영한다 — 생성/갱신/삭제, `depth = y` 정렬, 정수 스냅.
 앞으로 몬스터·투사체·건축물이 전부 여기에 얹힌다.
@@ -83,7 +100,7 @@ Phaser를 띄우고, 나가면 Phaser를 파괴하고 로비로 돌아온다.
 아트가 없어서 지금은 도형 플레이스홀더(`createPlayer`)를 쓴다. 아틀라스가 준비되면
 **이 메서드만** 스프라이트로 교체하면 된다.
 
-### 2.5 입력
+### 2.6 입력
 
 `InputController`가 WASD + 마우스 조준을 `PlayerInputMessage`로 만들어 **20Hz로** 보낸다.
 전송 주기와 대각선 정규화 이유는 [02-lobby-room-protocol.md](02-lobby-room-protocol.md) 참고.
@@ -107,7 +124,7 @@ packages/client/
    │  ├─ dom.ts          el() 헬퍼
    │  └─ styles.css      팔레트는 커스텀 프로퍼티로 분리
    └─ game/
-      ├─ createGame.ts   Phaser 설정 (pixelArt/roundPixels/480×270)
+      ├─ createGame.ts   Phaser 설정 (pixelArt/roundPixels/RESIZE)
       ├─ scenes/         GameScene, HudScene
       ├─ render/         EntityRenderer
       └─ input/          InputController

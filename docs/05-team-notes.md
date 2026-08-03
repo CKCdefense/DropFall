@@ -107,6 +107,12 @@ interface PlayerInputMessage {
   타입 검사는 `pnpm typecheck`(`tsc --noEmit`)로 분리돼 있다.
   자세히: [frontend/03](frontend/03-work-report-client-setup.md)
 
+- **저해상도 캔버스를 통째로 확대하지 않는다.** 캔버스는 창 크기(네이티브)로 두고 **월드
+  카메라만 정수배로 줌**한다. 한글은 8px에서 판독이 안 되기 때문이다(자소 조합 구조라 최소
+  11~12px 필요). 월드 안에 텍스트를 그릴 때는 `text.setResolution(zoom)`을 잊지 말 것 —
+  안 하면 작게 그린 글자를 확대하게 되어 뭉개진다.
+  자세히: [frontend/04](frontend/04-work-report-resolution-policy.md)
+
 - **`Phaser.Scene`을 상속할 때 `renderer`라는 이름의 프로퍼티를 만들지 말 것.**
   Phaser에 이미 있어서 타입이 충돌한다. 또 `scene: [A, B]` 배열은 **첫 Scene만 자동 시작**되고,
   자동 시작되는 Scene에는 `start(key, data)`의 data가 전달되지 않는다 —

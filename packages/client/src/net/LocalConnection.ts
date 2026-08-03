@@ -2,6 +2,8 @@ import { TICK_RATE, World, type PlayerInputMessage } from '@dropfall/shared';
 import type { GameConnection, RoomInfo, WorldSnapshot } from './GameConnection';
 
 const LOCAL_SESSION_ID = 'local-player';
+const SPAWN_X = 40;
+const SPAWN_Y = 0;
 
 /**
  * 서버 없이 브라우저 안에서 shared/sim을 그대로 돌리는 연결.
@@ -21,7 +23,8 @@ export class LocalConnection implements GameConnection {
 
   constructor(nickname: string) {
     this.nickname = nickname;
-    this.world.addPlayer(LOCAL_SESSION_ID);
+    // 서버(GameRoom#onJoin)와 마찬가지로 코어와 겹치지 않게 띄워 놓는다.
+    this.world.addPlayer(LOCAL_SESSION_ID, SPAWN_X, SPAWN_Y);
     this.timer = setInterval(() => this.world.tick(1 / TICK_RATE), 1000 / TICK_RATE);
   }
 

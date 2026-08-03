@@ -213,25 +213,54 @@ Colyseus의 `allowReconnection` 사용. 끊긴 플레이어는 30초간 캐릭�
 ## 7. 아트 파이프라인
 
 ### 7.1 해상도 (**초반에 확정, 이후 변경 금지**)
+
 | 항목 | 값 |
 |---|---|
 | 타일 | 16 × 16 px |
 | 캐릭터 | 32 × 32 px (발밑 기준 정렬) |
-| 게임 내부 해상도 | 480 × 270 (16:9) |
-| 화면 출력 | 정수배 스케일 (2x/3x/4x), 레터박스 |
+| 기준 시야 | 480 × 270 월드 단위 (`WORLD_VIEW_*`) |
+| 캔버스 | **창 크기 = 네이티브 해상도** (`Phaser.Scale.RESIZE`) |
+| 월드 카메라 | **정수배 줌 2x~4x** (`computeCameraZoom`) |
+| HUD | 카메라 줌 1(네이티브), UI 스케일 1~2배 |
 
-> 나중에 바꾸면 전 에셋 재작업이다. **1주차에 팀 합의로 못 박는다.**
+> 에셋 기준(타일 16px / 캐릭터 32px)은 못 박는다. 나중에 바꾸면 전 에셋 재작업이다.
+
+#### 저해상도 캔버스를 통째로 확대하지 않는 이유
+
+초기안은 "480×270 캔버스를 정수배로 확대"였다. 실제로 구현해보고 뒤집었다.
+
+1. **한글은 8px에서 판독이 불가능하다.** 영문 픽셀 폰트는 5×7px로도 읽히지만, 한글은 자소가
+   2~3개 조합되는 구조라 최소 11~12px, 편하게 읽으려면 16px이 필요하다. 480×270 캔버스에서
+   16px 폰트는 **세로의 6%를 글자 한 줄이 먹는다** — HUD 몇 줄이면 화면이 잠식된다.
+   즉 "저해상도 캔버스 + 한글 UI"는 구조적으로 양립하지 않는다.
+2. **`Phaser.Scale.FIT`은 소수배 확대를 만든다.** 1195px 창에서 `1195 ÷ 480 = 2.49배`가 되어
+   어떤 픽셀은 2칸, 어떤 픽셀은 3칸이 된다. 픽셀아트가 오히려 지저분해진다.
+
+**대신 월드와 UI의 해상도를 분리한다** — 저해상도로 그려야 하는 건 스프라이트지 UI가 아니다.
+캔버스는 네이티브 해상도로 두고 **월드 카메라만 정수배로 줌**하면, 픽셀아트 룩은 그대로 두고
+UI만 선명하게 만들 수 있다. 상용 픽셀게임들이 쓰는 방식이다.
+
+**시야 공정성**: 창이 크면 월드가 더 많이 보인다. 협동 게임에서 모니터 크기가 정보량 차이가
+되지 않도록 줌 상한(4x)을 둔다. 근거와 검증: [frontend/04](frontend/04-work-report-resolution-policy.md)
 
 ### 7.2 Phaser 설정
 ```ts
 new Phaser.Game({
-  type: Phaser.WEBGL,
+  type: Phaser.AUTO,
   pixelArt: true,        // 필수: 텍스처 필터 NEAREST
   roundPixels: true,     // 필수: 서브픽셀 흔들림 방지
   antialias: false,
-  scale: { mode: Phaser.Scale.FIT, zoom: 3, width: 480, height: 270 },
+  // 캔버스가 창 크기를 그대로 따라간다. 캔버스 자체는 확대하지 않는다.
+  scale: { mode: Phaser.Scale.RESIZE, autoCenter: Phaser.Scale.NO_CENTER },
 })
+
+// 월드 씬에서만 정수배 줌
+this.cameras.main.setZoom(computeCameraZoom(this.scale.width, this.scale.height));
 ```
+
+- 캔버스가 창 크기를 따라가므로 **`resize` 이벤트에서 줌과 HUD 레이아웃을 다시 계산**해야 한다
+- **월드 안에 그리는 텍스트**(닉네임 등)는 줌 배수만큼 확대되므로 `text.setResolution(zoom)`으로
+  래스터화 해상도를 같이 올린다. 안 하면 7px로 그린 글자를 4배 늘리게 되어 한글이 뭉개진다
 
 ### 7.3 아틀라스
 - Aseprite CLI로 `assets/sprites/*.aseprite` → 단일 아틀라스 PNG + JSON(hash) 자동 생성

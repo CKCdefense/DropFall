@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { TILE_SIZE } from '@dropfall/shared';
+import { TILE_SIZE, computeCameraZoom } from '@dropfall/shared';
 import type { GameConnection } from '../../net/GameConnection';
 import { CONNECTION_KEY } from '../createGame';
 import { EntityRenderer } from '../render/EntityRenderer';
@@ -39,7 +39,13 @@ export class GameScene extends Phaser.Scene {
     this.entityRenderer = new EntityRenderer(this, this.connection.sessionId);
     this.input_ = new InputController(this, this.connection);
 
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.entityRenderer.destroy());
+    this.applyZoom();
+    this.scale.on(Phaser.Scale.Events.RESIZE, this.applyZoom, this);
+
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.scale.off(Phaser.Scale.Events.RESIZE, this.applyZoom, this);
+      this.entityRenderer.destroy();
+    });
   }
 
   update(_time: number, delta: number): void {
@@ -58,6 +64,18 @@ export class GameScene extends Phaser.Scene {
         this.isFollowing = true;
       }
     }
+  }
+
+  /**
+   * 캔버스는 창 크기 그대로 두고 카메라만 정수배로 줌한다.
+   * 월드 안의 텍스트(닉네임 등)는 줌 배수만큼 해상도를 올려야 선명하다.
+   */
+  private applyZoom(): void {
+    const zoom = computeCameraZoom(this.scale.width, this.scale.height);
+    if (this.cameras.main.zoom === zoom) return;
+
+    this.cameras.main.setZoom(zoom);
+    this.entityRenderer?.setZoom(zoom);
   }
 
   /** 좌표 감각을 잡기 위한 임시 격자. Tiled 맵으로 교체 예정. */
