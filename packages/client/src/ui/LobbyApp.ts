@@ -102,10 +102,7 @@ export class LobbyApp {
     const nickname = this.nicknameField();
 
     return el('div', { class: 'screen landing' }, [
-      el('div', { class: 'landing-top' }, [
-        this.logo(),
-        el('p', { class: 'tagline' }, ['낮에는 짓고, 밤에는 버틴다']),
-      ]),
+      el('div', { class: 'landing-top' }, [this.logo()]),
       el('div', { class: 'landing-mid' }, [nickname.wrapper]),
       el('div', { class: 'landing-bottom' }, [
         el('div', { class: 'landing-actions' }, [

@@ -221,11 +221,18 @@
 
 /* 로고 슬롯 — 에셋 전까지는 텍스트 로고를 대신 보여준다 */
 .asset-logo {
-  width: var(--logo-w);
+  /*
+   * 세로 상한을 max-height로 걸면 높이만 잘리고 폭은 그대로라 이미지가 가로로 늘어난다.
+   * 대신 "높이 상한 × 비율"을 폭의 상한에 포함시켜, 어떤 창 크기에서도 비율이 정확히 유지되게 한다.
+   */
+  width: min(var(--logo-w), calc(var(--logo-max-h) * var(--logo-ratio)));
   aspect-ratio: var(--logo-ratio);
-  /* 세로가 짧은 창에서 로고가 화면을 다 먹지 않게 상한을 둔다 */
-  max-height: 26vh;
+  /* flex 자식으로서 세로로 찌그러지지 않게 */
+  flex: none;
   --src: var(--asset-logo);
+  /* 혹시 박스 비율이 어긋나도 이미지 자체는 왜곡되지 않도록 */
+  background-size: contain;
+  background-position: center;
 }
 
 .asset-logo.placeholder {

@@ -44,8 +44,9 @@
    */
   /* 값은 런타임에 src/ui/assets.ts가 주입한다 (GitHub Pages 하위경로 대응) */
   --asset-logo: none;
-  --logo-w: min(620px, 82vw);
-  --logo-ratio: 3.4; /* 가로 / 세로 */
+  --logo-w: min(960px, 92vw);
+  --logo-ratio: 2.66; /* 가로 / 세로 — logo_title.png 원본 814x306 기준 */
+  --logo-max-h: 42vh; /* 세로가 짧은 창에서 로고가 화면을 다 먹지 않게 */
 
   /* 랜딩 배경 이미지 */
   --asset-landing-bg: none;

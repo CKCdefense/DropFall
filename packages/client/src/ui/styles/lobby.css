@@ -110,13 +110,6 @@
   font-size: clamp(15px, 1.6vw, 19px);
 }
 
-.tagline {
-  margin: 0;
-  color: var(--text-dim);
-  font-size: clamp(12px, 1.4vw, 15px);
-  text-align: center;
-}
-
 /* ---------------------------------------------------------------- 목록 / 생성 */
 
 /*
