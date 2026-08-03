@@ -102,11 +102,15 @@ export class GameRoom extends Room {
       Math.sin(angle) * SPAWN_RADIUS,
     );
     this.state.players.set(client.sessionId, player);
+
+    console.log(`[GameRoom ${this.roomId}] "${auth.nickname}"(${client.sessionId}) joined`);
   }
 
   onLeave(client: Client): void {
     this.world.removePlayer(client.sessionId);
     this.state.players.delete(client.sessionId);
+
+    console.log(`[GameRoom ${this.roomId}] ${client.sessionId} left`);
   }
 
   private update(): void {
