@@ -46,12 +46,21 @@ export class World {
       return;
     }
 
-    this.inputs.set(id, {
-      seq: input.seq,
-      moveX: clamp(input.moveX, -1, 1),
-      moveY: clamp(input.moveY, -1, 1),
-      aimAngle: input.aimAngle,
-    });
+    // 순서가 뒤바뀌었거나 중복된 입력은 버린다. 받아들이면 lastProcessedSeq가 되감기고,
+    // 클라이언트가 이미 확정한 구간을 다시 재조정하면서 캐릭터가 튄다.
+    const previous = this.inputs.get(id);
+    if (previous && input.seq <= previous.seq) return;
+
+    // 대각선 보정: clamp만 하면 (1,1)이 통과해서 대각선 속도가 √2배(약 141%)가 된다.
+    let moveX = clamp(input.moveX, -1, 1);
+    let moveY = clamp(input.moveY, -1, 1);
+    const length = Math.hypot(moveX, moveY);
+    if (length > 1) {
+      moveX /= length;
+      moveY /= length;
+    }
+
+    this.inputs.set(id, { seq: input.seq, moveX, moveY, aimAngle: input.aimAngle });
   }
 
   tick(dtSeconds: number): void {

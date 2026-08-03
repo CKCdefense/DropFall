@@ -1,6 +1,5 @@
 import { Callbacks, Client } from '@colyseus/sdk';
-import type { GameRoom } from '../rooms/GameRoom';
-import type { PlayerSchema } from '../schema/GameRoomState';
+import type { GameRoomState, PlayerSchema } from '../schema/GameRoomState';
 import type { PlayerInputMessage } from '@dropfall/shared';
 
 const SERVER_URL = process.env.SERVER_URL ?? 'http://localhost:2567';
@@ -13,14 +12,17 @@ async function main(): Promise<void> {
   const client = new Client(SERVER_URL);
 
   console.log(`[smoke-test] connecting to ${SERVER_URL} ...`);
-  const room = await client.joinOrCreate<GameRoom>('game');
+  const room = await client.joinOrCreate<GameRoomState>('game', {
+    nickname: '스모크',
+    roomName: '스모크 테스트',
+  });
   console.log(`[smoke-test] joined room "${room.roomId}" as "${room.sessionId}"`);
 
   const callbacks = Callbacks.get(room);
 
   const player = await new Promise<PlayerSchema>((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error('players 상태 동기화 타임아웃 (3s)')), 3000);
-    callbacks.onAdd('players', (p, sessionId) => {
+    callbacks.onAdd('players', (p: PlayerSchema, sessionId: string) => {
       if (sessionId !== room.sessionId) return;
       clearTimeout(timeout);
       resolve(p);

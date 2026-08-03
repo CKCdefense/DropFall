@@ -8,10 +8,13 @@
     "node": ">=20"
   },
   "scripts": {
-    "dev": "pnpm --filter @dropfall/server run dev",
+    "dev": "pnpm --parallel --filter \"@dropfall/*\" run dev",
     "build": "pnpm -r --if-present run build",
     "test": "pnpm -r --if-present run test",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "dev:server": "pnpm --filter @dropfall/server run dev",
+    "dev:client": "pnpm --filter @dropfall/client run dev",
+    "typecheck": "pnpm -r --if-present run typecheck"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

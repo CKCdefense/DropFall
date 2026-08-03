@@ -1,0 +1,270 @@
+/*
+ * 로비/타이틀 화면 스타일.
+ * 픽셀 폰트가 확정되기 전까지는 monospace + 각진 테두리로 픽셀 느낌을 낸다.
+ * 팔레트가 확정되면 아래 커스텀 프로퍼티만 교체하면 된다.
+ */
+:root {
+  --bg: #14161d;
+  --panel: #1e222c;
+  --panel-line: #39404f;
+  --text: #cfd6e4;
+  --text-dim: #79828f;
+  --accent: #6fd08c;
+  --accent-dim: #3f7a55;
+  --danger: #d9756b;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: ui-monospace, 'DejaVu Sans Mono', monospace;
+  font-size: 14px;
+  image-rendering: pixelated;
+}
+
+/* 캔버스가 창 크기를 그대로 채운다 (Phaser.Scale.RESIZE). */
+#game-root {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+#game-root canvas {
+  display: block;
+}
+
+.lobby {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100%;
+  padding: 24px 16px;
+}
+
+.panel {
+  width: 100%;
+  max-width: 420px;
+  padding: 20px;
+  background: var(--panel);
+  border: 2px solid var(--panel-line);
+  /* 픽셀 UI 느낌: 그림자도 각지게 */
+  box-shadow: 4px 4px 0 #0b0d12;
+}
+
+.logo {
+  margin: 0;
+  font-size: 32px;
+  letter-spacing: 2px;
+  color: var(--accent);
+  text-align: center;
+}
+
+.tagline {
+  margin: 4px 0 20px;
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+.screen {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+h2 {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.input {
+  padding: 8px 10px;
+  background: #12141a;
+  border: 2px solid var(--panel-line);
+  color: var(--text);
+  font: inherit;
+  outline: none;
+}
+
+.input:focus {
+  border-color: var(--accent-dim);
+}
+
+.code-input {
+  text-transform: uppercase;
+  letter-spacing: 4px;
+  text-align: center;
+  width: 90px;
+  flex: none;
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.row > .input {
+  flex: 1;
+  min-width: 0;
+}
+
+.btn {
+  padding: 8px 12px;
+  border: 2px solid var(--panel-line);
+  background: #262b37;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.btn:hover:not(:disabled) {
+  border-color: var(--accent-dim);
+  color: var(--accent);
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  flex: 1;
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--text-dim);
+}
+
+.btn-small {
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+.divider {
+  margin-top: 6px;
+  color: var(--text-dim);
+  font-size: 12px;
+  text-align: center;
+}
+
+.room-list {
+  min-height: 96px;
+  max-height: 200px;
+  overflow-y: auto;
+  border: 2px solid var(--panel-line);
+  background: #12141a;
+}
+
+.rooms {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.room {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--panel-line);
+}
+
+.room:last-child {
+  border-bottom: none;
+}
+
+.room-full {
+  opacity: 0.5;
+}
+
+.room-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.room-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.room-lock {
+  color: var(--text-dim);
+}
+
+.room-code {
+  color: var(--accent);
+  letter-spacing: 1px;
+}
+
+.room-count {
+  color: var(--text-dim);
+}
+
+.room-password {
+  margin-top: 6px;
+}
+
+.room-password .input {
+  width: 100%;
+}
+
+.loading,
+.empty {
+  margin: 0;
+  padding: 16px;
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+.hint {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.msg {
+  margin: 12px 0 0;
+  padding: 8px;
+  font-size: 12px;
+  border: 2px solid transparent;
+}
+
+.msg-error {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.msg-info {
+  color: var(--text-dim);
+  border-color: var(--panel-line);
+}
