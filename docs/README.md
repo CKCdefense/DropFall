@@ -30,6 +30,7 @@
 | [frontend/03-work-report-client-setup.md](frontend/03-work-report-client-setup.md) | 작업 보고서 — 클라이언트 초기 설정, 로비/HUD, 서버 빌드 수정 |
 | [frontend/04-work-report-resolution-policy.md](frontend/04-work-report-resolution-policy.md) | 작업 보고서 — 렌더링 해상도 정책(한글 UI 가독성, 정수배 카메라 줌) |
 | [frontend/05-work-report-patch-rate.md](frontend/05-work-report-patch-rate.md) | 작업 보고서 — patchRate 미설정으로 60Hz 상향분이 전달되지 않던 문제 |
+| [frontend/06-ui-asset-slots.md](frontend/06-ui-asset-slots.md) | **UI 에셋 슬롯 교체 가이드** — 9-slice/이미지 플레이스홀더, 무스크롤 셸 |
 
 ## 한 줄 요약
 

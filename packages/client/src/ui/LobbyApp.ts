@@ -24,8 +24,12 @@ const NICKNAME_STORAGE_KEY = 'dropfall:nickname';
  *
  * 인게임 HUD와 달리 이 화면들은 캔버스가 아니라 DOM으로 만든다.
  * 텍스트 입력·포커스·IME(한글 조합)·스크롤 목록을 캔버스에서 다시 구현하는 비용이
- * 픽셀아트 일관성으로 얻는 이득보다 훨씬 크기 때문이다. 픽셀 느낌은 CSS로 낸다.
+ * 픽셀아트 일관성으로 얻는 이득보다 훨씬 크기 때문이다.
  * (docs/02-tech-spec.md §7.5, docs/frontend/01-client-architecture.md)
+ *
+ * 시각 요소는 전부 플레이스홀더다 — 로고는 `.asset` 슬롯, 프레임/버튼/입력은
+ * 9-slice가 들어갈 자리를 미리 잡아둔 `border-image` 구조다.
+ * 교체 방법은 docs/frontend/06-ui-asset-slots.md 참고.
  */
 export class LobbyApp {
   private screen: Screen = 'title';
@@ -61,15 +65,15 @@ export class LobbyApp {
   private render(): void {
     clear(this.root);
 
-    const panel = el('div', { class: 'panel' }, [
-      el('h1', { class: 'logo' }, ['DropFall']),
-      el('p', { class: 'tagline' }, ['낮에는 짓고, 밤에는 버틴다']),
+    const panel = el('div', { class: 'frame panel' }, [
       this.renderScreen(),
       this.errorMessage ? el('p', { class: 'msg msg-error' }, [this.errorMessage]) : null,
       this.statusMessage ? el('p', { class: 'msg msg-info' }, [this.statusMessage]) : null,
     ]);
 
-    this.root.append(el('div', { class: 'lobby' }, [panel]));
+    this.root.append(
+      el('div', { class: 'lobby' }, [el('div', { class: 'frame frame-outer stage' }, [panel])]),
+    );
   }
 
   private renderScreen(): HTMLElement {
@@ -85,42 +89,42 @@ export class LobbyApp {
     }
   }
 
+  /** 와이어프레임 기준: 로고 / 닉네임 / [참가하기] [방 만들기] */
   private renderTitle(): HTMLElement {
-    const nicknameInput = this.nicknameField();
+    const nickname = this.nicknameField();
 
-    return el('div', { class: 'screen' }, [
-      nicknameInput.wrapper,
-      el('div', { class: 'row' }, [
-        this.button('게임 참여', 'primary', () => {
-          if (!this.commitNickname(nicknameInput.input)) return;
+    return el('div', { class: 'screen landing' }, [
+      this.logo(),
+      el('p', { class: 'tagline' }, ['낮에는 짓고, 밤에는 버틴다']),
+      nickname.wrapper,
+      el('div', { class: 'landing-actions' }, [
+        this.button('참가하기', 'primary', () => {
+          if (!this.commitNickname(nickname.input)) return;
           this.screen = 'browse';
           this.render();
           void this.refreshRooms();
         }),
         this.button('방 만들기', 'primary', () => {
-          if (!this.commitNickname(nicknameInput.input)) return;
+          if (!this.commitNickname(nickname.input)) return;
           this.screen = 'create';
           this.render();
         }),
       ]),
-      this.button('서버 없이 혼자 테스트 (오프라인)', 'ghost', () => {
-        if (!this.commitNickname(nicknameInput.input)) return;
-        this.startLocal();
-      }),
+      // 서버 없이 클라이언트만 확인하는 개발/시연용 진입로
+      el('div', { class: 'landing-dev' }, [
+        this.button('오프라인으로 혼자 해보기', 'link', () => {
+          if (!this.commitNickname(nickname.input)) return;
+          this.startLocal();
+        }),
+      ]),
     ]);
   }
 
   private renderBrowse(): HTMLElement {
-    const codeInput = el('input', {
-      class: 'input code-input',
-      type: 'text',
-      maxlength: ROOM_CODE_LENGTH,
-      placeholder: 'A3F9',
-      autocomplete: 'off',
-    });
-    const passwordInput = this.passwordField('비밀번호 (있는 경우)');
+    const code = this.codeField();
+    const password = this.passwordField('비밀번호');
 
-    const list = el('div', { class: 'room-list' }, [
+    const list = el('div', { class: 'room-list scroll-y' }, [
       this.isLoadingRooms
         ? el('p', { class: 'loading' }, ['불러오는 중...'])
         : this.rooms.length === 0
@@ -133,22 +137,22 @@ export class LobbyApp {
     ]);
 
     return el('div', { class: 'screen' }, [
-      el('div', { class: 'section-head' }, [
+      el('div', { class: 'screen-head' }, [
         el('h2', {}, ['방 목록']),
-        this.button('새로고침', 'ghost', () => void this.refreshRooms()),
+        this.button('새로고침', 'small', () => void this.refreshRooms()),
       ]),
       list,
-      el('div', { class: 'divider' }, ['또는 방 코드로 참여']),
+      el('div', { class: 'divider' }, ['또는 방 코드로 참가']),
       el('div', { class: 'row' }, [
-        codeInput,
-        passwordInput.input,
-        this.button('참여', 'primary', () => {
-          const code = normalizeRoomCode(codeInput.value);
-          if (!isValidRoomCode(code)) {
+        code.wrapper,
+        password.wrapper,
+        this.button('참가', 'small', () => {
+          const value = normalizeRoomCode(code.input.value);
+          if (!isValidRoomCode(value)) {
             this.fail(`방 코드는 ${ROOM_CODE_LENGTH}자리다. 다시 확인해 주세요.`);
             return;
           }
-          void this.join(code, passwordInput.input.value);
+          void this.join(value, password.input.value);
         }),
       ]),
       this.button('뒤로', 'ghost', () => this.goTitle()),
@@ -158,16 +162,16 @@ export class LobbyApp {
   private renderRoomItem(room: RoomListItem): HTMLElement {
     const isFull = room.clients >= room.maxClients;
     const isSelected = this.pendingRoomCode === room.roomCode;
-    const passwordInput = this.passwordField('비밀번호');
+    const password = this.passwordField('비밀번호');
 
-    const enter = (password: string) => {
+    const enter = () => {
       if (room.hasPassword && !isSelected) {
         // 잠긴 방은 한 번 더 눌러서 비밀번호를 받는다.
         this.pendingRoomCode = room.roomCode;
         this.render();
         return;
       }
-      void this.join(room.roomCode, password);
+      void this.join(room.roomCode, password.input.value);
     };
 
     return el('li', { class: `room ${isFull || room.locked ? 'room-full' : ''}` }, [
@@ -177,75 +181,104 @@ export class LobbyApp {
         el('span', { class: 'room-code' }, [room.roomCode]),
         el('span', { class: 'room-count' }, [`${room.clients}/${room.maxClients}`]),
         this.button(
-          isFull || room.locked ? '입장 불가' : isSelected ? '확인' : '참여',
+          isFull || room.locked ? '입장 불가' : isSelected ? '확인' : '참가',
           'small',
-          () => enter(passwordInput.input.value),
+          enter,
           isFull || room.locked,
         ),
       ]),
-      isSelected ? el('div', { class: 'room-password' }, [passwordInput.input]) : null,
+      isSelected ? el('div', { class: 'room-password' }, [password.wrapper]) : null,
     ]);
   }
 
   private renderCreate(): HTMLElement {
-    const nameInput = el('input', {
-      class: 'input',
-      type: 'text',
-      maxlength: ROOM_NAME_MAX_LENGTH,
-      placeholder: `${this.nickname}의 방`,
-      autocomplete: 'off',
-    });
-    const passwordInput = this.passwordField('비밀번호 (선택)');
+    const name = this.textField(`${this.nickname}의 방`, ROOM_NAME_MAX_LENGTH);
+    const password = this.passwordField('비우면 공개 방');
 
     return el('div', { class: 'screen' }, [
-      el('h2', {}, ['방 만들기']),
-      el('label', { class: 'field' }, [el('span', {}, ['방 이름']), nameInput]),
-      el('label', { class: 'field' }, [el('span', {}, ['비밀번호']), passwordInput.input]),
+      el('div', { class: 'screen-head' }, [el('h2', {}, ['방 만들기'])]),
+      el('label', { class: 'field-block' }, [el('span', {}, ['방 이름']), name.wrapper]),
+      el('label', { class: 'field-block' }, [el('span', {}, ['비밀번호']), password.wrapper]),
       el('p', { class: 'hint' }, ['비밀번호를 비워두면 누구나 들어올 수 있는 공개 방이 된다.']),
       el('div', { class: 'row' }, [
         this.button('만들기', 'primary', () => {
-          const roomName = sanitizeRoomName(nameInput.value || `${this.nickname}의 방`);
+          const roomName = sanitizeRoomName(name.input.value || `${this.nickname}의 방`);
           if (!roomName) {
             this.fail(`방 이름은 1~${ROOM_NAME_MAX_LENGTH}자로 입력해 주세요.`);
             return;
           }
-          void this.create(roomName, passwordInput.input.value);
+          void this.create(roomName, password.input.value);
         }),
         this.button('뒤로', 'ghost', () => this.goTitle()),
       ]),
     ]);
   }
 
-  // ------------------------------------------------------------- form helpers
+  // ------------------------------------------------------------- 조각 만들기
 
-  private nicknameField(): { wrapper: HTMLElement; input: HTMLInputElement } {
-    const input = el('input', {
-      class: 'input',
-      type: 'text',
-      maxlength: NICKNAME_MAX_LENGTH,
-      placeholder: '생존자 이름',
-      autocomplete: 'off',
+  /**
+   * 로고 슬롯. 지금은 `placeholder` 클래스가 붙어 텍스트로 대체된다.
+   * 이미지 에셋이 준비되면 tokens.css의 `--asset-logo`를 채우고 이 클래스만 빼면 된다.
+   */
+  private logo(): HTMLElement {
+    return el('div', {
+      class: 'asset asset-logo placeholder',
+      'data-placeholder': 'DropFall',
+      role: 'img',
+      'aria-label': 'DropFall',
     });
-    input.value = this.nickname;
+  }
 
-    const wrapper = el('label', { class: 'field' }, [el('span', {}, ['닉네임']), input]);
+  /** 9-slice 입력 프레임 + 실제 input. 라벨은 프레임 안쪽에 붙는다(와이어프레임 기준). */
+  private inputField(
+    label: string,
+    attrs: Record<string, string | number>,
+    extraClass = '',
+  ): { wrapper: HTMLElement; input: HTMLInputElement } {
+    const input = el('input', { autocomplete: 'off', ...attrs });
+    const wrapper = el('div', { class: `field ${extraClass}`.trim() }, [
+      label ? el('span', { class: 'field-label' }, [label]) : null,
+      input,
+    ]);
     return { wrapper, input };
   }
 
-  private passwordField(placeholder: string): { input: HTMLInputElement } {
-    const input = el('input', {
-      class: 'input',
+  private nicknameField(): { wrapper: HTMLElement; input: HTMLInputElement } {
+    const field = this.inputField('닉네임:', {
+      type: 'text',
+      maxlength: NICKNAME_MAX_LENGTH,
+      placeholder: '생존자 이름',
+    });
+    field.input.value = this.nickname;
+    return field;
+  }
+
+  private textField(
+    placeholder: string,
+    maxlength: number,
+  ): { wrapper: HTMLElement; input: HTMLInputElement } {
+    return this.inputField('', { type: 'text', maxlength, placeholder });
+  }
+
+  private passwordField(placeholder: string): { wrapper: HTMLElement; input: HTMLInputElement } {
+    return this.inputField('', {
       type: 'password',
       maxlength: ROOM_PASSWORD_MAX_LENGTH,
       placeholder,
-      autocomplete: 'off',
     });
-    return { input };
+  }
+
+  private codeField(): { wrapper: HTMLElement; input: HTMLInputElement } {
+    return this.inputField(
+      '',
+      { type: 'text', maxlength: ROOM_CODE_LENGTH, placeholder: 'A3F9' },
+      'field-code',
+    );
   }
 
   private button(
     label: string,
-    variant: 'primary' | 'ghost' | 'small',
+    variant: 'primary' | 'ghost' | 'small' | 'link',
     onClick: () => void,
     disabled = false,
   ): HTMLButtonElement {
@@ -253,6 +286,8 @@ export class LobbyApp {
     if (!disabled) button.addEventListener('click', onClick);
     return button;
   }
+
+  // ------------------------------------------------------------- 상태 전환
 
   private commitNickname(input: HTMLInputElement): boolean {
     const nickname = sanitizeNickname(input.value);
@@ -294,8 +329,7 @@ export class LobbyApp {
     } catch (err) {
       if ((err as Error).name === 'AbortError') return;
       this.rooms = [];
-      this.errorMessage =
-        '서버에 연결하지 못했다. 서버가 켜져 있는지 확인해 주세요. (pnpm dev)';
+      this.errorMessage = '서버에 연결하지 못했다. 서버가 켜져 있는지 확인해 주세요. (pnpm dev)';
     } finally {
       this.isLoadingRooms = false;
       this.render();
