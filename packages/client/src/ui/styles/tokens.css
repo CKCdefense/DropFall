@@ -36,13 +36,19 @@
   --asset-button: none;
   --asset-button-slice: 4;
   --asset-button-hover: none;
+  /* input.jpg 원본 64x64, 테두리 약 14px */
   --asset-input: none;
-  --asset-input-slice: 3;
+  --asset-input-slice: 14;
+  /* slice가 커서 --px(3)를 쓰면 테두리가 42px가 된다. 입력창은 1배로 */
+  --input-px: 1;
   /* 모달 외곽 프레임. title_modal.png 원본 64x64, 테두리 약 15px → slice 16 */
   --asset-modal: none;
   --asset-modal-slice: 16;
   /* 모달만 배율을 따로 둔다 — slice가 커서 --px(3)를 그대로 쓰면 테두리가 지나치게 두꺼워진다 */
   --modal-px: 2;
+  /* 모달은 창 크기와 무관하게 항상 이 비율/최대폭으로 뜬다 */
+  --modal-w: 760px;
+  --modal-ratio: 1.55; /* 가로 / 세로 */
 
   /* ---- 이미지 에셋 슬롯 ----
    * 로고는 화면 폭에 비례해 커진다. 에셋 원본 비율이 정해지면 --logo-ratio를 맞춘다.

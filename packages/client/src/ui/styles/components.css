@@ -141,15 +141,38 @@
   padding: 0 14px;
   background: #12141a;
   border-style: solid;
-  border-width: calc(var(--slice) * 1px * var(--px));
+  border-width: calc(var(--slice) * 1px * var(--input-px));
   border-color: var(--panel-line);
   border-image-source: var(--asset-input);
   border-image-slice: var(--slice) fill;
-  border-image-width: calc(var(--slice) * 1px * var(--px));
+  border-image-width: calc(var(--slice) * 1px * var(--input-px));
   border-image-repeat: round;
 }
 
+/*
+ * 에셋이 적용되면 안쪽 배경은 9-slice의 fill이 그린다 — 자체 배경색을 지운다.
+ * fill이 중간 밝기(어두운 청회색)라 기본 placeholder 색으로는 글자가 묻힌다.
+ * 에셋 색이 바뀌면 아래 색만 조정하면 된다.
+ */
+.field[data-asset] {
+  background: none;
+  padding: 0 4px;
+}
+
+.field[data-asset] input {
+  color: #e8eef7;
+}
+
+.field[data-asset] input::placeholder {
+  color: #a8b3c2;
+}
+
+.field[data-asset] .field-label {
+  color: #c3ccd9;
+}
+
 .field:not([data-asset]) {
+  border-width: calc(3px * var(--px));
   border-color: #12141a;
   outline: 1px solid var(--panel-line);
   outline-offset: -1px;

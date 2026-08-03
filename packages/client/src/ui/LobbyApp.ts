@@ -160,7 +160,7 @@ export class LobbyApp {
     // 검색 아이콘은 CSS로 그린 임시 도형이다. 아이콘 에셋이 생기면 .asset 슬롯으로 교체한다.
     search.wrapper.prepend(el('span', { class: 'icon-search' }));
 
-    const rows = el('div', { class: 'room-rows scroll-y' });
+    const rows = el('div', { class: 'room-rows scroll-hidden' });
     this.renderRoomRows(rows);
 
     return el('div', { class: 'room-table' }, [
@@ -316,7 +316,7 @@ export class LobbyApp {
     extraClass = '',
   ): { wrapper: HTMLElement; input: HTMLInputElement } {
     const input = el('input', { autocomplete: 'off', ...attrs });
-    const wrapper = el('div', { class: `field ${extraClass}`.trim() }, [
+    const wrapper = el('div', { class: `field ${extraClass}`.trim(), ...assetAttr('input') }, [
       label ? el('span', { class: 'field-label' }, [label]) : null,
       input,
     ]);

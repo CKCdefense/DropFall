@@ -30,6 +30,8 @@ export const IMAGE_ASSETS = {
   },
   /** 모달 외곽 9-slice 프레임 */
   modal: { cssVar: '--asset-modal', path: 'assets/ui/title_modal.png' },
+  /** 입력창 9-slice 프레임 */
+  input: { cssVar: '--asset-input', path: 'assets/ui/input.jpg' },
 } as const satisfies Record<string, ImageAsset>;
 
 /**
