@@ -1,6 +1,7 @@
 import type Phaser from 'phaser';
 import './ui/styles.css';
 import { LobbyApp } from './ui/LobbyApp';
+import { loadImageAssets } from './ui/assets';
 import { createGame } from './game/createGame';
 import type { GameConnection } from './net/GameConnection';
 import { IS_LOCAL_MODE, readAutoEntry } from './net/config';
@@ -49,6 +50,9 @@ window.addEventListener('keydown', (event) => {
 });
 
 async function bootstrap(): Promise<void> {
+  // 존재하는 UI 이미지 에셋만 CSS 변수로 등록한다. 없으면 플레이스홀더가 그대로 쓰인다.
+  await loadImageAssets();
+
   if (IS_LOCAL_MODE) {
     // ?local=1 — 로비를 건너뛰고 바로 오프라인 모드로 진입한다.
     enterGame(new LocalConnection('생존자'));

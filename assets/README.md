@@ -27,6 +27,7 @@ packages/client/public/assets/   빌드 산출물 (.png, .json)  ← 게임이 �
 | `ui/icons/` | 아이템/스킬 아이콘 | `ui` 아틀라스 |
 | `ui/dom/` | **로비용 9-slice 프레임/버튼** | **개별 PNG** (아래 참고) |
 | `ui/logo/` | 로고 등 큰 단일 이미지 | **개별 PNG** |
+| `ui/backgrounds/` | 랜딩 배경 등 전체 화면 이미지 | **개별 PNG** |
 | `maps/` | Tiled 맵 (`.tmx` 원본 / `.tmj` 익스포트) | `.tmj` 복사 |
 | `audio/bgm/`, `audio/sfx/` | 음원 | `.ogg` 변환 |
 | `fonts/` | 폰트 원본 + **라이선스 파일 필수** | 복사 |
@@ -39,7 +40,7 @@ packages/client/public/assets/   빌드 산출물 (.png, .json)  ← 게임이 �
 **CSS는 아틀라스의 일부 영역을 잘라 쓸 수 없어서 개별 PNG 파일이 필요하다.**
 반면 인게임 HUD는 캔버스(Phaser)에 그리므로 아틀라스가 유리하다.
 
-- `ui/dom/`, `ui/logo/` → 개별 PNG로 그대로 복사
+- `ui/dom/`, `ui/logo/`, `ui/backgrounds/` → 개별 PNG로 그대로 복사
 - `ui/hud/`, `ui/icons/` → 아틀라스로 묶음
 
 ## 명명 규칙
@@ -137,3 +138,15 @@ Aseprite CLI가 필요하다. 설치 경로가 다르면 환경변수로 지정�
 ```bash
 ASEPRITE="D:/Apps/Aseprite/Aseprite.exe" pnpm build:atlas
 ```
+
+## 지금 바로 쓰이는 파일명
+
+아래 이름 그대로 넣고 `pnpm build:atlas`를 실행하면 코드 수정 없이 화면에 반영된다.
+
+| 용도 | 경로 |
+|---|---|
+| 타이틀 로고 | `ui/logo/logo_title.png` |
+| 랜딩 배경 | `ui/backgrounds/bg_landing.png` |
+
+배경은 `cover`로 채워지므로 화면 비율이 다르면 가장자리가 잘린다 — 중요한 요소는 중앙에 두고,
+16:9 기준으로 그리는 것을 권한다. 자세히: [frontend/06 §4](../docs/frontend/06-ui-asset-slots.md)

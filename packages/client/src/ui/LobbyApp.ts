@@ -13,6 +13,7 @@ import { createRoom, joinRoomByCode } from '../net/ColyseusConnection';
 import { LocalConnection } from '../net/LocalConnection';
 import { fetchRooms } from '../net/lobbyApi';
 import type { GameConnection } from '../net/GameConnection';
+import { hasAsset } from './assets';
 import { clear, el } from './dom';
 
 type Screen = 'title' | 'browse' | 'create' | 'connecting';
@@ -226,12 +227,13 @@ export class LobbyApp {
   // ------------------------------------------------------------- 조각 만들기
 
   /**
-   * 로고 슬롯. 지금은 `placeholder` 클래스가 붙어 텍스트로 대체된다.
-   * 이미지 에셋이 준비되면 tokens.css의 `--asset-logo`를 채우고 이 클래스만 빼면 된다.
+   * 로고 슬롯. 에셋 파일이 있으면 이미지로, 없으면 텍스트 플레이스홀더로 그린다.
+   * 판정은 `loadImageAssets()`가 앱 시작 시 한 번 해두고, 여기서는 결과만 읽는다.
    */
   private logo(): HTMLElement {
+    const hasLogo = hasAsset('logo');
     return el('div', {
-      class: 'asset asset-logo placeholder',
+      class: `asset asset-logo${hasLogo ? '' : ' placeholder'}`,
       'data-placeholder': 'DropFall',
       role: 'img',
       'aria-label': 'DropFall',

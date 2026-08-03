@@ -9,12 +9,40 @@
  */
 
 .lobby {
+  position: relative;
   display: flex;
   flex-direction: column;
   width: 100%;
   height: 100%;
   padding: clamp(20px, 5vh, 64px) clamp(20px, 5vw, 72px);
   overflow: hidden;
+
+  /*
+   * 배경 이미지. 에셋이 없으면 --asset-landing-bg가 none이라 배경색만 남는다.
+   * cover로 채우므로 이미지 비율과 화면 비율이 다르면 가장자리가 잘린다 —
+   * 중요한 요소는 이미지 중앙 쪽에 배치할 것.
+   */
+  background-image: var(--asset-landing-bg);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+/*
+ * 배경 위에 글자가 얹히면 대비가 떨어진다. 배경 이미지가 실제로 있을 때만 어두운 막을 깐다.
+ * `has-landing-bg` 클래스는 src/ui/assets.ts가 에셋 로드에 성공했을 때 <html>에 붙인다.
+ */
+.has-landing-bg .lobby::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(10, 12, 17, 0.5);
+  pointer-events: none;
+}
+
+.lobby > * {
+  position: relative;
+  z-index: 1;
 }
 
 .screen {

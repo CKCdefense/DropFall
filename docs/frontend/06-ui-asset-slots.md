@@ -61,28 +61,43 @@ el('div', { class: 'frame panel', 'data-asset': '' }, [...])
 
 > `.btn-link`(텍스트 링크형)만 9-slice를 쓰지 않는다.
 
-## 4. 이미지 에셋 교체 (로고 등)
+## 4. 이미지 에셋 교체 (로고 / 배경 등)
 
-```css
-:root {
-  --asset-logo: url('/assets/ui/logo.png');
-  --logo-w: 300px;   /* 슬롯 크기. 에셋 비율에 맞춰 조정 */
-  --logo-h: 96px;
-}
+**파일을 정해진 경로에 넣고 `pnpm build:atlas`만 실행하면 된다. 코드 수정은 필요 없다.**
+
+| 에셋 | 원본 경로 | 파일명 |
+|---|---|---|
+| 타이틀 로고 | `assets/ui/logo/` | `logo_title.png` |
+| 랜딩 배경 | `assets/ui/backgrounds/` | `bg_landing.png` |
+
+앱 시작 시 [`loadImageAssets()`](../../packages/client/src/ui/assets.ts)가 각 에셋의 존재를
+확인해서, **있으면** CSS 변수에 넣고 **없으면** 기존 플레이스홀더를 그대로 쓴다.
+에셋이 하나씩 들어오는 단계라 이렇게 해두면 중간 상태에서도 화면이 깨지지 않는다.
+
+```
+파일 있음 → --asset-logo에 url 주입, .placeholder 클래스 제거
+파일 없음 → 점선 상자 + 'DropFall' 텍스트 (지금까지의 모습)
 ```
 
-그리고 마크업에서 `placeholder` 클래스만 제거한다 ([LobbyApp.ts](../../packages/client/src/ui/LobbyApp.ts)의 `logo()`):
+> **경로를 CSS에 직접 쓰지 않는 이유**: `public/` 파일은 Vite가 경로를 재작성해주지 않는다.
+> CSS에 `url('/assets/...')`처럼 절대경로를 쓰면 GitHub Pages 하위경로(`/DropFall/`)에서 깨진다.
+> `import.meta.env.BASE_URL`을 붙여 런타임에 주입하면 Pages와 홈서버 양쪽에서 같은 빌드가 동작한다.
 
-```ts
-// 전
-el('div', { class: 'asset asset-logo placeholder', 'data-placeholder': 'DropFall' })
-// 후
-el('div', { class: 'asset asset-logo', role: 'img', 'aria-label': 'DropFall' })
-```
+### 배경 이미지 주의점
 
-슬롯 크기가 그대로라 **레이아웃은 밀리지 않는다.**
+`background-size: cover`라 **이미지 비율과 화면 비율이 다르면 가장자리가 잘린다.**
+중요한 요소는 중앙 쪽에 배치할 것. 16:9로 그리면 대부분의 화면에서 잘림이 최소가 된다.
 
-새 이미지 슬롯을 추가할 때는 같은 패턴을 따른다 — `.asset` + 크기 지정 + `--src` 오버라이드.
+배경이 있을 때만 `<html>`에 `has-landing-bg` 클래스가 붙고, 글자 가독성을 위한 어두운 막
+(`rgba(10,12,17,0.5)`)이 깔린다. 배경이 밝거나 대비가 부족하면 이 값을 조정한다
+([lobby.css](../../packages/client/src/ui/styles/lobby.css)).
+
+### 새 이미지 슬롯을 추가하려면
+
+1. `assets.ts`의 `IMAGE_ASSETS`에 `{ cssVar, path }` 추가
+2. `tokens.css`에 해당 변수를 `none`으로 선언
+3. 쓰는 쪽 CSS에서 `var(--asset-xxx)` 참조
+4. 원본 디렉터리가 새로 필요하면 `assets/atlas.config.json`의 `copy`에 등록
 
 ## 5. 팔레트 / 폰트
 
