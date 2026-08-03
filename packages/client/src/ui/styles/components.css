@@ -36,15 +36,11 @@
     calc(var(--px) * 1px) calc(var(--px) * 1px) 0 var(--shadow);
 }
 
-.frame-outer,
-.frame-outer:not([data-asset]) {
-  background: transparent;
-  border-width: 1px;
-  border-color: var(--panel-line);
-  border-image-source: none;
-  outline: none;
-  box-shadow: none;
-}
+/*
+ * `.frame`은 현재 로비에서 쓰지 않는다 — 랜딩/목록 화면은 컨테이너 패널 없이
+ * 화면 전체를 쓰기 때문이다. 앞으로 만들 인벤토리·상점·정산 창의 기본 프레임이라
+ * 9-slice 구조를 미리 갖춰 남겨둔다.
+ */
 
 /* ---------------------------------------------------------------- 버튼 */
 
@@ -226,8 +222,9 @@
 /* 로고 슬롯 — 에셋 전까지는 텍스트 로고를 대신 보여준다 */
 .asset-logo {
   width: var(--logo-w);
-  height: var(--logo-h);
-  max-width: 100%;
+  aspect-ratio: var(--logo-ratio);
+  /* 세로가 짧은 창에서 로고가 화면을 다 먹지 않게 상한을 둔다 */
+  max-height: 26vh;
   --src: var(--asset-logo);
 }
 
@@ -235,9 +232,10 @@
   border-color: var(--panel-line);
   color: var(--accent);
   font-family: var(--font-display);
-  font-size: clamp(34px, 7vw, 52px);
+  font-size: clamp(40px, 11vw, 104px);
   font-weight: 700;
   letter-spacing: 2px;
+  line-height: 1;
 }
 
 /* ---------------------------------------------------------------- 메시지 */

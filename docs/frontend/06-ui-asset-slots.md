@@ -115,6 +115,7 @@ el('div', { class: 'asset asset-logo', role: 'img', 'aria-label': 'DropFall' })
 
 | 뷰포트 | overflowX | overflowY |
 |---|---|---|
+| 2560×1440 | 0 | 0 |
 | 1920×1080 | 0 | 0 |
 | 1280×720 | 0 | 0 |
 | 1024×600 | 0 | 0 |
@@ -126,6 +127,9 @@ el('div', { class: 'asset asset-logo', role: 'img', 'aria-label': 'DropFall' })
 
 ## 7. 현재 화면 구성
 
+**컨테이너 패널을 두지 않는다 — 화면 전체가 곧 레이아웃이다.**
+(와이어프레임의 바깥 사각형은 화면 경계를 나타낸 구분선이지 UI 요소가 아니다)
+
 | 화면 | 구성 |
 |---|---|
 | 랜딩 | 로고 슬롯 / 태그라인 / 닉네임 입력 / [참가하기] [방 만들기] / 오프라인 진입(개발용) |
@@ -133,5 +137,17 @@ el('div', { class: 'asset asset-logo', role: 'img', 'aria-label': 'DropFall' })
 | 방 만들기 | 방 이름 / 비밀번호 / 만들기 / 뒤로 |
 | 접속 중 | 로딩 문구 |
 
-바깥 얇은 테두리(`.frame-outer.stage`)와 안쪽 굵은 프레임(`.frame.panel`)의 2중 구조는
-와이어프레임을 그대로 따른 것이다.
+### 랜딩 레이아웃 규칙
+
+`.landing`은 위(`landing-top`) / 가운데(`landing-mid`) / 아래(`landing-bottom`) 세 구역을
+`justify-content: space-between`으로 화면 높이에 분배한다. 창 크기가 달라져도 각 요소의
+**상대 위치**가 유지된다.
+
+- 로고: `--logo-w: min(620px, 82vw)` + `aspect-ratio` — 화면 폭에 비례해 커진다.
+  세로가 짧은 창을 위해 `max-height: 26vh` 상한이 걸려 있다
+- 버튼: 좌우 끝(패딩 선)까지 벌어진다. `max-width: 1400px`는 초광폭 모니터에서만 걸린다
+- `.landing { max-height: 820px; margin: auto 0; }` — 큰 화면에서 요소끼리 지나치게
+  벌어지지 않도록 세로 상한을 두고 가운데 정렬한다
+
+목록·생성 화면은 폼이 가로로 늘어지면 읽기 어려워서 `.screen-form`으로 최대 폭(560px)만
+제한하고 가운데 정렬한다. 이때도 감싸는 패널은 없다.

@@ -62,18 +62,20 @@ export class LobbyApp {
 
   // ---------------------------------------------------------------- rendering
 
+  /**
+   * 화면 전체가 곧 레이아웃이다 — 컨테이너 패널을 두지 않는다.
+   * (와이어프레임의 바깥 사각형은 화면 경계를 나타낸 구분선이지 UI 요소가 아니다)
+   */
   private render(): void {
     clear(this.root);
 
-    const panel = el('div', { class: 'frame panel' }, [
-      this.renderScreen(),
-      this.errorMessage ? el('p', { class: 'msg msg-error' }, [this.errorMessage]) : null,
-      this.statusMessage ? el('p', { class: 'msg msg-info' }, [this.statusMessage]) : null,
-    ]);
+    const message = this.errorMessage
+      ? el('p', { class: 'msg msg-error lobby-message' }, [this.errorMessage])
+      : this.statusMessage
+        ? el('p', { class: 'msg msg-info lobby-message' }, [this.statusMessage])
+        : null;
 
-    this.root.append(
-      el('div', { class: 'lobby' }, [el('div', { class: 'frame frame-outer stage' }, [panel])]),
-    );
+    this.root.append(el('div', { class: 'lobby' }, [this.renderScreen(), message]));
   }
 
   private renderScreen(): HTMLElement {
@@ -85,33 +87,40 @@ export class LobbyApp {
       case 'create':
         return this.renderCreate();
       case 'connecting':
-        return el('div', { class: 'screen' }, [el('p', { class: 'loading' }, ['접속 중...'])]);
+        return el('div', { class: 'screen screen-form' }, [
+          el('p', { class: 'loading' }, ['접속 중...']),
+        ]);
     }
   }
 
-  /** 와이어프레임 기준: 로고 / 닉네임 / [참가하기] [방 만들기] */
+  /**
+   * 와이어프레임 기준: 화면 위에 로고, 가운데 닉네임, 아래 좌우로 벌어진 두 버튼.
+   * 세 구역을 화면 높이에 분배해서 창 크기가 달라져도 상대 위치가 유지된다.
+   */
   private renderTitle(): HTMLElement {
     const nickname = this.nicknameField();
 
     return el('div', { class: 'screen landing' }, [
-      this.logo(),
-      el('p', { class: 'tagline' }, ['낮에는 짓고, 밤에는 버틴다']),
-      nickname.wrapper,
-      el('div', { class: 'landing-actions' }, [
-        this.button('참가하기', 'primary', () => {
-          if (!this.commitNickname(nickname.input)) return;
-          this.screen = 'browse';
-          this.render();
-          void this.refreshRooms();
-        }),
-        this.button('방 만들기', 'primary', () => {
-          if (!this.commitNickname(nickname.input)) return;
-          this.screen = 'create';
-          this.render();
-        }),
+      el('div', { class: 'landing-top' }, [
+        this.logo(),
+        el('p', { class: 'tagline' }, ['낮에는 짓고, 밤에는 버틴다']),
       ]),
-      // 서버 없이 클라이언트만 확인하는 개발/시연용 진입로
-      el('div', { class: 'landing-dev' }, [
+      el('div', { class: 'landing-mid' }, [nickname.wrapper]),
+      el('div', { class: 'landing-bottom' }, [
+        el('div', { class: 'landing-actions' }, [
+          this.button('참가하기', 'primary', () => {
+            if (!this.commitNickname(nickname.input)) return;
+            this.screen = 'browse';
+            this.render();
+            void this.refreshRooms();
+          }),
+          this.button('방 만들기', 'primary', () => {
+            if (!this.commitNickname(nickname.input)) return;
+            this.screen = 'create';
+            this.render();
+          }),
+        ]),
+        // 서버 없이 클라이언트만 확인하는 개발/시연용 진입로
         this.button('오프라인으로 혼자 해보기', 'link', () => {
           if (!this.commitNickname(nickname.input)) return;
           this.startLocal();
@@ -136,7 +145,7 @@ export class LobbyApp {
             ),
     ]);
 
-    return el('div', { class: 'screen' }, [
+    return el('div', { class: 'screen screen-form' }, [
       el('div', { class: 'screen-head' }, [
         el('h2', {}, ['방 목록']),
         this.button('새로고침', 'small', () => void this.refreshRooms()),
@@ -195,7 +204,7 @@ export class LobbyApp {
     const name = this.textField(`${this.nickname}의 방`, ROOM_NAME_MAX_LENGTH);
     const password = this.passwordField('비우면 공개 방');
 
-    return el('div', { class: 'screen' }, [
+    return el('div', { class: 'screen screen-form' }, [
       el('div', { class: 'screen-head' }, [el('h2', {}, ['방 만들기'])]),
       el('label', { class: 'field-block' }, [el('span', {}, ['방 이름']), name.wrapper]),
       el('label', { class: 'field-block' }, [el('span', {}, ['비밀번호']), password.wrapper]),

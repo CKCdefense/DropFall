@@ -39,10 +39,12 @@
   --asset-input: none;
   --asset-input-slice: 3;
 
-  /* ---- 이미지 에셋 슬롯 ---- */
+  /* ---- 이미지 에셋 슬롯 ----
+   * 로고는 화면 폭에 비례해 커진다. 에셋 원본 비율이 정해지면 --logo-ratio를 맞춘다.
+   */
   --asset-logo: none;
-  --logo-w: 300px;
-  --logo-h: 96px;
+  --logo-w: min(620px, 82vw);
+  --logo-ratio: 3.4; /* 가로 / 세로 */
 
   /* ---- 간격 ---- */
   --gap-sm: 8px;
