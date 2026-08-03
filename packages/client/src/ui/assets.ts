@@ -31,8 +31,21 @@ export const IMAGE_ASSETS = {
   /** 모달 외곽 9-slice 프레임 */
   modal: { cssVar: '--asset-modal', path: 'assets/ui/title_modal.png' },
   /** 입력창 9-slice 프레임 */
-  input: { cssVar: '--asset-input', path: 'assets/ui/input.jpg' },
+  input: { cssVar: '--asset-input', path: 'assets/ui/input.png' },
+  inputHover: { cssVar: '--asset-input-hover', path: 'assets/ui/input_hover.png' },
+  /** 버튼 9-slice 프레임 */
+  button: { cssVar: '--asset-button', path: 'assets/ui/title_button.png' },
+  buttonHover: { cssVar: '--asset-button-hover', path: 'assets/ui/title_button_hover.png' },
 } as const satisfies Record<string, ImageAsset>;
+
+/**
+ * 기본 상태 에셋만 있고 hover 변형이 없으면, hover에도 기본 에셋을 쓴다.
+ * 이걸 안 하면 hover 시 border-image-source가 none이 되어 테두리가 사라진다.
+ */
+const HOVER_FALLBACKS: [hover: ImageAssetKey, base: ImageAssetKey][] = [
+  ['inputHover', 'input'],
+  ['buttonHover', 'button'],
+];
 
 /**
  * 9-slice 에셋이 적용된 요소에 붙일 속성.
@@ -75,6 +88,13 @@ export async function loadImageAssets(): Promise<void> {
       available.add(key);
     }),
   );
+
+  for (const [hover, base] of HOVER_FALLBACKS) {
+    if (available.has(hover) || !available.has(base)) continue;
+    const url = resolveAssetUrl(IMAGE_ASSETS[base].path);
+    document.documentElement.style.setProperty(IMAGE_ASSETS[hover].cssVar, `url('${url}')`);
+    available.add(hover);
+  }
 }
 
 export function hasAsset(key: ImageAssetKey): boolean {

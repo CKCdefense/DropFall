@@ -362,7 +362,18 @@ export class LobbyApp {
     onClick: () => void,
     disabled = false,
   ): HTMLButtonElement {
-    const button = el('button', { class: `btn btn-${variant}`, type: 'button', disabled }, [label]);
+    // small/ghost/link는 테두리 15px이 들어갈 높이가 안 나온다 — 9-slice를 쓰지 않는다.
+    const usesAsset = variant === 'primary' || variant === 'square';
+    const button = el(
+      'button',
+      {
+        class: `btn btn-${variant}`,
+        type: 'button',
+        disabled,
+        ...(usesAsset ? assetAttr('button') : {}),
+      },
+      [label],
+    );
     if (!disabled) button.addEventListener('click', onClick);
     return button;
   }

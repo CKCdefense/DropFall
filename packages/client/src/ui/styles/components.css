@@ -58,16 +58,33 @@
   white-space: nowrap;
   cursor: pointer;
   border-style: solid;
-  border-width: calc(var(--slice) * 1px * var(--px));
+  border-width: calc(var(--slice) * 1px * var(--button-px));
   border-color: var(--panel-line);
   border-image-source: var(--asset-button);
   border-image-slice: var(--slice) fill;
-  border-image-width: calc(var(--slice) * 1px * var(--px));
+  border-image-width: calc(var(--slice) * 1px * var(--button-px));
   border-image-repeat: round;
+}
+
+/*
+ * 에셋이 적용됐을 때: 테두리가 두꺼워지므로 안쪽 여백을 확보한다.
+ * 배경도 9-slice의 fill이 그리므로 자체 배경색을 지운다.
+ */
+.btn[data-asset] {
+  min-height: 54px;
+  padding: 0 20px;
+  background: none;
+  /* fill이 밝은 회색이라 기본 글자색(밝음)으로는 대비가 안 난다 */
+  color: #1b1f27;
+}
+
+.btn[data-asset]:hover:not(:disabled) {
+  color: #0f1a12;
 }
 
 /* 프레임과 동일한 플레이스홀더 표현 (위 .frame 주석 참고) */
 .btn:not([data-asset]) {
+  border-width: calc(4px * var(--px));
   border-color: #262b37;
   outline: 1px solid var(--panel-line);
   outline-offset: -1px;
@@ -157,6 +174,11 @@
 .field[data-asset] {
   background: none;
   padding: 0 4px;
+}
+
+.field[data-asset]:hover,
+.field[data-asset]:focus-within {
+  border-image-source: var(--asset-input-hover);
 }
 
 .field[data-asset] input {
