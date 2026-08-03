@@ -38,6 +38,11 @@
   --asset-button-hover: none;
   --asset-input: none;
   --asset-input-slice: 3;
+  /* 모달 외곽 프레임. title_modal.png 원본 64x64, 테두리 약 15px → slice 16 */
+  --asset-modal: none;
+  --asset-modal-slice: 16;
+  /* 모달만 배율을 따로 둔다 — slice가 커서 --px(3)를 그대로 쓰면 테두리가 지나치게 두꺼워진다 */
+  --modal-px: 2;
 
   /* ---- 이미지 에셋 슬롯 ----
    * 로고는 화면 폭에 비례해 커진다. 에셋 원본 비율이 정해지면 --logo-ratio를 맞춘다.

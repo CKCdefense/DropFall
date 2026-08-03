@@ -1,4 +1,5 @@
 import {
+  MAX_CLIENTS_PER_ROOM,
   NICKNAME_MAX_LENGTH,
   ROOM_CODE_LENGTH,
   ROOM_NAME_MAX_LENGTH,
@@ -13,7 +14,7 @@ import { createRoom, joinRoomByCode } from '../net/ColyseusConnection';
 import { LocalConnection } from '../net/LocalConnection';
 import { fetchRooms } from '../net/lobbyApi';
 import type { GameConnection } from '../net/GameConnection';
-import { hasAsset } from './assets';
+import { assetAttr, hasAsset } from './assets';
 import { clear, el } from './dom';
 
 type Screen = 'title' | 'browse' | 'create' | 'connecting';
@@ -42,6 +43,9 @@ export class LobbyApp {
   /** 잠긴 방 선택 시 인라인으로 비밀번호를 받기 위한 상태 */
   private pendingRoomCode: string | null = null;
   private listAbort: AbortController | null = null;
+  /** 방 목록 모달 안에서 목록 / 코드 찾기 전환 */
+  private browseMode: 'list' | 'code' = 'list';
+  private searchQuery = '';
 
   constructor(
     private readonly root: HTMLElement,
@@ -58,14 +62,15 @@ export class LobbyApp {
     this.errorMessage = message;
     this.statusMessage = '';
     this.pendingRoomCode = null;
+    this.browseMode = 'list';
     this.render();
   }
 
   // ---------------------------------------------------------------- rendering
 
   /**
+   * 타이틀 화면은 항상 깔려 있고, 방 목록·방 만들기는 그 위에 모달로 뜬다.
    * 화면 전체가 곧 레이아웃이다 — 컨테이너 패널을 두지 않는다.
-   * (와이어프레임의 바깥 사각형은 화면 경계를 나타낸 구분선이지 UI 요소가 아니다)
    */
   private render(): void {
     clear(this.root);
@@ -76,22 +81,33 @@ export class LobbyApp {
         ? el('p', { class: 'msg msg-info lobby-message' }, [this.statusMessage])
         : null;
 
-    this.root.append(el('div', { class: 'lobby' }, [this.renderScreen(), message]));
+    this.root.append(
+      el('div', { class: 'lobby' }, [this.renderTitle(), message, this.renderModal()]),
+    );
   }
 
-  private renderScreen(): HTMLElement {
-    switch (this.screen) {
-      case 'title':
-        return this.renderTitle();
-      case 'browse':
-        return this.renderBrowse();
-      case 'create':
-        return this.renderCreate();
-      case 'connecting':
-        return el('div', { class: 'screen screen-form' }, [
-          el('p', { class: 'loading' }, ['접속 중...']),
-        ]);
-    }
+  /** 모달이 필요 없는 화면(title)에서는 null */
+  private renderModal(): HTMLElement | null {
+    const body =
+      this.screen === 'browse'
+        ? this.renderBrowse()
+        : this.screen === 'create'
+          ? this.renderCreate()
+          : this.screen === 'connecting'
+            ? el('p', { class: 'modal-loading' }, ['접속 중...'])
+            : null;
+
+    if (!body) return null;
+
+    const modal = el('div', { class: 'modal', ...assetAttr('modal') }, [body]);
+    const backdrop = el('div', { class: 'modal-backdrop' }, [modal]);
+
+    // 바깥을 누르면 닫힌다. 접속 중에는 닫지 않는다.
+    backdrop.addEventListener('click', (event) => {
+      if (event.target === backdrop && this.screen !== 'connecting') this.goTitle();
+    });
+
+    return backdrop;
   }
 
   /**
@@ -127,53 +143,86 @@ export class LobbyApp {
     ]);
   }
 
+  /** 와이어프레임: 검색 / 헤더 행 / 방 목록 / [방 만들기] [코드 찾기] */
   private renderBrowse(): HTMLElement {
-    const code = this.codeField();
-    const password = this.passwordField('비밀번호');
+    if (this.browseMode === 'code') return this.renderCodeForm();
 
-    const list = el('div', { class: 'room-list scroll-y' }, [
-      this.isLoadingRooms
-        ? el('p', { class: 'loading' }, ['불러오는 중...'])
-        : this.rooms.length === 0
-          ? el('p', { class: 'empty' }, ['열린 방이 없다. 직접 만들어 보자.'])
-          : el(
-              'ul',
-              { class: 'rooms' },
-              this.rooms.map((room) => this.renderRoomItem(room)),
-            ),
-    ]);
+    const search = this.inputField('', {
+      type: 'text',
+      placeholder: '방 이름 검색',
+      maxlength: ROOM_NAME_MAX_LENGTH,
+    });
+    search.input.value = this.searchQuery;
+    search.input.addEventListener('input', () => {
+      this.searchQuery = search.input.value;
+      this.renderRoomRows(rows);
+    });
+    // 검색 아이콘은 CSS로 그린 임시 도형이다. 아이콘 에셋이 생기면 .asset 슬롯으로 교체한다.
+    search.wrapper.prepend(el('span', { class: 'icon-search' }));
 
-    return el('div', { class: 'screen screen-form' }, [
-      el('div', { class: 'screen-head' }, [
-        el('h2', {}, ['방 목록']),
-        this.button('새로고침', 'small', () => void this.refreshRooms()),
+    const rows = el('div', { class: 'room-rows scroll-y' });
+    this.renderRoomRows(rows);
+
+    return el('div', { class: 'room-table' }, [
+      el('div', { class: 'modal-head' }, [
+        search.wrapper,
+        this.button('↻', 'square', () => void this.refreshRooms()),
       ]),
-      list,
-      el('div', { class: 'divider' }, ['또는 방 코드로 참가']),
-      el('div', { class: 'row' }, [
-        code.wrapper,
-        password.wrapper,
-        this.button('참가', 'small', () => {
-          const value = normalizeRoomCode(code.input.value);
-          if (!isValidRoomCode(value)) {
-            this.fail(`방 코드는 ${ROOM_CODE_LENGTH}자리다. 다시 확인해 주세요.`);
-            return;
-          }
-          void this.join(value, password.input.value);
+      el('div', { class: 'room-row room-row-head' }, [
+        el('span', {}, ['방코드']),
+        el('span', { class: 'room-name' }, ['방 이름']),
+        el('span', { class: 'room-count' }, [`인원/${MAX_CLIENTS_PER_ROOM}`]),
+        el('span', {}, ['참가']),
+      ]),
+      rows,
+      el('div', { class: 'modal-actions' }, [
+        this.button('방 만들기', 'primary', () => {
+          this.screen = 'create';
+          this.render();
+        }),
+        this.button('코드 찾기', 'primary', () => {
+          this.browseMode = 'code';
+          this.render();
         }),
       ]),
-      this.button('뒤로', 'ghost', () => this.goTitle()),
     ]);
   }
 
-  private renderRoomItem(room: RoomListItem): HTMLElement {
+  /** 목록만 다시 그린다 — 검색어를 칠 때마다 전체를 다시 그리면 포커스가 날아간다. */
+  private renderRoomRows(container: HTMLElement): void {
+    clear(container);
+
+    if (this.isLoadingRooms) {
+      container.append(el('p', { class: 'modal-loading' }, ['불러오는 중...']));
+      return;
+    }
+
+    const query = this.searchQuery.trim().toLowerCase();
+    const rooms = query
+      ? this.rooms.filter((room) => room.roomName.toLowerCase().includes(query))
+      : this.rooms;
+
+    if (rooms.length === 0) {
+      container.append(
+        el('p', { class: 'modal-empty' }, [
+          query ? '검색 결과가 없다.' : '열린 방이 없다. 직접 만들어 보자.',
+        ]),
+      );
+      return;
+    }
+
+    for (const room of rooms) container.append(this.renderRoomRow(room));
+  }
+
+  private renderRoomRow(room: RoomListItem): HTMLElement {
     const isFull = room.clients >= room.maxClients;
+    const blocked = isFull || room.locked;
     const isSelected = this.pendingRoomCode === room.roomCode;
     const password = this.passwordField('비밀번호');
 
     const enter = () => {
+      // 잠긴 방은 한 번 더 눌러서 비밀번호를 받는다.
       if (room.hasPassword && !isSelected) {
-        // 잠긴 방은 한 번 더 눌러서 비밀번호를 받는다.
         this.pendingRoomCode = room.roomCode;
         this.render();
         return;
@@ -181,20 +230,43 @@ export class LobbyApp {
       void this.join(room.roomCode, password.input.value);
     };
 
-    return el('li', { class: `room ${isFull || room.locked ? 'room-full' : ''}` }, [
-      el('div', { class: 'room-main' }, [
-        el('span', { class: 'room-lock' }, [room.hasPassword ? '[잠김]' : '']),
-        el('span', { class: 'room-name' }, [room.roomName]),
-        el('span', { class: 'room-code' }, [room.roomCode]),
-        el('span', { class: 'room-count' }, [`${room.clients}/${room.maxClients}`]),
-        this.button(
-          isFull || room.locked ? '입장 불가' : isSelected ? '확인' : '참가',
-          'small',
-          enter,
-          isFull || room.locked,
-        ),
+    const row = el('div', { class: `room-row ${blocked ? 'room-full' : ''}`.trim() }, [
+      el('span', { class: 'room-code' }, [room.roomCode]),
+      el('span', { class: 'room-name' }, [
+        room.roomName,
+        room.hasPassword ? el('span', { class: 'room-locked' }, [' 🔒']) : null,
       ]),
-      isSelected ? el('div', { class: 'room-password' }, [password.wrapper]) : null,
+      el('span', { class: 'room-count' }, [`${room.clients}/${room.maxClients}`]),
+      this.button(blocked ? '불가' : isSelected ? '확인' : '참가', 'small', enter, blocked),
+    ]);
+
+    if (!isSelected) return row;
+
+    return el('div', {}, [row, el('div', { class: 'room-password-row' }, [password.wrapper])]);
+  }
+
+  /** 코드 찾기 — 방 코드로 직접 참가 */
+  private renderCodeForm(): HTMLElement {
+    const code = this.codeField();
+    const password = this.passwordField('비밀번호 (있는 경우)');
+
+    return el('div', { class: 'code-form' }, [
+      el('label', { class: 'field-block' }, [el('span', {}, ['방 코드']), code.wrapper]),
+      el('label', { class: 'field-block' }, [el('span', {}, ['비밀번호']), password.wrapper]),
+      el('div', { class: 'modal-actions' }, [
+        this.button('참가', 'primary', () => {
+          const value = normalizeRoomCode(code.input.value);
+          if (!isValidRoomCode(value)) {
+            this.fail(`방 코드는 ${ROOM_CODE_LENGTH}자리다. 다시 확인해 주세요.`);
+            return;
+          }
+          void this.join(value, password.input.value);
+        }),
+        this.button('뒤로', 'primary', () => {
+          this.browseMode = 'list';
+          this.render();
+        }),
+      ]),
     ]);
   }
 
@@ -202,12 +274,12 @@ export class LobbyApp {
     const name = this.textField(`${this.nickname}의 방`, ROOM_NAME_MAX_LENGTH);
     const password = this.passwordField('비우면 공개 방');
 
-    return el('div', { class: 'screen screen-form' }, [
+    return el('div', { class: 'code-form' }, [
       el('div', { class: 'screen-head' }, [el('h2', {}, ['방 만들기'])]),
       el('label', { class: 'field-block' }, [el('span', {}, ['방 이름']), name.wrapper]),
       el('label', { class: 'field-block' }, [el('span', {}, ['비밀번호']), password.wrapper]),
       el('p', { class: 'hint' }, ['비밀번호를 비워두면 누구나 들어올 수 있는 공개 방이 된다.']),
-      el('div', { class: 'row' }, [
+      el('div', { class: 'modal-actions' }, [
         this.button('만들기', 'primary', () => {
           const roomName = sanitizeRoomName(name.input.value || `${this.nickname}의 방`);
           if (!roomName) {
@@ -216,7 +288,7 @@ export class LobbyApp {
           }
           void this.create(roomName, password.input.value);
         }),
-        this.button('뒤로', 'ghost', () => this.goTitle()),
+        this.button('뒤로', 'primary', () => this.goTitle()),
       ]),
     ]);
   }
@@ -286,7 +358,7 @@ export class LobbyApp {
 
   private button(
     label: string,
-    variant: 'primary' | 'ghost' | 'small' | 'link',
+    variant: 'primary' | 'ghost' | 'small' | 'link' | 'square',
     onClick: () => void,
     disabled = false,
   ): HTMLButtonElement {
@@ -313,6 +385,7 @@ export class LobbyApp {
     this.screen = 'title';
     this.errorMessage = '';
     this.pendingRoomCode = null;
+    this.browseMode = 'list';
     this.render();
   }
 

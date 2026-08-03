@@ -28,7 +28,17 @@ export const IMAGE_ASSETS = {
     path: 'assets/ui/bg_landing.png',
     htmlClass: 'has-landing-bg',
   },
+  /** 모달 외곽 9-slice 프레임 */
+  modal: { cssVar: '--asset-modal', path: 'assets/ui/title_modal.png' },
 } as const satisfies Record<string, ImageAsset>;
+
+/**
+ * 9-slice 에셋이 적용된 요소에 붙일 속성.
+ * `data-asset`이 있으면 플레이스홀더용 외곽선 규칙(`:not([data-asset])`)이 꺼진다.
+ */
+export function assetAttr(key: ImageAssetKey): Record<string, string> {
+  return hasAsset(key) ? { 'data-asset': '' } : {};
+}
 
 export type ImageAssetKey = keyof typeof IMAGE_ASSETS;
 
