@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { INPUT_SEND_RATE, type PlayerInputMessage } from '@dropfall/shared';
+import { INPUT_SEND_RATE, normalizeMoveVector, type PlayerInputMessage } from '@dropfall/shared';
 import type { GameConnection } from '../../net/GameConnection';
 
 const SEND_INTERVAL_MS = 1000 / INPUT_SEND_RATE;
@@ -7,9 +7,9 @@ const SEND_INTERVAL_MS = 1000 / INPUT_SEND_RATE;
 /**
  * WASD 이동 + 마우스 조준을 서버 입력 메시지로 바꿔 보낸다.
  *
- * 전송 주기를 서버 틱(20Hz)에 맞춘 이유:
- * 서버는 "마지막 입력을 새 입력이 올 때까지 매 틱 반복 적용"하는 모델이라,
- * 60fps로 보내면 중간 입력이 덮어써져 그냥 버려진다. 대역폭만 쓰고 이득이 없다.
+ * 전송 주기를 서버 틱(`INPUT_SEND_RATE = TICK_RATE`)에 맞춘 이유:
+ * 서버는 "마지막 입력을 새 입력이 올 때까지 매 틱 반복 적용"하는 모델이라, 렌더 프레임보다
+ * 빠르게 보내봐야 중간 입력이 덮어써져 그냥 버려진다. 대역폭만 쓰고 이득이 없다.
  * (docs/frontend/02-lobby-room-protocol.md)
  */
 export class InputController {
@@ -68,14 +68,8 @@ export class InputController {
     if (this.keys.up.isDown) moveY -= 1;
     if (this.keys.down.isDown) moveY += 1;
 
-    // 대각선 정규화. 서버도 동일하게 처리하지만(World#setInput),
-    // 클라이언트 예측을 붙였을 때 같은 값을 써야 하므로 여기서도 맞춘다.
-    const length = Math.hypot(moveX, moveY);
-    if (length > 1) {
-      moveX /= length;
-      moveY /= length;
-    }
-
-    return { seq: this.seq, moveX, moveY, aimAngle: this.aimAngle };
+    // 서버(World#setInput)와 동일한 정규화 함수를 써서 대각선 속도가 어긋나지 않게 한다.
+    const normalized = normalizeMoveVector(moveX, moveY);
+    return { seq: this.seq, ...normalized, aimAngle: this.aimAngle };
   }
 }

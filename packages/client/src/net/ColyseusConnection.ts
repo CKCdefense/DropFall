@@ -7,6 +7,7 @@ import type {
 import { RoomErrorCode, normalizeRoomCode } from '@dropfall/shared';
 import { SERVER_HTTP_URL } from './config';
 import type { GameConnection, RoomInfo, WorldSnapshot } from './GameConnection';
+import { SnapshotInterpolator } from './SnapshotInterpolator';
 
 /** 서버 Schema를 클라이언트 관점에서 본 모양. 서버의 GameRoomState와 1:1로 맞춘다. */
 interface RemotePlayerState {
@@ -85,13 +86,18 @@ export async function joinRoomByCode(
 export class ColyseusConnection implements GameConnection {
   readonly isLocal = false;
 
-  /** 매 프레임 새 배열을 만들지 않도록 버퍼를 재사용한다. */
-  private readonly snapshot: WorldSnapshot = { players: [] };
+  /** 서버는 TICK_RATE로만 상태를 보내는데 화면은 60fps로 그리므로, 보간해서 부드럽게 재생한다. */
+  private readonly interpolator = new SnapshotInterpolator();
   private latestPing = 0;
 
   constructor(private readonly room: GameRoom) {
     this.room.ping((ms) => {
       this.latestPing = ms;
+    });
+
+    // 상태 패치가 도착할 때마다(서버 틱과 동일한 주기) 보간 버퍼에 쌓는다.
+    this.room.onStateChange((state) => {
+      this.interpolator.push(this.readRawSnapshot(state));
     });
   }
 
@@ -115,14 +121,15 @@ export class ColyseusConnection implements GameConnection {
     this.room.send('input', input);
   }
 
+  /** 화면 렌더링용. TICK_RATE 상태를 60fps에 맞게 보간한, 몇 ms 지연된 스냅샷을 돌려준다. */
   getSnapshot(): WorldSnapshot {
-    const players = this.snapshot.players;
-    players.length = 0;
+    return this.interpolator.sample();
+  }
 
-    const state = this.room.state;
-    if (!state?.players) return this.snapshot;
-
-    state.players.forEach((player, id) => {
+  /** 보간 버퍼에 쌓기 위해 서버 Schema를 평범한 배열로 변환한다. */
+  private readRawSnapshot(state: RemoteGameState): WorldSnapshot {
+    const players: WorldSnapshot['players'] = [];
+    state?.players?.forEach((player, id) => {
       players.push({
         id,
         nickname: player.nickname,
@@ -133,7 +140,7 @@ export class ColyseusConnection implements GameConnection {
       });
     });
 
-    return this.snapshot;
+    return { players };
   }
 
   onDisconnect(callback: (reason: string) => void): void {

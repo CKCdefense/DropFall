@@ -1,5 +1,6 @@
 import { TICK_RATE, World, type PlayerInputMessage } from '@dropfall/shared';
 import type { GameConnection, RoomInfo, WorldSnapshot } from './GameConnection';
+import { SnapshotInterpolator } from './SnapshotInterpolator';
 
 const LOCAL_SESSION_ID = 'local-player';
 const SPAWN_X = 40;
@@ -17,7 +18,8 @@ export class LocalConnection implements GameConnection {
   readonly sessionId = LOCAL_SESSION_ID;
 
   private readonly world = new World();
-  private readonly snapshot: WorldSnapshot = { players: [] };
+  /** world.tick()도 서버와 동일하게 TICK_RATE라 같은 보간이 필요하다(SnapshotInterpolator 참고). */
+  private readonly interpolator = new SnapshotInterpolator();
   private readonly nickname: string;
   private timer: ReturnType<typeof setInterval> | null = null;
 
@@ -25,7 +27,10 @@ export class LocalConnection implements GameConnection {
     this.nickname = nickname;
     // 서버(GameRoom#onJoin)와 마찬가지로 코어와 겹치지 않게 띄워 놓는다.
     this.world.addPlayer(LOCAL_SESSION_ID, SPAWN_X, SPAWN_Y);
-    this.timer = setInterval(() => this.world.tick(1 / TICK_RATE), 1000 / TICK_RATE);
+    this.timer = setInterval(() => {
+      this.world.tick(1 / TICK_RATE);
+      this.interpolator.push(this.readRawSnapshot());
+    }, 1000 / TICK_RATE);
   }
 
   get roomInfo(): RoomInfo {
@@ -37,9 +42,11 @@ export class LocalConnection implements GameConnection {
   }
 
   getSnapshot(): WorldSnapshot {
-    const players = this.snapshot.players;
-    players.length = 0;
+    return this.interpolator.sample();
+  }
 
+  private readRawSnapshot(): WorldSnapshot {
+    const players: WorldSnapshot['players'] = [];
     for (const [id, player] of this.world.getPlayers()) {
       players.push({
         id,
@@ -50,8 +57,7 @@ export class LocalConnection implements GameConnection {
         lastProcessedSeq: player.lastProcessedSeq,
       });
     }
-
-    return this.snapshot;
+    return { players };
   }
 
   onDisconnect(): void {

@@ -1,10 +1,5 @@
 import type { PlayerInputMessage } from '../protocol/messages';
-
-const PLAYER_SPEED = 100; // px/sec, placeholder — 밸런스 확정 전까지 임의값
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value));
-}
+import { normalizeMoveVector, stepPosition } from './movement';
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
@@ -51,15 +46,7 @@ export class World {
     const previous = this.inputs.get(id);
     if (previous && input.seq <= previous.seq) return;
 
-    // 대각선 보정: clamp만 하면 (1,1)이 통과해서 대각선 속도가 √2배(약 141%)가 된다.
-    let moveX = clamp(input.moveX, -1, 1);
-    let moveY = clamp(input.moveY, -1, 1);
-    const length = Math.hypot(moveX, moveY);
-    if (length > 1) {
-      moveX /= length;
-      moveY /= length;
-    }
-
+    const { moveX, moveY } = normalizeMoveVector(input.moveX, input.moveY);
     this.inputs.set(id, { seq: input.seq, moveX, moveY, aimAngle: input.aimAngle });
   }
 
@@ -67,8 +54,9 @@ export class World {
     for (const [id, player] of this.players) {
       const input = this.inputs.get(id);
       if (!input) continue;
-      player.x += input.moveX * PLAYER_SPEED * dtSeconds;
-      player.y += input.moveY * PLAYER_SPEED * dtSeconds;
+      const next = stepPosition(player.x, player.y, input.moveX, input.moveY, dtSeconds);
+      player.x = next.x;
+      player.y = next.y;
       player.aimAngle = input.aimAngle;
       player.lastProcessedSeq = input.seq;
     }

@@ -37,7 +37,7 @@ Phaser를 띄우고, 나가면 Phaser를 파괴하고 로비로 돌아온다.
 | 구현 | 용도 |
 |---|---|
 | `ColyseusConnection` | 실제 서버 연결 |
-| `LocalConnection` | `shared/sim`의 `World`를 브라우저에서 직접 20Hz로 돌린다 |
+| `LocalConnection` | `shared/sim`의 `World`를 브라우저에서 직접 `TICK_RATE`(현재 60Hz)로 돌린다 |
 
 `?local=1` 로 오프라인 모드에 진입한다. 서버 작업이 막혀 있어도 클라이언트 개발이 멈추지 않고,
 서버가 준비되면 구현체만 바꿔 끼우면 된다.
@@ -102,7 +102,8 @@ Phaser를 띄우고, 나가면 Phaser를 파괴하고 로비로 돌아온다.
 
 ### 2.6 입력
 
-`InputController`가 WASD + 마우스 조준을 `PlayerInputMessage`로 만들어 **20Hz로** 보낸다.
+`InputController`가 WASD + 마우스 조준을 `PlayerInputMessage`로 만들어 **`TICK_RATE`(현재
+60Hz)로** 보낸다.
 전송 주기와 대각선 정규화 이유는 [02-lobby-room-protocol.md](02-lobby-room-protocol.md) 참고.
 
 ## 3. 디렉터리
@@ -155,7 +156,9 @@ pnpm build
 
 - `PreloadScene`, 아틀라스 파이프라인 (에셋 확정 후)
 - 픽셀 폰트 (라이선스 확인 후 비트맵 폰트로. 지금은 monospace)
-- 클라이언트 예측/재조정 — 현재는 **서버 상태를 그대로 그린다**(보간 없음).
-  움직임이 20Hz 계단으로 보이는 건 알려진 상태다. 보간 → 예측 순으로 붙인다
+- 클라이언트 예측/재조정 — 보간([backend/12](../backend/12-work-report-snapshot-interpolation.md))은
+  붙었지만 자기 캐릭터 예측은 아직이다. 지금은 **본인 캐릭터도 남과 동일하게 지연 보간**이라
+  입력 반응이 그만큼 늦다(틱레이트를 60Hz로 올려서[backend/13](../backend/13-work-report-tick-rate-60hz.md)
+  절대 지연은 줄여둔 상태)
 - 9-slice 픽셀 UI 컴포넌트 (`NineSlicePanel`, `PixelButton`, `ItemSlot` …)
 - 코어 HP / 웨이브 표시는 **플레이스홀더**다. sim에 해당 상태가 생기면 연결한다

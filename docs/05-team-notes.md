@@ -63,8 +63,9 @@ interface PlayerInputMessage {
 }
 ```
 
-**입력은 20Hz(`INPUT_SEND_RATE`)로 보낸다.** 서버는 마지막 입력을 새 입력이 올 때까지 매 틱
-반복 적용하므로, 60fps로 보내면 중간 입력이 덮어써져 버려진다. 정지하려면 `moveX/moveY = 0`을
+**입력은 `INPUT_SEND_RATE`(= `TICK_RATE`, 현재 60Hz — [backend/13](backend/13-work-report-tick-rate-60hz.md)로
+20Hz에서 상향)로 보낸다.** 서버는 마지막 입력을 새 입력이 올 때까지 매 틱 반복 적용하므로,
+렌더 프레임보다 빠르게 보내봐야 중간 입력이 덮어써져 버려진다. 정지하려면 `moveX/moveY = 0`을
 **명시적으로 보내야 한다**.
 
 방 생성/참여 옵션, 방 코드 규칙, 입장 거절 코드는
@@ -146,3 +147,7 @@ interface PlayerInputMessage {
 | [backend/08](backend/08-work-report-connection-smoke-test.md) | client-server 연결 실제 검증 |
 | [backend/09](backend/09-work-report-browser-playground.md) | 브라우저 devtool(Playground) |
 | [backend/10](backend/10-work-report-nan-input-bug.md) | NaN 오염 버그 수정 |
+| [backend/11](backend/11-mvp-scope-proposal-combat-wave.md) | 전투·몬스터·웨이브 MVP 범위 제안(팀 협의) |
+| [backend/12](backend/12-work-report-snapshot-interpolation.md) | 스냅샷 보간으로 20Hz 렌더링 끊김 보강 |
+| [backend/13](backend/13-work-report-tick-rate-60hz.md) | 서버 틱레이트 20Hz → 60Hz 상향 |
+| [backend/14](backend/14-work-report-extrapolation.md) | 보간 버퍼 부족 시 외삽(dead reckoning) 추가 |

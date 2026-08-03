@@ -91,7 +91,7 @@ dropfall/
 ```
 ┌─────────────── server ───────────────┐        ┌─────────────── client ───────────────┐
 │  GameRoom                            │        │  Phaser Game                         │
-│    └ shared/sim World (권위, 20Hz)    │ ─────▶ │    ├ net: 스냅샷 수신 → 보간           │
+│    └ shared/sim World (권위, 60Hz)    │ ─────▶ │    ├ net: 스냅샷 수신 → 보간           │
 │        · 입력 큐 처리                  │ 상태    │    ├ shared/sim (내 캐릭터 예측만)     │
 │        · 물리/충돌/전투                │ 델타    │    └ render: 엔티티 → 스프라이트 (60fps)│
 │        · 웨이브/AI                    │ ◀───── │       Y-sort, 카메라, 파티클           │
@@ -120,7 +120,7 @@ dropfall/
 ### 4.1 기본 설계
 | 항목 | 값 |
 |---|---|
-| 서버 틱 | **20Hz** (50ms) |
+| 서버 틱 | **60Hz** (16.67ms). ~~20Hz~~에서 상향([backend/13](backend/13-work-report-tick-rate-60hz.md)) — 홈서버 사양(6코어/11GiB) 여유로 CPU는 문제없고, 클라 렌더(60fps)와 맞춰 반응성 지연을 줄였다 |
 | 클라 렌더 | 60fps |
 | 권위 | **서버 100%** |
 | 클라 → 서버 | 입력만 (이동벡터, 조준각, 발사/상호작용 플래그, seq 번호) |
@@ -140,6 +140,10 @@ dropfall/
 - 좌표는 정수 픽셀로 양자화, 각도는 1바이트(0~255)
 - AOI: 화면 + 여유 2타일 밖 엔티티는 전송하지 않음
 - 건축물은 상태가 거의 안 변하므로 **이벤트 기반**으로만 전송 (설치/파괴/HP변경)
+- 서버 틱을 20→60Hz로 올리면서(§4.1) 상태 브로드캐스트 빈도도 3배가 됐다. 4인 룸 페이로드
+  자체가 작아 절대량은 여전히 미미하지만, 몬스터/투사체가 늘어나는
+  [backend/11](backend/11-mvp-scope-proposal-combat-wave.md) 단계에서 위 절감 항목(특히
+  AOI)의 중요도가 커진다
 
 ### 4.4 재접속
 Colyseus의 `allowReconnection` 사용. 끊긴 플레이어는 30초간 캐릭터가 다운 상태로 남고,
@@ -294,7 +298,7 @@ this.cameras.main.setZoom(computeCameraZoom(this.scale.width, this.scale.height)
 | 항목 | 목표 |
 |---|---|
 | 프레임 | 60fps (몬스터 150마리 + 투사체 100개 동시) |
-| 서버 틱 처리 | < 10ms / tick (4인 룸) |
+| 서버 틱 처리 | < 10ms / tick (4인 룸). 60Hz 기준 틱 예산은 16.67ms이므로 여유가 §4.1의 20Hz 시절보다 줄었다 — 몬스터/투사체가 늘어나면 재프로파일링할 것 |
 | 초기 로딩 | < 5초 (일반 회선) |
 | 번들 크기 | JS < 1.5MB gzip |
 
@@ -336,7 +340,7 @@ this.cameras.main.setZoom(computeCameraZoom(this.scale.width, this.scale.height)
 
 **게임 서버를 홈서버로 두는 이유**
 - Fly.io/Railway 무료 티어의 cold start, 유휴 종료, 메모리 제한이 없다
-- 20Hz 틱 4인 룸은 부하가 매우 낮다 (라즈베리파이급으로도 충분)
+- 60Hz 틱 4인 룸도 실측 홈서버 사양(6코어/11GiB, [backend/13](backend/13-work-report-tick-rate-60hz.md))에서 부하가 매우 낮다
 - GitHub Pages는 정적 호스팅이라 **Node 상주 프로세스를 올릴 수 없다** → 서버는 어차피 별도 호스트가 필요
 
 ### 9.2 필수 제약: HTTPS ↔ WSS

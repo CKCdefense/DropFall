@@ -1,4 +1,14 @@
-export const TICK_RATE = 20;
+/**
+ * 서버 권위 시뮬레이션 틱(과 클라이언트 입력 전송) 주기.
+ *
+ * 원래 20Hz였으나, 홈서버 사양(6코어/11GiB, docs/backend/13) 기준 CPU 여유가 압도적이라
+ * 60Hz로 올렸다 — 20Hz는 입력 하나가 반영되기까지 최소 50ms 단위로 끊는다는 뜻이라,
+ * 서버가 아무리 빨라도 이 상수를 안 올리면 반응성 자체가 좋아지지 않는다.
+ *
+ * 팀 전체가 이 값을 전제로 작업할 수 있는 잠금 상수다(docs/02-tech-spec.md §4.1,
+ * docs/backend/05-backend-demo-plan.md §5) — 다시 바꾸게 되면 반드시 팀에 공지할 것.
+ */
+export const TICK_RATE = 60;
 export const TILE_SIZE = 16;
 /**
  * 화면에 보여줄 월드 영역의 기준 크기(월드 단위 = px).
