@@ -19,7 +19,8 @@ export const DIRECTIONS = ['front', 'left', 'back'] as const;
 export type Direction = (typeof DIRECTIONS)[number];
 
 export const FRAMES_PER_DIRECTION = 4;
-const WALK_FRAME_RATE = 8;
+/** 걷기 사이클 재생 속도(fps). 4프레임이라 이 값이 낮을수록 한 걸음이 느긋해진다. */
+const WALK_FRAME_RATE = 5;
 
 /** 캐릭터 32×32에서 실제 그림은 y 2~29에 있다. 원점을 발밑에 두면 탑다운 Y-정렬이 맞는다. */
 export const PLAYER_ORIGIN_Y = 0.94;
