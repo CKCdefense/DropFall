@@ -59,17 +59,26 @@ isReady: boolean
 
 ## 4. 직업
 
-MVP 3종 ([기획서 §5](../01-game-design.md)). 정의는
+MVP 4종 ([기획서 §5](../01-game-design.md)). **id가 곧 캐릭터 스프라이트 파일명**이라
+직업 → 스프라이트 프레임 접두사 변환에 별도 표가 필요 없다. 정의는
 [shared/protocol/lobby.ts](../../packages/shared/src/protocol/lobby.ts)에 있다.
 
 | id | 이름 | 역할 |
 |---|---|---|
-| `engineer` | 정비공 | 건축·수리 |
-| `medic` | 의사 | 치유·부활 |
-| `soldier` | 군인 | 화력 |
+| `soldier` | 병사 | 화력 |
+| `searchman` | 탐색꾼 | 정찰·채집 |
+| `medic` | 의무병 | 치유·부활 |
+| `engineer` | 엔지니어 | 건축·수리 |
 
-**아직 게임플레이에 반영되지 않는다.** 선택 값만 동기화하고 있고, 패시브/액티브는
-전투가 들어올 때 붙인다.
+선택한 직업은 **대기실 초상화와 인게임 스프라이트에 반영된다.**
+패시브/액티브 효과는 아직 없다 — 전투가 구체화될 때 붙인다.
+
+### 대기실 초상화는 아틀라스를 잘라 쓴다
+
+대기실은 DOM이라 Phaser를 쓸 수 없다. 별도 초상화 에셋을 만드는 대신 **인게임 아틀라스
+PNG를 CSS 배경으로 깔고 프레임 좌표만큼 밀어서** 한 칸을 잘라 쓴다
+([characterPortrait.ts](../../packages/client/src/ui/characterPortrait.ts)).
+아틀라스 JSON은 앱 시작 시 한 번 받아 캐시하고, 없으면 직업 첫 글자로 대체한다.
 
 ## 5. 방 코드 입력 모달
 

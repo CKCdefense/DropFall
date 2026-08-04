@@ -75,6 +75,19 @@
   background: rgba(10, 12, 17, 0.5);
 }
 
+/* 아틀라스에서 잘라낸 캐릭터 한 칸. 픽셀아트라 정수배로만 확대한다. */
+.portrait {
+  --portrait-scale: 3;
+  background-repeat: no-repeat;
+  image-rendering: pixelated;
+}
+
+@media (max-height: 700px) {
+  .portrait {
+    --portrait-scale: 2;
+  }
+}
+
 .slot-portrait-mark {
   color: var(--text-dim);
   font-size: clamp(24px, 4vw, 44px);

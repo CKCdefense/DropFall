@@ -1,6 +1,7 @@
 import { JOBS, MAX_CLIENTS_PER_ROOM, RoomPhase, type JobId } from '@dropfall/shared';
 import type { GameConnection, LobbyPlayer } from '../net/GameConnection';
 import { assetAttr } from './assets';
+import { characterPortrait } from './characterPortrait';
 import { clear, el } from './dom';
 
 /**
@@ -98,8 +99,9 @@ export class WaitingRoom {
       { class: `slot ${player.isMe ? 'slot-me' : ''} ${player.isReady ? 'slot-ready' : ''}`.trim() },
       [
         el('div', { class: 'slot-portrait' }, [
-          // 캐릭터 초상화 에셋이 들어올 자리
-          el('span', { class: 'slot-portrait-mark' }, [job ? job.name.charAt(0) : '?']),
+          // 스프라이트가 있으면 아틀라스에서 잘라 보여주고, 없으면 직업 첫 글자로 대체한다.
+          (job && characterPortrait(job.id)) ??
+            el('span', { class: 'slot-portrait-mark' }, [job ? job.name.charAt(0) : '?']),
           player.isHost ? el('span', { class: 'slot-host' }, ['방장']) : null,
           player.isReady ? el('span', { class: 'slot-ready-mark' }, ['준비'])  : null,
         ]),

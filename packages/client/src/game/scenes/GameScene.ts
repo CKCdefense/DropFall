@@ -3,6 +3,7 @@ import { TILE_SIZE, computeCameraZoom } from '@dropfall/shared';
 import type { GameConnection } from '../../net/GameConnection';
 import { CONNECTION_KEY, INPUT_CONTROLLER_KEY } from '../createGame';
 import { EntityRenderer } from '../render/EntityRenderer';
+import { queueGameAtlas } from '../render/playerSprite';
 import { InputController } from '../input/InputController';
 import { HUD_SCENE_KEY } from './HudScene';
 
@@ -24,6 +25,11 @@ export class GameScene extends Phaser.Scene {
 
   init(): void {
     this.connection = this.registry.get(CONNECTION_KEY) as GameConnection;
+  }
+
+  preload(): void {
+    // 아틀라스가 아직 없어도 게임은 떠야 한다 — 실패하면 도형 플레이스홀더로 그린다.
+    queueGameAtlas(this);
   }
 
   create(): void {
