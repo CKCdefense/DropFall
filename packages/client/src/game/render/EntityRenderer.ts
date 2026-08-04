@@ -1,5 +1,14 @@
 import Phaser from 'phaser';
 import type { MonsterView, PlayerView, WorldSnapshot } from '../../net/GameConnection';
+import {
+  GAME_ATLAS,
+  PLAYER_ORIGIN_Y,
+  directionFromAngle,
+  hasPlayerSprite,
+  idleFrame,
+  registerPlayerAnimations,
+  walkAnimKey,
+} from './playerSprite';
 
 /** 월드 안에 그리는 텍스트의 기준 크기(월드 단위). 실제 화면 크기는 여기에 카메라 줌이 곱해진다. */
 const LABEL_FONT_SIZE = 7;
@@ -17,6 +26,13 @@ const MONSTER_STYLE: Record<string, { color: number; size: number }> = {
 };
 const MONSTER_FALLBACK = { color: 0xa4576a, size: 10 };
 
+/** 이 거리보다 적게 움직였으면 정지로 본다(보간 지터로 걷기 애니메이션이 떨리는 것 방지) */
+const MOVE_EPSILON = 0.15;
+
+/** 닉네임 라벨을 머리 위로 띄우는 거리(월드 단위). 캐릭터 32px 중 그림은 y 2~29에 있다. */
+const LABEL_OFFSET_SPRITE = 30;
+const LABEL_OFFSET_PLACEHOLDER = 12;
+
 const HP_BAR_WIDTH = 16;
 const HP_BAR_HEIGHT = 2;
 
@@ -31,12 +47,18 @@ export class EntityRenderer {
   private readonly players = new Map<string, Phaser.GameObjects.Container>();
   private readonly monsters = new Map<string, Phaser.GameObjects.Container>();
   private readonly projectiles = new Map<string, Phaser.GameObjects.Arc>();
+  /** 이동 여부 판정용 직전 좌표 */
+  private readonly lastPositions = new Map<string, { x: number; y: number }>();
+  private readonly hasSprite: boolean;
   private zoom = 1;
 
   constructor(
     private readonly scene: Phaser.Scene,
     private readonly ownSessionId: string,
-  ) {}
+  ) {
+    this.hasSprite = hasPlayerSprite(scene);
+    if (this.hasSprite) registerPlayerAnimations(scene);
+  }
 
   /**
    * 카메라 줌이 바뀌면 월드 텍스트의 렌더 해상도도 같이 올린다.
@@ -94,23 +116,36 @@ export class EntityRenderer {
       if (aim) {
         aim.setPosition(Math.cos(player.aimAngle) * 12, Math.sin(player.aimAngle) * 12);
       }
+
+      if (this.hasSprite) this.updatePlayerSprite(sprite, player);
     }
 
+    for (const id of this.lastPositions.keys()) {
+      if (!alive.has(id)) this.lastPositions.delete(id);
+    }
     this.removeMissing(this.players, alive);
   }
 
   private createPlayer(player: PlayerView): Phaser.GameObjects.Container {
     const isMe = player.id === this.ownSessionId;
-    const color = isMe ? 0x6fd08c : 0x5b8dd9;
 
-    const body = this.scene.add.rectangle(0, 0, 12, 16, color);
-    body.setStrokeStyle(1, 0x1a1c23);
+    // 스프라이트가 있으면 그걸 쓰고, 없으면 도형으로 대체한다.
+    const body: Phaser.GameObjects.GameObject = this.hasSprite
+      ? this.scene.add
+          .sprite(0, 0, GAME_ATLAS, idleFrame('front'))
+          // 원점을 발밑에 두면 컨테이너 위치(= 서버 좌표)가 바닥에 닿는다.
+          .setOrigin(0.5, PLAYER_ORIGIN_Y)
+          .setName('body')
+      : this.createPlaceholderBody(isMe);
 
     const aim = this.scene.add.rectangle(12, 0, 6, 2, 0xf2e9d0);
     aim.setName('aim');
 
+    // 원점이 발밑이라 스프라이트는 위로 뻗는다 — 라벨을 머리 위로 올려야 얼굴을 가리지 않는다.
+    const labelY = this.hasSprite ? -LABEL_OFFSET_SPRITE : -LABEL_OFFSET_PLACEHOLDER;
+
     const label = this.scene.add
-      .text(0, -12, player.nickname, {
+      .text(0, labelY, player.nickname, {
         fontFamily: 'ui-monospace, monospace',
         fontSize: `${LABEL_FONT_SIZE}px`,
         color: isMe ? '#6fd08c' : '#cfd6e4',
@@ -120,6 +155,40 @@ export class EntityRenderer {
     label.setResolution(this.zoom);
 
     return this.scene.add.container(player.x, player.y, [aim, body, label]);
+  }
+
+  private createPlaceholderBody(isMe: boolean): Phaser.GameObjects.Rectangle {
+    const rect = this.scene.add.rectangle(0, 0, 12, 16, isMe ? 0x6fd08c : 0x5b8dd9);
+    rect.setStrokeStyle(1, 0x1a1c23);
+    rect.setName('body');
+    return rect;
+  }
+
+  /**
+   * 방향은 조준각으로 정하고, 걷기 애니메이션은 실제로 움직일 때만 재생한다.
+   * 스냅샷에 속도가 없어서 직전 프레임 좌표와의 차이로 이동 여부를 판단한다.
+   */
+  private updatePlayerSprite(container: Phaser.GameObjects.Container, player: PlayerView): void {
+    const body = container.getByName('body');
+    if (!(body instanceof Phaser.GameObjects.Sprite)) return;
+
+    const { direction, flipX } = directionFromAngle(player.aimAngle);
+    body.setFlipX(flipX);
+
+    const previous = this.lastPositions.get(player.id);
+    const moved = previous
+      ? Math.hypot(player.x - previous.x, player.y - previous.y) > MOVE_EPSILON
+      : false;
+    this.lastPositions.set(player.id, { x: player.x, y: player.y });
+
+    if (moved && player.hp > 0) {
+      const key = walkAnimKey(direction);
+      // 같은 애니메이션이 이미 돌고 있으면 재시작하지 않는다(계속 첫 프레임에 머무는 것 방지).
+      if (body.anims.currentAnim?.key !== key || !body.anims.isPlaying) body.play(key, true);
+    } else {
+      body.anims.stop();
+      body.setFrame(idleFrame(direction));
+    }
   }
 
   // ---------------------------------------------------------------- 몬스터

@@ -34,5 +34,11 @@ export function createGame(parent: HTMLElement, connection: GameConnection): Pha
   });
 
   game.registry.set(CONNECTION_KEY, connection);
+
+  // 개발 중 콘솔/자동화에서 상태를 들여다보기 위한 핸들. 프로덕션 번들에는 포함되지 않는다.
+  if (import.meta.env.DEV) {
+    (window as unknown as { __dropfall?: unknown }).__dropfall = { game, connection };
+  }
+
   return game;
 }
