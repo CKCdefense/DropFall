@@ -26,6 +26,15 @@ interface RemotePlayerState {
   y: number;
   aimAngle: number;
   lastProcessedSeq: number;
+  hp: number;
+}
+
+interface RemoteMonsterState {
+  type: string;
+  x: number;
+  y: number;
+  hp: number;
+  maxHp: number;
 }
 
 interface RemoteGameState {
@@ -34,9 +43,20 @@ interface RemoteGameState {
   hasPassword: boolean;
   phase: string;
   hostSessionId: string;
+  coreHp: number;
+  coreMaxHp: number;
+  wavePhase: string;
+  currentWave: number;
+  skipVoteCount: number;
   players: {
     size: number;
     forEach(callback: (value: RemotePlayerState, key: string) => void): void;
+  };
+  monsters: {
+    forEach(callback: (value: RemoteMonsterState, key: string) => void): void;
+  };
+  projectiles: {
+    forEach(callback: (value: { x: number; y: number }, key: string) => void): void;
   };
 }
 
@@ -140,6 +160,14 @@ export class ColyseusConnection implements GameConnection {
     this.room.send('input', input);
   }
 
+  fire(weaponId: string): void {
+    this.room.send('fire', { weaponId });
+  }
+
+  voteSkipDay(): void {
+    this.room.send('skipVote', {});
+  }
+
   /** 화면 렌더링용. TICK_RATE 상태를 60fps에 맞게 보간한, 몇 ms 지연된 스냅샷을 돌려준다. */
   getSnapshot(): WorldSnapshot {
     return this.interpolator.sample();
@@ -156,10 +184,39 @@ export class ColyseusConnection implements GameConnection {
         y: player.y,
         aimAngle: player.aimAngle,
         lastProcessedSeq: player.lastProcessedSeq,
+        hp: player.hp,
       });
     });
 
-    return { players };
+    const monsters: WorldSnapshot['monsters'] = [];
+    state?.monsters?.forEach((monster, id) => {
+      monsters.push({
+        id,
+        type: monster.type,
+        x: monster.x,
+        y: monster.y,
+        hp: monster.hp,
+        maxHp: monster.maxHp,
+      });
+    });
+
+    const projectiles: WorldSnapshot['projectiles'] = [];
+    state?.projectiles?.forEach((projectile, id) => {
+      projectiles.push({ id, x: projectile.x, y: projectile.y });
+    });
+
+    return {
+      players,
+      monsters,
+      projectiles,
+      status: {
+        coreHp: state?.coreHp ?? 0,
+        coreMaxHp: state?.coreMaxHp ?? 0,
+        wavePhase: state?.wavePhase ?? 'day',
+        currentWave: state?.currentWave ?? 0,
+        skipVoteCount: state?.skipVoteCount ?? 0,
+      },
+    };
   }
 
   // ---------------------------------------------------------------- 대기실

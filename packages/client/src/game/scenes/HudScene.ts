@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { MAX_CLIENTS_PER_ROOM, computeCameraZoom } from '@dropfall/shared';
-import type { GameConnection } from '../../net/GameConnection';
+import type { GameConnection, WorldStatus } from '../../net/GameConnection';
 import { CONNECTION_KEY } from '../createGame';
 
 export const HUD_SCENE_KEY = 'Hud';
@@ -13,6 +13,7 @@ const FONT = 'ui-monospace, "Malgun Gothic", monospace';
 const TEXT_STYLE = { fontFamily: FONT, fontSize: '14px', color: '#cfd6e4' } as const;
 const DIM_STYLE = { fontFamily: FONT, fontSize: '13px', color: '#79828f' } as const;
 const ACCENT = '#6fd08c';
+const DOWN_COLOR = '#d9756b';
 
 /** 기준 크기(px). 화면이 커지면 uiScale이 곱해진다. */
 const TEXT_SIZE = 14;
@@ -22,7 +23,7 @@ const TOP_BAR_HEIGHT = 26;
 const CORE_BAR_WIDTH = 140;
 const CORE_BAR_HEIGHT = 8;
 const PARTY_LINE_HEIGHT = 18;
-const CORE_LABEL_WIDTH = 44;
+const CORE_LABEL_WIDTH = 78;
 
 /**
  * HUD. GameScene과 분리된 별도 Scene이다 —
@@ -132,16 +133,23 @@ export class HudScene extends Phaser.Scene {
 
   update(): void {
     const snapshot = this.connection.getSnapshot();
+    const { status } = snapshot;
 
-    // TODO: sim에 코어 HP가 생기면 비율을 곱한다
-    this.coreBar.width = CORE_BAR_WIDTH * this.uiScale;
+    const coreRatio = status.coreMaxHp > 0 ? status.coreHp / status.coreMaxHp : 1;
+    this.coreBar.width = Math.max(0, CORE_BAR_WIDTH * this.uiScale * coreRatio);
+    // 코어가 위험하면 색으로 먼저 알린다 — 숫자를 읽기 전에 눈에 들어와야 한다.
+    this.coreBar.fillColor = coreRatio > 0.3 ? 0x6fd08c : 0xd9756b;
+    this.coreLabel.setText(`CORE ${Math.ceil(status.coreHp)}`);
+
+    this.waveText.setText(describePhase(status, snapshot.players.length));
 
     snapshot.players.forEach((player, index) => {
       const text = this.partyTexts[index];
       if (!text) return;
       const isMe = player.id === this.connection.sessionId;
-      text.setText(`${isMe ? '▸ ' : ''}${player.nickname}`);
-      text.setColor(isMe ? ACCENT : '#cfd6e4');
+      const down = player.hp <= 0;
+      text.setText(`${isMe ? '▸ ' : ''}${player.nickname} ${down ? '다운' : Math.ceil(player.hp)}`);
+      text.setColor(down ? DOWN_COLOR : isMe ? ACCENT : '#cfd6e4');
     });
 
     for (let i = snapshot.players.length; i < this.partyTexts.length; i += 1) {
@@ -151,8 +159,35 @@ export class HudScene extends Phaser.Scene {
     const me = snapshot.players.find((player) => player.id === this.connection.sessionId);
     this.debugText.setText(
       me
-        ? `x:${me.x.toFixed(0)} y:${me.y.toFixed(0)} seq:${me.lastProcessedSeq} players:${snapshot.players.length}`
+        ? `x:${me.x.toFixed(0)} y:${me.y.toFixed(0)} mob:${snapshot.monsters.length} proj:${snapshot.projectiles.length}`
         : '동기화 대기 중...',
     );
+
+    // 낮에만 스킵 안내를 띄운다 — 밤에는 쓸 수 없는 조작이라 보여줄 이유가 없다.
+    this.helpText.setText(
+      status.wavePhase === 'day'
+        ? `WASD 이동 · 좌클릭 사격 · [V] 낮 넘기기 ${status.skipVoteCount}/${snapshot.players.length}`
+        : 'WASD 이동 · 좌클릭 사격 · ESC 나가기',
+    );
+  }
+}
+
+/**
+ * 상단 우측 문구. 승패가 나면 그것만 알린다.
+ *
+ * `currentWave`는 이미 1부터 센다(WaveManager: waveIndex + 1). 낮은 "다음 웨이브를
+ * 준비하는 시간"이라 +1해서 보여주고, 밤은 진행 중인 웨이브 번호를 그대로 쓴다.
+ * 첫 낮은 currentWave가 0이라 자연스럽게 "WAVE 1 준비"가 된다.
+ */
+function describePhase(status: WorldStatus, playerCount: number): string {
+  switch (status.wavePhase) {
+    case 'victory':
+      return '★ 방어 성공';
+    case 'defeat':
+      return '✖ 코어 파괴됨';
+    case 'night':
+      return `WAVE ${status.currentWave}  ·  밤`;
+    default:
+      return `WAVE ${status.currentWave + 1} 준비  ·  낮  ${status.skipVoteCount}/${playerCount}`;
   }
 }

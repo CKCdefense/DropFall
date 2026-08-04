@@ -42,6 +42,14 @@ export class LocalConnection implements GameConnection {
     this.world.setInput(LOCAL_SESSION_ID, input);
   }
 
+  fire(weaponId: string): void {
+    this.world.fireWeapon(LOCAL_SESSION_ID, weaponId);
+  }
+
+  voteSkipDay(): void {
+    this.world.castSkipVote(LOCAL_SESSION_ID);
+  }
+
   getSnapshot(): WorldSnapshot {
     return this.interpolator.sample();
   }
@@ -56,9 +64,41 @@ export class LocalConnection implements GameConnection {
         y: player.y,
         aimAngle: player.aimAngle,
         lastProcessedSeq: player.lastProcessedSeq,
+        hp: player.hp,
       });
     }
-    return { players };
+
+    const monsters: WorldSnapshot['monsters'] = [];
+    for (const [id, monster] of this.world.getMonsters()) {
+      monsters.push({
+        id,
+        type: monster.type,
+        x: monster.x,
+        y: monster.y,
+        hp: monster.hp,
+        maxHp: monster.maxHp,
+      });
+    }
+
+    const projectiles: WorldSnapshot['projectiles'] = [];
+    for (const [id, projectile] of this.world.getProjectiles()) {
+      projectiles.push({ id, x: projectile.x, y: projectile.y });
+    }
+
+    const core = this.world.getCore();
+
+    return {
+      players,
+      monsters,
+      projectiles,
+      status: {
+        coreHp: core.hp,
+        coreMaxHp: core.maxHp,
+        wavePhase: this.world.getWavePhase(),
+        currentWave: this.world.getCurrentWave(),
+        skipVoteCount: this.world.getSkipVoteCount(),
+      },
+    };
   }
 
   // ---------------------------------------------------------------- 대기실

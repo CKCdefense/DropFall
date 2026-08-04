@@ -1,8 +1,14 @@
 import { PATCH_RATE } from '@dropfall/shared';
-import type { PlayerView, WorldSnapshot } from './GameConnection';
+import type {
+  MonsterView,
+  PlayerView,
+  ProjectileView,
+  WorldSnapshot,
+  WorldStatus,
+} from './GameConnection';
 
 /**
- * 서버(그리고 로컬 시뮬)는 TICK_RATE로만 상태를 갱신하는데 화면은 60fps로 그린다.
+ * 서버(그리고 로컬 시뮬)는 정해진 주기로만 상태를 갱신하는데 화면은 60fps로 그린다.
  * 매 프레임 "지금 아는 최신 상태"를 그대로 그리면 같은 좌표를 여러 프레임 반복하다가
  * 한 번에 튀는 식으로 보여서 뚝뚝 끊겨 보인다.
  *
@@ -36,15 +42,19 @@ const MAX_BUFFER_AGE_MS = 1000;
  */
 const MAX_EXTRAPOLATION_MS = 100;
 
+/** 보간 대상의 최소 조건 — id로 짝을 찾고 x/y를 섞는다. */
+interface Positioned {
+  id: string;
+  x: number;
+  y: number;
+}
+
 interface BufferedSnapshot {
   time: number;
   players: PlayerView[];
-}
-
-interface Bracket {
-  from: BufferedSnapshot;
-  to: BufferedSnapshot;
-  t: number;
+  monsters: MonsterView[];
+  projectiles: ProjectileView[];
+  status: WorldStatus;
 }
 
 function lerp(a: number, b: number, t: number): number {
@@ -59,13 +69,71 @@ function lerpAngle(a: number, b: number, t: number): number {
   return a + diff * t;
 }
 
+/**
+ * 두 스냅샷 사이를 섞는다. 기준은 항상 `to`(더 최신) — 방금 등장한 엔티티는 과거가 없으므로
+ * 그대로 쓰고, 사라진 엔티티는 결과에 넣지 않는다.
+ */
+function blendList<T extends Positioned>(from: T[], to: T[], t: number, out: T[]): void {
+  out.length = 0;
+  for (const target of to) {
+    const previous = from.find((item) => item.id === target.id);
+    if (!previous) {
+      out.push(target);
+      continue;
+    }
+    out.push({ ...target, x: lerp(previous.x, target.x, t), y: lerp(previous.y, target.y, t) });
+  }
+}
+
+/** 마지막 두 스냅샷 사이의 속도로 overshootMs만큼 앞으로 밀어서 예측한다. */
+function extrapolateList<T extends Positioned>(
+  previous: T[] | undefined,
+  last: T[],
+  dt: number,
+  overshootMs: number,
+  out: T[],
+): void {
+  out.length = 0;
+  for (const item of last) {
+    const before = previous?.find((candidate) => candidate.id === item.id);
+    if (!before || dt <= 0) {
+      out.push(item); // 속도를 알 수 없으면 마지막 위치 그대로
+      continue;
+    }
+    out.push({
+      ...item,
+      x: item.x + ((item.x - before.x) / dt) * overshootMs,
+      y: item.y + ((item.y - before.y) / dt) * overshootMs,
+    });
+  }
+}
+
+const EMPTY_STATUS: WorldStatus = {
+  coreHp: 0,
+  coreMaxHp: 0,
+  wavePhase: 'day',
+  currentWave: 0,
+  skipVoteCount: 0,
+};
+
 export class SnapshotInterpolator {
   private readonly buffer: BufferedSnapshot[] = [];
-  private readonly output: WorldSnapshot = { players: [] };
+  private readonly output: WorldSnapshot = {
+    players: [],
+    monsters: [],
+    projectiles: [],
+    status: { ...EMPTY_STATUS },
+  };
 
   /** 새 네트워크/시뮬 상태가 들어올 때마다 호출한다. */
   push(snapshot: WorldSnapshot, now: number = performance.now()): void {
-    this.buffer.push({ time: now, players: snapshot.players.map((player) => ({ ...player })) });
+    this.buffer.push({
+      time: now,
+      players: snapshot.players.map((player) => ({ ...player })),
+      monsters: snapshot.monsters.map((monster) => ({ ...monster })),
+      projectiles: snapshot.projectiles.map((projectile) => ({ ...projectile })),
+      status: { ...snapshot.status },
+    });
 
     const cutoff = now - MAX_BUFFER_AGE_MS;
     while (this.buffer.length > 2 && this.buffer[0].time < cutoff) {
@@ -75,17 +143,30 @@ export class SnapshotInterpolator {
 
   /** 매 렌더 프레임 호출. INTERP_DELAY_MS만큼 과거 시점을 보간(또는 필요시 외삽)해 돌려준다. */
   sample(now: number = performance.now()): WorldSnapshot {
-    const players = this.output.players;
-    players.length = 0;
+    const last = this.buffer[this.buffer.length - 1];
+    if (!last) return this.output;
+
+    // 코어 HP·웨이브 같은 비위치 값은 보간하지 않는다 — 항상 최신값이 맞다.
+    Object.assign(this.output.status, last.status);
 
     const renderTime = now - INTERP_DELAY_MS;
-    const last = this.buffer[this.buffer.length - 1];
 
     // 버퍼 부족: 다음 스냅샷이 아직 안 왔다. 짧은 지터면 마지막 속도로 외삽하고,
     // 너무 오래 끌면(재접속 등) 엉뚱하게 튀지 않도록 그냥 마지막 위치에 고정한다.
-    if (last && renderTime >= last.time) {
+    if (renderTime >= last.time) {
+      const previous = this.buffer[this.buffer.length - 2];
+      const dt = previous ? last.time - previous.time : 0;
       const overshootMs = Math.min(renderTime - last.time, MAX_EXTRAPOLATION_MS);
-      this.extrapolate(players, last, overshootMs);
+
+      extrapolateList(previous?.players, last.players, dt, overshootMs, this.output.players);
+      extrapolateList(previous?.monsters, last.monsters, dt, overshootMs, this.output.monsters);
+      extrapolateList(
+        previous?.projectiles,
+        last.projectiles,
+        dt,
+        overshootMs,
+        this.output.projectiles,
+      );
       return this.output;
     }
 
@@ -93,54 +174,27 @@ export class SnapshotInterpolator {
     if (!bracket) return this.output;
 
     const { from, to, t } = bracket;
-    for (const toPlayer of to.players) {
-      const fromPlayer = from.players.find((player) => player.id === toPlayer.id);
-      if (!fromPlayer) {
-        players.push(toPlayer); // 방금 등장한 플레이어는 보간할 과거 스냅샷이 없다
-        continue;
-      }
+    blendList(from.players, to.players, t, this.output.players);
+    blendList(from.monsters, to.monsters, t, this.output.monsters);
+    blendList(from.projectiles, to.projectiles, t, this.output.projectiles);
 
-      players.push({
-        id: toPlayer.id,
-        nickname: toPlayer.nickname,
-        x: lerp(fromPlayer.x, toPlayer.x, t),
-        y: lerp(fromPlayer.y, toPlayer.y, t),
-        aimAngle: lerpAngle(fromPlayer.aimAngle, toPlayer.aimAngle, t),
-        lastProcessedSeq: toPlayer.lastProcessedSeq,
-      });
+    // 조준각은 위치와 달리 최단 경로로 섞어야 한다.
+    for (const player of this.output.players) {
+      const before = from.players.find((item) => item.id === player.id);
+      const target = to.players.find((item) => item.id === player.id);
+      if (before && target) player.aimAngle = lerpAngle(before.aimAngle, target.aimAngle, t);
     }
 
     return this.output;
-  }
-
-  /** 마지막 두 스냅샷 사이의 속도로 overshootMs만큼 앞으로 밀어서 예측한다. */
-  private extrapolate(players: PlayerView[], last: BufferedSnapshot, overshootMs: number): void {
-    const prev = this.buffer.length >= 2 ? this.buffer[this.buffer.length - 2] : undefined;
-    const dt = prev ? last.time - prev.time : 0;
-
-    for (const player of last.players) {
-      const prevPlayer = prev?.players.find((p) => p.id === player.id);
-      if (!prevPlayer || dt <= 0) {
-        players.push(player); // 속도를 알 수 없으면 마지막 위치 그대로
-        continue;
-      }
-
-      const vx = (player.x - prevPlayer.x) / dt;
-      const vy = (player.y - prevPlayer.y) / dt;
-
-      players.push({
-        ...player,
-        x: player.x + vx * overshootMs,
-        y: player.y + vy * overshootMs,
-      });
-    }
   }
 
   /**
    * 호출 시점에는 이미 `renderTime < last.time`이 보장된다(그 이상은 sample()이
    * 외삽 경로로 먼저 처리하고 여기까지 오지 않는다) — 그래서 두 스냅샷 사이 구간만 다룬다.
    */
-  private findBracket(renderTime: number): Bracket | null {
+  private findBracket(
+    renderTime: number,
+  ): { from: BufferedSnapshot; to: BufferedSnapshot; t: number } | null {
     if (this.buffer.length === 0) return null;
 
     const first = this.buffer[0];

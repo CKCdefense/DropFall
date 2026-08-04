@@ -15,10 +15,41 @@ export interface PlayerView {
   y: number;
   aimAngle: number;
   lastProcessedSeq: number;
+  hp: number;
+}
+
+export interface MonsterView {
+  id: string;
+  /** MonsterType. 렌더러가 색/크기를 고르는 데만 쓴다 */
+  type: string;
+  x: number;
+  y: number;
+  hp: number;
+  maxHp: number;
+}
+
+export interface ProjectileView {
+  id: string;
+  x: number;
+  y: number;
+}
+
+/** 위치가 없는 값들 — 보간 대상이 아니라 항상 최신값을 그대로 쓴다. */
+export interface WorldStatus {
+  coreHp: number;
+  coreMaxHp: number;
+  /** GamePhase: 'day' | 'night' | 'victory' | 'defeat' */
+  wavePhase: string;
+  currentWave: number;
+  /** 낮 스킵 투표 동의 인원. 필요 인원은 players.length(만장일치) */
+  skipVoteCount: number;
 }
 
 export interface WorldSnapshot {
   players: PlayerView[];
+  monsters: MonsterView[];
+  projectiles: ProjectileView[];
+  status: WorldStatus;
 }
 
 export interface RoomInfo {
@@ -53,6 +84,10 @@ export interface GameConnection {
   readonly isLocal: boolean;
 
   sendInput(input: PlayerInputMessage): void;
+  /** 사격. 서버가 쿨다운·탄약을 판정하므로 클라이언트는 눌렸다는 사실만 보낸다. */
+  fire(weaponId: string): void;
+  /** 낮 넘기기 투표 (만장일치) */
+  voteSkipDay(): void;
   /** 매 프레임 호출된다. 구현체는 새 객체를 만들지 말고 내부 버퍼를 재사용할 것. */
   getSnapshot(): WorldSnapshot;
 
