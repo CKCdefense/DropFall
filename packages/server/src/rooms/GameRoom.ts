@@ -9,8 +9,10 @@ import {
   StartRejectReason,
   TICK_RATE,
   World,
+  describeBossTelegraph,
   generateRoomCode,
   isJobId,
+  monstersData,
   sanitizeNickname,
   sanitizePassword,
   sanitizeRoomName,
@@ -257,6 +259,17 @@ export class GameRoom extends Room {
       schema.x = monster.x;
       schema.y = monster.y;
       schema.hp = monster.hp;
+
+      const telegraph = describeBossTelegraph(monster, monstersData[monster.type]);
+      schema.telegraphKind = telegraph?.kind ?? '';
+      schema.telegraphX = telegraph?.x ?? 0;
+      schema.telegraphY = telegraph?.y ?? 0;
+      schema.telegraphDirX = telegraph?.dirX ?? 0;
+      schema.telegraphDirY = telegraph?.dirY ?? 0;
+      schema.telegraphRadius = telegraph?.radius ?? 0;
+      schema.telegraphRange = telegraph?.range ?? 0;
+      schema.telegraphRemaining = telegraph?.remaining ?? 0;
+      schema.telegraphTotal = telegraph?.total ?? 0;
     }
 
     for (const id of [...this.state.monsters.keys()]) {

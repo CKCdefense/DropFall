@@ -12,6 +12,29 @@ export function loadData<T>(schema: z.ZodType<T>, json: unknown): T {
 
 // --- monsters.json ---------------------------------------------------------
 
+/** 돌진 공격: 방향을 예고한 뒤 그 방향으로 빠르게 대시하며 경로 위 플레이어를 때린다. */
+const ChargeAttackSchema = z.object({
+  /** 돌진 전 예고(텔레그래프) 시간(초) — 이 동안 플레이어가 피할 수 있어야 한다. */
+  telegraphSeconds: z.number().positive(),
+  /** 돌진 중 이동 속도(px/s). 평상시 speed와 무관하게 별도로 정의한다. */
+  speed: z.number().positive(),
+  /** 돌진이 지속되는 시간(초). speed * duration이 곧 돌진 거리다. */
+  duration: z.number().positive(),
+  /** 돌진 경로의 폭(px). 이 폭 안에 있으면 맞는다. */
+  width: z.number().positive(),
+  damage: z.number().nonnegative(),
+  /** 이 패턴을 다시 쓸 수 있게 되기까지의 시간(초, 예고 시작 시점부터 카운트하지 않고 종료 후부터). */
+  cooldown: z.number().positive(),
+});
+
+/** 광역 공격: 지점을 예고한 뒤 그 자리에 원형 범위로 즉시 피해를 준다. */
+const SlamAttackSchema = z.object({
+  telegraphSeconds: z.number().positive(),
+  radius: z.number().positive(),
+  damage: z.number().nonnegative(),
+  cooldown: z.number().positive(),
+});
+
 const MonsterDataSchema = z.object({
   hp: z.number().positive(),
   damage: z.number().nonnegative(),
@@ -20,6 +43,10 @@ const MonsterDataSchema = z.object({
   attackInterval: z.number().positive(),
   /** 있으면 이 반경 내 플레이어를 코어 대신 직접 추격한다(돌진형/보스). 없으면 항상 코어로 직진. */
   aggroRadius: z.number().nonnegative().optional(),
+  /** 있으면 이 타입은 돌진 패턴을 쓸 수 있다(보스 전용, 없으면 미사용). */
+  chargeAttack: ChargeAttackSchema.optional(),
+  /** 있으면 이 타입은 광역 패턴을 쓸 수 있다(보스 전용, 없으면 미사용). */
+  slamAttack: SlamAttackSchema.optional(),
 });
 
 const MonstersDataSchema = z.record(z.string(), MonsterDataSchema);

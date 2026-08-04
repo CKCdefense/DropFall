@@ -356,4 +356,178 @@ describe('World — 건축물과 몬스터 상호작용', () => {
     expect(building!.hp).toBeLessThan(hpBefore);
     expect(monster!.x).toBe(xBefore); // 플레이어를 향해 이동하지 않고 벽을 공격했다
   });
+
+  it('코어를 건축물로 완전히 둘러싸도 몬스터가 멈추지 않고 결국 건축물을 공격한다', () => {
+    // 회귀 테스트: Flow Field가 코어로의 경로를 아예 못 찾으면(둘러싸여서 도달 불가)
+    // sampleDirection이 항상 {0,0}을 돌려줘서 몬스터가 그 자리에 영원히 멈춰 섰던 버그.
+    const world = createTestWorld();
+    world.addPlayer('near', 2000, 2000); // 몬스터 어그로에서 멀리 둔다
+    world.addPlayer('builder', -2000, -2000);
+
+    const builder = world.getPlayers().get('builder')!;
+    builder.wood = 1000;
+    builder.stone = 1000;
+
+    // 코어를 둘러싼 8칸 전부에 벽을 짓는다 — 바깥에서 코어로 가는 경로가 완전히 막힌다.
+    const coreCell = worldToCell(0, 0);
+    const neighborOffsets = [
+      [-1, -1],
+      [0, -1],
+      [1, -1],
+      [-1, 0],
+      [1, 0],
+      [-1, 1],
+      [0, 1],
+      [1, 1],
+    ];
+    for (const [dx, dy] of neighborOffsets) {
+      world.placeBuilding('builder', 'wall', coreCell.cx + dx, coreCell.cy + dy);
+    }
+    expect(world.getBuildings().size).toBe(8);
+
+    startFirstWave(world);
+    spawnAtLeast(world, 1);
+
+    const [monster] = [...world.getMonsters().values()];
+    monster!.x = 200;
+    monster!.y = 0;
+    const initialX = monster!.x;
+
+    const coreHpBefore = world.getCore().hp;
+
+    // 몬스터가 제자리에 멈춰 있지 않고 벽까지 다가가서 공격을 시작하는지 확인한다.
+    let anyBuildingDamaged = false;
+    for (let i = 0; i < 300 && !anyBuildingDamaged; i += 1) {
+      world.tick(1);
+      for (const building of world.getBuildings().values()) {
+        if (building.hp < building.maxHp) anyBuildingDamaged = true;
+      }
+    }
+
+    expect(anyBuildingDamaged).toBe(true);
+    expect(monster!.x).not.toBe(initialX); // 완전히 멈춰 있지 않았다
+    // 회귀 테스트: 몬스터가 raw 거리만으로 "코어 사거리 안"을 통과해서 벽을 무시하고
+    // 코어를 직접 공격해버리던 버그(막는 건축물 검사보다 타겟/코어 사거리 검사가
+    // 먼저였음) — 벽이 멀쩡히 남아있는 동안은 코어가 전혀 깎이면 안 된다.
+    expect(world.getCore().hp).toBe(coreHpBefore);
+  });
+});
+
+describe('World — 건축물과 플레이어', () => {
+  function build(world: World, playerId: string, type: 'fence' | 'wall', x: number, y: number): void {
+    const player = world.getPlayers().get(playerId)!;
+    player.wood = 100;
+    player.stone = 100;
+    const { cx, cy } = worldToCell(x, y);
+    world.placeBuilding(playerId, type, cx, cy);
+  }
+
+  it('벽은 플레이어의 이동을 막는다(통과 불가)', () => {
+    const world = createTestWorld();
+    world.addPlayer('builder', 800, 800);
+    build(world, 'builder', 'wall', 850, 800);
+    const wall = [...world.getBuildings().values()][0]!;
+
+    world.addPlayer('p1', 800, 800);
+    world.setInput('p1', { seq: 1, moveX: 1, moveY: 0, aimAngle: 0 });
+
+    const player = world.getPlayers().get('p1')!;
+    for (let i = 0; i < 300; i += 1) world.tick(0.1);
+
+    expect(player.x).toBeGreaterThan(800); // 벽까지는 다가갔다
+    expect(player.x).toBeLessThan(wall.x); // 벽을 뚫고 지나가지는 못했다
+  });
+
+  it('울타리도 플레이어의 이동을 막는다(통과 불가)', () => {
+    const world = createTestWorld();
+    world.addPlayer('builder', 800, 800);
+    build(world, 'builder', 'fence', 850, 800);
+    const fence = [...world.getBuildings().values()][0]!;
+
+    world.addPlayer('p1', 800, 800);
+    world.setInput('p1', { seq: 1, moveX: 1, moveY: 0, aimAngle: 0 });
+
+    const player = world.getPlayers().get('p1')!;
+    for (let i = 0; i < 300; i += 1) world.tick(0.1);
+
+    expect(player.x).toBeGreaterThan(800);
+    expect(player.x).toBeLessThan(fence.x);
+  });
+
+  it('건축물에 대각선으로 부딪히면 완전히 멈추지 않고 옆으로 미끄러진다(축 슬라이딩)', () => {
+    const world = createTestWorld();
+    world.addPlayer('builder', 800, 800);
+    build(world, 'builder', 'wall', 850, 800);
+    const wall = [...world.getBuildings().values()][0]!;
+
+    world.addPlayer('p1', 0, 0);
+    const player = world.getPlayers().get('p1')!;
+    // 충돌 반경(HIT_RADIUS 10 + TILE_SIZE/2 8 = 18px)보다 살짝 밖인 x축 20px
+    // 지점에 세운다 — 대각선 한 스텝을 내디디면 전체 이동(x+y)은 반경 안으로 들어가
+    // 막히지만, y축 단독 이동은 반경 밖에 머물러 계속 허용돼야 한다.
+    player.x = wall.x - 20;
+    player.y = wall.y;
+
+    world.setInput('p1', { seq: 1, moveX: 1, moveY: 1, aimAngle: 0 });
+    world.tick(0.1);
+
+    expect(player.x).toBeCloseTo(wall.x - 20); // x축 이동은 막혔다
+    expect(player.y).toBeGreaterThan(wall.y); // y축 이동은 막히지 않고 미끄러졌다
+  });
+});
+
+describe('World — 건축물과 투사체', () => {
+  it('벽은 투사체를 막고 통과시키지 않는다', () => {
+    const world = createTestWorld();
+    world.addPlayer('shooter', 0, 0); // 기본 aimAngle=0 → +x 방향 조준
+    world.addPlayer('builder', -500, -500);
+
+    const builder = world.getPlayers().get('builder')!;
+    builder.wood = 100;
+    builder.stone = 100;
+
+    // 사수 조준 방향(바로 앞)에 벽을 짓는다.
+    const { cx, cy } = worldToCell(60, 0);
+    world.placeBuilding('builder', 'wall', cx, cy);
+    expect(world.getBuildings().size).toBe(1);
+
+    world.fireWeapon('shooter', 'pistol');
+    expect(world.getProjectiles().size).toBe(1);
+
+    // 투사체가 벽을 지나칠 시간을 넉넉히 준다(pistol projectileSpeed=420px/s).
+    for (let i = 0; i < 20; i += 1) world.tick(0.1);
+
+    expect(world.getProjectiles().size).toBe(0);
+  });
+
+  it('울타리는 투사체를 막지 않고 통과시킨다', () => {
+    const world = createTestWorld();
+    world.addPlayer('shooter', 0, 0);
+    world.addPlayer('builder', -500, -500);
+
+    const builder = world.getPlayers().get('builder')!;
+    builder.wood = 100;
+    builder.stone = 100;
+
+    const { cx, cy } = worldToCell(60, 0);
+    world.placeBuilding('builder', 'fence', cx, cy);
+    expect(world.getBuildings().size).toBe(1);
+
+    startFirstWave(world);
+    spawnAtLeast(world, 1);
+    const [monster] = [...world.getMonsters().values()];
+    (monster as { type: string }).type = 'trash';
+    monster!.x = 150;
+    monster!.y = 0;
+    monster!.hp = monster!.maxHp;
+
+    world.fireWeapon('shooter', 'pistol');
+    expect(world.getProjectiles().size).toBe(1);
+
+    // 투사체(420px/s)가 울타리(x≈60)를 지나 몬스터(x=150)까지 닿을 시간을 준다 — 짧게
+    // 잡아서 몬스터가 코어 쪽으로 너무 많이 걸어와 버리지 않게 한다.
+    for (let i = 0; i < 8; i += 1) world.tick(0.1);
+
+    expect(monster!.hp).toBeLessThan(monster!.maxHp); // 울타리를 통과해서 맞았다
+  });
 });

@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { HIT_RADIUS, TILE_SIZE, buildingsData } from '@dropfall/shared';
 import type {
   BuildingView,
   MonsterView,
@@ -58,6 +59,32 @@ const HP_BAR_WIDTH = 16;
 const HP_BAR_HEIGHT = 2;
 
 /**
+ * 플레이어-건축물 충돌 디버그 테두리. 하나의 합산 반경을 플레이어 위에만 크게
+ * 그리면 건축물의 실제 가장자리와 시각적으로 연결되지 않아 오히려 헷갈린다
+ * (world.ts의 `PLAYER_BUILDING_COLLISION_RADIUS` 참고: 이 값은 플레이어 자신의
+ * 반경과 건축물 자신의 반경의 "합"이다). 대신 플레이어에는 플레이어 자신의 반경을,
+ * 각 건축물에는 건축물 자신의 반경을 각각 그려서 — 두 원의 가장자리가 맞닿는
+ * 순간이 곧 "막히는 지점"이 되도록 했다. 색을 다르게 둬서 어느 쪽 반경인지
+ * 구분된다.
+ */
+const PLAYER_COLLISION_DEBUG_COLOR = 0x33ccff;
+const BUILDING_COLLISION_DEBUG_COLOR = 0xffcc33;
+const COLLISION_DEBUG_ALPHA = 0.9;
+/** 건축물 자신의 충돌 반경 — world.ts의 isBlockedForPlayer가 쓰는 TILE_SIZE/2와 동일. */
+const BUILDING_COLLISION_RADIUS = TILE_SIZE / 2;
+
+/**
+ * 보스 공격 예고(텔레그래프) 표시. 위험을 나타내는 붉은 계열 한 가지 색만 쓰고,
+ * 대신 예고가 끝나가는(발동이 가까워지는) 정도에 따라 채움 투명도를 올려서
+ * "곧 온다"는 긴박감을 준다 — 처음엔 옅게, 끝날수록 진하게.
+ */
+const TELEGRAPH_COLOR = 0xff3b3b;
+const TELEGRAPH_MIN_ALPHA = 0.15;
+const TELEGRAPH_MAX_ALPHA = 0.55;
+const TELEGRAPH_STROKE_ALPHA = 0.9;
+const TELEGRAPH_DEPTH = 9500;
+
+/**
  * 스냅샷 → Phaser 스프라이트 동기화 계층. 클라이언트 렌더링의 뼈대다.
  *
  * 스냅샷이 서버에서 왔는지 로컬 시뮬에서 왔는지 이 클래스는 모른다.
@@ -70,10 +97,14 @@ export class EntityRenderer {
   private readonly projectiles = new Map<string, Phaser.GameObjects.Arc>();
   private readonly resourceNodes = new Map<string, Phaser.GameObjects.Container>();
   private readonly buildings = new Map<string, Phaser.GameObjects.Container>();
+  /** 보스 공격 예고(텔레그래프) 표시. 몬스터 id별로 하나씩, 예고 중일 때만 존재한다. */
+  private readonly telegraphs = new Map<string, Phaser.GameObjects.Graphics>();
   /** 이동 여부 판정용 직전 좌표 */
   private readonly lastPositions = new Map<string, { x: number; y: number }>();
   private readonly hasSprite: boolean;
   private zoom = 1;
+  /** 켜면 모든 플레이어 위에 실제 이동-충돌 판정 반경(원)을 겹쳐 그린다(디버그용). */
+  private collisionDebugVisible = false;
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -98,6 +129,7 @@ export class EntityRenderer {
   sync(snapshot: WorldSnapshot): void {
     this.syncPlayers(snapshot.players);
     this.syncMonsters(snapshot.monsters);
+    this.syncTelegraphs(snapshot.monsters);
     this.syncProjectiles(snapshot.projectiles);
     this.syncResourceNodes(snapshot.resourceNodes);
     this.syncBuildings(snapshot.buildings);
@@ -107,6 +139,22 @@ export class EntityRenderer {
     return this.players.get(sessionId);
   }
 
+  /**
+   * 실제 캐릭터 에셋을 씌우면 그림과 판정 범위가 일치하지 않는 게 눈으로 안 보인다 —
+   * 켜면 플레이어에는 플레이어 자신의 충돌 반경을, 건축물에는 건축물 자신의 충돌
+   * 반경을 각각 원으로 겹쳐 그려서, 두 원이 맞닿는 지점이 곧 "막히는 지점"임을
+   * 눈으로 확인할 수 있게 한다.
+   */
+  setCollisionDebugVisible(visible: boolean): void {
+    this.collisionDebugVisible = visible;
+    for (const map of [this.players, this.buildings]) {
+      for (const sprite of map.values()) {
+        const circle = sprite.getByName('collisionDebug') as Phaser.GameObjects.Arc | null;
+        circle?.setVisible(visible);
+      }
+    }
+  }
+
   destroy(): void {
     for (const map of [this.players, this.monsters, this.resourceNodes, this.buildings]) {
       for (const sprite of map.values()) sprite.destroy();
@@ -114,6 +162,8 @@ export class EntityRenderer {
     }
     for (const dot of this.projectiles.values()) dot.destroy();
     this.projectiles.clear();
+    for (const gfx of this.telegraphs.values()) gfx.destroy();
+    this.telegraphs.clear();
   }
 
   // ---------------------------------------------------------------- 플레이어
@@ -179,7 +229,16 @@ export class EntityRenderer {
     label.setName('label');
     label.setResolution(this.zoom);
 
-    return this.scene.add.container(player.x, player.y, [aim, body, label]);
+    // 컨테이너 원점(0,0)이 곧 서버 좌표(player.x/y)이므로, 반경만 플레이어 자신의
+    // 충돌 반경(HIT_RADIUS)과 맞추면 스프라이트 origin/오프셋과 무관하게 정확한
+    // 판정 범위가 그려진다. 건축물 쪽 반경은 각 건축물에 따로 그린다(createBuilding).
+    const collisionDebug = this.scene.add.circle(0, 0, HIT_RADIUS);
+    collisionDebug.setStrokeStyle(1, PLAYER_COLLISION_DEBUG_COLOR, COLLISION_DEBUG_ALPHA);
+    collisionDebug.setFillStyle(0, 0);
+    collisionDebug.setName('collisionDebug');
+    collisionDebug.setVisible(this.collisionDebugVisible);
+
+    return this.scene.add.container(player.x, player.y, [aim, body, label, collisionDebug]);
   }
 
   private createPlaceholderBody(isMe: boolean): Phaser.GameObjects.Rectangle {
@@ -270,6 +329,79 @@ export class EntityRenderer {
     bar.setVisible(false);
 
     return this.scene.add.container(monster.x, monster.y, [barBack, bar, body]);
+  }
+
+  // ---------------------------------------------------------------- 보스 공격 예고
+
+  /**
+   * 몬스터 스냅샷에서 `telegraphKind`가 있는 것만 골라 위험 범위를 그린다. 매번
+   * `Graphics.clear()` 후 다시 그리는 방식이라(포즈/오브젝트 재사용이 아님) 도형이
+   * 단순해서(사각형/원 하나) 비용은 무시할 만하고, 대신 매 스냅샷 값이 그대로
+   * 반영된다는 게 보장된다.
+   */
+  private syncTelegraphs(views: MonsterView[]): void {
+    const alive = new Set<string>();
+
+    for (const monster of views) {
+      if (!monster.telegraphKind) continue;
+      alive.add(monster.id);
+
+      let gfx = this.telegraphs.get(monster.id);
+      if (!gfx) {
+        gfx = this.scene.add.graphics();
+        gfx.setDepth(TELEGRAPH_DEPTH);
+        this.telegraphs.set(monster.id, gfx);
+      }
+
+      // 예고 진행률(0=시작, 1=발동 직전)에 따라 채움을 점점 진하게 — 임박했음을 알린다.
+      const progress =
+        monster.telegraphTotal > 0
+          ? 1 - monster.telegraphRemaining / monster.telegraphTotal
+          : 1;
+      const alpha = TELEGRAPH_MIN_ALPHA + (TELEGRAPH_MAX_ALPHA - TELEGRAPH_MIN_ALPHA) * progress;
+
+      gfx.clear();
+      gfx.fillStyle(TELEGRAPH_COLOR, alpha);
+      gfx.lineStyle(1.5, TELEGRAPH_COLOR, TELEGRAPH_STROKE_ALPHA);
+
+      if (monster.telegraphKind === 'charge') {
+        this.drawChargeTelegraph(gfx, monster);
+      } else {
+        gfx.fillCircle(monster.telegraphX, monster.telegraphY, monster.telegraphRadius);
+        gfx.strokeCircle(monster.telegraphX, monster.telegraphY, monster.telegraphRadius);
+      }
+    }
+
+    for (const [id, gfx] of this.telegraphs) {
+      if (alive.has(id)) continue;
+      gfx.destroy();
+      this.telegraphs.delete(id);
+    }
+  }
+
+  /**
+   * 돌진 예고는 시작점(telegraphX/Y)에서 dirX/Y 방향으로 range만큼 뻗은, 폭
+   * radius*2짜리 직사각형이다. 회전한 사각형이라 네 꼭짓점을 직접 벡터로 계산해서
+   * `fillPoints`/`strokePoints`로 그린다(캔버스 좌표계 회전 명령보다 좌표 계산이
+   * 명확해서 검증하기 쉽다).
+   */
+  private drawChargeTelegraph(gfx: Phaser.GameObjects.Graphics, monster: MonsterView): void {
+    const { telegraphX: ox, telegraphY: oy, telegraphDirX: dx, telegraphDirY: dy } = monster;
+    const halfWidth = monster.telegraphRadius;
+    const length = monster.telegraphRange;
+    // dir에 수직인 단위 벡터(90도 회전) — 사각형의 "폭" 방향.
+    const perpX = -dy;
+    const perpY = dx;
+
+    const points = [
+      { x: ox + perpX * halfWidth, y: oy + perpY * halfWidth },
+      { x: ox - perpX * halfWidth, y: oy - perpY * halfWidth },
+      { x: ox - perpX * halfWidth + dx * length, y: oy - perpY * halfWidth + dy * length },
+      { x: ox + perpX * halfWidth + dx * length, y: oy + perpY * halfWidth + dy * length },
+    ];
+
+    gfx.fillPoints(points, true);
+    gfx.strokePoints(points, true);
   }
 
   // ---------------------------------------------------------------- 투사체
@@ -371,7 +503,20 @@ export class EntityRenderer {
     barBack.setVisible(false);
     bar.setVisible(false);
 
-    return this.scene.add.container(building.x, building.y, [barBack, bar, body]);
+    const children: Phaser.GameObjects.GameObject[] = [barBack, bar, body];
+
+    // 이동을 막는 건축물(벽/울타리)만 자신의 충돌 반경을 그린다 — 이동을 막지 않는
+    // 건축물(향후 확장 대비)까지 원을 그리면 "여기도 막힌다"는 오해를 준다.
+    if (buildingsData[building.type]?.blocksMovement) {
+      const collisionDebug = this.scene.add.circle(0, 0, BUILDING_COLLISION_RADIUS);
+      collisionDebug.setStrokeStyle(1, BUILDING_COLLISION_DEBUG_COLOR, COLLISION_DEBUG_ALPHA);
+      collisionDebug.setFillStyle(0, 0);
+      collisionDebug.setName('collisionDebug');
+      collisionDebug.setVisible(this.collisionDebugVisible);
+      children.push(collisionDebug);
+    }
+
+    return this.scene.add.container(building.x, building.y, children);
   }
 
   // ---------------------------------------------------------------- 공통

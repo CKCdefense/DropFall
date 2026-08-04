@@ -1,4 +1,12 @@
-import { RoomPhase, TICK_RATE, World, type JobId, type PlayerInputMessage } from '@dropfall/shared';
+import {
+  RoomPhase,
+  TICK_RATE,
+  World,
+  describeBossTelegraph,
+  monstersData,
+  type JobId,
+  type PlayerInputMessage,
+} from '@dropfall/shared';
 import type { GameConnection, LobbyView, RoomInfo, WorldSnapshot } from './GameConnection';
 import { SnapshotInterpolator } from './SnapshotInterpolator';
 
@@ -85,6 +93,7 @@ export class LocalConnection implements GameConnection {
 
     const monsters: WorldSnapshot['monsters'] = [];
     for (const [id, monster] of this.world.getMonsters()) {
+      const telegraph = describeBossTelegraph(monster, monstersData[monster.type]);
       monsters.push({
         id,
         type: monster.type,
@@ -92,6 +101,15 @@ export class LocalConnection implements GameConnection {
         y: monster.y,
         hp: monster.hp,
         maxHp: monster.maxHp,
+        telegraphKind: telegraph?.kind ?? '',
+        telegraphX: telegraph?.x ?? 0,
+        telegraphY: telegraph?.y ?? 0,
+        telegraphDirX: telegraph?.dirX ?? 0,
+        telegraphDirY: telegraph?.dirY ?? 0,
+        telegraphRadius: telegraph?.radius ?? 0,
+        telegraphRange: telegraph?.range ?? 0,
+        telegraphRemaining: telegraph?.remaining ?? 0,
+        telegraphTotal: telegraph?.total ?? 0,
       });
     }
 

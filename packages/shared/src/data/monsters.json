@@ -27,6 +27,20 @@
     "speed": 40,
     "attackRange": 20,
     "attackInterval": 2,
-    "aggroRadius": 200
+    "aggroRadius": 200,
+    "chargeAttack": {
+      "telegraphSeconds": 1,
+      "speed": 260,
+      "duration": 0.5,
+      "width": 40,
+      "damage": 30,
+      "cooldown": 8
+    },
+    "slamAttack": {
+      "telegraphSeconds": 1.3,
+      "radius": 70,
+      "damage": 35,
+      "cooldown": 10
+    }
   }
 }

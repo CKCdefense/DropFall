@@ -30,6 +30,18 @@ export interface MonsterView {
   y: number;
   hp: number;
   maxHp: number;
+  /** 보스 전용 공격 예고(텔레그래프). 진행 중이 아니면 빈 문자열. */
+  telegraphKind: '' | 'charge' | 'slam';
+  telegraphX: number;
+  telegraphY: number;
+  telegraphDirX: number;
+  telegraphDirY: number;
+  /** 돌진: 경로 폭의 절반. 광역: 범위 반경. */
+  telegraphRadius: number;
+  /** 돌진: 예고 종료 시 실제로 도달할 거리. 광역: 0. */
+  telegraphRange: number;
+  telegraphRemaining: number;
+  telegraphTotal: number;
 }
 
 export interface ProjectileView {

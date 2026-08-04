@@ -37,6 +37,15 @@ interface RemoteMonsterState {
   y: number;
   hp: number;
   maxHp: number;
+  telegraphKind: string;
+  telegraphX: number;
+  telegraphY: number;
+  telegraphDirX: number;
+  telegraphDirY: number;
+  telegraphRadius: number;
+  telegraphRange: number;
+  telegraphRemaining: number;
+  telegraphTotal: number;
 }
 
 interface RemoteResourceNodeState {
@@ -231,6 +240,15 @@ export class ColyseusConnection implements GameConnection {
         y: monster.y,
         hp: monster.hp,
         maxHp: monster.maxHp,
+        telegraphKind: (monster.telegraphKind || '') as '' | 'charge' | 'slam',
+        telegraphX: monster.telegraphX,
+        telegraphY: monster.telegraphY,
+        telegraphDirX: monster.telegraphDirX,
+        telegraphDirY: monster.telegraphDirY,
+        telegraphRadius: monster.telegraphRadius,
+        telegraphRange: monster.telegraphRange,
+        telegraphRemaining: monster.telegraphRemaining,
+        telegraphTotal: monster.telegraphTotal,
       });
     });
 

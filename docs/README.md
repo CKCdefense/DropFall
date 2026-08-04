@@ -37,6 +37,10 @@
 | [backend/24-work-report-resource-building-mvp.md](backend/24-work-report-resource-building-mvp.md) | 작업 보고서 — 자원채집·건축 MVP 구현(서버/공유 시뮬레이션) |
 | [backend/25-work-report-resource-building-client-placeholder.md](backend/25-work-report-resource-building-client-placeholder.md) | 작업 보고서 — 자원채집·건축 클라이언트 연결(에셋 없이 도형 플레이스홀더) |
 | [backend/26-work-report-resource-node-clustering.md](backend/26-work-report-resource-node-clustering.md) | 작업 보고서 — 자원 노드를 군집(클러스터)으로 랜덤 배치 |
+| [backend/27-work-report-building-defense-bugs.md](backend/27-work-report-building-defense-bugs.md) | 작업 보고서 — 건축물 관련 버그 두 건(몬스터 정지, 투사체가 벽 통과) 수정 |
+| [backend/28-work-report-player-building-collision.md](backend/28-work-report-player-building-collision.md) | 작업 보고서 — 플레이어-건축물 하드 충돌(벽/울타리 통과 방지) |
+| [backend/29-work-report-collision-debug-overlay.md](backend/29-work-report-collision-debug-overlay.md) | 작업 보고서 — 플레이어 충돌 반경 디버그 테두리(C 키 토글) |
+| [backend/30-work-report-boss-attack-patterns.md](backend/30-work-report-boss-attack-patterns.md) | 작업 보고서 — 보스 공격 패턴 추가(돌진 예고/광역 예고) |
 
 ### 역할 C — 클라이언트/렌더/UI 작업 문서 ([frontend/](frontend/))
 

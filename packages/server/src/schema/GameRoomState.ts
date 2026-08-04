@@ -21,6 +21,18 @@ export class MonsterSchema extends Schema {
   @type('number') y = 0;
   @type('number') hp = 0;
   @type('number') maxHp = 0;
+  /** 보스 전용 공격 예고(텔레그래프). 진행 중이 아니면 빈 문자열('' | 'charge' | 'slam'). */
+  @type('string') telegraphKind = '';
+  @type('number') telegraphX = 0;
+  @type('number') telegraphY = 0;
+  @type('number') telegraphDirX = 0;
+  @type('number') telegraphDirY = 0;
+  /** 돌진: 경로 폭의 절반. 광역: 범위 반경. */
+  @type('number') telegraphRadius = 0;
+  /** 돌진: 예고 종료 시 실제로 도달할 거리. 광역: 0. */
+  @type('number') telegraphRange = 0;
+  @type('number') telegraphRemaining = 0;
+  @type('number') telegraphTotal = 0;
 }
 
 export class ProjectileSchema extends Schema {

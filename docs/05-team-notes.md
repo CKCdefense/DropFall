@@ -206,3 +206,7 @@ interface FireInputMessage {
 | [backend/24](backend/24-work-report-resource-building-mvp.md) | 자원채집·건축 MVP 구현 — 서버/공유 시뮬레이션, 클라이언트(역할 C)는 범위 밖 |
 | [backend/25](backend/25-work-report-resource-building-client-placeholder.md) | 자원채집·건축 클라이언트 연결 — 도형 플레이스홀더, Playwright 포커스 이슈 진단 |
 | [backend/26](backend/26-work-report-resource-node-clustering.md) | 자원 노드를 군집(클러스터)으로 랜덤 배치 — WorldOptions.rng 주입, 군집 겹침으로 깨진 테스트 수정 |
+| [backend/27](backend/27-work-report-building-defense-bugs.md) | 건축물 버그 수정 — 코어 완전 포위 시 몬스터 정지, 벽을 무시하고 코어/타겟 직공격, 투사체가 벽 통과 |
+| [backend/28](backend/28-work-report-player-building-collision.md) | 플레이어-건축물 하드 충돌 — 벽/울타리를 캐릭터가 통과하지 못하게 원형 충돌 + 축 슬라이딩 적용 |
+| [backend/29](backend/29-work-report-collision-debug-overlay.md) | 플레이어 충돌 반경 디버그 테두리 — C 키 토글, 반경 상수를 shared에서 export해 실제 판정과 일치 보장 |
+| [backend/30](backend/30-work-report-boss-attack-patterns.md) | 보스 공격 패턴(돌진/광역) — 예고 후 발동하는 상태 머신, describeBossTelegraph로 서버/로컬 동기화 로직 통합 |

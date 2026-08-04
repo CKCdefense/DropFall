@@ -18,6 +18,7 @@ export class GameScene extends Phaser.Scene {
   private entityRenderer!: EntityRenderer;
   private input_!: InputController;
   private isFollowing = false;
+  private collisionDebugVisible = false;
 
   constructor() {
     super(GAME_SCENE_KEY);
@@ -50,6 +51,13 @@ export class GameScene extends Phaser.Scene {
 
     this.applyZoom();
     this.scale.on(Phaser.Scale.Events.RESIZE, this.applyZoom, this);
+
+    // C: 플레이어-건축물 충돌 판정 반경 디버그 테두리 토글. 실제 캐릭터 에셋을
+    // 씌우면 그림만 봐서는 판정 범위를 가늠하기 어려워서, 확인용으로 추가했다.
+    this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.C).on('down', () => {
+      this.collisionDebugVisible = !this.collisionDebugVisible;
+      this.entityRenderer.setCollisionDebugVisible(this.collisionDebugVisible);
+    });
 
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.scale.off(Phaser.Scale.Events.RESIZE, this.applyZoom, this);

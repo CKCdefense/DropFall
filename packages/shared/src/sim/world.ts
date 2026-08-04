@@ -5,6 +5,7 @@ import {
   resourcesData,
   wavesData,
   type BuildingType,
+  type MonsterData,
   type MonsterType,
   type ResourceType,
 } from '../data';
@@ -43,6 +44,17 @@ const SEPARATION_WEIGHT = 0.6;
 /** 한 번 잡은 어그로 타겟은 아그로 반경의 이 배수를 벗어나기 전까진 유지한다(타겟 떨림 방지). */
 const AGGRO_LEASH_MULTIPLIER = 1.5;
 /**
+ * 플레이어와 이동 차단 건축물(벽/울타리) 사이의 하드 충돌 판정 반경(px) —
+ * 플레이어 자신의 반경(`HIT_RADIUS`)과 건축물 자신의 반경(`TILE_SIZE / 2`)의 합이다.
+ * 원-원 충돌은 "두 반경의 합보다 중심 간 거리가 가까우면 겹친다"는 규칙이라, 이
+ * 상수 자체가 두 원이 맞닿는 지점을 뜻한다. `HIT_RADIUS`를 별도로 export하는 이유:
+ * 클라이언트 디버그 테두리(EntityRenderer)가 플레이어 원과 건축물 원을 각각 그려서
+ * "두 원이 닿으면 막힌다"를 그대로 보여주려면, 이 합산을 이루는 두 값 모두 서버와
+ * 정확히 같아야 한다(값이 서버/시뮬레이션 쪽과 어긋나면 안 됨).
+ */
+export const PLAYER_BUILDING_COLLISION_RADIUS = HIT_RADIUS + TILE_SIZE / 2;
+export { HIT_RADIUS };
+/**
  * 몬스터가 "처음" 플레이어를 발견할 때만 적용하는 시야각(120도, 바라보는 방향 기준 ±60도).
  * cos(60°)=0.5 — 내적(dot product)이 이 값 이상이면 시야각 안이다. atan2/acos 없이 내적
  * 하나로 판정할 수 있어 후보 플레이어 수만큼 곱셈 몇 번이면 끝난다(이미 거리 계산에 쓰는
@@ -53,6 +65,12 @@ const AGGRO_LEASH_MULTIPLIER = 1.5;
  * 안 거는 게 사람이 느끼기에도, 게임 로직으로도 자연스럽다.
  */
 const AGGRO_FOV_COS_HALF_ANGLE = Math.cos(Math.PI / 3);
+/**
+ * 보스가 스폰된 직후 특수 패턴(돌진/광역)을 처음 쓸 수 있게 되기까지의 유예 시간(초).
+ * 스폰하자마자 바로 예고 없이(사실은 예고가 있지만) 패턴을 쓰면 플레이어가 상황을
+ * 파악하기도 전에 위협이 시작돼 불공평하게 느껴진다.
+ */
+const BOSS_FIRST_PATTERN_DELAY = 3;
 
 /**
  * 자원 노드 배치(플레이스홀더, docs/backend/26). 한 지점에 몰아서 "군집"으로 배치한다 —
@@ -72,8 +90,12 @@ const STONE_NODES_PER_CLUSTER = 3;
  * 스폰 반경(wavesData.spawnRadius=300)보다도 훨씬 멀리 나올 수 있어서 낮 시간 안에
  * 왕복하기엔 너무 멀었다. 몬스터 스폰 반경 바로 안팎으로만 좁혀서 — 위험을 살짝
  * 감수하는 정도의 거리로 맞췄다.
+ *
+ * 최소 거리는 플레이어 스폰 반경(40px, GameRoom/LocalConnection의 SPAWN_RADIUS)보다
+ * 한참 더 떨어뜨려 뒀다 — 스폰하자마자 코앞에서 바로 채집이 시작되면 낮 시간의
+ * "찾아간다"는 긴장감이 사라져서 너무 쉬워진다.
  */
-const CLUSTER_MIN_DISTANCE = 100;
+const CLUSTER_MIN_DISTANCE = 150;
 const CLUSTER_MAX_DISTANCE = 350;
 /** 클러스터 중심 주변으로 노드가 흩어지는 반경(px). */
 const CLUSTER_JITTER_RADIUS = 48;
@@ -101,6 +123,22 @@ export interface ResourceNodeEntity {
   respawnTimer: number;
 }
 
+/**
+ * 보스 전용 특수 공격 패턴(돌진/광역)의 상태 머신. 일반 몹은 항상 `{ kind: 'idle' }`로
+ * 고정이다 — `chargeAttack`/`slamAttack` 데이터가 없는 타입은 `tickBossPattern`이
+ * 첫 검사에서 바로 false를 반환하므로 이 상태를 실제로 오갈 일이 없다.
+ *
+ * idle → (chargeTelegraph → charging | slamTelegraph) → idle 순으로만 전이한다.
+ * 예고(Telegraph) 상태의 값(방향/지점)은 예고 "시작 시점"에 한 번 고정된다 — 그래야
+ * 화면에 미리 보여준 위험 범위와 실제로 피해가 들어가는 범위가 정확히 일치한다(타겟이
+ * 예고 도중 움직여도 범위가 따라가면 "본 대로 피했는데 맞는" 상황이 생긴다).
+ */
+export type BossPatternState =
+  | { kind: 'idle' }
+  | { kind: 'chargeTelegraph'; timer: number; total: number; dirX: number; dirY: number }
+  | { kind: 'charging'; timer: number; dirX: number; dirY: number; hitPlayerIds: Set<string> }
+  | { kind: 'slamTelegraph'; timer: number; total: number; x: number; y: number };
+
 export interface MonsterEntity {
   id: string;
   type: MonsterType;
@@ -117,6 +155,10 @@ export interface MonsterEntity {
    */
   facingX: number;
   facingY: number;
+  /** 보스 전용 특수 패턴 상태(§BossPatternState). 일반 몹은 항상 idle이다. */
+  pattern: BossPatternState;
+  /** 다음 특수 패턴을 쓸 수 있게 되기까지 남은 시간(초). chargeAttack/slamAttack이 없는 타입은 쓰지 않는다. */
+  specialAttackCooldown: number;
 }
 
 export interface CoreState {
@@ -343,9 +385,7 @@ export class World {
     for (const [id, player] of this.players) {
       const input = this.inputs.get(id);
       if (!input) continue;
-      const next = stepPosition(player.x, player.y, input.moveX, input.moveY, dtSeconds);
-      player.x = next.x;
-      player.y = next.y;
+      this.movePlayer(player, input.moveX, input.moveY, dtSeconds);
       player.aimAngle = input.aimAngle;
       player.lastProcessedSeq = input.seq;
     }
@@ -495,6 +535,8 @@ export class World {
       attackCooldown: 0,
       facingX,
       facingY,
+      pattern: { kind: 'idle' },
+      specialAttackCooldown: data.chargeAttack || data.slamAttack ? BOSS_FIRST_PATTERN_DELAY : 0,
     });
   }
 
@@ -562,10 +604,13 @@ export class World {
    * 멈추고 공격 주기(attackInterval)마다 대미지를 준다. 실제 이동에는 군집 분리를
    * 섞어서(moveMonster) 여러 마리가 완전히 겹쳐 스택되지 않게 한다.
    *
-   * 살아있는 목표(추격 타겟 → 코어)가 항상 최우선이고, 둘 다 사거리 밖이라 이동해야
-   * 하는데 그 자리에서 공격 사거리 안에 이동을 막는 건축물이 있으면 이동 대신 그것부터
-   * 공격한다(docs/backend/24, 기술명세 §5.3 "막힘 감지"의 단순화 버전 — 정밀한 우회
-   * 비용 비교 대신 기존 근접 판정과 동일한 반경 기반 규칙을 쓴다).
+   * 살아있는 목표(추격 타겟/코어)보다 **막는 건축물이 항상 우선**이다 — 처음엔 반대로
+   * "타겟이 사거리 안이면 무조건 타겟부터"였는데, 그러면 코어/플레이어를 벽으로 완전히
+   * 둘러싸도 몬스터가 raw 거리만으로 사거리 판정을 통과해서 벽을 그냥 뚫고 공격해
+   * 버렸다(실제로 코어를 8방향 벽으로 둘러싼 뒤 관찰해서 재현 확인, docs/backend/27) —
+   * 벽이 있으나 마나였다. 이제는 공격 사거리 안에 이동을 막는 건축물이 있으면 그것부터
+   * 처리하고, 없을 때만 타겟/코어를 공격한다(docs/backend/24, 기술명세 §5.3 "막힘 감지"의
+   * 단순화 버전 — 정밀한 우회 비용 비교 대신 기존 근접 판정과 동일한 반경 기반 규칙을 쓴다).
    *
    * `facingX/Y`는 이 함수가 매 틱 끝에 갱신한다 — 추격 중이면 타겟 방향, 코어를 공격
    * 중이면 코어 방향, 그 외엔 Flow Field 방향. 전부 이미 계산해 둔 벡터라 이 갱신
@@ -575,6 +620,11 @@ export class World {
     for (const monster of this.monsters.values()) {
       const data = monstersData[monster.type];
       monster.attackCooldown = Math.max(0, monster.attackCooldown - dtSeconds);
+
+      // 보스 특수 패턴이 이번 틱의 이동/공격을 전부 처리했으면(예고 중이라 멈춰 있거나
+      // 돌진 중이거나) 아래 일반 추격/이동 로직은 건너뛴다. chargeAttack/slamAttack이
+      // 없는 타입(잡몹 등)은 매 틱 이 검사 하나만 거치고 바로 false를 반환한다.
+      if (this.tickBossPattern(monster, data, dtSeconds)) continue;
 
       const target = data.aggroRadius
         ? this.resolveAggroTarget(monster, data.aggroRadius)
@@ -588,23 +638,28 @@ export class World {
           monster.facingY = (target.y - monster.y) / distance;
         }
 
-        if (distance <= data.attackRange) {
+        const blocker = this.findBlockingBuildingInRange(monster, data.attackRange);
+        if (blocker) {
+          this.attackBuilding(monster, blocker, data.damage, data.attackInterval);
+        } else if (distance <= data.attackRange) {
           if (monster.attackCooldown <= 0) {
             target.hp = Math.max(0, target.hp - data.damage);
             monster.attackCooldown = data.attackInterval;
           }
         } else {
-          const blocker = this.findBlockingBuildingInRange(monster, data.attackRange);
-          if (blocker) {
-            this.attackBuilding(monster, blocker, data.damage, data.attackInterval);
-          } else {
-            this.moveMonster(monster, monster.facingX, monster.facingY, data.speed, dtSeconds);
-          }
+          this.moveMonster(monster, monster.facingX, monster.facingY, data.speed, dtSeconds);
         }
         continue;
       }
 
       const distanceToCore = Math.hypot(monster.x, monster.y);
+
+      const blocker = this.findBlockingBuildingInRange(monster, data.attackRange);
+      if (blocker) {
+        this.attackBuilding(monster, blocker, data.damage, data.attackInterval);
+        continue;
+      }
+
       if (distanceToCore <= data.attackRange + CORE_RADIUS) {
         if (distanceToCore > 0) {
           monster.facingX = -monster.x / distanceToCore;
@@ -617,26 +672,172 @@ export class World {
         continue;
       }
 
-      const blocker = this.findBlockingBuildingInRange(monster, data.attackRange);
-      if (blocker) {
-        this.attackBuilding(monster, blocker, data.damage, data.attackInterval);
-        continue;
-      }
-
       // 코어까지 막힌 셀이 없으면 Flow Field(격자 8방향으로만 방향을 낼 수 있어 각도가
       // 유한하게 끊긴다) 대신 코어를 향한 진짜 연속각으로 직진시킨다 — 실제로 피할
       // 장애물이 있을 때만 Flow Field 방향으로 우회한다(backend/21).
       const direct = this.flowField.hasLineOfSight(monster.x, monster.y, 0, 0);
-      const dir = direct
+      let dir = direct
         ? { x: -monster.x / distanceToCore, y: -monster.y / distanceToCore }
         : this.flowField.sampleDirection(monster.x, monster.y);
-      // {0,0}(도달 불가)이면 바라보던 방향을 그대로 둔다 — 방향 없는 시야는 의미가 없다.
-      if (dir.x !== 0 || dir.y !== 0) {
-        monster.facingX = dir.x;
-        monster.facingY = dir.y;
+
+      if (dir.x === 0 && dir.y === 0) {
+        // Flow Field로도 도달 경로를 못 찾은 경우 — 예를 들어 코어를 건축물로 완전히
+        // 둘러싸면 Dijkstra가 그 안쪽에 아예 도달을 못 해서 바깥의 모든 셀이 도달 불가로
+        // 남는다. 그렇다고 몬스터를 그 자리에 멈춰 세우면 "건물로 코어를 완전히 둘러싸면
+        // 무적이 된다"는 방어 게임으로선 말이 안 되는 허점이 생긴다. 우회로가 없어도
+        // 코어를 향해 계속 직진시켜서, 결국 가로막은 건축물에 부딪히면(사거리 안에
+        // 들어오면) 위 `findBlockingBuildingInRange`가 잡아서 부수기 시작하게 한다.
+        dir = { x: -monster.x / distanceToCore, y: -monster.y / distanceToCore };
       }
+
+      monster.facingX = dir.x;
+      monster.facingY = dir.y;
       this.moveMonster(monster, dir.x, dir.y, data.speed, dtSeconds);
     }
+  }
+
+  /**
+   * 보스 전용 특수 패턴(돌진/광역)의 상태 전이를 한 틱 진행한다. `chargeAttack`/
+   * `slamAttack` 데이터가 둘 다 없는 타입(잡몹 등)은 이 검사 하나만 거치고 즉시
+   * false를 반환해서 일반 몹의 틱 비용을 사실상 늘리지 않는다.
+   *
+   * true를 반환하면 이번 틱의 이동/공격을 이 메서드가 전부 처리했다는 뜻이라, 호출부
+   * (tickMonsters)는 일반 추격/코어 공격/Flow Field 이동 로직을 건너뛰어야 한다 —
+   * 예고 중에는 몬스터가 그 자리에 멈춰 있어야 화면에 미리 보여준 위험 범위와 실제
+   * 판정 범위가 어긋나지 않는다.
+   */
+  private tickBossPattern(monster: MonsterEntity, data: MonsterData, dtSeconds: number): boolean {
+    if (!data.chargeAttack && !data.slamAttack) return false;
+
+    switch (monster.pattern.kind) {
+      case 'chargeTelegraph':
+        return this.tickChargeTelegraph(monster, data, dtSeconds);
+      case 'charging':
+        return this.tickCharging(monster, data, dtSeconds);
+      case 'slamTelegraph':
+        return this.tickSlamTelegraph(monster, data, dtSeconds);
+      case 'idle':
+        return this.tryStartBossPattern(monster, data, dtSeconds);
+    }
+  }
+
+  /**
+   * 유휴 상태에서 특수 패턴 발동을 시도한다. 쿨다운이 남아있거나 아그로 타겟이 없으면
+   * false를 반환해서 그 틱은 평소처럼(추격/코어 공격/이동) 행동한다 — 특수 패턴은
+   * 평소 행동을 "대체"하는 것이지 별도로 얹는 게 아니다.
+   */
+  private tryStartBossPattern(monster: MonsterEntity, data: MonsterData, dtSeconds: number): boolean {
+    monster.specialAttackCooldown = Math.max(0, monster.specialAttackCooldown - dtSeconds);
+    if (monster.specialAttackCooldown > 0) return false;
+
+    const target = data.aggroRadius ? this.resolveAggroTarget(monster, data.aggroRadius) : undefined;
+    if (!target) return false;
+
+    const canCharge = !!data.chargeAttack;
+    const canSlam = !!data.slamAttack;
+    // 둘 다 가능하면 매번 무작위로 고른다 — 항상 같은 순서로만 나오면 패턴이 아니라
+    // 그냥 다음 공격을 외우는 게 돼버린다.
+    const useCharge = canCharge && (!canSlam || this.rng() < 0.5);
+
+    const dx = target.x - monster.x;
+    const dy = target.y - monster.y;
+    const distance = Math.hypot(dx, dy);
+    const dirX = distance > 0 ? dx / distance : monster.facingX;
+    const dirY = distance > 0 ? dy / distance : monster.facingY;
+    monster.facingX = dirX;
+    monster.facingY = dirY;
+
+    if (useCharge) {
+      const charge = data.chargeAttack!;
+      monster.pattern = {
+        kind: 'chargeTelegraph',
+        timer: charge.telegraphSeconds,
+        total: charge.telegraphSeconds,
+        dirX,
+        dirY,
+      };
+    } else {
+      const slam = data.slamAttack!;
+      // 타겟의 "현재" 위치에 지점을 고정한다 — 예고가 끝날 때까지 타겟을 계속 따라가면
+      // 미리 보여준 범위 밖으로 피해도 소용없어진다.
+      monster.pattern = {
+        kind: 'slamTelegraph',
+        timer: slam.telegraphSeconds,
+        total: slam.telegraphSeconds,
+        x: target.x,
+        y: target.y,
+      };
+    }
+    return true;
+  }
+
+  /** 돌진 예고 — 그 자리에 멈춰 방향을 유지하다가, 시간이 다 되면 실제 돌진으로 전이한다. */
+  private tickChargeTelegraph(monster: MonsterEntity, data: MonsterData, dtSeconds: number): boolean {
+    const pattern = monster.pattern as Extract<BossPatternState, { kind: 'chargeTelegraph' }>;
+    monster.facingX = pattern.dirX;
+    monster.facingY = pattern.dirY;
+    pattern.timer -= dtSeconds;
+    if (pattern.timer > 0) return true;
+
+    const charge = data.chargeAttack!;
+    monster.pattern = {
+      kind: 'charging',
+      timer: charge.duration,
+      dirX: pattern.dirX,
+      dirY: pattern.dirY,
+      hitPlayerIds: new Set(),
+    };
+    return true;
+  }
+
+  /**
+   * 실제 돌진 실행. 예고 때 고정한 방향으로 `chargeAttack.speed`만큼 빠르게 이동하며,
+   * 경로 폭(`width`) 안에 들어온 플레이어를 때린다 — 한 번의 돌진 동안 같은 플레이어를
+   * 여러 틱에 걸쳐 중복으로 맞히지 않도록 `hitPlayerIds`로 1회만 적중시킨다.
+   */
+  private tickCharging(monster: MonsterEntity, data: MonsterData, dtSeconds: number): boolean {
+    const pattern = monster.pattern as Extract<BossPatternState, { kind: 'charging' }>;
+    const charge = data.chargeAttack!;
+
+    monster.facingX = pattern.dirX;
+    monster.facingY = pattern.dirY;
+    this.moveMonster(monster, pattern.dirX, pattern.dirY, charge.speed, dtSeconds);
+
+    const hitRadius = HIT_RADIUS + charge.width / 2;
+    for (const player of this.players.values()) {
+      if (player.hp <= 0 || pattern.hitPlayerIds.has(player.id)) continue;
+      if (circlesOverlap(monster.x, monster.y, player.x, player.y, hitRadius)) {
+        player.hp = Math.max(0, player.hp - charge.damage);
+        pattern.hitPlayerIds.add(player.id);
+      }
+    }
+
+    pattern.timer -= dtSeconds;
+    if (pattern.timer <= 0) {
+      monster.pattern = { kind: 'idle' };
+      monster.specialAttackCooldown = charge.cooldown;
+    }
+    return true;
+  }
+
+  /** 광역 예고 — 그 자리(타겟 위치에 멈춘 지점)에서 대기하다가, 시간이 다 되면 즉시 범위 피해를 준다. */
+  private tickSlamTelegraph(monster: MonsterEntity, data: MonsterData, dtSeconds: number): boolean {
+    const pattern = monster.pattern as Extract<BossPatternState, { kind: 'slamTelegraph' }>;
+    pattern.timer -= dtSeconds;
+    if (pattern.timer > 0) return true;
+
+    const slam = data.slamAttack!;
+    const hitRadius = slam.radius + HIT_RADIUS;
+    for (const player of this.players.values()) {
+      if (player.hp <= 0) continue;
+      if (circlesOverlap(pattern.x, pattern.y, player.x, player.y, hitRadius)) {
+        player.hp = Math.max(0, player.hp - slam.damage);
+      }
+    }
+
+    monster.pattern = { kind: 'idle' };
+    monster.specialAttackCooldown = slam.cooldown;
+    return true;
   }
 
   /** 공격 사거리 안의, 이동을 막는(blocksMovement) 건축물 중 가장 가까운 것을 찾는다. */
@@ -657,6 +858,50 @@ export class World {
     }
 
     return nearest;
+  }
+
+  /** 이동을 막는(blocksMovement) 건축물과 겹치는지 검사한다(플레이어-건축물 하드 충돌). */
+  private isBlockedForPlayer(x: number, y: number): boolean {
+    for (const building of this.buildings.values()) {
+      if (!buildingsData[building.type].blocksMovement) continue;
+      if (circlesOverlap(x, y, building.x, building.y, PLAYER_BUILDING_COLLISION_RADIUS)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * 플레이어를 건축물과 겹치지 않는 선에서 이동시킨다.
+   *
+   * 전체 이동이 막히면 X축만, 그것도 막히면 Y축만 시도한다(축 슬라이딩) — 벽에 대각선으로
+   * 부딪혔을 때 완전히 멈추는 대신 벽을 따라 미끄러지듯 이동하게 하기 위함이다.
+   */
+  private movePlayer(
+    player: PlayerEntity,
+    moveX: number,
+    moveY: number,
+    dtSeconds: number,
+  ): void {
+    const full = stepPosition(player.x, player.y, moveX, moveY, dtSeconds);
+    if (!this.isBlockedForPlayer(full.x, full.y)) {
+      player.x = full.x;
+      player.y = full.y;
+      return;
+    }
+
+    const xOnly = stepPosition(player.x, player.y, moveX, 0, dtSeconds);
+    if (!this.isBlockedForPlayer(xOnly.x, xOnly.y)) {
+      player.x = xOnly.x;
+      player.y = xOnly.y;
+      return;
+    }
+
+    const yOnly = stepPosition(player.x, player.y, 0, moveY, dtSeconds);
+    if (!this.isBlockedForPlayer(yOnly.x, yOnly.y)) {
+      player.x = yOnly.x;
+      player.y = yOnly.y;
+    }
   }
 
   /** 건축물 공격. HP가 0이 되면 제거하고 Flow Field를 다시 계산한다(막던 셀이 열렸으므로). */
@@ -749,14 +994,35 @@ export class World {
     }
   }
 
+  /**
+   * 투사체 충돌 처리. 몬스터 판정을 먼저 하고, 못 맞혔으면 건축물 판정으로 넘어간다
+   * — `blocksProjectile`인 건축물(벽)만 투사체를 막는다(울타리는 통과시킨다,
+   * docs/backend/18 §1). 건축물은 데미지를 입지 않는다 — 몬스터 공격으로만 부서진다.
+   */
   private resolveProjectileHits(): void {
     for (const [projectileId, projectile] of this.projectiles) {
-      for (const [monsterId, monster] of this.monsters) {
-        if (circlesOverlap(projectile.x, projectile.y, monster.x, monster.y, HIT_RADIUS)) {
-          this.damageMonster(monsterId, monster.hp - projectile.damage);
-          this.projectiles.delete(projectileId);
-          break;
-        }
+      if (this.projectileHitsMonster(projectileId, projectile)) continue;
+      this.projectileHitsBuilding(projectileId, projectile);
+    }
+  }
+
+  private projectileHitsMonster(projectileId: string, projectile: ProjectileEntity): boolean {
+    for (const [monsterId, monster] of this.monsters) {
+      if (circlesOverlap(projectile.x, projectile.y, monster.x, monster.y, HIT_RADIUS)) {
+        this.damageMonster(monsterId, monster.hp - projectile.damage);
+        this.projectiles.delete(projectileId);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private projectileHitsBuilding(projectileId: string, projectile: ProjectileEntity): void {
+    for (const building of this.buildings.values()) {
+      if (!buildingsData[building.type].blocksProjectile) continue;
+      if (circlesOverlap(projectile.x, projectile.y, building.x, building.y, TILE_SIZE / 2)) {
+        this.projectiles.delete(projectileId);
+        return;
       }
     }
   }
@@ -769,4 +1035,68 @@ export class World {
     const monster = this.monsters.get(id);
     if (monster) monster.hp = remainingHp;
   }
+}
+
+/** 클라이언트에 그대로 실어 보낼 수 있는 평평한(flat) 예고 정보. Colyseus 스키마는 유니온 타입을 못 다루므로, `BossPatternState`를 여기서 하나의 형태로 눌러 편다. */
+export interface BossTelegraph {
+  kind: 'charge' | 'slam';
+  x: number;
+  y: number;
+  /** 돌진 방향(단위 벡터). 광역 패턴에서는 안 쓴다(0). */
+  dirX: number;
+  dirY: number;
+  /** 돌진: 경로 폭의 절반. 광역: 범위 반경. */
+  radius: number;
+  /** 돌진: 예고 종료 시 실제로 도달할 거리(speed * duration). 광역에서는 0. */
+  range: number;
+  remaining: number;
+  total: number;
+}
+
+/**
+ * 몬스터의 현재 보스 패턴 상태를 서버/로컬 커넥션이 동기화 스냅샷에 그대로 실을 수
+ * 있는 형태로 변환한다. 예고(Telegraph) 상태가 아니면(idle/charging/일반 몹) undefined —
+ * 돌진이 실제로 실행되는 동안에는 보스가 빠르게 움직이는 모습 자체가 "이미 벌어진 일"을
+ * 보여주므로 별도의 경고 표시가 필요 없다. 서버(GameRoom)와 로컬(LocalConnection) 양쪽이
+ * 이 함수를 그대로 재사용해서, 두 경로가 서로 다른 방식으로 값을 계산해 어긋날 여지를 없앤다.
+ */
+export function describeBossTelegraph(
+  monster: MonsterEntity,
+  data: MonsterData,
+): BossTelegraph | undefined {
+  const pattern = monster.pattern;
+
+  if (pattern.kind === 'chargeTelegraph') {
+    const charge = data.chargeAttack;
+    if (!charge) return undefined;
+    return {
+      kind: 'charge',
+      x: monster.x,
+      y: monster.y,
+      dirX: pattern.dirX,
+      dirY: pattern.dirY,
+      radius: charge.width / 2,
+      range: charge.speed * charge.duration,
+      remaining: Math.max(0, pattern.timer),
+      total: pattern.total,
+    };
+  }
+
+  if (pattern.kind === 'slamTelegraph') {
+    const slam = data.slamAttack;
+    if (!slam) return undefined;
+    return {
+      kind: 'slam',
+      x: pattern.x,
+      y: pattern.y,
+      dirX: 0,
+      dirY: 0,
+      radius: slam.radius,
+      range: 0,
+      remaining: Math.max(0, pattern.timer),
+      total: pattern.total,
+    };
+  }
+
+  return undefined;
 }
