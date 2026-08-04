@@ -4,14 +4,24 @@
     "type": "melee",
     "damage": 15,
     "fireRate": 2,
-    "range": 24
+    "range": 24,
+    "arc": 100
   },
   "axe": {
     "name": "도끼",
     "type": "melee",
     "damage": 18,
     "fireRate": 1.5,
-    "range": 24
+    "range": 26,
+    "arc": 100
+  },
+  "pickax": {
+    "name": "곡괭이",
+    "type": "melee",
+    "damage": 14,
+    "fireRate": 1.8,
+    "range": 22,
+    "arc": 80
   },
   "pistol": {
     "name": "권총",
@@ -20,6 +30,7 @@
     "fireRate": 4,
     "magazine": 12,
     "reloadTime": 1.2,
-    "projectileSpeed": 420
+    "projectileSpeed": 420,
+    "muzzleOffset": 19
   }
 }

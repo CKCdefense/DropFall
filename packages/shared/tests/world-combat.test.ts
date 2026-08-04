@@ -39,9 +39,11 @@ describe('World — 전투/웨이브 통합', () => {
     monster!.y = 0;
     const initialHp = monster!.hp;
 
-    world.fireWeapon('p1', 'club');
+    // 시작 지급품 순서는 loadout.json 기준: 0=권총 1=도끼 2=곡괭이 3=붕대
+    world.selectSlot('p1', 1);
+    world.fireWeapon('p1');
 
-    expect(monster!.hp).toBe(initialHp - 15); // club damage = 15
+    expect(monster!.hp).toBe(initialHp - 18); // axe damage = 18
   });
 
   it('사거리 밖 몬스터는 근접 공격이 닿지 않는다', () => {
@@ -54,7 +56,8 @@ describe('World — 전투/웨이브 통합', () => {
     monster!.y = 10000;
     const initialHp = monster!.hp;
 
-    world.fireWeapon('p1', 'club');
+    world.selectSlot('p1', 1);
+    world.fireWeapon('p1');
 
     expect(monster!.hp).toBe(initialHp);
   });
@@ -69,7 +72,7 @@ describe('World — 전투/웨이브 통합', () => {
     monster!.y = 0;
     const initialHp = monster!.hp;
 
-    world.fireWeapon('p1', 'pistol'); // aimAngle 기본 0 → +x 방향으로 발사
+    world.fireWeapon('p1'); // 기본 선택 슬롯이 권총. aimAngle 기본 0 → +x 방향으로 발사
     expect(world.getProjectiles().size).toBe(1);
 
     // 실제 서버는 60Hz(≈0.0167s) 단위로 tick()을 호출한다 — 한 번에 큰 dt로 틱하면
@@ -91,28 +94,35 @@ describe('World — 전투/웨이브 통합', () => {
     monster!.x = 5;
     monster!.y = 0;
 
-    world.fireWeapon('p1', 'club');
+    world.selectSlot('p1', 1);
+    world.fireWeapon('p1');
     const hpAfterFirst = monster!.hp;
-    world.fireWeapon('p1', 'club'); // fireRate 2 → 0.5초 간격, 아직 안 지남
+    world.fireWeapon('p1'); // 도끼 fireRate 1.5 → 0.67초 간격, 아직 안 지남
 
     expect(monster!.hp).toBe(hpAfterFirst);
   });
 
-  it('존재하지 않는 무기 id는 조용히 무시된다', () => {
+  it('무기가 아닌 슬롯(붕대)을 들고 있으면 공격이 성립하지 않는다', () => {
     const world = new World();
     world.addPlayer('p1', 0, 0);
 
-    expect(() => world.fireWeapon('p1', 'not-a-weapon')).not.toThrow();
+    world.selectSlot('p1', 3); // 붕대
+    world.fireWeapon('p1');
+
     expect(world.getProjectiles().size).toBe(0);
   });
 
-  it('weaponId가 문자열이 아니면 무시된다(클라이언트 입력 불신)', () => {
+  it('슬롯 번호가 이상해도 크래시하지 않고 선택이 바뀌지 않는다(클라이언트 입력 불신)', () => {
     const world = new World();
     world.addPlayer('p1', 0, 0);
 
-    expect(() => world.fireWeapon('p1', 123)).not.toThrow();
-    expect(() => world.fireWeapon('p1', null)).not.toThrow();
-    expect(world.getProjectiles().size).toBe(0);
+    for (const bad of [-1, 99, 1.5, '1', null, undefined, NaN]) {
+      expect(() => world.selectSlot('p1', bad)).not.toThrow();
+    }
+
+    // 기본값(0번 = 권총)이 유지되므로 발사가 정상 동작한다
+    world.fireWeapon('p1');
+    expect(world.getProjectiles().size).toBe(1);
   });
 
   it('몬스터가 코어 사거리 안에 있으면 코어 HP가 깎인다', () => {

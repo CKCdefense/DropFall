@@ -1,6 +1,7 @@
 import { MAP_ORIGIN, MAP_SIZE_TILES, TILE_SIZE, cellCenterWorld, worldToCell } from '../constants';
 import {
   buildingsData,
+  loadoutData,
   monstersData,
   resourcesData,
   wavesData,
@@ -17,9 +18,11 @@ import {
   circlesOverlap,
   resolveFire,
   tickProjectiles,
+  withinMeleeArc,
   type MeleeHit,
   type ProjectileEntity,
 } from './combat';
+import { Inventory } from './inventory';
 import { normalizeMoveVector, stepPosition } from './movement';
 import { WaveManager, type GamePhase } from './wave';
 
@@ -89,6 +92,8 @@ export interface PlayerEntity {
   hp: number;
   wood: number;
   stone: number;
+  /** 퀵슬롯. 장착 무기도 여기서 나온다 — 클라이언트가 무기를 주장할 수 없다. */
+  inventory: Inventory;
 }
 
 export interface ResourceNodeEntity {
@@ -160,6 +165,9 @@ export class World {
   }
 
   addPlayer(id: string, x = 0, y = 0): void {
+    const inventory = new Inventory();
+    for (const entry of loadoutData.starting) inventory.add(entry.itemId, entry.count);
+
     this.players.set(id, {
       id,
       x,
@@ -169,6 +177,7 @@ export class World {
       hp: wavesData.playerHp,
       wood: 0,
       stone: 0,
+      inventory,
     });
   }
 
@@ -204,14 +213,45 @@ export class World {
   }
 
   /**
-   * 발사 요청 처리. weaponId는 네트워크 경계를 넘어온 값이라 타입부터 검증한다
-   * (unknown weaponId/쿨다운 미달은 WeaponCooldowns/resolveFire가 조용히 무시한다).
+   * 퀵슬롯 선택. 잘못된 번호는 조용히 무시한다.
+   * 선택만 바꾸는 동작이라 페이즈(낮/밤)와 무관하게 허용한다.
    */
-  fireWeapon(playerId: string, weaponId: unknown): void {
-    if (typeof weaponId !== 'string') return;
+  selectSlot(playerId: string, index: unknown): void {
+    this.players.get(playerId)?.inventory.select(index);
+  }
 
+  /**
+   * 선택 중인 소모품 사용. 효과 적용은 여기서 한다 — 인벤토리는 "무엇이 소모됐는지"만
+   * 알려주고, 그게 게임 상태에 어떤 의미인지는 World가 결정한다.
+   */
+  useSelectedItem(playerId: string): void {
+    const player = this.players.get(playerId);
+    // 쓰러진 플레이어는 스스로 회복할 수 없다 — 부활은 동료가 해야 한다.
+    if (!player || player.hp <= 0) return;
+
+    // 체력이 가득이면 소모하지 않는다. 먼저 확인하지 않으면 붕대만 날린다.
+    if (player.hp >= wavesData.playerHp) return;
+
+    const item = player.inventory.consumeSelected();
+    if (!item?.healAmount) return;
+
+    player.hp = Math.min(wavesData.playerHp, player.hp + item.healAmount);
+  }
+
+  /**
+   * 공격 요청 처리.
+   *
+   * 무기는 **서버가 인벤토리에서 읽는다** — 예전에는 클라이언트가 weaponId를 실어 보냈는데,
+   * 그러면 갖고 있지도 않은 무기를 주장할 수 있었다. 클라이언트는 이제 "공격했다"는
+   * 사실만 보낸다.
+   */
+  fireWeapon(playerId: string): void {
     const player = this.players.get(playerId);
     if (!player) return;
+
+    const weaponId = player.inventory.equippedWeaponId;
+    // 무기가 아닌 슬롯(붕대 등)을 들고 있으면 공격이 성립하지 않는다.
+    if (!weaponId) return;
     if (!this.cooldowns.canFire(playerId, weaponId, this.elapsedSeconds)) return;
 
     this.cooldowns.recordFire(playerId, weaponId, this.elapsedSeconds);
@@ -399,6 +439,11 @@ export class World {
 
   getWavePhase(): GamePhase {
     return this.waveManager.currentPhase;
+  }
+
+  /** 현재 페이즈가 끝나기까지 남은 시간(초). HUD의 웨이브 다이얼이 쓴다. */
+  getPhaseTimeRemaining(): number {
+    return this.waveManager.phaseTimeRemaining;
   }
 
   getCurrentWave(): number {
@@ -743,7 +788,7 @@ export class World {
 
   private applyMeleeHit(hit: MeleeHit): void {
     for (const [id, monster] of this.monsters) {
-      if (circlesOverlap(hit.originX, hit.originY, monster.x, monster.y, hit.range + HIT_RADIUS)) {
+      if (withinMeleeArc(hit, monster.x, monster.y, HIT_RADIUS)) {
         this.damageMonster(id, monster.hp - hit.damage);
       }
     }

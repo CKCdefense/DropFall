@@ -22,7 +22,7 @@ describe('World', () => {
     world.tick(1);
 
     const player = world.getPlayers().get('p1');
-    expect(player).toEqual({
+    expect(player).toMatchObject({
       id: 'p1',
       x: 5,
       y: 5,

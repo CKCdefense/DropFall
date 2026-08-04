@@ -1,5 +1,14 @@
-import { MapSchema, Schema, type } from '@colyseus/schema';
-import { RoomPhase } from '@dropfall/shared';
+import { ArraySchema, MapSchema, Schema, type } from '@colyseus/schema';
+import { RoomPhase, SLOT_COUNT } from '@dropfall/shared';
+
+/**
+ * 퀵슬롯 한 칸. 빈 칸은 배열에서 빼지 않고 itemId를 ''로 둔다 —
+ * 길이가 고정이라야 클라이언트의 칸 번호가 흔들리지 않는다.
+ */
+export class ItemSlotSchema extends Schema {
+  @type('string') itemId = '';
+  @type('number') count = 0;
+}
 
 export class PlayerSchema extends Schema {
   @type('string') nickname = '';
@@ -13,6 +22,10 @@ export class PlayerSchema extends Schema {
   @type('number') hp = 0;
   @type('number') wood = 0;
   @type('number') stone = 0;
+  @type([ItemSlotSchema]) slots = new ArraySchema<ItemSlotSchema>(
+    ...Array.from({ length: SLOT_COUNT }, () => new ItemSlotSchema()),
+  );
+  @type('number') selectedSlot = 0;
 }
 
 export class MonsterSchema extends Schema {
@@ -26,6 +39,8 @@ export class MonsterSchema extends Schema {
 export class ProjectileSchema extends Schema {
   @type('number') x = 0;
   @type('number') y = 0;
+  /** 진행 방향(라디안). 직진만 하므로 발사 직후 한 번만 전송된다. */
+  @type('number') angle = 0;
 }
 
 export class ResourceNodeSchema extends Schema {
@@ -62,6 +77,8 @@ export class GameRoomState extends Schema {
   /** 'day' | 'night' | 'victory' | 'defeat' (shared/sim의 GamePhase) */
   @type('string') wavePhase = 'day';
   @type('number') currentWave = 0;
+  /** 현재 페이즈가 끝나기까지 남은 시간(초) */
+  @type('number') phaseTimeRemaining = 0;
   /** 낮 스킵 투표 동의 인원. 만장일치 기준이라 필요 인원은 players.size다. */
   @type('number') skipVoteCount = 0;
 }

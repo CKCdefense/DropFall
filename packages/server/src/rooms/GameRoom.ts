@@ -16,7 +16,7 @@ import {
   sanitizeRoomName,
   type BuildInputMessage,
   type CreateRoomOptions,
-  type FireInputMessage,
+  type SelectSlotMessage,
   type JoinRoomOptions,
   type PlayerInputMessage,
   type SelectJobMessage,
@@ -59,9 +59,17 @@ export class GameRoom extends Room {
     input: (client: Client, payload: PlayerInputMessage) => {
       this.world.setInput(client.sessionId, payload);
     },
-    fire: (client: Client, payload: FireInputMessage) => {
+    fire: (client: Client) => {
       if (this.state.phase !== RoomPhase.PLAYING) return;
-      this.world.fireWeapon(client.sessionId, payload?.weaponId);
+      // 무기는 서버가 인벤토리에서 읽는다 — 페이로드가 없다(World.fireWeapon 참고).
+      this.world.fireWeapon(client.sessionId);
+    },
+    selectSlot: (client: Client, payload: SelectSlotMessage) => {
+      this.world.selectSlot(client.sessionId, payload?.index);
+    },
+    useSlot: (client: Client) => {
+      if (this.state.phase !== RoomPhase.PLAYING) return;
+      this.world.useSelectedItem(client.sessionId);
     },
     skipVote: (client: Client) => {
       if (this.state.phase !== RoomPhase.PLAYING) return;
@@ -226,6 +234,17 @@ export class GameRoom extends Room {
       schema.hp = player.hp;
       schema.wood = player.wood;
       schema.stone = player.stone;
+
+      // 슬롯은 매 틱 통째로 덮어쓴다. 4칸뿐이라 변경 감지를 따로 하는 것보다 싸고,
+      // Colyseus가 실제로 바뀐 필드만 패치로 내보내므로 대역폭 낭비도 없다.
+      const inventory = player.inventory.toView();
+      schema.selectedSlot = inventory.selectedIndex;
+      inventory.slots.forEach((slot, index) => {
+        const slotSchema = schema.slots[index];
+        if (!slotSchema) return;
+        slotSchema.itemId = slot?.itemId ?? '';
+        slotSchema.count = slot?.count ?? 0;
+      });
     }
 
     this.syncMonsters();
@@ -238,6 +257,7 @@ export class GameRoom extends Room {
     this.state.coreMaxHp = core.maxHp;
     this.state.wavePhase = this.world.getWavePhase();
     this.state.currentWave = this.world.getCurrentWave();
+    this.state.phaseTimeRemaining = this.world.getPhaseTimeRemaining();
     this.state.skipVoteCount = this.world.getSkipVoteCount();
   }
 
@@ -277,6 +297,7 @@ export class GameRoom extends Room {
       }
       schema.x = projectile.x;
       schema.y = projectile.y;
+      schema.angle = projectile.angle;
     }
 
     for (const id of [...this.state.projectiles.keys()]) {
