@@ -50,6 +50,18 @@ export class LocalConnection implements GameConnection {
     this.world.castSkipVote(LOCAL_SESSION_ID);
   }
 
+  harvest(): void {
+    this.world.harvest(LOCAL_SESSION_ID);
+  }
+
+  placeBuilding(buildingType: string, cx: number, cy: number): void {
+    this.world.placeBuilding(LOCAL_SESSION_ID, buildingType, cx, cy);
+  }
+
+  debugJumpToWave(waveNumber: number): void {
+    this.world.debugJumpToWave(waveNumber);
+  }
+
   getSnapshot(): WorldSnapshot {
     return this.interpolator.sample();
   }
@@ -65,6 +77,8 @@ export class LocalConnection implements GameConnection {
         aimAngle: player.aimAngle,
         lastProcessedSeq: player.lastProcessedSeq,
         hp: player.hp,
+        wood: player.wood,
+        stone: player.stone,
       });
     }
 
@@ -85,12 +99,37 @@ export class LocalConnection implements GameConnection {
       projectiles.push({ id, x: projectile.x, y: projectile.y });
     }
 
+    const resourceNodes: WorldSnapshot['resourceNodes'] = [];
+    for (const [id, node] of this.world.getResourceNodes()) {
+      resourceNodes.push({
+        id,
+        type: node.type,
+        x: node.x,
+        y: node.y,
+        remainingHarvests: node.remainingHarvests,
+      });
+    }
+
+    const buildings: WorldSnapshot['buildings'] = [];
+    for (const [id, building] of this.world.getBuildings()) {
+      buildings.push({
+        id,
+        type: building.type,
+        x: building.x,
+        y: building.y,
+        hp: building.hp,
+        maxHp: building.maxHp,
+      });
+    }
+
     const core = this.world.getCore();
 
     return {
       players,
       monsters,
       projectiles,
+      resourceNodes,
+      buildings,
       status: {
         coreHp: core.hp,
         coreMaxHp: core.maxHp,

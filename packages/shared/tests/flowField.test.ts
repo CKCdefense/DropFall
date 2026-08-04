@@ -50,4 +50,41 @@ describe('FlowField', () => {
     const dir = field.sampleDirection(GRID.originX, GRID.originY + 5 * GRID.tileSize);
     expect(dir.y).toBeLessThan(0);
   });
+
+  describe('hasLineOfSight', () => {
+    it('장애물이 하나도 없으면 항상 true다', () => {
+      const field = new FlowField(GRID);
+      field.recompute(5, 5);
+
+      expect(field.hasLineOfSight(GRID.originX, GRID.originY, GRID.originX + 9 * 16, GRID.originY + 9 * 16)).toBe(
+        true,
+      );
+    });
+
+    it('두 점 사이에 막힌 셀이 있으면 false다', () => {
+      const isBlocked = (cx: number) => cx === 5; // 5번째 열 전체를 벽으로 막음
+      const field = new FlowField(GRID, isBlocked);
+      field.recompute(0, 0); // 벽 왼쪽을 목표로 잡아 recompute 자체는 성공하게 둠
+
+      // (2,5)에서 (8,5)로 — 사이의 5번째 열을 가로지른다
+      const fromX = GRID.originX + 2 * 16 + 8;
+      const fromY = GRID.originY + 5 * 16 + 8;
+      const toX = GRID.originX + 8 * 16 + 8;
+      const toY = fromY;
+      expect(field.hasLineOfSight(fromX, fromY, toX, toY)).toBe(false);
+    });
+
+    it('막힌 셀이 있어도 그 셀을 지나지 않는 경로면 true다', () => {
+      const isBlocked = (cx: number, cy: number) => cx === 5 && cy === 5; // 딱 한 칸만 막음
+      const field = new FlowField(GRID, isBlocked);
+      field.recompute(0, 0);
+
+      // (2,2)에서 (2,8)로 — 5번째 열(막힌 칸)을 아예 지나지 않는다
+      const fromX = GRID.originX + 2 * 16 + 8;
+      const fromY = GRID.originY + 2 * 16 + 8;
+      const toX = fromX;
+      const toY = GRID.originY + 8 * 16 + 8;
+      expect(field.hasLineOfSight(fromX, fromY, toX, toY)).toBe(true);
+    });
+  });
 });

@@ -6,6 +6,13 @@
     "fireRate": 2,
     "range": 24
   },
+  "axe": {
+    "name": "도끼",
+    "type": "melee",
+    "damage": 18,
+    "fireRate": 1.5,
+    "range": 24
+  },
   "pistol": {
     "name": "권총",
     "type": "ranged",

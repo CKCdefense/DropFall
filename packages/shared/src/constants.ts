@@ -27,6 +27,31 @@ export const TICK_RATE = 60;
 export const PATCH_RATE = TICK_RATE;
 
 export const TILE_SIZE = 16;
+/** 맵 그리드 크기(타일). 기술명세 §5.1 예시(128×128)를 그대로 따른다. */
+export const MAP_SIZE_TILES = 128;
+/** 그리드 (0,0) 셀의 좌상단 월드 좌표(원점을 맵 중앙에 두기 위한 오프셋). */
+export const MAP_ORIGIN = -(MAP_SIZE_TILES * TILE_SIZE) / 2;
+
+/**
+ * 월드 좌표 → 그리드 셀 좌표. 서버(World/FlowField)와 클라이언트(건축 배치 미리보기)가
+ * 똑같은 셀을 가리켜야 하므로, 이 변환은 양쪽이 공유하는 상수(TILE_SIZE, MAP_ORIGIN)로
+ * 딱 한 곳에서만 정의한다 — 클라이언트가 자기 나름대로 다시 계산하면 반올림 경계나
+ * 상수 변경 시 서버와 조용히 어긋날 수 있다.
+ */
+export function worldToCell(x: number, y: number): { cx: number; cy: number } {
+  return {
+    cx: Math.floor((x - MAP_ORIGIN) / TILE_SIZE),
+    cy: Math.floor((y - MAP_ORIGIN) / TILE_SIZE),
+  };
+}
+
+/** 그리드 셀 좌표 → 그 셀 중심의 월드 좌표(건축물 배치, 미리보기 스냅 등에 쓴다). */
+export function cellCenterWorld(cx: number, cy: number): { x: number; y: number } {
+  return {
+    x: MAP_ORIGIN + cx * TILE_SIZE + TILE_SIZE / 2,
+    y: MAP_ORIGIN + cy * TILE_SIZE + TILE_SIZE / 2,
+  };
+}
 /**
  * 화면에 보여줄 월드 영역의 기준 크기(월드 단위 = px).
  *

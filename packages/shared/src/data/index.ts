@@ -2,6 +2,9 @@ import { z } from 'zod';
 import monstersJson from './monsters.json';
 import weaponsJson from './weapons.json';
 import wavesJson from './waves.json';
+import resourcesJson from './resources.json';
+import toolsJson from './tools.json';
+import buildingsJson from './buildings.json';
 
 export function loadData<T>(schema: z.ZodType<T>, json: unknown): T {
   return schema.parse(json);
@@ -70,3 +73,59 @@ const WavesDataSchema = z.object({
 export type WaveEntry = z.infer<typeof WaveEntrySchema>;
 
 export const wavesData = loadData(WavesDataSchema, wavesJson);
+
+// --- resources.json ------------------------------------------------------------
+
+const ResourceDataSchema = z.object({
+  /** 채집에 필요한 도구 id(tools.json 참고). 소유권 검사는 아직 없다 — 문서화 목적. */
+  requiredTool: z.string(),
+  /** 노드 판정 반경(px, 플레이어 기준) */
+  harvestRadius: z.number().positive(),
+  /** 채집 1회당 최소 간격(초) */
+  harvestInterval: z.number().positive(),
+  yieldPerHarvest: z.number().int().positive(),
+  /** 고갈 전까지 채집 가능한 총 횟수 */
+  maxHarvests: z.number().int().positive(),
+  /** 고갈 후 재생까지 걸리는 시간(초) */
+  respawnSeconds: z.number().positive(),
+});
+
+const ResourcesDataSchema = z.record(z.string(), ResourceDataSchema);
+
+export type ResourceType = keyof typeof resourcesData;
+export type ResourceData = z.infer<typeof ResourceDataSchema>;
+
+export const resourcesData = loadData(ResourcesDataSchema, resourcesJson);
+
+// --- tools.json ------------------------------------------------------------
+
+const ToolDataSchema = z.object({
+  /** 이 도구로 채집할 수 있는 자원(resources.json의 key) */
+  harvestsResource: z.string(),
+});
+
+const ToolsDataSchema = z.record(z.string(), ToolDataSchema);
+
+export type ToolType = keyof typeof toolsData;
+export type ToolData = z.infer<typeof ToolDataSchema>;
+
+export const toolsData = loadData(ToolsDataSchema, toolsJson);
+
+// --- buildings.json ------------------------------------------------------------
+
+const BuildingDataSchema = z.object({
+  woodCost: z.number().int().nonnegative(),
+  stoneCost: z.number().int().nonnegative(),
+  hp: z.number().positive(),
+  /** Flow Field 이동 차단 여부(기술명세 §5.2) */
+  blocksMovement: z.boolean(),
+  /** 투사체 차단 여부(기술명세 §5.2) — 데이터만 있고 충돌 처리는 아직 미구현 */
+  blocksProjectile: z.boolean(),
+});
+
+const BuildingsDataSchema = z.record(z.string(), BuildingDataSchema);
+
+export type BuildingType = keyof typeof buildingsData;
+export type BuildingData = z.infer<typeof BuildingDataSchema>;
+
+export const buildingsData = loadData(BuildingsDataSchema, buildingsJson);

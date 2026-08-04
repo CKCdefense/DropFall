@@ -27,9 +27,26 @@ interface RemotePlayerState {
   aimAngle: number;
   lastProcessedSeq: number;
   hp: number;
+  wood: number;
+  stone: number;
 }
 
 interface RemoteMonsterState {
+  type: string;
+  x: number;
+  y: number;
+  hp: number;
+  maxHp: number;
+}
+
+interface RemoteResourceNodeState {
+  type: string;
+  x: number;
+  y: number;
+  remainingHarvests: number;
+}
+
+interface RemoteBuildingState {
   type: string;
   x: number;
   y: number;
@@ -57,6 +74,12 @@ interface RemoteGameState {
   };
   projectiles: {
     forEach(callback: (value: { x: number; y: number }, key: string) => void): void;
+  };
+  resourceNodes: {
+    forEach(callback: (value: RemoteResourceNodeState, key: string) => void): void;
+  };
+  buildings: {
+    forEach(callback: (value: RemoteBuildingState, key: string) => void): void;
   };
 }
 
@@ -168,6 +191,14 @@ export class ColyseusConnection implements GameConnection {
     this.room.send('skipVote', {});
   }
 
+  harvest(): void {
+    this.room.send('harvest', {});
+  }
+
+  placeBuilding(buildingType: string, cx: number, cy: number): void {
+    this.room.send('placeBuilding', { buildingType, cx, cy });
+  }
+
   /** 화면 렌더링용. TICK_RATE 상태를 60fps에 맞게 보간한, 몇 ms 지연된 스냅샷을 돌려준다. */
   getSnapshot(): WorldSnapshot {
     return this.interpolator.sample();
@@ -185,6 +216,8 @@ export class ColyseusConnection implements GameConnection {
         aimAngle: player.aimAngle,
         lastProcessedSeq: player.lastProcessedSeq,
         hp: player.hp,
+        wood: player.wood,
+        stone: player.stone,
       });
     });
 
@@ -205,10 +238,35 @@ export class ColyseusConnection implements GameConnection {
       projectiles.push({ id, x: projectile.x, y: projectile.y });
     });
 
+    const resourceNodes: WorldSnapshot['resourceNodes'] = [];
+    state?.resourceNodes?.forEach((node, id) => {
+      resourceNodes.push({
+        id,
+        type: node.type,
+        x: node.x,
+        y: node.y,
+        remainingHarvests: node.remainingHarvests,
+      });
+    });
+
+    const buildings: WorldSnapshot['buildings'] = [];
+    state?.buildings?.forEach((building, id) => {
+      buildings.push({
+        id,
+        type: building.type,
+        x: building.x,
+        y: building.y,
+        hp: building.hp,
+        maxHp: building.maxHp,
+      });
+    });
+
     return {
       players,
       monsters,
       projectiles,
+      resourceNodes,
+      buildings,
       status: {
         coreHp: state?.coreHp ?? 0,
         coreMaxHp: state?.coreMaxHp ?? 0,

@@ -1,5 +1,11 @@
 import Phaser from 'phaser';
-import type { MonsterView, PlayerView, WorldSnapshot } from '../../net/GameConnection';
+import type {
+  BuildingView,
+  MonsterView,
+  PlayerView,
+  ResourceNodeView,
+  WorldSnapshot,
+} from '../../net/GameConnection';
 
 /** 월드 안에 그리는 텍스트의 기준 크기(월드 단위). 실제 화면 크기는 여기에 카메라 줌이 곱해진다. */
 const LABEL_FONT_SIZE = 7;
@@ -17,6 +23,20 @@ const MONSTER_STYLE: Record<string, { color: number; size: number }> = {
 };
 const MONSTER_FALLBACK = { color: 0xa4576a, size: 10 };
 
+/** 자원 노드 타입별 플레이스홀더 표현(docs/backend/24). */
+const RESOURCE_STYLE: Record<string, { color: number; size: number }> = {
+  wood: { color: 0x5b8c4a, size: 10 },
+  stone: { color: 0x8a8f99, size: 9 },
+};
+const RESOURCE_FALLBACK = { color: 0x8a8f99, size: 9 };
+
+/** 건축물 타입별 플레이스홀더 표현. 울타리는 낮고 얇게, 벽은 크고 두껍게 그려서 구분한다. */
+const BUILDING_STYLE: Record<string, { color: number; size: number }> = {
+  fence: { color: 0xb08a5c, size: 12 },
+  wall: { color: 0x6b6f78, size: 16 },
+};
+const BUILDING_FALLBACK = { color: 0x6b6f78, size: 14 };
+
 const HP_BAR_WIDTH = 16;
 const HP_BAR_HEIGHT = 2;
 
@@ -31,6 +51,8 @@ export class EntityRenderer {
   private readonly players = new Map<string, Phaser.GameObjects.Container>();
   private readonly monsters = new Map<string, Phaser.GameObjects.Container>();
   private readonly projectiles = new Map<string, Phaser.GameObjects.Arc>();
+  private readonly resourceNodes = new Map<string, Phaser.GameObjects.Container>();
+  private readonly buildings = new Map<string, Phaser.GameObjects.Container>();
   private zoom = 1;
 
   constructor(
@@ -54,6 +76,8 @@ export class EntityRenderer {
     this.syncPlayers(snapshot.players);
     this.syncMonsters(snapshot.monsters);
     this.syncProjectiles(snapshot.projectiles);
+    this.syncResourceNodes(snapshot.resourceNodes);
+    this.syncBuildings(snapshot.buildings);
   }
 
   getSprite(sessionId: string): Phaser.GameObjects.Container | undefined {
@@ -61,7 +85,7 @@ export class EntityRenderer {
   }
 
   destroy(): void {
-    for (const map of [this.players, this.monsters]) {
+    for (const map of [this.players, this.monsters, this.resourceNodes, this.buildings]) {
       for (const sprite of map.values()) sprite.destroy();
       map.clear();
     }
@@ -196,6 +220,87 @@ export class EntityRenderer {
     }
 
     this.removeMissing(this.projectiles, alive);
+  }
+
+  // ---------------------------------------------------------------- 자원 노드
+
+  private syncResourceNodes(views: ResourceNodeView[]): void {
+    const alive = new Set<string>();
+
+    for (const node of views) {
+      alive.add(node.id);
+
+      let sprite = this.resourceNodes.get(node.id);
+      if (!sprite) {
+        sprite = this.createResourceNode(node);
+        this.resourceNodes.set(node.id, sprite);
+      }
+
+      sprite.setDepth(node.y);
+      // 고갈되면(리스폰 대기 중) 흐리게 — 지금은 캘 수 없다는 걸 한눈에 보이게 한다.
+      sprite.setAlpha(node.remainingHarvests > 0 ? 1 : 0.3);
+    }
+
+    this.removeMissing(this.resourceNodes, alive);
+  }
+
+  private createResourceNode(node: ResourceNodeView): Phaser.GameObjects.Container {
+    const style = RESOURCE_STYLE[node.type] ?? RESOURCE_FALLBACK;
+    const body = this.scene.add.circle(0, 0, style.size / 2, style.color);
+    body.setStrokeStyle(1, 0x1a1c23);
+    return this.scene.add.container(node.x, node.y, [body]);
+  }
+
+  // ---------------------------------------------------------------- 건축물
+
+  private syncBuildings(views: BuildingView[]): void {
+    const alive = new Set<string>();
+
+    for (const building of views) {
+      alive.add(building.id);
+
+      let sprite = this.buildings.get(building.id);
+      if (!sprite) {
+        sprite = this.createBuilding(building);
+        this.buildings.set(building.id, sprite);
+      }
+
+      sprite.setDepth(building.y);
+
+      // 몬스터 HP 바와 동일한 규칙 — 멀쩡하면 숨긴다.
+      const bar = sprite.getByName('hp') as Phaser.GameObjects.Rectangle | null;
+      const barBack = sprite.getByName('hpBack') as Phaser.GameObjects.Rectangle | null;
+      if (bar && barBack) {
+        const ratio = building.maxHp > 0 ? building.hp / building.maxHp : 0;
+        const damaged = ratio < 1;
+        bar.setVisible(damaged);
+        barBack.setVisible(damaged);
+        bar.width = Math.max(0, HP_BAR_WIDTH * ratio);
+      }
+    }
+
+    this.removeMissing(this.buildings, alive);
+  }
+
+  private createBuilding(building: BuildingView): Phaser.GameObjects.Container {
+    const style = BUILDING_STYLE[building.type] ?? BUILDING_FALLBACK;
+
+    const body = this.scene.add.rectangle(0, 0, style.size, style.size, style.color);
+    body.setStrokeStyle(1, 0x1a1c23);
+
+    const barTop = -style.size / 2 - 4;
+    const barBack = this.scene.add
+      .rectangle(-HP_BAR_WIDTH / 2, barTop, HP_BAR_WIDTH, HP_BAR_HEIGHT, 0x2b303c)
+      .setOrigin(0, 0.5);
+    const bar = this.scene.add
+      .rectangle(-HP_BAR_WIDTH / 2, barTop, HP_BAR_WIDTH, HP_BAR_HEIGHT, 0x6fd08c)
+      .setOrigin(0, 0.5);
+    bar.setName('hp');
+    barBack.setName('hpBack');
+    barBack.setVisible(false);
+    bar.setVisible(false);
+
+    return this.scene.add.container(building.x, building.y, [barBack, bar, body]);
   }
 
   // ---------------------------------------------------------------- 공통

@@ -16,6 +16,8 @@ export interface PlayerView {
   aimAngle: number;
   lastProcessedSeq: number;
   hp: number;
+  wood: number;
+  stone: number;
 }
 
 export interface MonsterView {
@@ -34,6 +36,25 @@ export interface ProjectileView {
   y: number;
 }
 
+export interface ResourceNodeView {
+  id: string;
+  /** ResourceType('wood' | 'stone'). 렌더러가 색/모양을 고르는 데만 쓴다 */
+  type: string;
+  x: number;
+  y: number;
+  remainingHarvests: number;
+}
+
+export interface BuildingView {
+  id: string;
+  /** BuildingType('fence' | 'wall'). 렌더러가 색/크기를 고르는 데만 쓴다 */
+  type: string;
+  x: number;
+  y: number;
+  hp: number;
+  maxHp: number;
+}
+
 /** 위치가 없는 값들 — 보간 대상이 아니라 항상 최신값을 그대로 쓴다. */
 export interface WorldStatus {
   coreHp: number;
@@ -49,6 +70,8 @@ export interface WorldSnapshot {
   players: PlayerView[];
   monsters: MonsterView[];
   projectiles: ProjectileView[];
+  resourceNodes: ResourceNodeView[];
+  buildings: BuildingView[];
   status: WorldStatus;
 }
 
@@ -88,8 +111,23 @@ export interface GameConnection {
   fire(weaponId: string): void;
   /** 낮 넘기기 투표 (만장일치) */
   voteSkipDay(): void;
+  /**
+   * 채집 시도. 타겟을 지정하지 않는다 — 서버가 내 위치 기준 반경 안의 가장 가까운
+   * 채집 가능한 노드에 자동으로 적용한다. `fire()`처럼 호출 자체는 상태 없는 단발
+   * 액션이라, "E 홀드" UX는 이 메서드를 반복 호출하는 쪽(InputController)이 담당한다.
+   */
+  harvest(): void;
+  /** 건축 요청. cx/cy는 그리드 셀 좌표(worldToCell로 미리 변환해서 넘긴다). */
+  placeBuilding(buildingType: string, cx: number, cy: number): void;
   /** 매 프레임 호출된다. 구현체는 새 객체를 만들지 말고 내부 버퍼를 재사용할 것. */
   getSnapshot(): WorldSnapshot;
+  /**
+   * 테스트용: 지정한 웨이브(1-based)로 즉시 이동한다(docs/backend/23). 로컬 모드에서만
+   * 제공한다 — 옵셔널이라 실제 멀티플레이(ColyseusConnection)에서는 아예 존재하지
+   * 않으므로, UI는 `connection.debugJumpToWave`가 있는지 확인하는 것만으로 로컬
+   * 모드 여부와 무관하게 자연스럽게 버튼을 숨길 수 있다.
+   */
+  debugJumpToWave?(waveNumber: number): void;
 
   // ---------------------------------------------------------------- 대기실
 

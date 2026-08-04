@@ -5,6 +5,8 @@ import { HudScene } from './scenes/HudScene';
 
 /** 씬들이 연결 객체를 꺼내가는 registry 키. 씬 시작 순서에 의존하지 않기 위해 registry를 쓴다. */
 export const CONNECTION_KEY = 'connection';
+/** HudScene이 건축모드 표시줄을 그리려고 GameScene의 InputController를 꺼내가는 키. */
+export const INPUT_CONTROLLER_KEY = 'inputController';
 
 /**
  * 렌더링 정책 (docs/02-tech-spec.md §7.1~7.2)

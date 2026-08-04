@@ -14,6 +14,7 @@ import {
   sanitizeNickname,
   sanitizePassword,
   sanitizeRoomName,
+  type BuildInputMessage,
   type CreateRoomOptions,
   type FireInputMessage,
   type JoinRoomOptions,
@@ -22,10 +23,12 @@ import {
   type SetReadyMessage,
 } from '@dropfall/shared';
 import {
+  BuildingSchema,
   GameRoomState,
   MonsterSchema,
   PlayerSchema,
   ProjectileSchema,
+  ResourceNodeSchema,
 } from '../schema/GameRoomState';
 
 /** 방 코드 중복 시 재시도 횟수. 31^4 ≈ 92만 조합이라 실제로는 첫 시도에 끝난다. */
@@ -63,6 +66,14 @@ export class GameRoom extends Room {
     skipVote: (client: Client) => {
       if (this.state.phase !== RoomPhase.PLAYING) return;
       this.world.castSkipVote(client.sessionId);
+    },
+    harvest: (client: Client) => {
+      if (this.state.phase !== RoomPhase.PLAYING) return;
+      this.world.harvest(client.sessionId);
+    },
+    placeBuilding: (client: Client, payload: BuildInputMessage) => {
+      if (this.state.phase !== RoomPhase.PLAYING) return;
+      this.world.placeBuilding(client.sessionId, payload?.buildingType, payload?.cx, payload?.cy);
     },
 
     // 대기실 메시지. 클라이언트 입력은 신뢰하지 않는다 — 값과 권한을 모두 여기서 검증한다.
@@ -213,10 +224,14 @@ export class GameRoom extends Room {
       schema.aimAngle = player.aimAngle;
       schema.lastProcessedSeq = player.lastProcessedSeq;
       schema.hp = player.hp;
+      schema.wood = player.wood;
+      schema.stone = player.stone;
     }
 
     this.syncMonsters();
     this.syncProjectiles();
+    this.syncResourceNodes();
+    this.syncBuildings();
 
     const core = this.world.getCore();
     this.state.coreHp = core.hp;
@@ -266,6 +281,54 @@ export class GameRoom extends Room {
 
     for (const id of [...this.state.projectiles.keys()]) {
       if (!aliveIds.has(id)) this.state.projectiles.delete(id);
+    }
+  }
+
+  /**
+   * 자원 노드는 파괴되지 않고 고갈/재생만 반복하지만, 몬스터·투사체와 같은
+   * diff-and-update 형태를 그대로 따른다 — 향후 노드 추가/제거가 생겨도 손댈 곳이 없다.
+   */
+  private syncResourceNodes(): void {
+    const nodes = this.world.getResourceNodes();
+    const aliveIds = new Set(nodes.keys());
+
+    for (const [id, node] of nodes) {
+      let schema = this.state.resourceNodes.get(id);
+      if (!schema) {
+        schema = new ResourceNodeSchema();
+        schema.type = node.type;
+        schema.x = node.x;
+        schema.y = node.y;
+        this.state.resourceNodes.set(id, schema);
+      }
+      schema.remainingHarvests = node.remainingHarvests;
+    }
+
+    for (const id of [...this.state.resourceNodes.keys()]) {
+      if (!aliveIds.has(id)) this.state.resourceNodes.delete(id);
+    }
+  }
+
+  /** 건축물은 파괴되면 사라진다 — 몬스터와 동일한 diff-and-update 패턴. */
+  private syncBuildings(): void {
+    const buildings = this.world.getBuildings();
+    const aliveIds = new Set(buildings.keys());
+
+    for (const [id, building] of buildings) {
+      let schema = this.state.buildings.get(id);
+      if (!schema) {
+        schema = new BuildingSchema();
+        schema.type = building.type;
+        schema.x = building.x;
+        schema.y = building.y;
+        schema.maxHp = building.maxHp;
+        this.state.buildings.set(id, schema);
+      }
+      schema.hp = building.hp;
+    }
+
+    for (const id of [...this.state.buildings.keys()]) {
+      if (!aliveIds.has(id)) this.state.buildings.delete(id);
     }
   }
 }

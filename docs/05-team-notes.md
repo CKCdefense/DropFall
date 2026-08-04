@@ -198,3 +198,11 @@ interface FireInputMessage {
 | [backend/16](backend/16-work-report-defeat-and-day-skip-vote.md) | 전원 다운 즉시패배 + 낮 스킵 투표(만장일치) 구현 |
 | [backend/17](backend/17-work-report-monster-spawn-movement-refinement.md) | 몬스터 스폰/이동 구체화 — 군집 분리·어그로 히스테리시스·스폰 지점 순환 |
 | [backend/18](backend/18-mvp-scope-proposal-resource-building.md) | 제안서 — 자원채집·건축(나무/돌, 도끼/곡괭이, 벽/울타리) MVP 범위 |
+| [backend/19](backend/19-work-report-flow-field-diagonal-weighting.md) | Flow Field 대각선 가중치 수정 — 이동 경로 꺾임 버그, 다익스트라 정밀도 버그, moveMonster 분리력 버그 |
+| [backend/20](backend/20-work-report-monster-aggro-fov.md) | 몬스터 어그로 시야각(120도) 도입 — 방향 계산 3가지 방식 비교, 기존 테스트의 우연 의존 버그 수정 |
+| [backend/21](backend/21-work-report-monster-movement-los-steering.md) | 몬스터 이동 자연스럽게 — 옥타일 거리의 근본 한계 진단, 시야선 직진+Flow Field 우회 병행 |
+| [backend/22](backend/22-work-report-premature-day-transition-bug.md) | 몬스터가 남았는데 낮으로 바뀌는 버그 — remainingMonsters 스냅샷/스폰 경합, 콜백으로 수정 |
+| [backend/23](backend/23-work-report-debug-jump-to-wave.md) | 테스트용 "웨이브 5로 점프" 버튼 — 로컬 모드 전용, GameConnection 옵셔널 메서드로 게이팅 |
+| [backend/24](backend/24-work-report-resource-building-mvp.md) | 자원채집·건축 MVP 구현 — 서버/공유 시뮬레이션, 클라이언트(역할 C)는 범위 밖 |
+| [backend/25](backend/25-work-report-resource-building-client-placeholder.md) | 자원채집·건축 클라이언트 연결 — 도형 플레이스홀더, Playwright 포커스 이슈 진단 |
+| [backend/26](backend/26-work-report-resource-node-clustering.md) | 자원 노드를 군집(클러스터)으로 랜덤 배치 — WorldOptions.rng 주입, 군집 겹침으로 깨진 테스트 수정 |

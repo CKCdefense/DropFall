@@ -1,7 +1,15 @@
 import Phaser from 'phaser';
 import { MAX_CLIENTS_PER_ROOM, computeCameraZoom } from '@dropfall/shared';
 import type { GameConnection, WorldStatus } from '../../net/GameConnection';
-import { CONNECTION_KEY } from '../createGame';
+import { CONNECTION_KEY, INPUT_CONTROLLER_KEY } from '../createGame';
+import type { InputController } from '../input/InputController';
+
+/** 건축모드 표시용 한글 이름. InputController의 BUILD_MODES 값과 짝을 맞춘다. */
+const BUILD_MODE_LABEL: Record<string, string> = {
+  off: '꺼짐',
+  fence: '울타리',
+  wall: '벽',
+};
 
 export const HUD_SCENE_KEY = 'Hud';
 
@@ -40,8 +48,12 @@ export class HudScene extends Phaser.Scene {
   private coreBarBack!: Phaser.GameObjects.Rectangle;
   private coreBar!: Phaser.GameObjects.Rectangle;
   private partyTexts: Phaser.GameObjects.Text[] = [];
+  private resourceText!: Phaser.GameObjects.Text;
+  private buildModeText!: Phaser.GameObjects.Text;
   private debugText!: Phaser.GameObjects.Text;
   private helpText!: Phaser.GameObjects.Text;
+  /** 로컬 모드에서만 존재한다 — connection.debugJumpToWave가 없으면 아예 안 만든다. */
+  private debugJumpButton?: Phaser.GameObjects.Text;
   /** 코어 바 갱신 시 기준 폭을 알아야 해서 보관한다. */
   private uiScale = 1;
 
@@ -78,10 +90,30 @@ export class HudScene extends Phaser.Scene {
       this.add.text(0, 0, '', TEXT_STYLE).setOrigin(1, 0),
     );
 
+    this.resourceText = this.add.text(0, 0, '나무 0 · 돌 0', DIM_STYLE);
+    this.buildModeText = this.add.text(0, 0, '건축모드: 꺼짐', DIM_STYLE);
+
     this.debugText = this.add.text(0, 0, '', DIM_STYLE);
     this.helpText = this.add
       .text(0, 0, 'WASD 이동  ·  마우스 조준  ·  ESC 나가기', DIM_STYLE)
       .setOrigin(0.5, 1);
+
+    // 로컬 모드 전용 테스트 버튼 — 웨이브 5(보스 웨이브)로 바로 점프해서 밸런스를
+    // 테스트한다(docs/backend/23). 실제 멀티플레이(ColyseusConnection)에는
+    // debugJumpToWave 자체가 없으니, 존재 여부만 확인하면 자연히 로컬 전용이 된다.
+    if (this.connection.debugJumpToWave) {
+      this.debugJumpButton = this.add
+        .text(0, 0, '[TEST] WAVE 5로 점프', {
+          fontFamily: FONT,
+          fontSize: '13px',
+          color: '#1c1f26',
+          backgroundColor: ACCENT,
+          padding: { x: 8, y: 4 },
+        })
+        .setOrigin(0, 0)
+        .setInteractive({ useHandCursor: true })
+        .on('pointerdown', () => this.connection.debugJumpToWave?.(5));
+    }
 
     this.layout();
     this.scale.on(Phaser.Scale.Events.RESIZE, this.layout, this);
@@ -106,6 +138,8 @@ export class HudScene extends Phaser.Scene {
     this.roomText.setFontSize(TEXT_SIZE * scale);
     this.waveText.setFontSize(TEXT_SIZE * scale);
     this.coreLabel.setFontSize(DIM_SIZE * scale);
+    this.resourceText.setFontSize(DIM_SIZE * scale);
+    this.buildModeText.setFontSize(DIM_SIZE * scale);
     this.debugText.setFontSize(DIM_SIZE * scale);
     this.helpText.setFontSize(DIM_SIZE * scale);
 
@@ -120,6 +154,9 @@ export class HudScene extends Phaser.Scene {
     this.coreBar.setPosition(pad + CORE_LABEL_WIDTH * scale, coreY);
     this.coreBar.setSize(CORE_BAR_WIDTH * scale, CORE_BAR_HEIGHT * scale);
 
+    this.resourceText.setPosition(pad, coreY + 14 * scale);
+    this.buildModeText.setPosition(pad, coreY + 30 * scale);
+
     this.partyTexts.forEach((text, index) => {
       text.setFontSize(TEXT_SIZE * scale);
       text.setPosition(width - pad, coreY - 4 * scale + index * PARTY_LINE_HEIGHT * scale);
@@ -127,6 +164,11 @@ export class HudScene extends Phaser.Scene {
 
     this.debugText.setPosition(pad, height - 22 * scale);
     this.helpText.setPosition(width / 2, height - 8 * scale);
+
+    if (this.debugJumpButton) {
+      this.debugJumpButton.setFontSize(13 * scale);
+      this.debugJumpButton.setPosition(pad, coreY + 48 * scale);
+    }
 
     this.uiScale = scale;
   }
@@ -163,11 +205,24 @@ export class HudScene extends Phaser.Scene {
         : '동기화 대기 중...',
     );
 
+    this.resourceText.setText(me ? `나무 ${me.wood} · 돌 ${me.stone}` : '나무 0 · 돌 0');
+
+    // InputController는 GameScene 소속이라 registry로만 접근한다 — 씬 시작 순서와
+    // 무관하게 늦어도 다음 프레임엔 값이 채워져 있다(GameScene.create 참고).
+    const inputController = this.registry.get(INPUT_CONTROLLER_KEY) as InputController | undefined;
+    const buildMode = inputController?.buildMode ?? 'off';
+    this.buildModeText.setText(`건축모드: ${BUILD_MODE_LABEL[buildMode] ?? buildMode}`);
+    this.buildModeText.setColor(buildMode === 'off' ? '#79828f' : ACCENT);
+
     // 낮에만 스킵 안내를 띄운다 — 밤에는 쓸 수 없는 조작이라 보여줄 이유가 없다.
+    const controlsHint =
+      buildMode === 'off'
+        ? 'WASD 이동 · 좌클릭 사격 · [E] 채집 · [B] 건축모드'
+        : '좌클릭 설치 · 우클릭/[B] 취소 또는 다음 건축물';
     this.helpText.setText(
       status.wavePhase === 'day'
-        ? `WASD 이동 · 좌클릭 사격 · [V] 낮 넘기기 ${status.skipVoteCount}/${snapshot.players.length}`
-        : 'WASD 이동 · 좌클릭 사격 · ESC 나가기',
+        ? `${controlsHint} · [V] 낮 넘기기 ${status.skipVoteCount}/${snapshot.players.length}`
+        : `${controlsHint} · ESC 나가기`,
     );
   }
 }

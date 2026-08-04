@@ -13,3 +13,15 @@ export interface PlayerInputMessage {
 export interface FireInputMessage {
   weaponId: string;
 }
+
+/**
+ * 건축 요청. 그리드 스냅(어느 셀을 가리키는지)은 클라이언트가 계산해서 셀 좌표로
+ * 보낸다 — 서버는 좌표 변환 없이 그 셀에 지을 수 있는지만 검증한다. 채집(`harvest`)은
+ * 반경 안 가장 가까운 노드에 자동으로 적용되니 별도 좌표가 필요 없어 메시지 타입이
+ * 없다(페이로드 없는 이벤트).
+ */
+export interface BuildInputMessage {
+  buildingType: string;
+  cx: number;
+  cy: number;
+}

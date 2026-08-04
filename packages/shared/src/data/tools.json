@@ -1,0 +1,4 @@
+{
+  "axe": { "harvestsResource": "wood" },
+  "pickaxe": { "harvestsResource": "stone" }
+}

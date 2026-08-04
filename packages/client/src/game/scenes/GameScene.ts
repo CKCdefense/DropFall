@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { TILE_SIZE, computeCameraZoom } from '@dropfall/shared';
 import type { GameConnection } from '../../net/GameConnection';
-import { CONNECTION_KEY } from '../createGame';
+import { CONNECTION_KEY, INPUT_CONTROLLER_KEY } from '../createGame';
 import { EntityRenderer } from '../render/EntityRenderer';
 import { InputController } from '../input/InputController';
 import { HUD_SCENE_KEY } from './HudScene';
@@ -38,6 +38,9 @@ export class GameScene extends Phaser.Scene {
 
     this.entityRenderer = new EntityRenderer(this, this.connection.sessionId);
     this.input_ = new InputController(this, this.connection);
+    // HudScene은 매 프레임 registry에서 다시 읽으므로(HudScene.update), 씬 시작 순서와
+    // 무관하게 늦어도 다음 프레임엔 값이 채워져 있다.
+    this.registry.set(INPUT_CONTROLLER_KEY, this.input_);
 
     this.applyZoom();
     this.scale.on(Phaser.Scale.Events.RESIZE, this.applyZoom, this);

@@ -108,12 +108,39 @@ export class WaveManager {
   }
 
   /**
+   * 테스트용: 특정 웨이브(1-based)로 즉시 이동해 그 웨이브의 밤을 시작한다. 중간
+   * 웨이브는 전부 건너뛴다 — 게임 정상 진행 경로가 아니라 로컬 밸런스 테스트 전용이다
+   * (docs/backend/23). `waveIndex`를 `beginNextWave()`가 기대하는 "한 칸 전"으로
+   * 맞춰두고 그 메서드를 그대로 호출한다 — 스폰 큐/지점 재구성 로직을 중복 구현하지
+   * 않기 위해서다. 범위를 벗어난 웨이브 번호나 이미 승리/패배한 상태면 아무것도 안
+   * 하고 false를 돌려준다 — 호출자(World)가 이 경우 몬스터 정리 같은 부수 효과를
+   * 건너뛸 수 있도록.
+   */
+  debugJumpToWave(waveNumber: number): boolean {
+    if (this.phase === 'victory' || this.phase === 'defeat') return false;
+    const targetIndex = waveNumber - 1;
+    if (targetIndex < 0 || targetIndex >= wavesData.waves.length) return false;
+
+    this.waveIndex = targetIndex - 1;
+    this.beginNextWave();
+    return true;
+  }
+
+  /**
    * 매 틱 호출. 스폰할 차례가 되면 spawn 콜백으로 타입/좌표를 넘긴다.
-   * remainingMonsters는 World가 관리하는 "현재 살아있는 몬스터 수"를 넘겨받는다.
+   *
+   * getRemainingMonsters는 값이 아니라 **콜백**이다 — 값(스냅샷)으로 받으면 이 함수
+   * 호출 시점(= World가 인자를 평가하는 시점) 기준의 "그 틱이 시작되기 전" 마릿수가
+   * 박제된다. 그런데 바로 아래 스폰 루프가 이번 틱 안에서 새 몬스터를 추가할 수 있고,
+   * 하필 그 스폰이 spawnQueue를 마지막으로 비우는 스폰이면, "스폰 큐도 비었고
+   * remainingMonsters도 0"이라는 낡은 조건이 그대로 참이 되어 **방금 스폰돼 아직
+   * 살아있는 몬스터를 무시하고** 낮으로 전환해버렸다(실제로 재현 확인함). 콜백으로
+   * 받아서 스폰 루프가 끝난 뒤 그 자리에서 다시 부르면 이번 틱의 스폰이 반영된 최신
+   * 마릿수를 본다.
    */
   tick(
     dtSeconds: number,
-    remainingMonsters: number,
+    getRemainingMonsters: () => number,
     spawn: (type: MonsterType, x: number, y: number) => void,
   ): void {
     if (this.phase === 'victory' || this.phase === 'defeat') return;
@@ -139,7 +166,7 @@ export class WaveManager {
       this.spawnTimer += this.spawnInterval;
     }
 
-    if (this.spawnQueue.length === 0 && remainingMonsters === 0) {
+    if (this.spawnQueue.length === 0 && getRemainingMonsters() === 0) {
       if (this.waveIndex >= wavesData.waves.length - 1) {
         this.phase = 'victory';
       } else {

@@ -312,6 +312,8 @@ describe('World — 어그로 타겟 히스테리시스', () => {
     (monster as { type: string }).type = 'rusher'; // aggroRadius 120
     monster!.x = 10;
     monster!.y = 0;
+    monster!.facingX = -1; // 플레이어('near', 원점) 쪽을 바라보게 시야각 안에 둔다
+    monster!.facingY = 0;
 
     world.tick(0.05); // 타겟 획득
     expect(monster!.targetPlayerId).toBe('near');
@@ -332,6 +334,8 @@ describe('World — 어그로 타겟 히스테리시스', () => {
     (monster as { type: string }).type = 'rusher';
     monster!.x = 10;
     monster!.y = 0;
+    monster!.facingX = -1; // 플레이어('near', 원점) 쪽을 바라보게 시야각 안에 둔다
+    monster!.facingY = 0;
 
     world.tick(0.05);
     expect(monster!.targetPlayerId).toBe('near');
@@ -353,6 +357,10 @@ describe('World — 어그로 타겟 히스테리시스', () => {
     (monster as { type: string }).type = 'rusher';
     monster!.x = 0;
     monster!.y = 0;
+    // 'down'은 몬스터와 완전히 같은 좌표라 시야각 검사가 자동으로 건너뛰어지지만,
+    // 'alive'(x=20)를 나중에 잡으려면 그쪽을 바라보고 있어야 한다.
+    monster!.facingX = 1;
+    monster!.facingY = 0;
 
     world.tick(0.05);
     expect(monster!.targetPlayerId).toBe('down'); // 더 가까운 쪽을 먼저 잡음
@@ -361,5 +369,119 @@ describe('World — 어그로 타겟 히스테리시스', () => {
     world.tick(0.05);
 
     expect(monster!.targetPlayerId).toBe('alive');
+  });
+});
+
+describe('World — 어그로 시야각(120도)', () => {
+  it('시야각(전방 ±60도) 밖에 있으면 반경 안이어도 어그로가 잡히지 않는다', () => {
+    const world = new World();
+    world.addPlayer('behind', -50, 0); // 몬스터 기준 정반대(등 뒤) 방향
+    startFirstWave(world);
+
+    const [monster] = [...world.getMonsters().values()];
+    (monster as { type: string }).type = 'rusher'; // aggroRadius 120
+    monster!.x = 0;
+    monster!.y = 0;
+    monster!.facingX = 1; // +x 방향을 바라봄 — 플레이어는 -x(등 뒤)
+    monster!.facingY = 0;
+
+    world.tick(0.05);
+
+    expect(monster!.targetPlayerId).toBeUndefined();
+  });
+
+  it('시야각 경계 안(전방 60도)에 들어오면 어그로가 잡힌다', () => {
+    const world = new World();
+    // 몬스터가 +x를 바라볼 때, 45도 방향은 시야각(±60도) 안이다.
+    world.addPlayer('front-diagonal', 50, 50);
+    startFirstWave(world);
+
+    const [monster] = [...world.getMonsters().values()];
+    (monster as { type: string }).type = 'rusher';
+    monster!.x = 0;
+    monster!.y = 0;
+    monster!.facingX = 1;
+    monster!.facingY = 0;
+
+    world.tick(0.05);
+
+    expect(monster!.targetPlayerId).toBe('front-diagonal');
+  });
+
+  it('한 번 잡은 타겟은 몬스터가 지나쳐서 시야각 밖으로 나가도(leash 안이면) 유지한다', () => {
+    const world = new World();
+    world.addPlayer('near', 0, 0);
+    startFirstWave(world);
+
+    const [monster] = [...world.getMonsters().values()];
+    (monster as { type: string }).type = 'rusher';
+    monster!.x = 10;
+    monster!.y = 0;
+    monster!.facingX = -1;
+    monster!.facingY = 0;
+
+    world.tick(0.05); // 타겟 획득('near')
+    expect(monster!.targetPlayerId).toBe('near');
+
+    // 추격하다 타겟을 지나쳐(등 뒤로 두고) 반대편으로 이동한 상황을 흉내낸다 —
+    // 시야각은 "처음 발견"에만 걸리고 추격 유지에는 걸리지 않아야 하므로 타겟을 유지해야 한다.
+    monster!.x = -5;
+    monster!.facingX = -1; // 계속 -x로 나아가는 중이라 'near'(0,0)는 이제 등 뒤(+x쪽)다
+    world.tick(0.05);
+
+    expect(monster!.targetPlayerId).toBe('near');
+  });
+});
+
+describe('World — debugJumpToWave(테스트용)', () => {
+  it('지정한 웨이브로 이동하고 그 웨이브의 몬스터가 스폰된다', () => {
+    const world = new World();
+    world.addPlayer('p1', 0, 0);
+
+    world.debugJumpToWave(5);
+
+    expect(world.getWavePhase()).toBe('night');
+    expect(world.getCurrentWave()).toBe(5);
+
+    spawnAtLeast(world, 1);
+    expect(world.getMonsters().size).toBeGreaterThan(0);
+  });
+
+  it('이전 웨이브에서 남아있던 몬스터를 정리하고 새 웨이브 몬스터만 남긴다', () => {
+    const world = new World();
+    world.addPlayer('p1', 500, 500); // 몬스터가 코어로 직행하도록 멀리 둔다
+    startFirstWave(world);
+    spawnAtLeast(world, 1);
+    expect(world.getMonsters().size).toBeGreaterThan(0); // 1웨이브 몬스터가 있는 상태
+
+    world.debugJumpToWave(5);
+
+    // 점프 직후엔 5웨이브 스폰이 아직 시작 전이라 몬스터가 하나도 없어야 한다
+    // (1웨이브 몬스터가 남아있었다면 이 값이 0이 아니었을 것).
+    expect(world.getMonsters().size).toBe(0);
+  });
+
+  it('코어/플레이어 HP는 건드리지 않는다', () => {
+    const world = new World();
+    world.addPlayer('p1', 0, 0);
+    world.getPlayers().get('p1')!.hp = 42;
+
+    world.debugJumpToWave(5);
+
+    expect(world.getCore().hp).toBe(world.getCore().maxHp);
+    expect(world.getPlayers().get('p1')!.hp).toBe(42);
+  });
+
+  it('존재하지 않는 웨이브 번호는 무시하고 기존 몬스터도 그대로 둔다', () => {
+    const world = new World();
+    world.addPlayer('p1', 500, 500);
+    startFirstWave(world);
+    spawnAtLeast(world, 1);
+    const aliveBefore = world.getMonsters().size;
+
+    world.debugJumpToWave(9999);
+
+    expect(world.getMonsters().size).toBe(aliveBefore);
+    expect(world.getCurrentWave()).toBe(1);
   });
 });

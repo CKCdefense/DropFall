@@ -1,0 +1,18 @@
+{
+  "wood": {
+    "requiredTool": "axe",
+    "harvestRadius": 32,
+    "harvestInterval": 1,
+    "yieldPerHarvest": 5,
+    "maxHarvests": 5,
+    "respawnSeconds": 60
+  },
+  "stone": {
+    "requiredTool": "pickaxe",
+    "harvestRadius": 32,
+    "harvestInterval": 1,
+    "yieldPerHarvest": 3,
+    "maxHarvests": 3,
+    "respawnSeconds": 90
+  }
+}

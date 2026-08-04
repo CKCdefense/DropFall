@@ -11,6 +11,8 @@ export class PlayerSchema extends Schema {
   @type('number') aimAngle = 0;
   @type('number') lastProcessedSeq = 0;
   @type('number') hp = 0;
+  @type('number') wood = 0;
+  @type('number') stone = 0;
 }
 
 export class MonsterSchema extends Schema {
@@ -26,6 +28,21 @@ export class ProjectileSchema extends Schema {
   @type('number') y = 0;
 }
 
+export class ResourceNodeSchema extends Schema {
+  @type('string') type = '';
+  @type('number') x = 0;
+  @type('number') y = 0;
+  @type('number') remainingHarvests = 0;
+}
+
+export class BuildingSchema extends Schema {
+  @type('string') type = '';
+  @type('number') x = 0;
+  @type('number') y = 0;
+  @type('number') hp = 0;
+  @type('number') maxHp = 0;
+}
+
 export class GameRoomState extends Schema {
   /** 방 코드 = roomId. 클라이언트가 HUD에 띄워 친구에게 불러줄 수 있게 상태로도 내려준다. */
   @type('string') roomCode = '';
@@ -38,6 +55,8 @@ export class GameRoomState extends Schema {
   @type({ map: PlayerSchema }) players = new MapSchema<PlayerSchema>();
   @type({ map: MonsterSchema }) monsters = new MapSchema<MonsterSchema>();
   @type({ map: ProjectileSchema }) projectiles = new MapSchema<ProjectileSchema>();
+  @type({ map: ResourceNodeSchema }) resourceNodes = new MapSchema<ResourceNodeSchema>();
+  @type({ map: BuildingSchema }) buildings = new MapSchema<BuildingSchema>();
   @type('number') coreHp = 0;
   @type('number') coreMaxHp = 0;
   /** 'day' | 'night' | 'victory' | 'defeat' (shared/sim의 GamePhase) */
