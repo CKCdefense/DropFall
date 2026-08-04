@@ -7,6 +7,7 @@ import {
   hasPlayerSprite,
   idleFrame,
   registerPlayerAnimations,
+  spritePrefix,
   walkAnimKey,
 } from './playerSprite';
 
@@ -132,7 +133,7 @@ export class EntityRenderer {
     // 스프라이트가 있으면 그걸 쓰고, 없으면 도형으로 대체한다.
     const body: Phaser.GameObjects.GameObject = this.hasSprite
       ? this.scene.add
-          .sprite(0, 0, GAME_ATLAS, idleFrame('front'))
+          .sprite(0, 0, GAME_ATLAS, idleFrame(spritePrefix(player.job), 'front'))
           // 원점을 발밑에 두면 컨테이너 위치(= 서버 좌표)가 바닥에 닿는다.
           .setOrigin(0.5, PLAYER_ORIGIN_Y)
           .setName('body')
@@ -172,6 +173,7 @@ export class EntityRenderer {
     const body = container.getByName('body');
     if (!(body instanceof Phaser.GameObjects.Sprite)) return;
 
+    const job = spritePrefix(player.job);
     const { direction, flipX } = directionFromAngle(player.aimAngle);
     body.setFlipX(flipX);
 
@@ -182,12 +184,12 @@ export class EntityRenderer {
     this.lastPositions.set(player.id, { x: player.x, y: player.y });
 
     if (moved && player.hp > 0) {
-      const key = walkAnimKey(direction);
+      const key = walkAnimKey(job, direction);
       // 같은 애니메이션이 이미 돌고 있으면 재시작하지 않는다(계속 첫 프레임에 머무는 것 방지).
       if (body.anims.currentAnim?.key !== key || !body.anims.isPlaying) body.play(key, true);
     } else {
       body.anims.stop();
-      body.setFrame(idleFrame(direction));
+      body.setFrame(idleFrame(job, direction));
     }
   }
 

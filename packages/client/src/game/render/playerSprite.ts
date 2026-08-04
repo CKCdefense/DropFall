@@ -1,15 +1,20 @@
 import Phaser from 'phaser';
+import { JOB_IDS, type JobId } from '@dropfall/shared';
 import { resolveAssetUrl } from '../../ui/assets';
 
 /** 인게임 월드 스프라이트 아틀라스 (assets/atlas.config.json의 "game") */
 export const GAME_ATLAS = 'game';
 
 /**
- * 캐릭터 스프라이트 시트의 프레임 접두사.
- * 원본 파일명이 곧 접두사다 — `soldier_test.aseprite` → `soldier_test_{태그}_{번호}`.
- * 정식 에셋으로 교체할 때 이 값만 바꾸면 된다.
+ * 직업 id가 곧 스프라이트 원본 파일명이라 프레임 접두사로 그대로 쓴다.
+ * `assets/sprites/characters/soldier.aseprite` → `soldier_front_0` …
  */
-export const PLAYER_SPRITE_PREFIX = 'soldier_test';
+export const DEFAULT_JOB: JobId = 'soldier';
+
+/** 직업을 아직 안 골랐거나 알 수 없는 값이면 기본 직업으로 그린다. */
+export function spritePrefix(job: string): JobId {
+  return (JOB_IDS as readonly string[]).includes(job) ? (job as JobId) : DEFAULT_JOB;
+}
 
 /**
  * 시트에 있는 방향 3종. 오른쪽은 `left`를 좌우 반전해서 쓴다.
@@ -25,12 +30,12 @@ const WALK_FRAME_RATE = 5;
 /** 캐릭터 32×32에서 실제 그림은 y 2~29에 있다. 원점을 발밑에 두면 탑다운 Y-정렬이 맞는다. */
 export const PLAYER_ORIGIN_Y = 0.94;
 
-export function walkAnimKey(direction: Direction): string {
-  return `${PLAYER_SPRITE_PREFIX}_${direction}`;
+export function walkAnimKey(job: JobId, direction: Direction): string {
+  return `${job}_${direction}`;
 }
 
-export function idleFrame(direction: Direction): string {
-  return `${PLAYER_SPRITE_PREFIX}_${direction}_0`;
+export function idleFrame(job: JobId, direction: Direction): string {
+  return `${job}_${direction}_0`;
 }
 
 /**
@@ -48,29 +53,42 @@ export function queueGameAtlas(scene: Phaser.Scene): void {
   });
 }
 
-/** 아틀라스가 실제로 올라왔고 우리가 기대하는 프레임이 들어 있는지 */
+/** 아틀라스가 올라왔고 기본 직업 프레임이 들어 있는지 */
 export function hasPlayerSprite(scene: Phaser.Scene): boolean {
   return (
-    scene.textures.exists(GAME_ATLAS) && scene.textures.get(GAME_ATLAS).has(idleFrame('front'))
+    scene.textures.exists(GAME_ATLAS) &&
+    scene.textures.get(GAME_ATLAS).has(idleFrame(DEFAULT_JOB, 'front'))
   );
 }
 
-/** 방향별 걷기 애니메이션을 등록한다. 여러 Scene에서 불러도 중복 생성하지 않는다. */
-export function registerPlayerAnimations(scene: Phaser.Scene): void {
-  for (const direction of DIRECTIONS) {
-    const key = walkAnimKey(direction);
-    if (scene.anims.exists(key)) continue;
+/** 해당 직업 스프라이트가 아틀라스에 실제로 들어 있는지 (일부 직업만 그려진 상태 대비) */
+export function hasJobSprite(scene: Phaser.Scene, job: JobId): boolean {
+  return scene.textures.get(GAME_ATLAS).has(idleFrame(job, 'front'));
+}
 
-    scene.anims.create({
-      key,
-      frames: scene.anims.generateFrameNames(GAME_ATLAS, {
-        prefix: `${PLAYER_SPRITE_PREFIX}_${direction}_`,
-        start: 0,
-        end: FRAMES_PER_DIRECTION - 1,
-      }),
-      frameRate: WALK_FRAME_RATE,
-      repeat: -1,
-    });
+/**
+ * 직업 × 방향 걷기 애니메이션을 등록한다.
+ * 아틀라스에 없는 직업은 건너뛴다 — 없는 프레임으로 애니메이션을 만들면 렌더 시 깨진다.
+ */
+export function registerPlayerAnimations(scene: Phaser.Scene): void {
+  for (const job of JOB_IDS) {
+    if (!hasJobSprite(scene, job)) continue;
+
+    for (const direction of DIRECTIONS) {
+      const key = walkAnimKey(job, direction);
+      if (scene.anims.exists(key)) continue;
+
+      scene.anims.create({
+        key,
+        frames: scene.anims.generateFrameNames(GAME_ATLAS, {
+          prefix: `${job}_${direction}_`,
+          start: 0,
+          end: FRAMES_PER_DIRECTION - 1,
+        }),
+        frameRate: WALK_FRAME_RATE,
+        repeat: -1,
+      });
+    }
   }
 }
 

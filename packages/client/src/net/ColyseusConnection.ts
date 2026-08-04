@@ -180,6 +180,7 @@ export class ColyseusConnection implements GameConnection {
       players.push({
         id,
         nickname: player.nickname,
+        job: (player.job || '') as JobId | '',
         x: player.x,
         y: player.y,
         aimAngle: player.aimAngle,

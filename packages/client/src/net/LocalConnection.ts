@@ -60,6 +60,7 @@ export class LocalConnection implements GameConnection {
       players.push({
         id,
         nickname: this.nickname,
+        job: this.job,
         x: player.x,
         y: player.y,
         aimAngle: player.aimAngle,

@@ -10,10 +10,12 @@ export const RoomPhase = {
 export type RoomPhase = (typeof RoomPhase)[keyof typeof RoomPhase];
 
 /**
- * 직업. MVP는 3종이다 — 각 직업은 패시브 1 + 액티브 1로 최소 구성한다.
- * (docs/01-game-design.md §5)
+ * 직업. 각 직업은 패시브 1 + 액티브 1로 최소 구성한다. (docs/01-game-design.md §5)
+ *
+ * **id는 캐릭터 스프라이트 원본 파일명과 같다** (`assets/sprites/characters/{id}.aseprite`).
+ * 덕분에 직업 → 스프라이트 프레임 접두사 변환에 별도 표가 필요 없다.
  */
-export const JOB_IDS = ['engineer', 'medic', 'soldier'] as const;
+export const JOB_IDS = ['soldier', 'searchman', 'medic', 'engineer'] as const;
 export type JobId = (typeof JOB_IDS)[number];
 
 export interface JobInfo {
@@ -24,9 +26,10 @@ export interface JobInfo {
 }
 
 export const JOBS: readonly JobInfo[] = [
-  { id: 'engineer', name: '정비공', summary: '건축·수리' },
-  { id: 'medic', name: '의사', summary: '치유·부활' },
-  { id: 'soldier', name: '군인', summary: '화력' },
+  { id: 'soldier', name: '병사', summary: '화력' },
+  { id: 'searchman', name: '탐색꾼', summary: '정찰·채집' },
+  { id: 'medic', name: '의무병', summary: '치유·부활' },
+  { id: 'engineer', name: '엔지니어', summary: '건축·수리' },
 ];
 
 export function isJobId(value: unknown): value is JobId {

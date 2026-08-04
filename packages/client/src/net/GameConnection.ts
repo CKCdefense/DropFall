@@ -11,6 +11,8 @@ import type { JobId, PlayerInputMessage, RoomPhase } from '@dropfall/shared';
 export interface PlayerView {
   id: string;
   nickname: string;
+  /** 선택 전에는 빈 문자열. 렌더러가 직업별 스프라이트를 고르는 데 쓴다. */
+  job: JobId | '';
   x: number;
   y: number;
   aimAngle: number;
