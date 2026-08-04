@@ -19,9 +19,15 @@
   --danger: #d9756b;
   --shadow: #0b0d12;
 
-  /* ---- 타이포 ---- */
-  /* TODO: 한글 픽셀 비트맵 폰트 확정 후 교체 (docs/frontend/01 §5) */
-  --font-ui: ui-monospace, 'Malgun Gothic', monospace;
+  /* ---- 타이포 ----
+   * 갈무리(Galmuri) 픽셀 폰트. @font-face가 아니라 ui/fonts.ts가 런타임에 등록한다
+   * (public/ 경로라 Vite가 URL을 재작성해주지 않는다 — assets.ts와 같은 이유).
+   * 폰트가 없으면 뒤의 폴백으로 자연스럽게 넘어간다.
+   *
+   * 픽셀 폰트는 설계 크기의 정수배에서만 선명하다. Galmuri11은 11/22/33px,
+   * Galmuri7은 7/14/21px — 글자 크기를 이 배수 밖으로 두면 획이 뭉갠다.
+   */
+  --font-ui: 'Galmuri11', ui-monospace, 'Malgun Gothic', monospace;
   --font-display: var(--font-ui);
 
   /* ---- 픽셀 에셋 배율. 정수배만 쓴다 ---- */

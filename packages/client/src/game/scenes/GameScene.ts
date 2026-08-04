@@ -43,7 +43,9 @@ export class GameScene extends Phaser.Scene {
     this.drawCore();
 
     this.entityRenderer = new EntityRenderer(this, this.connection.sessionId);
-    this.input_ = new InputController(this, this.connection);
+    this.input_ = new InputController(this, this.connection, () =>
+      this.entityRenderer.playAttack(this.connection.sessionId),
+    );
     // HudScene은 매 프레임 registry에서 다시 읽으므로(HudScene.update), 씬 시작 순서와
     // 무관하게 늦어도 다음 프레임엔 값이 채워져 있다.
     this.registry.set(INPUT_CONTROLLER_KEY, this.input_);
@@ -59,12 +61,14 @@ export class GameScene extends Phaser.Scene {
 
   update(_time: number, delta: number): void {
     const snapshot = this.connection.getSnapshot();
+    // 휘두르기는 스냅샷이 아니라 시간으로 진행한다 — sync보다 먼저 갱신해야 이번 프레임에 반영된다.
+    this.entityRenderer.advance(delta);
     this.entityRenderer.sync(snapshot);
 
     const me = snapshot.players.find((player) => player.id === this.connection.sessionId);
     if (!me) return;
 
-    this.input_.update(delta, me.x, me.y);
+    this.input_.update(delta, me);
 
     if (!this.isFollowing) {
       const sprite = this.entityRenderer.getSprite(me.id);

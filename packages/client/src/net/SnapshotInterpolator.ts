@@ -117,6 +117,7 @@ const EMPTY_STATUS: WorldStatus = {
   coreMaxHp: 0,
   wavePhase: 'day',
   currentWave: 0,
+  phaseTimeRemaining: 0,
   skipVoteCount: 0,
 };
 

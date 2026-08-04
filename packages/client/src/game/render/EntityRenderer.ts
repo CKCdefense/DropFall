@@ -1,8 +1,10 @@
 import Phaser from 'phaser';
+import { itemOfSlot } from '@dropfall/shared';
 import type {
   BuildingView,
   MonsterView,
   PlayerView,
+  ProjectileView,
   ResourceNodeView,
   WorldSnapshot,
 } from '../../net/GameConnection';
@@ -16,9 +18,37 @@ import {
   spritePrefix,
   walkAnimKey,
 } from './playerSprite';
+import {
+  BULLET_ANIM,
+  DEFAULT_WEAPON_ID,
+  HAND_FRAME,
+  ORBIT_CENTER_Y,
+  MUZZLE_ANIM,
+  SWING_ANIM,
+  SWING_STRIKE_DELAY_MS,
+  bulletFrame,
+  hasBulletFx,
+  hasHandSprite,
+  hasMuzzleFx,
+  hasSwingFx,
+  hasWeaponSprites,
+  isSwingFinished,
+  layoutWeapon,
+  orderWeaponAgainstBody,
+  registerBulletAnimation,
+  registerMuzzleAnimation,
+  registerSwingAnimation,
+  weaponVisual,
+  type SwingState,
+  type WeaponParts,
+} from './weaponFx';
+import { FONT_SMALL, SIZE_SMALL } from '../ui/theme';
 
-/** 월드 안에 그리는 텍스트의 기준 크기(월드 단위). 실제 화면 크기는 여기에 카메라 줌이 곱해진다. */
-const LABEL_FONT_SIZE = 7;
+/**
+ * 월드 안에 그리는 텍스트의 기준 크기(월드 단위). 실제 화면 크기는 여기에 카메라 줌이 곱해진다.
+ * Galmuri7의 설계 크기와 같은 7px이라, 정수배 줌에서 항상 선명하다.
+ */
+const LABEL_FONT_SIZE = SIZE_SMALL;
 
 /**
  * 몬스터 타입별 플레이스홀더 표현.
@@ -54,6 +84,22 @@ const MOVE_EPSILON = 0.15;
 const LABEL_OFFSET_SPRITE = 30;
 const LABEL_OFFSET_PLACEHOLDER = 12;
 
+/** 두 손의 컨테이너 내 이름. 손잡이를 앞뒤로 나눠 잡는다. */
+const HAND_NAMES = ['hand0', 'hand1'] as const;
+
+/** 투사체는 항상 위에 그린다. */
+const PROJECTILE_DEPTH = 9000;
+/**
+ * 투사체를 화면상 얼마나 띄울지(px).
+ *
+ * 공전 중심(ORBIT_CENTER_Y = -14)이 아니라 **총구 실제 높이**에 맞춘다 — 총구는 궤도
+ * 중심보다 조금 더 위에 있어서(권총 기준 약 -4px), 궤도 높이에 맞추면 총알만 허리께로
+ * 나가는 것처럼 보인다.
+ *
+ * 시뮬레이션은 2D 평면이고 이 값은 순수하게 보이는 위치만 바꾼다 — 판정에는 영향이 없다.
+ */
+const PROJECTILE_LIFT = ORBIT_CENTER_Y - 4;
+
 const HP_BAR_WIDTH = 16;
 const HP_BAR_HEIGHT = 2;
 
@@ -67,12 +113,24 @@ const HP_BAR_HEIGHT = 2;
 export class EntityRenderer {
   private readonly players = new Map<string, Phaser.GameObjects.Container>();
   private readonly monsters = new Map<string, Phaser.GameObjects.Container>();
-  private readonly projectiles = new Map<string, Phaser.GameObjects.Arc>();
+  private readonly projectiles = new Map<string, Phaser.GameObjects.Sprite | Phaser.GameObjects.Arc>();
   private readonly resourceNodes = new Map<string, Phaser.GameObjects.Container>();
   private readonly buildings = new Map<string, Phaser.GameObjects.Container>();
   /** 이동 여부 판정용 직전 좌표 */
   private readonly lastPositions = new Map<string, { x: number; y: number }>();
   private readonly hasSprite: boolean;
+  private readonly hasWeapon: boolean;
+  private readonly hasMuzzle: boolean;
+  private readonly hasHands: boolean;
+  private readonly hasSwing: boolean;
+  private readonly hasBullet: boolean;
+  /**
+   * 플레이어별로 마지막에 그린 무기. 스냅샷의 장착 무기와 달라졌을 때만 스프라이트
+   * 프레임을 갈아끼우기 위한 캐시다 — 상태의 출처는 어디까지나 스냅샷이다.
+   */
+  private readonly equipped = new Map<string, string>();
+  /** 진행 중인 휘두르기. 끝나면 지운다. */
+  private readonly swings = new Map<string, SwingState>();
   private zoom = 1;
 
   constructor(
@@ -81,6 +139,50 @@ export class EntityRenderer {
   ) {
     this.hasSprite = hasPlayerSprite(scene);
     if (this.hasSprite) registerPlayerAnimations(scene);
+
+    this.hasWeapon = hasWeaponSprites(scene);
+    this.hasHands = hasHandSprite(scene);
+    this.hasMuzzle = hasMuzzleFx(scene);
+    this.hasSwing = hasSwingFx(scene);
+    this.hasBullet = hasBulletFx(scene);
+    if (this.hasMuzzle) registerMuzzleAnimation(scene);
+    if (this.hasSwing) registerSwingAnimation(scene);
+    if (this.hasBullet) registerBulletAnimation(scene);
+  }
+
+  /** 매 프레임 호출. 휘두르기처럼 스냅샷과 무관하게 시간이 흐르는 연출을 진행시킨다. */
+  advance(deltaMs: number): void {
+    for (const [id, swing] of this.swings) {
+      swing.elapsedMs += deltaMs;
+
+      // 이펙트는 예비동작이 끝나고 날이 실제로 지나갈 때 터진다. 시작과 동시에 터뜨리면
+      // 아직 뒤로 젖히는 중인데 베인 자국이 먼저 보인다.
+      if (!swing.fxPlayed && swing.elapsedMs >= SWING_STRIKE_DELAY_MS) {
+        swing.fxPlayed = true;
+        this.playFx(id, 'swingFx', SWING_ANIM);
+      }
+
+      if (isSwingFinished(swing)) this.swings.delete(id);
+    }
+  }
+
+  /**
+   * 스냅샷의 장착 무기를 반영한다. 바뀐 경우에만 프레임을 갈아끼우고 진행 중인
+   * 휘두르기를 끊는다 — 매 프레임 setFrame을 부르면 애니메이션이 초기화된다.
+   */
+  private syncWeapon(sessionId: string, weaponId: string): void {
+    if (this.equipped.get(sessionId) === weaponId) return;
+    this.equipped.set(sessionId, weaponId);
+    this.swings.delete(sessionId);
+
+    const weapon = this.players.get(sessionId)?.getByName('aim');
+    if (weapon instanceof Phaser.GameObjects.Sprite && this.hasWeapon) {
+      weapon.setFrame(weaponVisual(weaponId).frame);
+    }
+  }
+
+  weaponOf(sessionId: string): string {
+    return this.equipped.get(sessionId) ?? DEFAULT_WEAPON_ID;
   }
 
   /**
@@ -112,7 +214,7 @@ export class EntityRenderer {
       for (const sprite of map.values()) sprite.destroy();
       map.clear();
     }
-    for (const dot of this.projectiles.values()) dot.destroy();
+    for (const projectile of this.projectiles.values()) projectile.destroy();
     this.projectiles.clear();
   }
 
@@ -137,16 +239,28 @@ export class EntityRenderer {
       // 다운된 플레이어는 흐리게 — 부활 대상임을 한눈에 보이게 한다.
       sprite.setAlpha(player.hp > 0 ? 1 : 0.35);
 
-      const aim = sprite.getByName('aim') as Phaser.GameObjects.Rectangle | null;
-      if (aim) {
+      // 무기는 서버가 정한다 — 손에 무기가 없으면(소모품 등) 직전 무기를 그대로 든 채 둔다.
+      const equippedWeaponId = itemOfSlot(player.slots[player.selectedSlot])?.weaponId;
+      if (equippedWeaponId) this.syncWeapon(player.id, equippedWeaponId);
+
+      const aim = sprite.getByName('aim');
+      if (aim instanceof Phaser.GameObjects.Sprite) {
+        // 무기 일습(무기·양손·이펙트)을 궤도 위에 배치한다
+        const parts = this.readWeaponParts(sprite, aim);
+        const visual = weaponVisual(this.weaponOf(player.id));
+        layoutWeapon(parts, visual, player.aimAngle, this.swings.get(player.id) ?? null);
+        orderWeaponAgainstBody(sprite, parts, player.aimAngle);
+      } else if (aim instanceof Phaser.GameObjects.Rectangle) {
         aim.setPosition(Math.cos(player.aimAngle) * 12, Math.sin(player.aimAngle) * 12);
       }
 
       if (this.hasSprite) this.updatePlayerSprite(sprite, player);
     }
 
-    for (const id of this.lastPositions.keys()) {
-      if (!alive.has(id)) this.lastPositions.delete(id);
+    for (const map of [this.lastPositions, this.swings, this.equipped]) {
+      for (const id of map.keys()) {
+        if (!alive.has(id)) map.delete(id);
+      }
     }
     this.removeMissing(this.players, alive);
   }
@@ -163,15 +277,35 @@ export class EntityRenderer {
           .setName('body')
       : this.createPlaceholderBody(isMe);
 
-    const aim = this.scene.add.rectangle(12, 0, 6, 2, 0xf2e9d0);
-    aim.setName('aim');
+    // 무기: 스프라이트가 있으면 장착 무기, 없으면 조준 방향을 알려주는 막대
+    const aim: Phaser.GameObjects.GameObject = this.hasWeapon
+      ? this.scene.add
+          .sprite(0, 0, GAME_ATLAS, weaponVisual(this.weaponOf(player.id)).frame)
+          .setName('aim')
+      : this.scene.add.rectangle(12, 0, 6, 2, 0xf2e9d0).setName('aim');
+
+    // 손잡이를 앞뒤로 나눠 잡는 두 손. 무기가 있을 때만 의미가 있다.
+    const hands =
+      this.hasWeapon && this.hasHands
+        ? HAND_NAMES.map((name) =>
+            this.scene.add.sprite(0, 0, GAME_ATLAS, HAND_FRAME).setName(name),
+          )
+        : [];
+
+    // 이펙트. 평소엔 숨겨두고 공격할 때만 재생한다.
+    const flash = this.hasMuzzle
+      ? this.scene.add.sprite(0, 0, GAME_ATLAS, `${MUZZLE_ANIM}_0`).setName('flash').setVisible(false)
+      : null;
+    const swingFx = this.hasSwing
+      ? this.scene.add.sprite(0, 0, GAME_ATLAS, `${SWING_ANIM}_0`).setName('swingFx').setVisible(false)
+      : null;
 
     // 원점이 발밑이라 스프라이트는 위로 뻗는다 — 라벨을 머리 위로 올려야 얼굴을 가리지 않는다.
     const labelY = this.hasSprite ? -LABEL_OFFSET_SPRITE : -LABEL_OFFSET_PLACEHOLDER;
 
     const label = this.scene.add
       .text(0, labelY, player.nickname, {
-        fontFamily: 'ui-monospace, monospace',
+        fontFamily: FONT_SMALL,
         fontSize: `${LABEL_FONT_SIZE}px`,
         color: isMe ? '#6fd08c' : '#cfd6e4',
       })
@@ -179,7 +313,54 @@ export class EntityRenderer {
     label.setName('label');
     label.setResolution(this.zoom);
 
-    return this.scene.add.container(player.x, player.y, [aim, body, label]);
+    // 순서는 매 프레임 orderWeaponAgainstBody가 다시 잡는다 — 여기선 전부 넣기만 한다.
+    const parts: Phaser.GameObjects.GameObject[] = [aim, ...hands, body, label];
+    if (flash) parts.push(flash);
+    if (swingFx) parts.push(swingFx);
+
+    return this.scene.add.container(player.x, player.y, parts);
+  }
+
+  /** 컨테이너에서 무기 일습을 꺼낸다. 손이 없는 구성(에셋 미존재)도 허용한다. */
+  private readWeaponParts(
+    container: Phaser.GameObjects.Container,
+    weapon: Phaser.GameObjects.Sprite,
+  ): WeaponParts {
+    const hands = HAND_NAMES.map((name) => container.getByName(name)).filter(
+      (part): part is Phaser.GameObjects.Sprite => part instanceof Phaser.GameObjects.Sprite,
+    );
+
+    return {
+      weapon,
+      hands,
+      flash: container.getByName('flash') as Phaser.GameObjects.Sprite | null,
+      swingFx: container.getByName('swingFx') as Phaser.GameObjects.Sprite | null,
+    };
+  }
+
+  /**
+   * 공격 연출을 한 번 재생한다. 무기 종류에 따라 총구 화염이거나 휘두르기다.
+   * 홀드 연사로 매 프레임 불려도 되도록, 진행 중인 휘두르기는 다시 시작하지 않는다.
+   */
+  playAttack(sessionId: string): void {
+    const weaponId = this.weaponOf(sessionId);
+    if (weaponVisual(weaponId).melee) this.startSwing(sessionId);
+    else this.playFx(sessionId, 'flash', MUZZLE_ANIM);
+  }
+
+  private startSwing(sessionId: string): void {
+    if (this.swings.has(sessionId)) return;
+    this.swings.set(sessionId, { elapsedMs: 0, fxPlayed: false });
+  }
+
+  private playFx(sessionId: string, partName: string, animKey: string): void {
+    const part = this.players.get(sessionId)?.getByName(partName);
+    if (!(part instanceof Phaser.GameObjects.Sprite)) return;
+
+    part.setVisible(true);
+    part.play(animKey, true);
+    // 애니메이션이 끝나면 스스로 숨는다 — 남아 있으면 마지막 프레임이 계속 붙어 있다.
+    part.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => part.setVisible(false));
   }
 
   private createPlaceholderBody(isMe: boolean): Phaser.GameObjects.Rectangle {
@@ -274,23 +455,41 @@ export class EntityRenderer {
 
   // ---------------------------------------------------------------- 투사체
 
-  private syncProjectiles(views: { id: string; x: number; y: number }[]): void {
+  private syncProjectiles(views: ProjectileView[]): void {
     const alive = new Set<string>();
 
     for (const projectile of views) {
       alive.add(projectile.id);
 
-      let dot = this.projectiles.get(projectile.id);
-      if (!dot) {
-        dot = this.scene.add.circle(projectile.x, projectile.y, 2, 0xf2e9d0);
-        dot.setDepth(9000); // 투사체는 항상 위에
-        this.projectiles.set(projectile.id, dot);
+      let sprite = this.projectiles.get(projectile.id);
+      if (!sprite) {
+        sprite = this.createProjectile(projectile);
+        this.projectiles.set(projectile.id, sprite);
       }
 
-      dot.setPosition(Math.round(projectile.x), Math.round(projectile.y));
+      // 총구·휘두르기 이펙트와 같은 "가슴 높이" 평면에 올린다. 월드 좌표 그대로 그리면
+      // 총알만 발밑을 스치듯 날아가서 총구에서 나온 것처럼 보이지 않는다.
+      sprite.setPosition(Math.round(projectile.x), Math.round(projectile.y) + PROJECTILE_LIFT);
     }
 
     this.removeMissing(this.projectiles, alive);
+  }
+
+  private createProjectile(
+    projectile: ProjectileView,
+  ): Phaser.GameObjects.Sprite | Phaser.GameObjects.Arc {
+    if (!this.hasBullet) {
+      const dot = this.scene.add.circle(projectile.x, projectile.y, 2, 0xf2e9d0);
+      dot.setDepth(PROJECTILE_DEPTH);
+      return dot;
+    }
+
+    const sprite = this.scene.add.sprite(projectile.x, projectile.y, GAME_ATLAS, bulletFrame());
+    // 진행 방향은 발사 시점에 정해져 바뀌지 않는다 — 생성할 때 한 번만 돌려두면 된다.
+    sprite.setRotation(projectile.angle);
+    sprite.setDepth(PROJECTILE_DEPTH);
+    sprite.play(BULLET_ANIM);
+    return sprite;
   }
 
   // ---------------------------------------------------------------- 자원 노드

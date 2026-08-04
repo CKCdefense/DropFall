@@ -1,4 +1,4 @@
-import type { JobId, PlayerInputMessage, RoomPhase } from '@dropfall/shared';
+import type { InventorySlot, JobId, PlayerInputMessage, RoomPhase } from '@dropfall/shared';
 
 /**
  * 렌더링이 소비하는 엔티티 스냅샷.
@@ -20,6 +20,9 @@ export interface PlayerView {
   hp: number;
   wood: number;
   stone: number;
+  /** 퀵슬롯. 길이는 항상 SLOT_COUNT이고 빈 칸은 null이다. */
+  slots: (InventorySlot | null)[];
+  selectedSlot: number;
 }
 
 export interface MonsterView {
@@ -36,6 +39,8 @@ export interface ProjectileView {
   id: string;
   x: number;
   y: number;
+  /** 진행 방향(라디안). 탄환 스프라이트를 이 각도로 눕힌다. */
+  angle: number;
 }
 
 export interface ResourceNodeView {
@@ -64,6 +69,8 @@ export interface WorldStatus {
   /** GamePhase: 'day' | 'night' | 'victory' | 'defeat' */
   wavePhase: string;
   currentWave: number;
+  /** 현재 페이즈가 끝나기까지 남은 시간(초) */
+  phaseTimeRemaining: number;
   /** 낮 스킵 투표 동의 인원. 필요 인원은 players.length(만장일치) */
   skipVoteCount: number;
 }
@@ -109,8 +116,15 @@ export interface GameConnection {
   readonly isLocal: boolean;
 
   sendInput(input: PlayerInputMessage): void;
-  /** 사격. 서버가 쿨다운·탄약을 판정하므로 클라이언트는 눌렸다는 사실만 보낸다. */
-  fire(weaponId: string): void;
+  /**
+   * 공격. 무기 id를 보내지 않는다 — 서버가 선택된 슬롯에서 읽는다.
+   * 쿨다운·탄약 판정도 서버 몫이라 클라이언트는 눌렸다는 사실만 보낸다.
+   */
+  fire(): void;
+  /** 퀵슬롯 선택(= 무기 교체). 서버가 그 칸의 실제 내용물을 보고 판단한다. */
+  selectSlot(index: number): void;
+  /** 선택 중인 소모품 사용. 쓸 수 없는 슬롯이면 서버가 조용히 무시한다. */
+  useSlot(): void;
   /** 낮 넘기기 투표 (만장일치) */
   voteSkipDay(): void;
   /**
