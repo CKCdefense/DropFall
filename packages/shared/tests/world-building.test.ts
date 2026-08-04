@@ -491,7 +491,7 @@ describe('World — 건축물과 투사체', () => {
     world.placeBuilding('builder', 'wall', cx, cy);
     expect(world.getBuildings().size).toBe(1);
 
-    world.fireWeapon('shooter', 'pistol');
+    world.fireWeapon('shooter');
     expect(world.getProjectiles().size).toBe(1);
 
     // 투사체가 벽을 지나칠 시간을 넉넉히 준다(pistol projectileSpeed=420px/s).
@@ -521,12 +521,18 @@ describe('World — 건축물과 투사체', () => {
     monster!.y = 0;
     monster!.hp = monster!.maxHp;
 
-    world.fireWeapon('shooter', 'pistol');
+    world.fireWeapon('shooter');
     expect(world.getProjectiles().size).toBe(1);
 
     // 투사체(420px/s)가 울타리(x≈60)를 지나 몬스터(x=150)까지 닿을 시간을 준다 — 짧게
-    // 잡아서 몬스터가 코어 쪽으로 너무 많이 걸어와 버리지 않게 한다.
-    for (let i = 0; i < 8; i += 1) world.tick(0.1);
+    // 잡아서 몬스터가 코어 쪽으로 너무 많이 걸어와 버리지 않게 한다. dt를 촘촘히
+    // 쪼갠 이유: 무기에 muzzleOffset이 붙으면서 투사체 시작 위치가 살짝 밀렸는데,
+    // 그 상태에서 dt=0.1(틱당 42px 이동)로 크게 쪼개면 마침 몬스터도 코어 쪽으로
+    // 다가오고 있어서 두 좌표가 같은 틱에 겹치는 순간 없이 서로를 "건너뛸" 수 있다
+    // (한 틱 전엔 13px 차이로 아깝게 빗나가고, 다음 틱엔 이미 지나쳐버림). dt=0.01
+    // (틱당 4.2px)로 쪼개면 몬스터 반경(HIT_RADIUS=10px)보다 훨씬 촘촘해서 이런
+    // "터널링"이 나올 수 없다.
+    for (let i = 0; i < 80; i += 1) world.tick(0.01);
 
     expect(monster!.hp).toBeLessThan(monster!.maxHp); // 울타리를 통과해서 맞았다
   });

@@ -29,6 +29,8 @@ interface RemotePlayerState {
   hp: number;
   wood: number;
   stone: number;
+  slots: { itemId: string; count: number }[];
+  selectedSlot: number;
 }
 
 interface RemoteMonsterState {
@@ -73,6 +75,7 @@ interface RemoteGameState {
   coreMaxHp: number;
   wavePhase: string;
   currentWave: number;
+  phaseTimeRemaining: number;
   skipVoteCount: number;
   players: {
     size: number;
@@ -82,7 +85,7 @@ interface RemoteGameState {
     forEach(callback: (value: RemoteMonsterState, key: string) => void): void;
   };
   projectiles: {
-    forEach(callback: (value: { x: number; y: number }, key: string) => void): void;
+    forEach(callback: (value: { x: number; y: number; angle: number }, key: string) => void): void;
   };
   resourceNodes: {
     forEach(callback: (value: RemoteResourceNodeState, key: string) => void): void;
@@ -192,8 +195,17 @@ export class ColyseusConnection implements GameConnection {
     this.room.send('input', input);
   }
 
-  fire(weaponId: string): void {
-    this.room.send('fire', { weaponId });
+  fire(): void {
+    // 무기 id를 싣지 않는다 — 서버가 선택된 슬롯에서 읽는다(World.fireWeapon).
+    this.room.send('fire', {});
+  }
+
+  selectSlot(index: number): void {
+    this.room.send('selectSlot', { index });
+  }
+
+  useSlot(): void {
+    this.room.send('useSlot', {});
   }
 
   voteSkipDay(): void {
@@ -228,6 +240,11 @@ export class ColyseusConnection implements GameConnection {
         hp: player.hp,
         wood: player.wood,
         stone: player.stone,
+        // 서버는 빈 칸을 itemId '' 로 내려보낸다(길이 고정). 클라이언트 표현은 null이다.
+        slots: Array.from(player.slots ?? [], (slot) =>
+          slot.itemId ? { itemId: slot.itemId, count: slot.count } : null,
+        ),
+        selectedSlot: player.selectedSlot,
       });
     });
 
@@ -254,7 +271,7 @@ export class ColyseusConnection implements GameConnection {
 
     const projectiles: WorldSnapshot['projectiles'] = [];
     state?.projectiles?.forEach((projectile, id) => {
-      projectiles.push({ id, x: projectile.x, y: projectile.y });
+      projectiles.push({ id, x: projectile.x, y: projectile.y, angle: projectile.angle });
     });
 
     const resourceNodes: WorldSnapshot['resourceNodes'] = [];
@@ -291,6 +308,7 @@ export class ColyseusConnection implements GameConnection {
         coreMaxHp: state?.coreMaxHp ?? 0,
         wavePhase: state?.wavePhase ?? 'day',
         currentWave: state?.currentWave ?? 0,
+        phaseTimeRemaining: state?.phaseTimeRemaining ?? 0,
         skipVoteCount: state?.skipVoteCount ?? 0,
       },
     };

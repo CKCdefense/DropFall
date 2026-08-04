@@ -5,6 +5,8 @@ import wavesJson from './waves.json';
 import resourcesJson from './resources.json';
 import toolsJson from './tools.json';
 import buildingsJson from './buildings.json';
+import itemsJson from './items.json';
+import loadoutJson from './loadout.json';
 
 export function loadData<T>(schema: z.ZodType<T>, json: unknown): T {
   return schema.parse(json);
@@ -66,10 +68,21 @@ const WeaponDataSchema = z.object({
   fireRate: z.number().positive(),
   /** melee 전용: 판정 사거리(px) */
   range: z.number().positive().optional(),
+  /**
+   * melee 전용: 조준 방향 기준 부채꼴 판정 각도(도). 100이면 좌우 ±50도.
+   * 없으면 전방향(360도) — 기존 원형 판정과 같아진다.
+   */
+  arc: z.number().positive().max(360).optional(),
   /** ranged 전용 */
   magazine: z.number().int().positive().optional(),
   reloadTime: z.number().positive().optional(),
   projectileSpeed: z.number().positive().optional(),
+  /**
+   * ranged 전용: 발사 지점을 플레이어 중심에서 조준 방향으로 밀어내는 거리(px).
+   * 총구 위치와 맞춰야 총알이 배에서 튀어나오지 않는다 — 클라이언트 렌더의
+   * 총구 좌표(weaponFx.ts의 궤도 반경 + 총구 오프셋)에서 계산한 값이다.
+   */
+  muzzleOffset: z.number().nonnegative().optional(),
 });
 
 const WeaponsDataSchema = z.record(z.string(), WeaponDataSchema);
@@ -156,3 +169,48 @@ export type BuildingType = keyof typeof buildingsData;
 export type BuildingData = z.infer<typeof BuildingDataSchema>;
 
 export const buildingsData = loadData(BuildingsDataSchema, buildingsJson);
+
+// --- items.json ------------------------------------------------------------
+
+const ItemDataSchema = z.object({
+  name: z.string(),
+  /**
+   * 슬롯이 이 아이템으로 무엇을 할 수 있는지 결정한다.
+   *  - weapon:     장착하면 좌클릭 공격에 쓰인다
+   *  - consumable: 사용하면 효과를 내고 1개 줄어든다
+   *
+   * 건축 재료(나무/돌)는 여기 없다 — PlayerEntity의 전용 필드로 따로 센다.
+   * 퀵슬롯은 "손에 드는 것"만 다룬다.
+   */
+  kind: z.enum(['weapon', 'consumable']),
+  /** weapon 전용: weapons.json의 key. 아이템 id와 달라질 수 있어 따로 둔다. */
+  weaponId: z.string().optional(),
+  /** consumable 전용: 회복량 */
+  healAmount: z.number().positive().optional(),
+  /** 한 슬롯에 쌓을 수 있는 최대 개수. 무기처럼 겹치면 안 되는 건 1이다. */
+  stackSize: z.number().int().positive(),
+});
+
+const ItemsDataSchema = z.record(z.string(), ItemDataSchema);
+
+export type ItemId = keyof typeof itemsData;
+export type ItemData = z.infer<typeof ItemDataSchema>;
+export type ItemKind = ItemData['kind'];
+
+export const itemsData = loadData(ItemsDataSchema, itemsJson);
+
+// --- loadout.json ------------------------------------------------------------
+
+const LoadoutEntrySchema = z.object({
+  itemId: z.string(),
+  count: z.number().int().positive(),
+});
+
+const LoadoutDataSchema = z.object({
+  /** 게임 시작 시 모든 플레이어에게 주는 아이템. 순서가 곧 퀵슬롯 순서다. */
+  starting: z.array(LoadoutEntrySchema),
+});
+
+export type LoadoutEntry = z.infer<typeof LoadoutEntrySchema>;
+
+export const loadoutData = loadData(LoadoutDataSchema, loadoutJson);

@@ -1,18 +1,45 @@
 import Phaser from 'phaser';
 import {
   INPUT_SEND_RATE,
+  SLOT_COUNT,
+  itemOfSlot,
   normalizeMoveVector,
+  weaponsData,
   worldToCell,
+  type ItemKind,
   type PlayerInputMessage,
 } from '@dropfall/shared';
-import type { GameConnection } from '../../net/GameConnection';
+import type { GameConnection, PlayerView } from '../../net/GameConnection';
 
 const SEND_INTERVAL_MS = 1000 / INPUT_SEND_RATE;
 
-/** 기본 무기. 무기 교체가 생기면 상태에서 읽어온다. */
-const DEFAULT_WEAPON_ID = 'pistol';
-/** 홀드 연사 재전송 간격. 실제 발사 속도는 서버(weapons.json)가 정한다. */
-const FIRE_INTERVAL_MS = 100;
+interface EquippedItem {
+  /** null이면 빈 칸(맨손) */
+  kind: ItemKind | null;
+  /** kind가 'weapon'일 때만 채워진다 */
+  weaponId: string | undefined;
+}
+
+/** 스냅샷의 내 플레이어에서 "지금 손에 든 것"을 읽는다. */
+function readEquipped(self: PlayerView): EquippedItem {
+  const item = itemOfSlot(self.slots[self.selectedSlot]);
+  if (!item) return { kind: null, weaponId: undefined };
+  return { kind: item.kind, weaponId: item.weaponId };
+}
+
+/**
+ * 홀드 공격 재전송 간격(ms). 서버 쿨다운(1/fireRate)과 정확히 같게 보내면 네트워크
+ * 지터 때문에 절반쯤이 "너무 이르다"고 거절당한다. 살짝 빠르게 보내서 서버가 준비되는
+ * 즉시 다음 요청이 도착해 있게 한다 — 거절된 요청은 서버가 조용히 버린다.
+ *
+ * 무기를 모르면(빈 손, 소모품) 넉넉한 기본값을 쓴다 — 어차피 서버가 공격을 만들지 않는다.
+ */
+const UNKNOWN_WEAPON_INTERVAL_MS = 200;
+
+function fireIntervalMs(weaponId: string | undefined): number {
+  const weapon = weaponId ? weaponsData[weaponId] : undefined;
+  return weapon ? (1000 / weapon.fireRate) * 0.9 : UNKNOWN_WEAPON_INTERVAL_MS;
+}
 /** 채집 홀드 재전송 간격. 실제 채집 주기는 서버(resources.json)가 정한다. */
 const HARVEST_INTERVAL_MS = 100;
 
@@ -40,10 +67,17 @@ export class InputController {
   private elapsed = 0;
   private aimAngle = 0;
   private buildModeIndex = 0;
+  /**
+   * 지금 들고 있는 것. **스냅샷에서 받아온 값**이라 서버가 인정한 상태다 —
+   * 클라이언트가 정하지 않는다(update에서 매 프레임 갱신).
+   */
+  private equipped: EquippedItem = { kind: null, weaponId: undefined };
 
   constructor(
     private readonly scene: Phaser.Scene,
     private readonly connection: GameConnection,
+    /** 공격 순간 호출된다. 총구 화염·휘두르기처럼 즉시 반응해야 하는 연출에 쓴다. */
+    private readonly onAttack?: (weaponId: string) => void,
   ) {
     const keyboard = scene.input.keyboard;
     if (!keyboard) throw new Error('키보드 입력을 사용할 수 없습니다.');
@@ -62,6 +96,16 @@ export class InputController {
     keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.V).on('down', () => {
       this.connection.voteSkipDay();
     });
+
+    // 퀵슬롯 선택(1~4). 슬롯 번호만 보내고 그 칸에 뭐가 들었는지는 서버가 판단한다.
+    // 화면 반영도 서버 스냅샷을 통해서만 이뤄진다 — 로컬에서 미리 바꾸면 서버가
+    // 거절했을 때 두 상태가 어긋난다.
+    for (let index = 0; index < SLOT_COUNT; index += 1) {
+      keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ONE + index).on('down', () => {
+        this.fireTimer = 0;
+        this.connection.selectSlot(index);
+      });
+    }
 
     // 건축모드 순환(off → fence → wall → off...). 좌클릭은 건축모드일 때 설치로,
     // 아닐 때는 기존처럼 사격으로 쓴다 — 두 조작이 같은 버튼을 나눠 쓰는 구조다.
@@ -90,10 +134,16 @@ export class InputController {
     return BUILD_MODES[this.buildModeIndex];
   }
 
+  get weaponId(): string | undefined {
+    return this.equipped.weaponId;
+  }
+
   /**
-   * 사격은 입력 주기와 무관하게 누른 즉시 보낸다 — 쿨다운·탄약 판정은 서버가 한다.
-   * 홀드 연사는 클라이언트가 FIRE_INTERVAL_MS로 되풀이해서 보내고, 서버가 다시 걸러낸다.
-   * 건축모드일 땐 좌클릭이 사격이 아니라 설치로 쓰이므로 사격 자체를 건너뛴다.
+   * 좌클릭 동작. **들고 있는 것에 따라 갈린다** — 무기면 공격, 소모품이면 사용이다.
+   * 슬롯마다 다른 키를 두지 않고 하나로 합쳐야 조작이 단순하다.
+   *
+   * 재전송 간격은 무기 fireRate에서 나오고, 실제 쿨다운·소모 판정은 전부 서버가 한다.
+   * 건축모드일 땐 좌클릭이 설치로 쓰이므로 통째로 건너뛴다.
    */
   private updateFire(delta: number): void {
     const pointer = this.scene.input.activePointer;
@@ -105,8 +155,22 @@ export class InputController {
     this.fireTimer -= delta;
     if (this.fireTimer > 0) return;
 
-    this.fireTimer = FIRE_INTERVAL_MS;
-    this.connection.fire(DEFAULT_WEAPON_ID);
+    const { kind, weaponId } = this.equipped;
+    this.fireTimer = fireIntervalMs(weaponId);
+
+    if (kind === 'consumable') {
+      // 소모품은 홀드로 연타되면 순식간에 다 없어진다 — 한 번 쓰고 버튼을 뗄 때까지 막는다.
+      this.fireTimer = Infinity;
+      this.connection.useSlot();
+      return;
+    }
+
+    if (kind !== 'weapon' || !weaponId) return;
+
+    this.connection.fire();
+    // 연출은 서버 응답을 기다리지 않고 즉시 그린다 — 타격감은 지연되면 안 된다.
+    // (서버가 쿨다운으로 실제 공격을 거절하면 연출만 헛나오는데, 연출이라 문제되지 않는다)
+    this.onAttack?.(weaponId);
   }
 
   /** 사격과 같은 홀드-재전송 패턴 — 실제 채집 여부/속도는 서버가 판정한다. */
@@ -124,8 +188,9 @@ export class InputController {
   }
 
   /** 매 프레임 호출. 실제 전송은 SEND_INTERVAL_MS 마다 한 번. */
-  update(delta: number, selfX: number, selfY: number): void {
-    this.updateAim(selfX, selfY);
+  update(delta: number, self: PlayerView): void {
+    this.equipped = readEquipped(self);
+    this.updateAim(self.x, self.y);
     this.updateFire(delta);
     this.updateHarvest(delta);
 

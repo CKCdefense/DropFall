@@ -50,8 +50,16 @@ export class LocalConnection implements GameConnection {
     this.world.setInput(LOCAL_SESSION_ID, input);
   }
 
-  fire(weaponId: string): void {
-    this.world.fireWeapon(LOCAL_SESSION_ID, weaponId);
+  fire(): void {
+    this.world.fireWeapon(LOCAL_SESSION_ID);
+  }
+
+  selectSlot(index: number): void {
+    this.world.selectSlot(LOCAL_SESSION_ID, index);
+  }
+
+  useSlot(): void {
+    this.world.useSelectedItem(LOCAL_SESSION_ID);
   }
 
   voteSkipDay(): void {
@@ -77,6 +85,7 @@ export class LocalConnection implements GameConnection {
   private readRawSnapshot(): WorldSnapshot {
     const players: WorldSnapshot['players'] = [];
     for (const [id, player] of this.world.getPlayers()) {
+      const inventory = player.inventory.toView();
       players.push({
         id,
         nickname: this.nickname,
@@ -88,6 +97,8 @@ export class LocalConnection implements GameConnection {
         hp: player.hp,
         wood: player.wood,
         stone: player.stone,
+        slots: inventory.slots,
+        selectedSlot: inventory.selectedIndex,
       });
     }
 
@@ -115,7 +126,7 @@ export class LocalConnection implements GameConnection {
 
     const projectiles: WorldSnapshot['projectiles'] = [];
     for (const [id, projectile] of this.world.getProjectiles()) {
-      projectiles.push({ id, x: projectile.x, y: projectile.y });
+      projectiles.push({ id, x: projectile.x, y: projectile.y, angle: projectile.angle });
     }
 
     const resourceNodes: WorldSnapshot['resourceNodes'] = [];
@@ -154,6 +165,7 @@ export class LocalConnection implements GameConnection {
         coreMaxHp: core.maxHp,
         wavePhase: this.world.getWavePhase(),
         currentWave: this.world.getCurrentWave(),
+        phaseTimeRemaining: this.world.getPhaseTimeRemaining(),
         skipVoteCount: this.world.getSkipVoteCount(),
       },
     };
