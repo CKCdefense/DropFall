@@ -13,7 +13,7 @@
  */
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, copyFileSync, statSync } from 'node:fs';
-import { dirname, extname, join, resolve } from 'node:path';
+import { basename, dirname, extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -53,8 +53,16 @@ function collect(dir, extensions) {
   return out;
 }
 
+/**
+ * 아틀라스에 넣을 원본 확장자.
+ * Aseprite CLI는 PNG도 입력으로 받는다 — 애니메이션이 없는 단일 이미지(무기, 아이콘 등)는
+ * .aseprite로 만들 이유가 없어서 PNG를 그대로 허용한다.
+ * 다만 PNG에는 태그 개념이 없어 프레임 이름이 `{파일명}__0`(밑줄 2개)이 된다.
+ */
+const SPRITE_EXTENSIONS = ['.aseprite', '.ase', '.png'];
+
 function buildAtlas(aseprite, atlas) {
-  const files = atlas.sources.flatMap((source) => collect(join(SRC, source), ['.aseprite', '.ase']));
+  const files = atlas.sources.flatMap((source) => collect(join(SRC, source), SPRITE_EXTENSIONS));
 
   if (files.length === 0) {
     console.log(`  - ${atlas.name}: 원본 없음, 건너뜀`);
@@ -98,7 +106,14 @@ function buildAtlas(aseprite, atlas) {
 function copyGroup(group) {
   const from = join(SRC, group.from);
   const extensions = group.extensions ?? ['.png'];
-  const files = collect(from, extensions);
+  let files = collect(from, extensions);
+
+  // include가 있으면 그 파일만 복사한다. 폰트처럼 원본 디렉터리에 변형이 잔뜩 들어 있고
+  // 실제로 쓰는 건 몇 개뿐인 경우, 전부 복사하면 산출물이 수 MB씩 불어난다.
+  if (group.include) {
+    const wanted = new Set(group.include);
+    files = files.filter((file) => wanted.has(basename(file)));
+  }
 
   if (files.length === 0) {
     console.log(`  - ${group.from}: 원본 없음, 건너뜀`);
@@ -117,11 +132,11 @@ function main() {
 
   console.log('[atlas] 아틀라스 생성');
   const hasSources = config.atlases.some((atlas) =>
-    atlas.sources.some((source) => collect(join(SRC, source), ['.aseprite', '.ase']).length > 0),
+    atlas.sources.some((source) => collect(join(SRC, source), SPRITE_EXTENSIONS).length > 0),
   );
 
   if (!hasSources) {
-    console.log('  - .aseprite 원본이 아직 없다. 아틀라스 생성을 건너뛴다.');
+    console.log('  - 스프라이트 원본이 아직 없다. 아틀라스 생성을 건너뛴다.');
   } else {
     const aseprite = findAseprite();
     if (!aseprite) {

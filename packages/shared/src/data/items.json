@@ -1,0 +1,26 @@
+{
+  "pistol": {
+    "name": "권총",
+    "kind": "weapon",
+    "weaponId": "pistol",
+    "stackSize": 1
+  },
+  "axe": {
+    "name": "도끼",
+    "kind": "weapon",
+    "weaponId": "axe",
+    "stackSize": 1
+  },
+  "pickax": {
+    "name": "곡괭이",
+    "kind": "weapon",
+    "weaponId": "pickax",
+    "stackSize": 1
+  },
+  "bandage": {
+    "name": "붕대",
+    "kind": "consumable",
+    "healAmount": 30,
+    "stackSize": 5
+  }
+}

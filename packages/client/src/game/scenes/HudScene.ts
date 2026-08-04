@@ -1,8 +1,25 @@
 import Phaser from 'phaser';
-import { MAX_CLIENTS_PER_ROOM, computeCameraZoom } from '@dropfall/shared';
-import type { GameConnection, WorldStatus } from '../../net/GameConnection';
+import { MAX_CLIENTS_PER_ROOM, SLOT_COUNT, computeCameraZoom, wavesData } from '@dropfall/shared';
+import type { GameConnection, PlayerView, WorldSnapshot } from '../../net/GameConnection';
 import { CONNECTION_KEY, INPUT_CONTROLLER_KEY } from '../createGame';
 import type { InputController } from '../input/InputController';
+import { Minimap } from '../ui/Minimap';
+import { PartyPanel } from '../ui/PartyPanel';
+import { QuickSlotBar } from '../ui/QuickSlotBar';
+import { WaveDial } from '../ui/WaveDial';
+import {
+  ACCENT,
+  BAR_BACK,
+  BODY_TEXT,
+  DIM_TEXT,
+  FONT,
+  FONT_SMALL,
+  PANEL_FILL,
+  PANEL_STROKE,
+  SIZE_BODY,
+  SIZE_SMALL,
+  barColor,
+} from '../ui/theme';
 
 /** 건축모드 표시용 한글 이름. InputController의 BUILD_MODES 값과 짝을 맞춘다. */
 const BUILD_MODE_LABEL: Record<string, string> = {
@@ -13,48 +30,53 @@ const BUILD_MODE_LABEL: Record<string, string> = {
 
 export const HUD_SCENE_KEY = 'Hud';
 
-/**
- * HUD는 카메라 줌 1(네이티브 해상도)에 그려진다 — 그래서 실제 픽셀 크기를 그대로 쓴다.
- * 한글은 자소 조합 구조라 최소 14px은 되어야 편하게 읽힌다.
- */
-const FONT = 'ui-monospace, "Malgun Gothic", monospace';
-const TEXT_STYLE = { fontFamily: FONT, fontSize: '14px', color: '#cfd6e4' } as const;
-const DIM_STYLE = { fontFamily: FONT, fontSize: '13px', color: '#79828f' } as const;
-const ACCENT = '#6fd08c';
-const DOWN_COLOR = '#d9756b';
-
-/** 기준 크기(px). 화면이 커지면 uiScale이 곱해진다. */
-const TEXT_SIZE = 14;
-const DIM_SIZE = 13;
+/** HUD는 카메라 줌 1(네이티브 해상도)에 그려진다 — 그래서 실제 픽셀 크기를 그대로 쓴다. */
+const TEXT_STYLE = { fontFamily: FONT, fontSize: `${SIZE_BODY}px`, color: BODY_TEXT } as const;
+const DIM_STYLE = { fontFamily: FONT, fontSize: `${SIZE_BODY}px`, color: DIM_TEXT } as const;
+const SMALL_STYLE = { fontFamily: FONT_SMALL, fontSize: `${SIZE_SMALL}px`, color: DIM_TEXT } as const;
 const PAD = 12;
-const TOP_BAR_HEIGHT = 26;
-const CORE_BAR_WIDTH = 140;
+const CORE_PANEL_WIDTH = 190;
+const CORE_PANEL_HEIGHT = 46;
 const CORE_BAR_HEIGHT = 8;
-const PARTY_LINE_HEIGHT = 18;
-const CORE_LABEL_WIDTH = 78;
+/** 자기 체력 바 — 퀵슬롯 바로 위에 붙인다. */
+const SELF_BAR_WIDTH = 180;
+const SELF_BAR_HEIGHT = 6;
 
 /**
  * HUD. GameScene과 분리된 별도 Scene이다 —
  * GameScene의 카메라는 플레이어를 따라 줌/이동하지만 HUD는 화면에 고정되고
  * 줌의 영향을 받지 않아야 한다. (docs/frontend/01-client-architecture.md §2.3)
+ *
+ * 배치는 와이어프레임을 따른다:
+ *   좌상단 = 코어 HP · 상단 중앙 = 웨이브/시간 다이얼 · 우상단 = 미니맵
+ *   좌측 세로 = 팀원 체력 · 하단 중앙 = 퀵슬롯
+ *
+ * 각 구역은 ui/ 아래 독립 컴포넌트로 뺐다. HudScene은 배치와 데이터 전달만 한다 —
+ * 한 파일에 다 넣으면 레이아웃 계산과 그리기 로직이 뒤엉켜 손대기 어려워진다.
  */
 export class HudScene extends Phaser.Scene {
   private connection!: GameConnection;
 
-  private topBar!: Phaser.GameObjects.Rectangle;
-  private roomText!: Phaser.GameObjects.Text;
-  private waveText!: Phaser.GameObjects.Text;
+  private corePanel!: Phaser.GameObjects.Rectangle;
   private coreLabel!: Phaser.GameObjects.Text;
   private coreBarBack!: Phaser.GameObjects.Rectangle;
   private coreBar!: Phaser.GameObjects.Rectangle;
-  private partyTexts: Phaser.GameObjects.Text[] = [];
+
+  private waveDial!: WaveDial;
+  private minimap!: Minimap;
+  private party!: PartyPanel;
+  private quickSlots!: QuickSlotBar;
+
+  private selfBarBack!: Phaser.GameObjects.Rectangle;
+  private selfBar!: Phaser.GameObjects.Rectangle;
+  private roomText!: Phaser.GameObjects.Text;
   private resourceText!: Phaser.GameObjects.Text;
   private buildModeText!: Phaser.GameObjects.Text;
   private debugText!: Phaser.GameObjects.Text;
   private helpText!: Phaser.GameObjects.Text;
   /** 로컬 모드에서만 존재한다 — connection.debugJumpToWave가 없으면 아예 안 만든다. */
   private debugJumpButton?: Phaser.GameObjects.Text;
-  /** 코어 바 갱신 시 기준 폭을 알아야 해서 보관한다. */
+  /** 바 너비를 다시 계산할 때 필요해서 보관한다. */
   private uiScale = 1;
 
   constructor() {
@@ -68,47 +90,47 @@ export class HudScene extends Phaser.Scene {
   create(): void {
     const { roomCode, roomName } = this.connection.roomInfo;
 
-    this.topBar = this.add.rectangle(0, 0, 10, TOP_BAR_HEIGHT, 0x14161d, 0.85).setOrigin(0, 0);
+    // 좌상단 — 코어 HP
+    this.corePanel = panelBox(this, CORE_PANEL_WIDTH, CORE_PANEL_HEIGHT);
     this.roomText = this.add.text(
       0,
       0,
-      `${roomName}  [${roomCode}]${this.connection.isLocal ? '  · 오프라인' : ''}`,
-      TEXT_STYLE,
+      `${roomName} [${roomCode}]${this.connection.isLocal ? ' · 오프라인' : ''}`,
+      SMALL_STYLE,
     );
-    this.waveText = this.add.text(0, 0, 'DAY 1  ·  준비 단계', TEXT_STYLE).setOrigin(1, 0);
+    this.coreLabel = this.add.text(0, 0, 'CORE', TEXT_STYLE);
+    this.coreBarBack = this.add.rectangle(0, 0, 10, CORE_BAR_HEIGHT, BAR_BACK).setOrigin(0, 0);
+    this.coreBar = this.add.rectangle(0, 0, 10, CORE_BAR_HEIGHT, 0x6fd08c).setOrigin(0, 0);
 
-    // 코어 HP — 아직 sim에 코어가 없다. 자리와 형태만 잡아둔 플레이스홀더다.
-    this.coreLabel = this.add.text(0, 0, 'CORE', DIM_STYLE);
-    this.coreBarBack = this.add
-      .rectangle(0, 0, CORE_BAR_WIDTH, CORE_BAR_HEIGHT, 0x2b303c)
-      .setOrigin(0, 0);
-    this.coreBar = this.add
-      .rectangle(0, 0, CORE_BAR_WIDTH, CORE_BAR_HEIGHT, 0x6fd08c)
-      .setOrigin(0, 0);
+    // 상단 중앙 원형 — 웨이브 번호 + 남은 시간
+    this.waveDial = new WaveDial(this);
+    // 우상단 사각형 — 미니맵
+    this.minimap = new Minimap(this);
+    // 좌측 세로 — 팀원(나를 제외한 인원) 체력
+    this.party = new PartyPanel(this, MAX_CLIENTS_PER_ROOM - 1);
+    // 하단 중앙 — 퀵슬롯
+    this.quickSlots = new QuickSlotBar(this, SLOT_COUNT);
 
-    this.partyTexts = Array.from({ length: MAX_CLIENTS_PER_ROOM }, () =>
-      this.add.text(0, 0, '', TEXT_STYLE).setOrigin(1, 0),
-    );
+    // 내 체력은 퀵슬롯 바로 위에 붙인다. 팀원 칸과 섞으면 "누구 체력인지" 헷갈린다.
+    this.selfBarBack = this.add.rectangle(0, 0, 10, SELF_BAR_HEIGHT, BAR_BACK).setOrigin(0.5, 1);
+    this.selfBar = this.add.rectangle(0, 0, 10, SELF_BAR_HEIGHT, 0x6fd08c).setOrigin(0, 1);
 
     this.resourceText = this.add.text(0, 0, '나무 0 · 돌 0', DIM_STYLE);
     this.buildModeText = this.add.text(0, 0, '건축모드: 꺼짐', DIM_STYLE);
-
-    this.debugText = this.add.text(0, 0, '', DIM_STYLE);
-    this.helpText = this.add
-      .text(0, 0, 'WASD 이동  ·  마우스 조준  ·  ESC 나가기', DIM_STYLE)
-      .setOrigin(0.5, 1);
+    this.debugText = this.add.text(0, 0, '', SMALL_STYLE);
+    this.helpText = this.add.text(0, 0, '', DIM_STYLE).setOrigin(0.5, 1);
 
     // 로컬 모드 전용 테스트 버튼 — 웨이브 5(보스 웨이브)로 바로 점프해서 밸런스를
     // 테스트한다(docs/backend/23). 실제 멀티플레이(ColyseusConnection)에는
     // debugJumpToWave 자체가 없으니, 존재 여부만 확인하면 자연히 로컬 전용이 된다.
     if (this.connection.debugJumpToWave) {
       this.debugJumpButton = this.add
-        .text(0, 0, '[TEST] WAVE 5로 점프', {
-          fontFamily: FONT,
-          fontSize: '13px',
+        .text(0, 0, '[TEST] WAVE 5', {
+          fontFamily: FONT_SMALL,
+          fontSize: `${SIZE_SMALL}px`,
           color: '#1c1f26',
           backgroundColor: ACCENT,
-          padding: { x: 8, y: 4 },
+          padding: { x: 6, y: 3 },
         })
         .setOrigin(0, 0)
         .setInteractive({ useHandCursor: true })
@@ -129,82 +151,97 @@ export class HudScene extends Phaser.Scene {
   private layout(): void {
     const width = this.scale.width;
     const height = this.scale.height;
-    // 월드 줌 2~4 → UI 스케일 1~2
-    const scale = Math.min(2, Math.max(1, computeCameraZoom(width, height) / 2));
+    // 월드 줌 2~4 → UI 스케일 1~2. **정수만 쓴다** — 픽셀 폰트는 1.5배로 늘리면
+    // 글자가 뭉개져서, 어중간하게 큰 것보다 작고 선명한 쪽이 훨씬 잘 읽힌다.
+    const scale = Math.min(2, Math.max(1, Math.floor(computeCameraZoom(width, height) / 2)));
+    this.uiScale = scale;
 
     const pad = PAD * scale;
-    const barHeight = TOP_BAR_HEIGHT * scale;
 
-    this.roomText.setFontSize(TEXT_SIZE * scale);
-    this.waveText.setFontSize(TEXT_SIZE * scale);
-    this.coreLabel.setFontSize(DIM_SIZE * scale);
-    this.resourceText.setFontSize(DIM_SIZE * scale);
-    this.buildModeText.setFontSize(DIM_SIZE * scale);
-    this.debugText.setFontSize(DIM_SIZE * scale);
-    this.helpText.setFontSize(DIM_SIZE * scale);
+    // --- 좌상단: 코어 패널
+    const panelW = CORE_PANEL_WIDTH * scale;
+    const panelH = CORE_PANEL_HEIGHT * scale;
+    this.corePanel.setSize(panelW, panelH).setPosition(pad, pad);
+    this.roomText.setFontSize(SIZE_SMALL * scale).setPosition(pad + 8 * scale, pad + 5 * scale);
+    this.coreLabel.setFontSize(SIZE_BODY * scale).setPosition(pad + 8 * scale, pad + 17 * scale);
 
-    this.topBar.setSize(width, barHeight);
-    this.roomText.setPosition(pad, 5 * scale);
-    this.waveText.setPosition(width - pad, 5 * scale);
+    const coreBarW = panelW - 16 * scale;
+    const coreBarY = pad + panelH - 14 * scale;
+    this.coreBarBack
+      .setSize(coreBarW, CORE_BAR_HEIGHT * scale)
+      .setPosition(pad + 8 * scale, coreBarY);
+    this.coreBar.setSize(coreBarW, CORE_BAR_HEIGHT * scale).setPosition(pad + 8 * scale, coreBarY);
 
-    const coreY = barHeight + 10 * scale;
-    this.coreLabel.setPosition(pad, coreY - 3 * scale);
-    this.coreBarBack.setPosition(pad + CORE_LABEL_WIDTH * scale, coreY);
-    this.coreBarBack.setSize(CORE_BAR_WIDTH * scale, CORE_BAR_HEIGHT * scale);
-    this.coreBar.setPosition(pad + CORE_LABEL_WIDTH * scale, coreY);
-    this.coreBar.setSize(CORE_BAR_WIDTH * scale, CORE_BAR_HEIGHT * scale);
+    // --- 상단 중앙/우상단
+    this.waveDial.layout(width / 2, pad, scale);
+    this.minimap.layout(width - pad, pad, scale);
 
-    this.resourceText.setPosition(pad, coreY + 14 * scale);
-    this.buildModeText.setPosition(pad, coreY + 30 * scale);
+    // --- 좌측 세로: 팀원 체력. 코어 패널 아래에서 시작한다.
+    this.party.layout(pad, pad + panelH + 10 * scale, scale);
 
-    this.partyTexts.forEach((text, index) => {
-      text.setFontSize(TEXT_SIZE * scale);
-      text.setPosition(width - pad, coreY - 4 * scale + index * PARTY_LINE_HEIGHT * scale);
-    });
+    // --- 하단 중앙: 퀵슬롯 + 내 체력 바
+    const slotsBottom = height - pad - 20 * scale;
+    this.quickSlots.layout(width / 2, slotsBottom, scale);
 
-    this.debugText.setPosition(pad, height - 22 * scale);
-    this.helpText.setPosition(width / 2, height - 8 * scale);
+    const selfBarY = slotsBottom - this.quickSlots.height - 6 * scale;
+    const selfBarW = SELF_BAR_WIDTH * scale;
+    this.selfBarBack
+      .setSize(selfBarW, SELF_BAR_HEIGHT * scale)
+      .setPosition(width / 2, selfBarY);
+    this.selfBar
+      .setSize(selfBarW, SELF_BAR_HEIGHT * scale)
+      .setPosition(width / 2 - selfBarW / 2, selfBarY);
+
+    // --- 나머지
+    this.resourceText.setFontSize(SIZE_BODY * scale).setPosition(pad, height - 40 * scale);
+    this.buildModeText.setFontSize(SIZE_BODY * scale).setPosition(pad, height - 24 * scale);
+    this.debugText.setFontSize(SIZE_SMALL * scale).setPosition(pad, height - 58 * scale);
+    this.helpText.setFontSize(SIZE_BODY * scale).setPosition(width / 2, height - 4 * scale);
 
     if (this.debugJumpButton) {
-      this.debugJumpButton.setFontSize(13 * scale);
-      this.debugJumpButton.setPosition(pad, coreY + 48 * scale);
+      this.debugJumpButton.setFontSize(SIZE_SMALL * scale);
+      this.debugJumpButton.setPosition(pad, pad + panelH + 10 * scale + this.party.height + 8 * scale);
     }
-
-    this.uiScale = scale;
   }
 
   update(): void {
     const snapshot = this.connection.getSnapshot();
     const { status } = snapshot;
-
-    const coreRatio = status.coreMaxHp > 0 ? status.coreHp / status.coreMaxHp : 1;
-    this.coreBar.width = Math.max(0, CORE_BAR_WIDTH * this.uiScale * coreRatio);
-    // 코어가 위험하면 색으로 먼저 알린다 — 숫자를 읽기 전에 눈에 들어와야 한다.
-    this.coreBar.fillColor = coreRatio > 0.3 ? 0x6fd08c : 0xd9756b;
-    this.coreLabel.setText(`CORE ${Math.ceil(status.coreHp)}`);
-
-    this.waveText.setText(describePhase(status, snapshot.players.length));
-
-    snapshot.players.forEach((player, index) => {
-      const text = this.partyTexts[index];
-      if (!text) return;
-      const isMe = player.id === this.connection.sessionId;
-      const down = player.hp <= 0;
-      text.setText(`${isMe ? '▸ ' : ''}${player.nickname} ${down ? '다운' : Math.ceil(player.hp)}`);
-      text.setColor(down ? DOWN_COLOR : isMe ? ACCENT : '#cfd6e4');
-    });
-
-    for (let i = snapshot.players.length; i < this.partyTexts.length; i += 1) {
-      this.partyTexts[i]?.setText('');
-    }
-
     const me = snapshot.players.find((player) => player.id === this.connection.sessionId);
+
+    this.updateCore(status.coreHp, status.coreMaxHp);
+    this.waveDial.update(status);
+    this.minimap.update(snapshot, this.connection.sessionId);
+    this.party.update(
+      snapshot.players.filter((player) => player.id !== this.connection.sessionId),
+    );
+    this.quickSlots.update(me);
+    this.updateSelfBar(me);
+    this.updateTexts(snapshot, me);
+  }
+
+  private updateCore(hp: number, maxHp: number): void {
+    const ratio = maxHp > 0 ? hp / maxHp : 1;
+    this.coreBar.width = Math.max(0, this.coreBarBack.width * ratio);
+    // 코어가 위험하면 색으로 먼저 알린다 — 숫자를 읽기 전에 눈에 들어와야 한다.
+    this.coreBar.fillColor = barColor(ratio);
+    this.coreLabel.setText(`CORE ${Math.ceil(hp)}`);
+  }
+
+  private updateSelfBar(me: PlayerView | undefined): void {
+    const ratio = me ? Math.max(0, me.hp) / wavesData.playerHp : 0;
+    this.selfBar.width = Math.max(0, SELF_BAR_WIDTH * this.uiScale * ratio);
+    this.selfBar.fillColor = barColor(ratio);
+  }
+
+  private updateTexts(snapshot: WorldSnapshot, me: PlayerView | undefined): void {
+    const { status } = snapshot;
+
     this.debugText.setText(
       me
         ? `x:${me.x.toFixed(0)} y:${me.y.toFixed(0)} mob:${snapshot.monsters.length} proj:${snapshot.projectiles.length}`
         : '동기화 대기 중...',
     );
-
     this.resourceText.setText(me ? `나무 ${me.wood} · 돌 ${me.stone}` : '나무 0 · 돌 0');
 
     // InputController는 GameScene 소속이라 registry로만 접근한다 — 씬 시작 순서와
@@ -212,12 +249,12 @@ export class HudScene extends Phaser.Scene {
     const inputController = this.registry.get(INPUT_CONTROLLER_KEY) as InputController | undefined;
     const buildMode = inputController?.buildMode ?? 'off';
     this.buildModeText.setText(`건축모드: ${BUILD_MODE_LABEL[buildMode] ?? buildMode}`);
-    this.buildModeText.setColor(buildMode === 'off' ? '#79828f' : ACCENT);
+    this.buildModeText.setColor(buildMode === 'off' ? DIM_TEXT : ACCENT);
 
     // 낮에만 스킵 안내를 띄운다 — 밤에는 쓸 수 없는 조작이라 보여줄 이유가 없다.
     const controlsHint =
       buildMode === 'off'
-        ? 'WASD 이동 · 좌클릭 사격 · [E] 채집 · [B] 건축모드'
+        ? `WASD 이동 · 좌클릭 사용 · [1~${SLOT_COUNT}] 퀵슬롯 · [E] 채집 · [B] 건축모드`
         : '좌클릭 설치 · 우클릭/[B] 취소 또는 다음 건축물';
     this.helpText.setText(
       status.wavePhase === 'day'
@@ -227,22 +264,14 @@ export class HudScene extends Phaser.Scene {
   }
 }
 
-/**
- * 상단 우측 문구. 승패가 나면 그것만 알린다.
- *
- * `currentWave`는 이미 1부터 센다(WaveManager: waveIndex + 1). 낮은 "다음 웨이브를
- * 준비하는 시간"이라 +1해서 보여주고, 밤은 진행 중인 웨이브 번호를 그대로 쓴다.
- * 첫 낮은 currentWave가 0이라 자연스럽게 "WAVE 1 준비"가 된다.
- */
-function describePhase(status: WorldStatus, playerCount: number): string {
-  switch (status.wavePhase) {
-    case 'victory':
-      return '★ 방어 성공';
-    case 'defeat':
-      return '✖ 코어 파괴됨';
-    case 'night':
-      return `WAVE ${status.currentWave}  ·  밤`;
-    default:
-      return `WAVE ${status.currentWave + 1} 준비  ·  낮  ${status.skipVoteCount}/${playerCount}`;
-  }
+/** 와이어프레임의 테두리 상자. HUD 전 구역이 같은 모양을 쓴다. */
+function panelBox(
+  scene: Phaser.Scene,
+  width: number,
+  height: number,
+): Phaser.GameObjects.Rectangle {
+  return scene.add
+    .rectangle(0, 0, width, height, PANEL_FILL, 0.82)
+    .setOrigin(0, 0)
+    .setStrokeStyle(1, PANEL_STROKE);
 }

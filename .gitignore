@@ -15,3 +15,9 @@ Thumbs.db
 .idea/
 .vscode/*
 !.vscode/extensions.json
+
+# 폰트 데스크톱 포맷. 웹 빌드는 woff2만 쓴다(assets/fonts/README.md 참고).
+# 갈무리 배포본 전체는 100MB가 넘어서 저장소에 넣으면 클론이 감당이 안 된다.
+assets/fonts/*.ttf
+assets/fonts/*.ttc
+assets/fonts/*.bdf
