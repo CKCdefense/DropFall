@@ -90,10 +90,13 @@
       "from": "fonts",
       "to": "fonts",
       "extensions": [
-        ".png",
-        ".xml",
-        ".fnt",
         ".woff2"
+      ],
+      "$comment": "실제로 쓰는 갈무리 웨이트만 복사한다. 원본 디렉터리에는 ttf/bdf 등 변형이 함께 들어 있다.",
+      "include": [
+        "Galmuri11.woff2",
+        "Galmuri11-Bold.woff2",
+        "Galmuri7.woff2"
       ]
     }
   ]

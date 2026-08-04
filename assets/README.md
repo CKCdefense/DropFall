@@ -30,8 +30,9 @@ packages/client/public/assets/   빌드 산출물 (.png, .json)  ← 게임이 �
 | `ui/backgrounds/` | 랜딩 배경 등 전체 화면 이미지 | **개별 PNG** |
 | `maps/` | Tiled 맵 (`.tmx` 원본 / `.tmj` 익스포트) | `.tmj` 복사 |
 | `audio/bgm/`, `audio/sfx/` | 음원 | `.ogg` 변환 |
-| `fonts/` | 폰트 원본 + **라이선스 파일 필수** | 복사 |
+| `fonts/` | 폰트 원본 + **라이선스 파일 필수** (`fonts/README.md`) | 복사 |
 | `palette/` | 공용 팔레트 (`.gpl`) | 빌드 제외 |
+| `_generators/` | 이펙트를 만들어내는 Aseprite Lua 스크립트 (`_generators/README.md`) | **빌드 제외** (결과물이 `sprites/fx/`로 들어감) |
 | `_reference/` | 참고 자료, 미사용 스케치 | **빌드 제외** |
 
 ### 왜 UI가 두 갈래인가
