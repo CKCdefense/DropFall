@@ -75,13 +75,32 @@ function buildAtlas(aseprite, atlas) {
   const sheet = join(outDir, `${atlas.name}.png`);
   const data = join(outDir, `${atlas.name}.json`);
 
+  /*
+   * 배치 방식.
+   *
+   * 기본은 packed — 빈 공간 없이 욱여넣어 아틀라스를 작게 만든다. 프레임을 이름으로
+   * 찾는 스프라이트에는 이게 낫다.
+   *
+   * 타일맵은 다르다. Phaser의 Tilemap은 "타일 번호 → 시트 위의 격자 위치"를 계산으로
+   * 구하므로 **줄과 칸이 일정한 격자**여야 한다. 그래서 tiles 아틀라스만 rows로 뽑고
+   * 칸 수를 고정한다(atlas.config.json의 sheetType/sheetColumns).
+   */
+  const sheetType = atlas.sheetType ?? 'packed';
+  const layoutArgs =
+    sheetType === 'packed'
+      ? ['--sheet-type', 'packed']
+      : [
+          '--sheet-type',
+          sheetType,
+          ...(atlas.sheetColumns ? ['--sheet-columns', String(atlas.sheetColumns)] : []),
+        ];
+
   execFileSync(
     aseprite,
     [
       '-b',
       ...files,
-      '--sheet-type',
-      'packed',
+      ...layoutArgs,
       '--sheet',
       sheet,
       '--data',
@@ -94,8 +113,13 @@ function buildAtlas(aseprite, atlas) {
       // --trim은 쓰지 않는다. 프레임마다 크기가 달라져 원점(캐릭터는 발밑 중앙) 계산이
       // 복잡해지고, 16/32px 격자에 맞춘 픽셀아트에서는 정렬이 어긋나기 쉽다.
       // 아틀라스가 조금 커지지만 이 규모에서는 문제되지 않는다.
+      //
+      // 확대 시 이웃 프레임이 새어드는 것(텍스처 블리딩)은 여백으로 막는다.
+      // 타일맵 쪽은 이 값을 Phaser의 margin/spacing으로 그대로 넘겨야 한다.
       '--shape-padding',
-      '1', // 확대 시 이웃 프레임이 새어드는 것(텍스처 블리딩) 방지
+      '1',
+      '--border-padding',
+      '1',
     ],
     { stdio: 'inherit' },
   );

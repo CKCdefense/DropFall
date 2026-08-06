@@ -15,10 +15,12 @@
     },
     {
       "name": "tiles",
-      "$comment": "타일셋. Tiled가 참조하므로 월드 스프라이트와 분리한다",
+      "$comment": "타일셋. Phaser Tilemap이 타일 번호로 격자 위치를 계산하므로 packed가 아니라 고정 칸 수 격자로 뽑는다",
       "sources": [
         "tiles"
-      ]
+      ],
+      "sheetType": "rows",
+      "sheetColumns": 20
     },
     {
       "name": "ui",
