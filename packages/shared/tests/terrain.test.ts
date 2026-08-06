@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { fbm, hashNoise, hashString, valueNoise } from '../src/terrain/noise';
 import {
   BASE_TERRAIN,
+  DECO_PER_TERRAIN,
+  DECO_TILE_START,
+  decorationTileAt,
+  topFullTerrainAt,
   OVERLAY_TERRAINS,
   TERRAIN_KINDS,
   TERRAIN_MASK_COUNT,
@@ -166,6 +170,52 @@ describe('terrainTileAt', () => {
   it('같은 좌표는 몇 번을 물어도 같은 타일이다', () => {
     for (const kind of TERRAIN_KINDS) {
       expect(terrainTileAt(kind, 13, -7, SEED)).toBe(terrainTileAt(kind, 13, -7, SEED));
+    }
+  });
+});
+
+describe('장식 타일', () => {
+  const SEED = 31337;
+
+  it('같은 좌표는 몇 번을 물어도 같은 장식이다(플레이어끼리 일치)', () => {
+    for (let i = 0; i < 50; i += 1) {
+      expect(decorationTileAt(i, -i, SEED)).toBe(decorationTileAt(i, -i, SEED));
+    }
+  });
+
+  it('장식은 드물게만 나온다(밀도 상한)', () => {
+    let count = 0;
+    const total = 80 * 80;
+    for (let cx = 0; cx < 80; cx += 1) {
+      for (let cy = 0; cy < 80; cy += 1) {
+        if (decorationTileAt(cx, cy, SEED) !== null) count += 1;
+      }
+    }
+    expect(count).toBeGreaterThan(0);
+    expect(count / total).toBeLessThan(0.12);
+  });
+
+  it('경계 칸에는 장식을 놓지 않는다', () => {
+    for (let cx = -40; cx < 40; cx += 1) {
+      for (let cy = -40; cy < 40; cy += 1) {
+        if (topFullTerrainAt(cx, cy, SEED) === null) {
+          expect(decorationTileAt(cx, cy, SEED)).toBeNull();
+        }
+      }
+    }
+  });
+
+  it('장식 번호가 그 지형의 장식 블록 안에 있다', () => {
+    for (let cx = -60; cx < 60; cx += 1) {
+      for (let cy = -60; cy < 60; cy += 1) {
+        const tile = decorationTileAt(cx, cy, SEED);
+        if (tile === null) continue;
+
+        const top = topFullTerrainAt(cx, cy, SEED)!;
+        const first = DECO_TILE_START + TERRAIN_KINDS.indexOf(top) * DECO_PER_TERRAIN;
+        expect(tile).toBeGreaterThanOrEqual(first);
+        expect(tile).toBeLessThan(first + DECO_PER_TERRAIN);
+      }
     }
   });
 });

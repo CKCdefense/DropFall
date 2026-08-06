@@ -7,6 +7,7 @@ import {
   TILESET_MARGIN,
   TILESET_SPACING,
   TILE_SIZE,
+  decorationTileAt,
   hashString,
   terrainTileAt,
   type TerrainKind,
@@ -81,6 +82,28 @@ export class TerrainLayer {
     for (const kind of [BASE_TERRAIN, ...OVERLAY_TERRAINS]) {
       this.layers.push(this.createLayer(kind, tileset, seed));
     }
+    this.layers.push(this.createDecorationLayer(tileset, seed));
+  }
+
+  /** 꽃·자갈·뼈 같은 소품. 지형 위, 엔티티 아래에 깔린다. */
+  private createDecorationLayer(
+    tileset: Phaser.Tilemaps.Tileset,
+    seed: number,
+  ): Phaser.Tilemaps.TilemapLayer {
+    const layer = this.map.createBlankLayer('decoration', tileset);
+    if (!layer) throw new Error('장식 레이어를 만들지 못했습니다.');
+
+    for (let ty = 0; ty < MAP_SIZE_TILES; ty += 1) {
+      for (let tx = 0; tx < MAP_SIZE_TILES; tx += 1) {
+        const tile = decorationTileAt(tx, ty, seed);
+        layer.putTileAt(tile === null ? EMPTY_TILE : tile + FIRST_GID, tx, ty);
+      }
+    }
+
+    layer.setPosition(MAP_ORIGIN, MAP_ORIGIN);
+    // 지형보다 한 단계 위 — 그래도 모든 엔티티(depth = y)보다는 아래다.
+    layer.setDepth(TERRAIN_DEPTH + 1);
+    return layer;
   }
 
   private createLayer(
