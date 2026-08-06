@@ -1,5 +1,12 @@
 import Phaser from 'phaser';
-import { HIT_RADIUS, TILE_SIZE, buildingsData, itemOfSlot, monstersData } from '@dropfall/shared';
+import {
+  HIT_RADIUS,
+  TILE_SIZE,
+  buildingsData,
+  itemOfSlot,
+  monstersData,
+  worldToCell,
+} from '@dropfall/shared';
 import type {
   BuildingView,
   MonsterView,
@@ -72,6 +79,17 @@ const RESOURCE_STYLE: Record<string, { color: number; size: number }> = {
   stone: { color: 0x8a8f99, size: 9 },
 };
 const RESOURCE_FALLBACK = { color: 0x8a8f99, size: 9 };
+
+/**
+ * 스프라이트가 있는 건축물. 방향(h/v)은 이웃 배치에서 자동으로 고른다 —
+ * 서버·설치 UI에 방향 개념을 추가하지 않기 위해서다.
+ * 프레임이 아틀라스에 없으면 아래 플레이스홀더 표로 떨어진다.
+ */
+const BUILDING_SPRITE: Record<string, { h: string; v: string }> = {
+  // wood.aseprite: 울타리는 가운데가 뚫려 있고(총알 통과 규칙과 일치) 벽은 꽉 차 있다.
+  fence: { h: 'wood_fence_front_0', v: 'wood_fence_side_0' },
+  wall: { h: 'wood_wall_front_0', v: 'wood_wall_side_0' },
+};
 
 /** 건축물 타입별 플레이스홀더 표현. 울타리는 낮고 얇게, 벽은 크고 두껍게 그려서 구분한다. */
 const BUILDING_STYLE: Record<string, { color: number; size: number }> = {
@@ -657,6 +675,13 @@ export class EntityRenderer {
   private syncBuildings(views: BuildingView[]): void {
     const alive = new Set<string>();
 
+    // 같은 타입 건축물의 셀 집합. 방향(가로/세로) 선택에 쓴다.
+    const occupied = new Set<string>();
+    for (const building of views) {
+      const cell = worldToCell(building.x, building.y);
+      occupied.add(`${building.type}:${cell.cx},${cell.cy}`);
+    }
+
     for (const building of views) {
       alive.add(building.id);
 
@@ -666,7 +691,10 @@ export class EntityRenderer {
         this.buildings.set(building.id, sprite);
       }
 
-      sprite.setDepth(building.y);
+      // 접지선이 셀 아래변에 있으므로 깊이도 아래변 기준이라야 캐릭터(발밑 기준)와
+      // 앞뒤가 맞는다.
+      sprite.setDepth(building.y + TILE_SIZE / 2);
+      this.applyBuildingOrientation(sprite, building, occupied);
 
       // 몬스터 HP 바와 동일한 규칙 — 멀쩡하면 숨긴다.
       const bar = sprite.getByName('hp') as Phaser.GameObjects.Rectangle | null;
@@ -683,7 +711,52 @@ export class EntityRenderer {
     this.removeMissing(this.buildings, alive);
   }
 
+  /**
+   * 이웃 배치를 보고 가로/세로 스프라이트의 표시 여부를 정한다.
+   *
+   * 코너·T자 전용 아트를 만드는 대신 **두 방향을 겹쳐 그린다** — 좌우 이웃이 있으면
+   * 가로를, 상하 이웃이 있으면 세로를 켠다. 교차 칸(코너/T/십자)은 둘 다 켜져서
+   * 두 줄이 그 칸에서 자연스럽게 만난다. 한 방향만 고르면 다른 쪽 줄이 교차 칸에
+   * 닿지 못하고 끊겨 보인다(실제로 세로 줄 위에 가로 줄을 설치하면 그랬다).
+   *
+   * 새 건축물이 옆에 붙으면 기존 것의 표시도 바뀌므로 매 동기화마다 다시 판정한다.
+   */
+  private applyBuildingOrientation(
+    container: Phaser.GameObjects.Container,
+    building: BuildingView,
+    occupied: Set<string>,
+  ): void {
+    const bodyH = container.getByName('bodyH');
+    const bodyV = container.getByName('bodyV');
+    if (!(bodyH instanceof Phaser.GameObjects.Sprite)) return;
+    if (!(bodyV instanceof Phaser.GameObjects.Sprite)) return;
+
+    const cell = worldToCell(building.x, building.y);
+    const has = (dx: number, dy: number) =>
+      occupied.has(`${building.type}:${cell.cx + dx},${cell.cy + dy}`);
+
+    const horizontal = has(-1, 0) || has(1, 0);
+    const vertical = has(0, -1) || has(0, 1);
+
+    // 혼자 서 있으면 가로가 기본이다 — 정면 뷰가 "이게 뭔지" 제일 잘 읽힌다.
+    bodyH.setVisible(horizontal || !vertical);
+    bodyV.setVisible(vertical);
+  }
+
+  private hasBuildingSprite(type: string): boolean {
+    const frames = BUILDING_SPRITE[type];
+    return (
+      frames !== undefined &&
+      this.scene.textures.exists(GAME_ATLAS) &&
+      this.scene.textures.get(GAME_ATLAS).has(frames.h)
+    );
+  }
+
   private createBuilding(building: BuildingView): Phaser.GameObjects.Container {
+    if (this.hasBuildingSprite(building.type)) {
+      return this.createBuildingSprite(building);
+    }
+
     const style = BUILDING_STYLE[building.type] ?? BUILDING_FALLBACK;
 
     const body = this.scene.add.rectangle(0, 0, style.size, style.size, style.color);
@@ -705,6 +778,53 @@ export class EntityRenderer {
 
     // 이동을 막는 건축물(벽/울타리)만 자신의 충돌 반경을 그린다 — 이동을 막지 않는
     // 건축물(향후 확장 대비)까지 원을 그리면 "여기도 막힌다"는 오해를 준다.
+    if (buildingsData[building.type]?.blocksMovement) {
+      const collisionDebug = this.scene.add.circle(0, 0, BUILDING_COLLISION_RADIUS);
+      collisionDebug.setStrokeStyle(1, BUILDING_COLLISION_DEBUG_COLOR, COLLISION_DEBUG_ALPHA);
+      collisionDebug.setFillStyle(0, 0);
+      collisionDebug.setName('collisionDebug');
+      collisionDebug.setVisible(this.collisionDebugVisible);
+      children.push(collisionDebug);
+    }
+
+    return this.scene.add.container(building.x, building.y, children);
+  }
+
+  /**
+   * 스프라이트 건축물. 에셋 규격(assets/README.md · docs/frontend/09):
+   * 32x32 캔버스, 접지선은 아래에서 2px 위 — 캐릭터와 같은 원점(0.5, 0.94)을 쓰고,
+   * 접지선을 셀의 아래변에 맞춘다. 그림은 위로 뻗어 위칸을 자연스럽게 침범한다.
+   */
+  private createBuildingSprite(building: BuildingView): Phaser.GameObjects.Container {
+    const frames = BUILDING_SPRITE[building.type];
+
+    // 가로/세로 스프라이트를 둘 다 만들어 두고 이웃 배치에 따라 켜고 끈다
+    // (applyBuildingOrientation). 세로를 먼저 넣어 가로가 위에 그려진다.
+    const bodyV = this.scene.add
+      .sprite(0, TILE_SIZE / 2, GAME_ATLAS, frames.v)
+      .setOrigin(0.5, PLAYER_ORIGIN_Y)
+      .setName('bodyV')
+      .setVisible(false);
+    const body = this.scene.add
+      .sprite(0, TILE_SIZE / 2, GAME_ATLAS, frames.h)
+      .setOrigin(0.5, PLAYER_ORIGIN_Y)
+      .setName('bodyH');
+
+    // 그림이 셀 위로 뻗으므로 HP 바는 스프라이트 꼭대기보다 위에 둔다.
+    const barTop = -TILE_SIZE - 6;
+    const barBack = this.scene.add
+      .rectangle(-HP_BAR_WIDTH / 2, barTop, HP_BAR_WIDTH, HP_BAR_HEIGHT, 0x2b303c)
+      .setOrigin(0, 0.5);
+    const bar = this.scene.add
+      .rectangle(-HP_BAR_WIDTH / 2, barTop, HP_BAR_WIDTH, HP_BAR_HEIGHT, 0x6fd08c)
+      .setOrigin(0, 0.5);
+    bar.setName('hp');
+    barBack.setName('hpBack');
+    barBack.setVisible(false);
+    bar.setVisible(false);
+
+    const children: Phaser.GameObjects.GameObject[] = [barBack, bar, bodyV, body];
+
     if (buildingsData[building.type]?.blocksMovement) {
       const collisionDebug = this.scene.add.circle(0, 0, BUILDING_COLLISION_RADIUS);
       collisionDebug.setStrokeStyle(1, BUILDING_COLLISION_DEBUG_COLOR, COLLISION_DEBUG_ALPHA);

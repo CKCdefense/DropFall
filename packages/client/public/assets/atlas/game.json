@@ -415,6 +415,38 @@
     "sourceSize": { "w": 32, "h": 32 },
     "duration": 100
    },
+   "wood_wall_front_0": {
+    "frame": { "x": 100, "y": 263, "w": 32, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
+    "sourceSize": { "w": 32, "h": 32 },
+    "duration": 100
+   },
+   "wood_wall_side_0": {
+    "frame": { "x": 133, "y": 263, "w": 32, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
+    "sourceSize": { "w": 32, "h": 32 },
+    "duration": 100
+   },
+   "wood_fence_front_0": {
+    "frame": { "x": 166, "y": 263, "w": 32, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
+    "sourceSize": { "w": 32, "h": 32 },
+    "duration": 100
+   },
+   "wood_fence_side_0": {
+    "frame": { "x": 199, "y": 263, "w": 32, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
+    "sourceSize": { "w": 32, "h": 32 },
+    "duration": 100
+   },
    "fx_bullet_tracer_0": {
     "frame": { "x": 298, "y": 137, "w": 16, "h": 8 },
     "rotated": false,
@@ -580,6 +612,10 @@
    { "name": "front", "from": 0, "to": 3, "direction": "forward", "color": "#000000ff" },
    { "name": "left", "from": 4, "to": 7, "direction": "forward", "color": "#000000ff" },
    { "name": "back", "from": 8, "to": 11, "direction": "forward", "color": "#000000ff" },
+   { "name": "wall_front", "from": 0, "to": 0, "direction": "forward", "color": "#000000ff" },
+   { "name": "wall_side", "from": 1, "to": 1, "direction": "forward", "color": "#000000ff" },
+   { "name": "fence_front", "from": 2, "to": 2, "direction": "forward", "color": "#000000ff" },
+   { "name": "fence_side", "from": 3, "to": 3, "direction": "forward", "color": "#000000ff" },
    { "name": "tracer", "from": 0, "to": 1, "direction": "forward", "color": "#000000ff" },
    { "name": "muzzle", "from": 0, "to": 3, "direction": "forward", "color": "#000000ff" },
    { "name": "hit", "from": 4, "to": 7, "direction": "forward", "color": "#000000ff" },
