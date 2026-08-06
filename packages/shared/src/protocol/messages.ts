@@ -44,3 +44,20 @@ export interface MoveItemMessage {
   to: 'inventory' | 'storage';
   toIndex: number;
 }
+
+/** 제작 요청. 어떤 레시피인지만 보낸다 — 티어·재료 검증은 전부 서버가 한다. */
+export interface CraftMessage {
+  recipeId: string;
+}
+
+/** 상점 판매. 창고에 있는 재료를 개수만큼 판다. */
+export interface ShopSellMessage {
+  itemId: string;
+  count: number;
+}
+
+/** 상점 구매. 진열된 물건 하나를 산다. */
+export interface ShopBuyMessage {
+  itemId: string;
+}
+

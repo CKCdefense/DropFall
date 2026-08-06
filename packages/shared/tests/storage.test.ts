@@ -48,10 +48,10 @@ describe('CoreStorage', () => {
 
   it('도구도 재료와 같은 방식으로 보관된다', () => {
     const storage = new CoreStorage();
-    storage.add('axe', 1);
+    storage.add('axe_t1', 1);
     storage.add('bandage', 3);
 
-    expect(storage.slotAt(0)).toEqual({ itemId: 'axe', count: 1 });
+    expect(storage.slotAt(0)).toEqual({ itemId: 'axe_t1', count: 1 });
     expect(storage.countOf('bandage')).toBe(3);
   });
 

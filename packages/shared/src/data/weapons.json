@@ -1,28 +1,4 @@
 {
-  "club": {
-    "name": "몽둥이",
-    "type": "melee",
-    "damage": 15,
-    "fireRate": 2,
-    "range": 24,
-    "arc": 100
-  },
-  "axe": {
-    "name": "도끼",
-    "type": "melee",
-    "damage": 18,
-    "fireRate": 1.5,
-    "range": 26,
-    "arc": 100
-  },
-  "pickax": {
-    "name": "곡괭이",
-    "type": "melee",
-    "damage": 14,
-    "fireRate": 1.8,
-    "range": 22,
-    "arc": 80
-  },
   "pistol": {
     "name": "권총",
     "type": "ranged",
@@ -32,5 +8,125 @@
     "reloadTime": 1.2,
     "projectileSpeed": 420,
     "muzzleOffset": 19
+  },
+  "axe_t1": {
+    "name": "도끼 T1",
+    "type": "melee",
+    "damage": 18,
+    "fireRate": 1.5,
+    "range": 26,
+    "arc": 100,
+    "toolFamily": "axe"
+  },
+  "axe_t2": {
+    "name": "도끼 T2",
+    "type": "melee",
+    "damage": 26,
+    "fireRate": 1.7,
+    "range": 28,
+    "arc": 100,
+    "toolFamily": "axe"
+  },
+  "axe_t3": {
+    "name": "도끼 T3",
+    "type": "melee",
+    "damage": 36,
+    "fireRate": 2.0,
+    "range": 30,
+    "arc": 100,
+    "toolFamily": "axe"
+  },
+  "pickax_t1": {
+    "name": "곡괭이 T1",
+    "type": "melee",
+    "damage": 14,
+    "fireRate": 1.8,
+    "range": 22,
+    "arc": 80,
+    "toolFamily": "pickax"
+  },
+  "pickax_t2": {
+    "name": "곡괭이 T2",
+    "type": "melee",
+    "damage": 20,
+    "fireRate": 2.0,
+    "range": 24,
+    "arc": 80,
+    "toolFamily": "pickax"
+  },
+  "pickax_t3": {
+    "name": "곡괭이 T3",
+    "type": "melee",
+    "damage": 28,
+    "fireRate": 2.2,
+    "range": 26,
+    "arc": 80,
+    "toolFamily": "pickax"
+  },
+  "hammer_t1": {
+    "name": "망치 T1",
+    "type": "melee",
+    "damage": 22,
+    "fireRate": 1.2,
+    "range": 24,
+    "arc": 100,
+    "toolFamily": "hammer"
+  },
+  "hammer_t2": {
+    "name": "망치 T2",
+    "type": "melee",
+    "damage": 32,
+    "fireRate": 1.4,
+    "range": 26,
+    "arc": 100,
+    "toolFamily": "hammer"
+  },
+  "magnum": {
+    "name": "매그넘",
+    "type": "ranged",
+    "damage": 34,
+    "fireRate": 1.8,
+    "magazine": 6,
+    "reloadTime": 1.6,
+    "projectileSpeed": 520,
+    "muzzleOffset": 19
+  },
+  "rifle": {
+    "name": "소총",
+    "type": "ranged",
+    "damage": 18,
+    "fireRate": 7,
+    "magazine": 30,
+    "reloadTime": 1.8,
+    "projectileSpeed": 600,
+    "muzzleOffset": 19
+  },
+  "shotgun": {
+    "name": "산탄총",
+    "type": "ranged",
+    "damage": 46,
+    "fireRate": 1.2,
+    "magazine": 6,
+    "reloadTime": 2.2,
+    "projectileSpeed": 420,
+    "muzzleOffset": 19
+  },
+  "minigun": {
+    "name": "미니건",
+    "type": "ranged",
+    "damage": 12,
+    "fireRate": 14,
+    "magazine": 120,
+    "reloadTime": 4.0,
+    "projectileSpeed": 560,
+    "muzzleOffset": 19
+  },
+  "beamsword": {
+    "name": "빔소드",
+    "type": "melee",
+    "damage": 60,
+    "fireRate": 2.5,
+    "range": 34,
+    "arc": 120
   }
 }

@@ -28,7 +28,8 @@ export interface PlayerView {
   wood: number;
   stone: number;
   /** 흔한 몬스터 처치로 받는 휴대 자원. 나무/돌과 동일하게 deposit()으로 입고한다. */
-  scrap: number;
+  /** 휴대 중인 부품(drop_normal) 개수. */
+  parts: number;
   /** 퀵슬롯. 길이는 항상 SLOT_COUNT이고 빈 칸은 null이다. */
   slots: (InventorySlot | null)[];
   selectedSlot: number;
@@ -110,8 +111,12 @@ export interface WorldStatus {
   /** 코어에 입고된 팀 공유 자원. 건축 비용은 여기서 나간다(개인 wood/stone이 아니다). */
   coreSharedWood: number;
   coreSharedStone: number;
-  /** 흔한 몬스터 처치 보상(scrap)이 코어 입고로 쌓이는 팀 공유분. */
-  coreSharedScrap: number;
+  /** 팀 공용 자금. 상점 구매에 쓴다. */
+  coreMoney: number;
+  /** 오늘의 상점 진열(아이템 id). 낮이 될 때마다 통째로 바뀐다. */
+  shopStock: string[];
+  /** 창고에 쌓인 부품(drop_normal). 상점 판매의 주 수입원이다. */
+  coreParts: number;
   /** 콜로니 파괴 또는 보스 처치로만 얻는 희귀 자원. 코어 업그레이드/상점 구입 전용(아직 소비처 미구현). */
   coreSharedEnergy: number;
   /** 구매한 코어 업그레이드 단계(0부터, 미구매 상태). */
@@ -204,6 +209,12 @@ export interface GameConnection {
    * 단계 여부를 판정한다.
    */
   upgradeCore(): void;
+  /** 제작 요청. 티어·재료 검증은 서버가 한다. */
+  craft(recipeId: string): void;
+  /** 창고의 재료를 상점에 판다(대금은 팀 자금으로). */
+  shopSell(itemId: string, count: number): void;
+  /** 상점에서 산다(물건은 창고로). */
+  shopBuy(itemId: string): void;
   /** 건축 요청. cx/cy는 그리드 셀 좌표(worldToCell로 미리 변환해서 넘긴다). */
   placeBuilding(buildingType: string, cx: number, cy: number): void;
   /** 매 프레임 호출된다. 구현체는 새 객체를 만들지 말고 내부 버퍼를 재사용할 것. */
@@ -215,6 +226,7 @@ export interface GameConnection {
    * 모드 여부와 무관하게 자연스럽게 버튼을 숨길 수 있다.
    */
   debugJumpToWave?(waveNumber: number): void;
+
 
   // ---------------------------------------------------------------- 대기실
 

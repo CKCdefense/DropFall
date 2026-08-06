@@ -25,7 +25,7 @@ export interface ProjectileEntity {
 }
 
 export interface MeleeHit {
-  /** 이 공격을 날린 플레이어. 몬스터 처치 보상(scrap)을 누구에게 줄지 판정하는 데 쓴다. */
+  /** 이 공격을 날린 플레이어. 명중 처리를 누구 것으로 볼지 판정하는 데 쓴다. */
   ownerId: string;
   originX: number;
   originY: number;

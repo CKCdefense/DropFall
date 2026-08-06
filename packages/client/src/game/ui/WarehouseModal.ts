@@ -1,9 +1,12 @@
 import Phaser from 'phaser';
 import { STORAGE_SLOT_COUNT, itemOfSlot, type InventorySlot } from '@dropfall/shared';
 import { Modal } from './Modal';
+import { SlotIcon } from '../render/itemSprite';
 import { BODY_TEXT, DIM_TEXT, FONT_SMALL, PANEL_STROKE, SIZE_SMALL } from './theme';
 
 const CELL = 26;
+/** 아이콘이 칸 테두리·개수 글자와 겹치지 않게 남기는 여백(px). */
+const ICON_INSET = 6;
 const CELL_GAP = 3;
 const COLUMNS = 5;
 const ROWS = Math.ceil(STORAGE_SLOT_COUNT / COLUMNS);
@@ -28,6 +31,7 @@ export class WarehouseModal extends Modal {
   private readonly cells: StorageCellHandle[] = [];
   private readonly labels: Phaser.GameObjects.Text[] = [];
   private readonly counts: Phaser.GameObjects.Text[] = [];
+  private readonly icons: SlotIcon[] = [];
 
   constructor(scene: Phaser.Scene) {
     super(scene, { title: '창고', width: PANEL_WIDTH, height: PANEL_HEIGHT });
@@ -58,6 +62,9 @@ export class WarehouseModal extends Modal {
         })
         .setOrigin(0.5, 0.5);
 
+      const icon = new SlotIcon(this.scene, CELL - ICON_INSET);
+      icon.place(x + CELL / 2, y + CELL / 2, CELL - ICON_INSET);
+
       const count = this.scene.add
         .text(x + CELL - 2, y + CELL - 1, '', {
           fontFamily: FONT_SMALL,
@@ -68,10 +75,12 @@ export class WarehouseModal extends Modal {
 
       this.addContent(box);
       this.addContent(label);
+      if (icon.object) this.addContent(icon.object);
       this.addContent(count);
 
       this.cells.push({ index, box });
       this.labels.push(label);
+      this.icons.push(icon);
       this.counts.push(count);
     }
   }
@@ -86,8 +95,10 @@ export class WarehouseModal extends Modal {
     for (let index = 0; index < STORAGE_SLOT_COUNT; index += 1) {
       const slot = storage[index] ?? null;
       const item = itemOfSlot(slot);
-      // 칸이 좁아서 이름 두 글자만 보여준다 — 아이콘이 들어오면 이 자리를 대체한다.
-      this.labels[index].setText(item ? item.name.slice(0, 2) : '');
+      // 아이콘이 있으면 그림이 이름을 대신한다. 없을 때만 이름 두 글자로 버틴다.
+      this.icons[index].setItem(slot?.itemId ?? null);
+      const showIcon = this.icons[index].isShowing;
+      this.labels[index].setText(showIcon || !item ? '' : item.name.slice(0, 2));
       this.counts[index].setText(slot && slot.count > 1 ? String(slot.count) : '');
     }
   }

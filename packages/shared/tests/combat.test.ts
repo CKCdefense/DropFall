@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
+import { weaponsData } from '../src/data';
 import {
   FULL_ARC,
   WeaponCooldowns,
@@ -18,17 +19,17 @@ beforeEach(() => {
 
 describe('resolveFire', () => {
   it('근접 무기는 조준 방향을 중심으로 한 부채꼴 판정을 반환한다', () => {
-    const result = resolveFire({ playerId: 'p1', weaponId: 'club', x: 10, y: 20, aimAngle: 0.5 });
+    const result = resolveFire({ playerId: 'p1', weaponId: 'axe_t1', x: 10, y: 20, aimAngle: 0.5 });
     expect(result.projectile).toBeUndefined();
     expect(result.meleeHit).toEqual({
       ownerId: 'p1',
       originX: 10,
       originY: 20,
-      range: 24,
+      range: weaponsData.axe_t1.range!,
       aimAngle: 0.5,
       // arc 100도 → 절반인 50도
       halfArc: (50 * Math.PI) / 180,
-      damage: 15,
+      damage: weaponsData.axe_t1.damage,
     });
   });
 

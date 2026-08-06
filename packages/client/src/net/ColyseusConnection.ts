@@ -30,7 +30,7 @@ interface RemotePlayerState {
   hp: number;
   wood: number;
   stone: number;
-  scrap: number;
+  parts: number;
   slots: { itemId: string; count: number }[];
   selectedSlot: number;
   channelProgress: number;
@@ -85,8 +85,10 @@ interface RemoteGameState {
   coreMaxHp: number;
   coreSharedWood: number;
   coreSharedStone: number;
-  coreSharedScrap: number;
+  coreParts: number;
   coreSharedEnergy: number;
+  coreMoney: number;
+  shopStock: ArrayLike<string>;
   coreTier: number;
   coreBuildRadius: number;
   craftingUnlocked: boolean;
@@ -247,6 +249,18 @@ export class ColyseusConnection implements GameConnection {
     this.room.send('moveItem', { from, fromIndex, to, toIndex });
   }
 
+  craft(recipeId: string): void {
+    this.room.send('craft', { recipeId });
+  }
+
+  shopSell(itemId: string, count: number): void {
+    this.room.send('shopSell', { itemId, count });
+  }
+
+  shopBuy(itemId: string): void {
+    this.room.send('shopBuy', { itemId });
+  }
+
   upgradeCore(): void {
     this.room.send('upgradeCore', {});
   }
@@ -275,7 +289,7 @@ export class ColyseusConnection implements GameConnection {
         hp: player.hp,
         wood: player.wood,
         stone: player.stone,
-        scrap: player.scrap,
+        parts: player.parts,
         // 서버는 빈 칸을 itemId '' 로 내려보낸다(길이 고정). 클라이언트 표현은 null이다.
         slots: Array.from(player.slots ?? [], (slot) =>
           slot.itemId ? { itemId: slot.itemId, count: slot.count } : null,
@@ -358,8 +372,10 @@ export class ColyseusConnection implements GameConnection {
         coreMaxHp: state?.coreMaxHp ?? 0,
         coreSharedWood: state?.coreSharedWood ?? 0,
         coreSharedStone: state?.coreSharedStone ?? 0,
-        coreSharedScrap: state?.coreSharedScrap ?? 0,
+        coreParts: state?.coreParts ?? 0,
         coreSharedEnergy: state?.coreSharedEnergy ?? 0,
+        coreMoney: state?.coreMoney ?? 0,
+        shopStock: Array.from(state?.shopStock ?? []),
         coreTier: state?.coreTier ?? 0,
         coreBuildRadius: state?.coreBuildRadius ?? 0,
         craftingUnlocked: state?.craftingUnlocked ?? false,

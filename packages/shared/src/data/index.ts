@@ -7,6 +7,8 @@ import toolsJson from './tools.json';
 import buildingsJson from './buildings.json';
 import itemsJson from './items.json';
 import loadoutJson from './loadout.json';
+import craftingJson from './crafting.json';
+import shopJson from './shop.json';
 import coloniesJson from './colonies.json';
 import coreUpgradesJson from './coreUpgrades.json';
 
@@ -64,16 +66,25 @@ const MonsterDataSchema = z.object({
   attackInterval: z.number().positive(),
   /** 있으면 이 반경 내 플레이어를 코어 대신 직접 추격한다(돌진형/보스). 없으면 항상 코어로 직진. */
   aggroRadius: z.number().nonnegative().optional(),
+  /**
+   * 처치 시 확률로 떨어지는 아이템 목록. 각 항목이 독립적으로 판정되므로 한 마리가
+   * 여러 종류를 떨굴 수 있다(보스가 부품과 희귀부품을 함께 주는 식).
+   */
+  itemDrops: z
+    .array(
+      z.object({
+        itemId: z.string(),
+        /** 0~1. 1이면 확정 드랍이다. */
+        chance: z.number().min(0).max(1),
+        min: z.number().int().positive(),
+        max: z.number().int().positive(),
+      }),
+    )
+    .optional(),
   /** 있으면 이 타입은 돌진 패턴을 쓸 수 있다(보스 전용, 없으면 미사용). */
   chargeAttack: ChargeAttackSchema.optional(),
   /** 있으면 이 타입은 광역 패턴을 쓸 수 있다(보스 전용, 없으면 미사용). */
   slamAttack: SlamAttackSchema.optional(),
-  /**
-   * 처치 시 잡은 플레이어의 휴대 자원(scrap)에 지급되는 랜덤량. 흔한 몬스터(잡몹/돌진/
-   * 탱커)용 — 나무/돌처럼 코어에 입고(E)해야 팀 공유가 된다. `energyDrop`과 같은 타입에
-   * 동시에 두지 않는다(둘은 서로 다른 등급의 보상이라 한 타입은 하나만 준다).
-   */
-  scrapDrop: DropRangeSchema.optional(),
   /**
    * 처치 즉시 팀 공유 창고(coreSharedEnergy)에 지급되는 랜덤량. 콜로니 파괴 보상과
    * 같은 자원이다 — 보스 전용(희귀 등급), 개인 소지 단계 없이 바로 팀 전체 몫이 된다.
@@ -99,6 +110,11 @@ const WeaponDataSchema = z.object({
   fireRate: z.number().positive(),
   /** melee 전용: 판정 사거리(px) */
   range: z.number().positive().optional(),
+  /**
+   * 채집 도구 계열(axe/pickax/hammer). 티어가 올라도 계열은 그대로라, 자원 노드의
+   * requiredTool은 이 값과 맞춘다 — 티어별 id를 노드 데이터에 나열할 필요가 없다.
+   */
+  toolFamily: z.string().optional(),
   /**
    * melee 전용: 조준 방향 기준 부채꼴 판정 각도(도). 100이면 좌우 ±50도.
    * 없으면 전방향(360도) — 기존 원형 판정과 같아진다.
@@ -223,10 +239,23 @@ const ItemDataSchema = z.object({
   kind: z.enum(['weapon', 'consumable', 'material']),
   /** weapon 전용: weapons.json의 key. 아이템 id와 달라질 수 있어 따로 둔다. */
   weaponId: z.string().optional(),
-  /** consumable 전용: 회복량 */
+  /** consumable 전용: 자기 체력 회복량 */
   healAmount: z.number().positive().optional(),
+  /** consumable 전용: 코어 체력 회복량. 최대 체력을 넘겨 회복하지는 않는다. */
+  coreHealAmount: z.number().positive().optional(),
+  /** consumable 전용: 팀 공유 에너지 지급량(코어 업그레이드 재화). */
+  energyAmount: z.number().int().positive().optional(),
+  /**
+   * 상점 로테이션 등급. 없으면 상점에 뽑히지 않는다 — 제작 전용 도구가 여기 해당한다.
+   * 등급별 가중치는 shop.json이 정한다.
+   */
+  rarity: z.enum(['common', 'rare', 'epic', 'legendary']).optional(),
   /** 한 슬롯에 쌓을 수 있는 최대 개수. 무기처럼 겹치면 안 되는 건 1이다. */
   stackSize: z.number().int().positive(),
+  /** 상점에 팔 때 개당 받는 돈. 없으면 팔 수 없다(도구·소모품 등). */
+  sellPrice: z.number().int().nonnegative().optional(),
+  /** 상점에서 살 때 드는 돈. 없으면 상점에 진열되지 않는다. */
+  buyPrice: z.number().int().positive().optional(),
 });
 
 const ItemsDataSchema = z.record(z.string(), ItemDataSchema);
@@ -310,6 +339,11 @@ const CoreUpgradeTierSchema = z.object({
 });
 
 const CoreUpgradesDataSchema = z.object({
+  /**
+   * 코어가 시작하는 티어. tiers는 "다음 티어로 올리는 비용/효과" 목록이라
+   * 최대 티어 = startTier + tiers.length 다.
+   */
+  startTier: z.number().int().positive(),
   /** 업그레이드 전(tier 0) 기본 건설 가능 반경(px, 코어 원점 기준). */
   baseBuildRadius: z.number().positive(),
   tiers: z.array(CoreUpgradeTierSchema).min(1),
@@ -319,3 +353,41 @@ export type CoreUpgradeTier = z.infer<typeof CoreUpgradeTierSchema>;
 export type CoreUpgradesData = z.infer<typeof CoreUpgradesDataSchema>;
 
 export const coreUpgradesData = loadData(CoreUpgradesDataSchema, coreUpgradesJson);
+
+
+// --- crafting.json ------------------------------------------------------------
+
+const CraftRecipeSchema = z.object({
+  id: z.string(),
+  /** 만들어지는 아이템(items.json의 key). */
+  itemId: z.string(),
+  /** 코어가 이 티어 이상이어야 제작할 수 있다. */
+  requiresTier: z.number().int().positive(),
+  /** 재료 → 개수. 코어 창고에서 차감된다. */
+  cost: z.record(z.string(), z.number().int().positive()),
+});
+
+const CraftingDataSchema = z.object({
+  recipes: z.array(CraftRecipeSchema),
+});
+
+export type CraftRecipe = z.infer<typeof CraftRecipeSchema>;
+
+export const craftingData = loadData(CraftingDataSchema, craftingJson);
+
+// --- shop.json ------------------------------------------------------------
+
+const ShopDataSchema = z.object({
+  /** 하루치 진열에 뽑는 개수. 무기와 소모품을 따로 뽑아 한쪽으로 쏠리지 않게 한다. */
+  weaponsPerDay: z.number().int().positive(),
+  consumablesPerDay: z.number().int().positive(),
+  /**
+   * 등급별 뽑기 가중치. 비율이 곧 등장 확률이라, 전설을 10%로 하려면
+   * 전설 1 : 나머지 합 9가 되게 둔다.
+   */
+  rarityWeights: z.record(z.enum(['common', 'rare', 'epic', 'legendary']), z.number().positive()),
+});
+
+export type ItemRarity = NonNullable<ItemData['rarity']>;
+
+export const shopData = loadData(ShopDataSchema, shopJson);

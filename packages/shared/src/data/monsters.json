@@ -6,7 +6,20 @@
     "speed": 60,
     "attackRange": 20,
     "attackInterval": 1,
-    "scrapDrop": { "min": 1, "max": 2 }
+    "itemDrops": [
+      {
+        "itemId": "drop_normal",
+        "chance": 1,
+        "min": 1,
+        "max": 2
+      },
+      {
+        "itemId": "drop_rare",
+        "chance": 0.03,
+        "min": 1,
+        "max": 1
+      }
+    ]
   },
   "rusher": {
     "hp": 15,
@@ -16,7 +29,20 @@
     "attackRange": 20,
     "attackInterval": 0.8,
     "aggroRadius": 120,
-    "scrapDrop": { "min": 1, "max": 3 }
+    "itemDrops": [
+      {
+        "itemId": "drop_normal",
+        "chance": 1,
+        "min": 1,
+        "max": 2
+      },
+      {
+        "itemId": "drop_rare",
+        "chance": 0.05,
+        "min": 1,
+        "max": 1
+      }
+    ]
   },
   "tanker": {
     "hp": 80,
@@ -25,7 +51,20 @@
     "speed": 35,
     "attackRange": 20,
     "attackInterval": 1.5,
-    "scrapDrop": { "min": 3, "max": 6 }
+    "itemDrops": [
+      {
+        "itemId": "drop_normal",
+        "chance": 1,
+        "min": 2,
+        "max": 4
+      },
+      {
+        "itemId": "drop_rare",
+        "chance": 0.15,
+        "min": 1,
+        "max": 1
+      }
+    ]
   },
   "boss": {
     "hp": 500,
@@ -49,6 +88,23 @@
       "damage": 35,
       "cooldown": 10
     },
-    "energyDrop": { "min": 3, "max": 6 }
+    "energyDrop": {
+      "min": 3,
+      "max": 6
+    },
+    "itemDrops": [
+      {
+        "itemId": "drop_normal",
+        "chance": 1,
+        "min": 4,
+        "max": 7
+      },
+      {
+        "itemId": "drop_rare",
+        "chance": 1,
+        "min": 1,
+        "max": 3
+      }
+    ]
   }
 }

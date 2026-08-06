@@ -30,8 +30,8 @@ export class PlayerSchema extends Schema {
   @type('number') hp = 0;
   @type('number') wood = 0;
   @type('number') stone = 0;
-  /** 흔한 몬스터 처치로 받는 휴대 자원. 나무/돌과 동일하게 코어에 입고(E)해야 팀 공유가 된다. */
-  @type('number') scrap = 0;
+  /** 몬스터가 떨구는 부품(drop_normal) 휴대량. 나무/돌과 동일하게 창고로 옮겨야 팀 몫이 된다. */
+  @type('number') parts = 0;
   /** 콜로니 채널링(파괴 작업) 진행률(0~1). 채널링 중이 아니면 0. */
   @type('number') channelProgress = 0;
   @type([ItemSlotSchema]) slots = new ArraySchema<ItemSlotSchema>(
@@ -109,10 +109,14 @@ export class GameRoomState extends Schema {
   /** 팀 공유 자원 창고(코어에 입고된 양). 건축 비용이 여기서 나간다. */
   @type('number') coreSharedWood = 0;
   @type('number') coreSharedStone = 0;
-  /** 흔한 몬스터 처치 보상(scrap)이 코어 입고로 쌓이는 팀 공유분. */
-  @type('number') coreSharedScrap = 0;
+  /** 창고에 쌓인 부품(drop_normal). 상점 판매의 주 수입원이다. */
+  @type('number') coreParts = 0;
   /** 콜로니 파괴 또는 보스 처치로만 얻는 희귀 자원. 코어 업그레이드/상점 구입 전용(아직 소비처 미구현). */
   @type('number') coreSharedEnergy = 0;
+  /** 팀 공용 자금. 몬스터 드랍을 상점에 팔아 번다. */
+  @type('number') coreMoney = 0;
+  /** 오늘의 상점 진열(아이템 id). 낮이 될 때마다 통째로 바뀐다. */
+  @type(['string']) shopStock = new ArraySchema<string>();
   /** 구매한 코어 업그레이드 단계(0부터, 미구매 상태). */
   @type('number') coreTier = 0;
   /** 코어 원점 기준 건설 가능 반경(px) — 업그레이드로 늘어난다. */

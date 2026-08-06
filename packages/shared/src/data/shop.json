@@ -1,0 +1,12 @@
+{
+  "$comment": "상점은 낮이 될 때마다 새로 뽑는다. 가격은 items.json의 buyPrice/sellPrice를 쓴다.",
+  "weaponsPerDay": 3,
+  "consumablesPerDay": 3,
+  "$rarityComment": "가중치 비율이 곧 등장 확률이다 — 전설 1/(4+3+2+1) = 10%.",
+  "rarityWeights": {
+    "common": 4,
+    "rare": 3,
+    "epic": 2,
+    "legendary": 1
+  }
+}

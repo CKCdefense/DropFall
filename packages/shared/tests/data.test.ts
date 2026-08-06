@@ -9,7 +9,7 @@ describe('data', () => {
   });
 
   it('weapons.json이 스키마를 통과하고 club/pistol을 포함한다', () => {
-    expect(weaponsData.club.type).toBe('melee');
+    expect(weaponsData.axe_t1.type).toBe('melee');
     expect(weaponsData.pistol.type).toBe('ranged');
     expect(weaponsData.pistol.projectileSpeed).toBe(420);
   });

@@ -20,12 +20,12 @@ function spawnAtLeast(world: World, count: number): void {
  * 시작하므로(loadout.coreStorage), 장착을 전제하는 테스트는 명시적으로 꺼내 쓴다.
  * 슬롯 순서는 예전과 같아서 기존 selectSlot 번호가 그대로 유효하다.
  */
-/** 인벤토리 전체에서 특정 아이템 개수. scrap이 전용 숫자 필드에서 아이템이 됐다. */
+/** 인벤토리 전체에서 특정 아이템 개수. 자원이 전용 숫자 필드에서 아이템이 됐다. */
 function carriedCount(world: World, playerId: string, itemId: string): number {
   return world.getPlayers().get(playerId)!.inventory.countOf(itemId);
 }
 
-/** 바닥에 떨어진 특정 아이템 개수. 몬스터 처치 보상(scrap)도 이제 바닥에 떨어진다. */
+/** 바닥에 떨어진 특정 아이템 개수. 몬스터 처치 보상도 바닥에 떨어진다. */
 function droppedCount(world: World, itemId: string): number {
   let total = 0;
   for (const drop of world.getDroppedItems().values()) {
@@ -37,8 +37,8 @@ function droppedCount(world: World, itemId: string): number {
 function equipDefaultKit(world: World, playerId: string): void {
   const inventory = world.getPlayers().get(playerId)!.inventory;
   inventory.add('pistol', 1);
-  inventory.add('axe', 1);
-  inventory.add('pickax', 1);
+  inventory.add('axe_t1', 1);
+  inventory.add('pickax_t1', 1);
   inventory.add('bandage', 3);
 }
 
@@ -632,8 +632,8 @@ describe('World — debugJumpToWave(테스트용)', () => {
   });
 });
 
-describe('World — 몬스터 처치 보상(scrap/energy)', () => {
-  it('흔한 몬스터(잡몹)를 근접 무기로 죽이면 잡은 플레이어의 scrap이 늘어난다', () => {
+describe('World — 몬스터 처치 보상(부품/에너지)', () => {
+  it('흔한 몬스터(잡몹)를 근접 무기로 죽이면 죽은 자리에 부품이 떨어진다', () => {
     const world = new World();
     world.addPlayer('p1', 0, 0);
     equipDefaultKit(world, 'p1');
@@ -644,18 +644,19 @@ describe('World — 몬스터 처치 보상(scrap/energy)', () => {
     monster!.y = 0;
     monster!.hp = 1; // 한 방에 죽도록
 
-    const scrapBefore = droppedCount(world, 'scrap');
+    const partsBefore = droppedCount(world, 'drop_normal');
     world.selectSlot('p1', 1); // 도끼
     world.fireWeapon('p1');
 
     expect(world.getMonsters().has(monster!.id)).toBe(false); // 죽었다
-    const gained = droppedCount(world, 'scrap') - scrapBefore;
-    const drop = monstersData.trash.scrapDrop!;
+    const gained = droppedCount(world, 'drop_normal') - partsBefore;
+    // 부품은 확정 드랍이다 — 확률이 붙은 희귀부품과 달리 매번 min~max 사이로 나온다.
+    const drop = monstersData.trash.itemDrops!.find((entry) => entry.itemId === 'drop_normal')!;
     expect(gained).toBeGreaterThanOrEqual(drop.min);
     expect(gained).toBeLessThanOrEqual(drop.max);
   });
 
-  it('원거리 무기(투사체)로 죽여도 쏜 플레이어에게 scrap이 간다', () => {
+  it('원거리 무기(투사체)로 죽여도 부품이 떨어진다', () => {
     const world = new World();
     world.addPlayer('p1', 0, 0);
     equipDefaultKit(world, 'p1');
@@ -670,10 +671,10 @@ describe('World — 몬스터 처치 보상(scrap/energy)', () => {
     for (let i = 0; i < 60 && world.getProjectiles().size > 0; i += 1) world.tick(1 / 60);
 
     expect(world.getMonsters().has(monster!.id)).toBe(false);
-    expect(droppedCount(world, 'scrap')).toBeGreaterThan(0);
+    expect(droppedCount(world, 'drop_normal')).toBeGreaterThan(0);
   });
 
-  it('총구 간격(muzzle gap) 즉시 명중으로 죽여도 쏜 플레이어에게 scrap이 간다', () => {
+  it('총구 간격(muzzle gap) 즉시 명중으로 죽여도 부품이 떨어진다', () => {
     const world = new World();
     world.addPlayer('p1', 0, 0);
     equipDefaultKit(world, 'p1');
@@ -687,10 +688,10 @@ describe('World — 몬스터 처치 보상(scrap/energy)', () => {
     world.fireWeapon('p1');
 
     expect(world.getMonsters().has(monster!.id)).toBe(false);
-    expect(droppedCount(world, 'scrap')).toBeGreaterThan(0);
+    expect(droppedCount(world, 'drop_normal')).toBeGreaterThan(0);
   });
 
-  it('보스를 죽이면 플레이어 scrap이 아니라 팀 공유 에너지가 늘어난다', () => {
+  it('보스를 죽이면 바닥 드랍 대신 팀 공유 에너지가 늘어난다', () => {
     const world = new World();
     world.addPlayer('p1', 0, 0);
     equipDefaultKit(world, 'p1');
@@ -710,23 +711,23 @@ describe('World — 몬스터 처치 보상(scrap/energy)', () => {
     world.fireWeapon('p1');
 
     expect(world.getMonsters().has(monster!.id)).toBe(false);
-    expect(droppedCount(world, 'scrap')).toBe(0); // 보스는 scrap을 안 준다
+    expect(droppedCount(world, 'drop_normal')).toBe(0); // 보스 보상은 에너지 한 갈래뿐이다
     const gained = world.getCore().sharedEnergy - energyBefore;
     const drop = monstersData.boss.energyDrop!;
     expect(gained).toBeGreaterThanOrEqual(drop.min);
     expect(gained).toBeLessThanOrEqual(drop.max);
   });
 
-  it('scrap은 인벤토리에 들어오고, 창고로 끌어다 놓으면 팀 공유분이 된다', () => {
+  it('부품은 인벤토리에 들어오고, 창고로 끌어다 놓으면 팀 공유분이 된다', () => {
     const world = new World();
     world.addPlayer('p1', 10, 0); // 코어 상호작용 반경 안
-    world.getPlayers().get('p1')!.inventory.add('scrap', 5);
+    world.getPlayers().get('p1')!.inventory.add('drop_normal', 5);
 
     // 인벤토리 0번 → 창고 첫 빈 칸(초기 지급품 4개 다음)
     world.moveItem('p1', 'inventory', 0, 'storage', 4);
 
-    expect(carriedCount(world, 'p1', 'scrap')).toBe(0);
-    expect(world.getCore().storage.countOf('scrap')).toBe(5);
+    expect(carriedCount(world, 'p1', 'drop_normal')).toBe(0);
+    expect(world.getCore().storage.countOf('drop_normal')).toBe(5);
   });
 
   it('투사체가 날아가는 동안 쏜 플레이어가 퇴장해도 처치 판정 자체는 크래시 없이 그대로 된다', () => {
@@ -741,7 +742,7 @@ describe('World — 몬스터 처치 보상(scrap/energy)', () => {
     monster!.hp = 1;
 
     world.fireWeapon('p1'); // 발사 — 아직 몬스터에 안 닿음
-    world.removePlayer('p1'); // 발사 직후 퇴장(scrap을 줄 대상이 사라짐)
+    world.removePlayer('p1'); // 발사 직후 퇴장(명중 시점에 쏜 사람이 없다)
 
     expect(() => {
       for (let i = 0; i < 60 && world.getProjectiles().size > 0; i += 1) world.tick(1 / 60);

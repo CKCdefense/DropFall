@@ -86,6 +86,18 @@ export class LocalConnection implements GameConnection {
     this.world.moveItem(LOCAL_SESSION_ID, from, fromIndex, to, toIndex);
   }
 
+  craft(recipeId: string): void {
+    this.world.craftItem(LOCAL_SESSION_ID, recipeId);
+  }
+
+  shopSell(itemId: string, count: number): void {
+    this.world.sellToShop(LOCAL_SESSION_ID, itemId, count);
+  }
+
+  shopBuy(itemId: string): void {
+    this.world.buyFromShop(LOCAL_SESSION_ID, itemId);
+  }
+
   upgradeCore(): void {
     this.world.upgradeCore(LOCAL_SESSION_ID);
   }
@@ -117,7 +129,7 @@ export class LocalConnection implements GameConnection {
         hp: player.hp,
         wood: player.inventory.countOf('wood'),
         stone: player.inventory.countOf('stone'),
-        scrap: player.inventory.countOf('scrap'),
+        parts: player.inventory.countOf('drop_normal'),
         slots: inventory.slots,
         selectedSlot: inventory.selectedIndex,
         channelProgress: player.channelProgress,
@@ -200,9 +212,11 @@ export class LocalConnection implements GameConnection {
         coreMaxHp: core.maxHp,
         coreSharedWood: core.storage.countOf('wood'),
         coreSharedStone: core.storage.countOf('stone'),
-        coreSharedScrap: core.storage.countOf('scrap'),
+        coreParts: core.storage.countOf('drop_normal'),
         coreStorage: core.storage.toView().slots,
         coreSharedEnergy: core.sharedEnergy,
+        coreMoney: core.money,
+        shopStock: [...core.shopStock],
         coreTier: core.tier,
         coreBuildRadius: this.world.getBuildRadius(),
         craftingUnlocked: this.world.isCraftingUnlocked(),

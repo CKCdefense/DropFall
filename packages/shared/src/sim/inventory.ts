@@ -125,6 +125,17 @@ export class Inventory {
   }
 
   /**
+   * 선택 중인 소모품의 정의. 소모하기 **전에** 효과를 미리 들여다볼 때 쓴다 —
+   * "지금 써도 아무 일도 안 일어나는" 상황에서 아이템만 날리지 않으려면 필요하다.
+   */
+  itemOfSelected(): ItemData | undefined {
+    const slot = this.selected;
+    if (!slot) return undefined;
+    const item = itemOf(slot.itemId);
+    return item?.kind === 'consumable' ? item : undefined;
+  }
+
+  /**
    * 선택 중인 소모품을 1개 쓴다. 쓸 수 없으면 undefined.
    * 실제 효과(회복 등)는 호출자인 World가 적용한다 — 인벤토리는 소모만 책임진다.
    */

@@ -33,8 +33,11 @@ interface Point {
   y: number;
 }
 
-/** 스프라이트 좌표계의 중심(32×32 기준) */
+/** 스프라이트 좌표계의 중심(32×32 기준). 총기 시트처럼 캔버스가 다르면 visual.center로 덮는다. */
 const SPRITE_CENTER = 16;
+const DEFAULT_SPRITE_CENTER: Point = { x: SPRITE_CENTER, y: SPRITE_CENTER };
+/** 총기 시트 캔버스(128×64)의 중심. */
+const GUN_SHEET_CENTER: Point = { x: 64, y: 32 };
 
 /** 근접 무기 휘두르기 파라미터. 시간 비율은 전부 SWING_DURATION_MS 기준이다. */
 interface MeleeSwing {
@@ -48,6 +51,11 @@ interface MeleeSwing {
 
 export interface WeaponVisual {
   frame: string;
+  /**
+   * 원본 스프라이트 캔버스의 중심. 도구는 32×32라 (16,16)이지만 총기 시트는 128×64다 —
+   * 스프라이트 원점이 중심이라 이 값이 틀리면 무기가 손에서 통째로 밀려난다.
+   */
+  center?: Point;
   scale: number;
   /**
    * 스프라이트가 기본으로 향하는 방향(라디안).
@@ -102,54 +110,119 @@ function meleeSwingFrom(weapon: WeaponData): MeleeSwing {
 }
 
 /**
- * 무기별 렌더 설정. pivot/grips/muzzle 좌표는 원본 스프라이트를 픽셀 단위로 재서 넣은 값이다.
- *  - handgun: 총구 x29·y8~10, 손잡이(갈색) x7~12·y15~25
- *  - axe:     날 y2~18, 자루 x16~20·y19~29
- *  - pickax:  날 y3~11, 자루 x15~18·y12~29
+ * 무기 한 자루의 렌더 설정을 원본에서 **직접 잰 값**으로 만든다.
+ *
+ * 핵심은 `axis`다 — **총열(또는 날)이 향하는 방향**을 두 점으로 잰다. 예전엔 손잡이에서
+ * 무기 끝으로 이은 선을 방향으로 썼는데, 권총처럼 총열은 수평이고 손잡이만 아래로
+ * 내려온 그림에서는 그 선이 30° 넘게 기울어서 총구가 커서를 안 가리켰다. 손잡이 위치와
+ * 총열 방향은 **별개로** 재야 한다.
+ *
+ * 손잡이(`grip`)가 궤도 위에 올라간다. 그래서 총열 축은 조준선보다 살짝 위를 지난다 —
+ * 실총도 총열이 손보다 위에 있으니 그게 자연스럽다. 총알 자체는 서버가 조준선을 따라
+ * 쏘고(muzzleOffset), 여기 muzzle 좌표는 총구 화염을 얹을 자리로만 쓴다.
  */
-export const WEAPON_VISUALS: Record<string, WeaponVisual> = {
-  pistol: {
-    frame: 'handgun__0',
-    // 권총 원본은 32×32라 캐릭터와 같은 크기다. 그대로 두면 총이 사람만 해진다.
-    scale: 0.55,
-    forward: 0,
-    mirror: 'y',
-    // 스프라이트 중심을 그대로 궤도에 올린다.
-    pivot: { x: SPRITE_CENTER, y: SPRITE_CENTER },
-    grips: [
-      { x: 9, y: 18 },
-      { x: 13, y: 17 },
-    ],
+function measured(options: {
+  frame: string;
+  /** 손이 쥐는 자리(스프라이트 좌표). 이 점이 캐릭터에서 orbitRadius만큼 떨어진다. */
+  grip: Point;
+  /** 총열/날 위의 두 점. 두 번째가 끝(총구·칼끝)이다. */
+  axis: [Point, Point];
+  /** 원본 대비 배율. 원본 캔버스 크기가 제각각이라 무기마다 직접 잰다. */
+  scale: number;
+  orbitRadius: number;
+  mirror: 'x' | 'y';
+  center?: Point;
+  /** ranged면 축의 끝을 총구로 등록한다. melee면 휘두르기 값이 나중에 붙는다. */
+  ranged: boolean;
+}): WeaponVisual {
+  const { frame, grip, axis, scale, orbitRadius, mirror, center, ranged } = options;
+  const [near, tip] = axis;
+  const forward = Math.atan2(tip.y - near.y, tip.x - near.x);
+
+  return {
+    frame,
+    center,
+    scale,
+    forward,
+    mirror,
+    pivot: grip,
+    // 뒷손은 손잡이, 앞손은 조금 앞. 총열 방향으로 띄워야 두 손이 무기를 따라 놓인다.
+    grips: [grip, { x: grip.x + Math.cos(forward) * HAND_SPACING, y: grip.y + Math.sin(forward) * HAND_SPACING }],
+    orbitRadius,
+    ...(ranged ? { muzzle: tip } : {}),
+  };
+}
+
+/** 두 손 사이 간격(스프라이트 px). 원본이 32px든 128px든 손은 같은 크기로 그려진다. */
+const HAND_SPACING = 9;
+
+/** 32×32 도구(도끼·곡괭이·망치). 자루 끝이 좌하단, 머리가 우상단인 공통 구도다. */
+function toolVisual(frame: string): WeaponVisual {
+  return measured({
+    frame,
+    grip: { x: 8, y: 25 },
+    // 자루가 곧 축이다 — 자루 끝에서 머리 쪽으로.
+    axis: [{ x: 8, y: 25 }, { x: 25, y: 7 }],
+    scale: 0.62,
+    orbitRadius: 9,
+    mirror: 'x',
+    ranged: false,
+  });
+}
+
+/**
+ * 128×64 총기 시트. grip/axis는 확대한 원본에 8px 격자를 얹어 눈으로 잰 값이다.
+ * 스프라이트를 고치면 여기 좌표도 같이 고쳐야 한다.
+ */
+function gunVisual(
+  frame: string,
+  grip: Point,
+  axis: [Point, Point],
+  scale: number,
+): WeaponVisual {
+  return measured({
+    frame,
+    grip,
+    axis,
+    scale,
     orbitRadius: 11,
-    muzzle: { x: 30, y: 9 },
-  },
-  axe: {
-    frame: 'axe__0',
-    scale: 0.62,
-    forward: -Math.PI / 2,
-    mirror: 'x',
-    // 자루 끝(뒷손)을 궤도에 올린다. 무기 중심을 올리면 긴 무기일수록 손이 몸에서 떨어진다.
-    pivot: { x: 18, y: 27 },
-    grips: [
-      { x: 18, y: 27 },
-      { x: 18, y: 22 },
-    ],
-    orbitRadius: 9,
-    // 원본은 날이 자루 왼쪽에 있다. 그대로 두면 내려칠 때 날이 뒤를 향한다.
-    baseFlipX: true,
-  },
-  pickax: {
-    frame: 'pickax__0',
-    scale: 0.62,
-    forward: -Math.PI / 2,
-    mirror: 'x',
-    pivot: { x: 16, y: 27 },
-    grips: [
-      { x: 16, y: 27 },
-      { x: 16, y: 22 },
-    ],
-    orbitRadius: 9,
-  },
+    mirror: 'y',
+    center: GUN_SHEET_CENTER,
+    ranged: true,
+  });
+}
+
+export const WEAPON_VISUALS: Record<string, WeaponVisual> = {
+  // --- 채집 도구: 티어가 올라도 구도는 같고 스프라이트만 바뀐다 ---
+  axe_t1: toolVisual('axe_stone_axe_0'),
+  axe_t2: toolVisual('axe_iron_axe_0'),
+  axe_t3: toolVisual('axe_saw_0'),
+  pickax_t1: toolVisual('pickax_stone_axe_0'),
+  pickax_t2: toolVisual('pickax_iron_axe_0'),
+  pickax_t3: toolVisual('pickax_steel_axe_0'),
+  hammer_t1: toolVisual('hammer_stone_hammer_0'),
+  hammer_t2: toolVisual('hammer_iron_hammer_0'),
+
+  // --- 총기: 상점에서 파는 것들 ---
+  // 권총·매그넘은 총열이 **수평**이다(손잡이만 아래로 내려온다).
+  pistol: gunVisual('weapons_pistol_0', { x: 42, y: 36 }, [{ x: 60, y: 13 }, { x: 106, y: 13 }], 0.22),
+  magnum: gunVisual('weapons_magnum_0', { x: 42, y: 36 }, [{ x: 60, y: 21 }, { x: 96, y: 21 }], 0.3),
+  // 소총·산탄총·미니건은 총열이 우상단으로 기울어져 그려져 있다.
+  rifle: gunVisual('weapons_rifle_0', { x: 46, y: 40 }, [{ x: 75, y: 22 }, { x: 122, y: 5 }], 0.25),
+  shotgun: gunVisual('weapons_shotgun_0', { x: 50, y: 38 }, [{ x: 60, y: 30 }, { x: 102, y: 4 }], 0.28),
+  minigun: gunVisual('weapons_minigun_0', { x: 24, y: 44 }, [{ x: 56, y: 30 }, { x: 104, y: 6 }], 0.29),
+
+  // 빔소드는 근접이다 — 같은 시트지만 총구가 없고, 손잡이가 곧 축의 시작이다.
+  beamsword: measured({
+    frame: 'weapons_beamsword_0',
+    grip: { x: 40, y: 55 },
+    axis: [{ x: 40, y: 55 }, { x: 95, y: 3 }],
+    scale: 0.32,
+    orbitRadius: 10,
+    mirror: 'y',
+    center: GUN_SHEET_CENTER,
+    ranged: false,
+  }),
 };
 
 // weapons.json이 근접이라고 한 무기에만 휘두르기 값을 붙인다. 두 곳에 같은 숫자를
@@ -380,7 +453,7 @@ export function layoutWeapon(
   weapon.setFlipX(flipX);
   weapon.setFlipY(flipY);
   // 스프라이트 자체의 원점은 중심이므로, 중심이 어디로 가는지 따로 구해야 한다.
-  const center = toContainer({ x: SPRITE_CENTER, y: SPRITE_CENTER });
+  const center = toContainer(visual.center ?? DEFAULT_SPRITE_CENTER);
   weapon.setPosition(center.x, center.y);
 
   hands.forEach((hand, index) => {

@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { itemOfSlot } from '@dropfall/shared';
 import type { PlayerView } from '../../net/GameConnection';
+import { SlotIcon } from '../render/itemSprite';
 import {
   ACCENT,
   BODY_TEXT,
@@ -15,6 +16,8 @@ import {
 
 /** 칸 하나의 기준 크기(px). uiScale이 곱해진다. */
 const SLOT_SIZE = 40;
+/** 아이콘이 칸을 꽉 채우면 테두리·개수와 겹친다. 양쪽에 여백을 남긴다. */
+const ICON_INSET = 10;
 const SLOT_GAP = 6;
 const SELECTED_STROKE = 0x6fd08c;
 
@@ -35,6 +38,8 @@ export class QuickSlotBar {
   private readonly keyLabels: Phaser.GameObjects.Text[] = [];
   private readonly nameLabels: Phaser.GameObjects.Text[] = [];
   private readonly countLabels: Phaser.GameObjects.Text[] = [];
+  /** 칸마다 하나씩. 아이콘이 있으면 이름 라벨 대신 아이콘을 보여준다. */
+  private readonly icons: SlotIcon[] = [];
   /** 레이아웃 후 실제 높이(px). 다른 요소를 이 위에 얹을 때 쓴다. */
   height = 0;
 
@@ -66,6 +71,10 @@ export class QuickSlotBar {
           .text(0, 0, '', { fontFamily: FONT, fontSize: `${SIZE_BODY}px`, color: BODY_TEXT })
           .setOrigin(0.5, 0.5),
       );
+      // 아이콘은 이름 라벨보다 뒤에 만든다 — 나중에 만든 쪽이 위에 그려지므로,
+      // 아이콘이 있는 칸에서 이름 라벨을 숨겨도 순서 때문에 가려지는 일이 없다.
+      this.icons.push(new SlotIcon(scene, SLOT_SIZE - ICON_INSET));
+
       // 개수는 오른쪽 아래 — 아이템 이름과 겹치지 않는 자리다.
       this.countLabels.push(
         scene.add
@@ -93,6 +102,7 @@ export class QuickSlotBar {
       box.input?.hitArea?.setSize(size, size);
       this.keyLabels[index].setFontSize(SIZE_SMALL * scale).setPosition(x + 3 * scale, top + 2 * scale);
       this.nameLabels[index].setFontSize(SIZE_BODY * scale).setPosition(x + size / 2, top + size / 2);
+      this.icons[index].place(x + size / 2, top + size / 2, size - ICON_INSET * scale);
       this.countLabels[index]
         .setFontSize(SIZE_SMALL * scale)
         .setPosition(x + size - 3 * scale, top + size - 2 * scale);
@@ -115,7 +125,9 @@ export class QuickSlotBar {
       const isSelected = me?.selectedSlot === index;
       const isHovered = hoverIndex === index;
 
-      this.nameLabels[index].setText(item?.name ?? '');
+      // 아이콘이 있으면 그림만 보여준다 — 좁은 칸에서 그림과 글자가 겹치면 둘 다 못 읽는다.
+      this.icons[index].setItem(slot?.itemId ?? null);
+      this.nameLabels[index].setText(this.icons[index].isShowing ? '' : (item?.name ?? ''));
       // 1개짜리(무기)는 개수를 안 띄운다 — 항상 "1"이면 정보가 아니라 잡음이다.
       this.countLabels[index].setText(slot && slot.count > 1 ? `${slot.count}` : '');
 

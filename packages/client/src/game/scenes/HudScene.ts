@@ -3,6 +3,7 @@ import type { InventorySlot } from '@dropfall/shared';
 import {
   CORE_INTERACT_RADIUS,
   MAX_CLIENTS_PER_ROOM,
+  PICKUP_RADIUS,
   SLOT_COUNT,
   computeCameraZoom,
   coreUpgradesData,
@@ -116,11 +117,11 @@ export class HudScene extends Phaser.Scene {
   private latestStorage: (InventorySlot | null)[] = [];
   /** 코어 상호작용 반경 안에 있는지. update가 매 프레임 갱신한다. */
   private nearCore = false;
+  /** 주울 수 있는 드롭이 발밑에 있는지. 코어 앞에서 E가 무엇을 할지 가른다. */
+  private dropInReach = false;
   private upgradeModal!: UpgradeModal;
   private storeModal!: StoreModal;
   private craftModal!: CraftModal;
-  /** update()가 매 프레임 최신 값으로 갱신한다 — onCraft 클릭 시점에 읽어서 게이팅한다. */
-  private craftingUnlocked = false;
 
   constructor() {
     super(HUD_SCENE_KEY);
@@ -142,7 +143,7 @@ export class HudScene extends Phaser.Scene {
       SMALL_STYLE,
     );
     this.coreLabel = this.add.text(0, 0, 'CORE', TEXT_STYLE);
-    this.sharedResourceText = this.add.text(0, 0, '공유 나무 0 · 돌 0 · 파편 0', SMALL_STYLE);
+    this.sharedResourceText = this.add.text(0, 0, '공유 나무 0 · 돌 0 · 부품 0', SMALL_STYLE);
     this.coreBarBack = this.add.rectangle(0, 0, 10, CORE_BAR_HEIGHT, BAR_BACK).setOrigin(0, 0);
     this.coreBar = this.add.rectangle(0, 0, 10, CORE_BAR_HEIGHT, 0x6fd08c).setOrigin(0, 0);
 
@@ -159,7 +160,7 @@ export class HudScene extends Phaser.Scene {
     this.selfBarBack = this.add.rectangle(0, 0, 10, SELF_BAR_HEIGHT, BAR_BACK).setOrigin(0.5, 1);
     this.selfBar = this.add.rectangle(0, 0, 10, SELF_BAR_HEIGHT, 0x6fd08c).setOrigin(0, 1);
 
-    this.resourceText = this.add.text(0, 0, '휴대 나무 0 · 돌 0 · 파편 0', DIM_STYLE);
+    this.resourceText = this.add.text(0, 0, '휴대 나무 0 · 돌 0 · 부품 0', DIM_STYLE);
     this.buildModeText = this.add.text(0, 0, '건축모드: 꺼짐', DIM_STYLE);
     this.debugText = this.add.text(0, 0, '', SMALL_STYLE);
     this.helpText = this.add.text(0, 0, '', DIM_STYLE).setOrigin(0.5, 1);
@@ -247,12 +248,14 @@ export class HudScene extends Phaser.Scene {
     };
     this.coreModal.onCraft = () => {
       this.coreModal.close();
-      // 코어 업그레이드로 해금되기 전엔 열지 않는다(docs/backend/38) — 아직 열
-      // 콘텐츠가 없어서 그냥 무시한다. this.craftingUnlocked는 update()가 매
-      // 프레임 최신 상태로 갱신해 둔다.
-      if (this.craftingUnlocked) this.craftModal.open();
+      // 해금 여부로 창 자체를 막지 않는다 — 레시피마다 요구 티어가 따로 있고(T1 도구는
+      // 처음부터 만들 수 있다), 잠긴 것도 회색으로 보여줘야 코어를 왜 올리는지 알 수 있다.
+      this.craftModal.open();
     };
     this.upgradeModal.onTierUp = () => this.connection.upgradeCore();
+    this.craftModal.onCraft = (recipeId) => this.connection.craft(recipeId);
+    this.storeModal.onPurchase = (itemId) => this.connection.shopBuy(itemId);
+    this.storeModal.onSell = (itemId, count) => this.connection.shopSell(itemId, count);
     this.coreModal.onWarehouse = () => {
       this.coreModal.close();
       this.warehouseModal.open();
@@ -271,13 +274,18 @@ export class HudScene extends Phaser.Scene {
       return this.openModals().some((modal) => modal.containsPoint(x, y));
     });
 
-    // GameScene의 E 입력이 이 함수를 먼저 부른다. 코어 옆이면 모달을 열고 true를
-    // 돌려줘서 줍기를 막는다 — 코어 앞에서 E가 두 가지 일을 하지 않게 한다.
+    // GameScene의 E 입력이 이 함수를 먼저 부른다. true를 돌려주면 줍기가 취소된다.
+    //
+    // **줍기가 항상 우선한다.** 코어는 맵 한가운데라 그 근처에서 죽은 몬스터의 드롭을
+    // 밟고 있는 일이 흔한데, 예전엔 코어 반경 안이기만 하면 무조건 모달이 떠서 발밑
+    // 아이템을 영영 못 주웠다. 창고는 F로도 열 수 있으니, E는 "발밑에 뭔가 있으면 줍고,
+    // 없을 때만 코어를 연다"로 정리한다.
     this.registry.set(CORE_INTERACT_KEY, () => {
       if (this.anyModalOpen()) {
         this.closeAllModals();
         return true;
       }
+      if (this.dropInReach) return false; // 줍기에 양보한다
       if (!this.nearCore) return false;
 
       this.coreModal.open();
@@ -385,14 +393,15 @@ export class HudScene extends Phaser.Scene {
       status.coreMaxHp,
       status.coreSharedWood,
       status.coreSharedStone,
-      status.coreSharedScrap,
+      status.coreParts,
       status.coreSharedEnergy,
+      status.coreMoney,
     );
-    this.craftingUnlocked = status.craftingUnlocked;
-    const nextTier = coreUpgradesData.tiers[status.coreTier];
+    // tiers는 "다음 티어로 올리는" 목록이라 티어 1이 0번 항목을 산다(startTier 오프셋).
+    const nextTier = coreUpgradesData.tiers[status.coreTier - coreUpgradesData.startTier];
     this.upgradeModal.setTierInfo(
       status.coreTier,
-      coreUpgradesData.tiers.length,
+      coreUpgradesData.startTier + coreUpgradesData.tiers.length,
       nextTier ? nextTier.cost : null,
     );
     this.waveDial.update(status);
@@ -402,6 +411,12 @@ export class HudScene extends Phaser.Scene {
     );
     this.latestInventory = me?.slots ?? [];
     this.latestStorage = status.coreStorage;
+
+    // 제작·상점은 둘 다 "창고에 뭐가 몇 개 있나"만 알면 된다 — 칸 배열을 한 번만
+    // 합계로 접어서 두 모달에 같이 넘긴다.
+    const stock = summarizeStorage(status.coreStorage);
+    this.craftModal.setContext(stock, status.coreTier);
+    this.storeModal.setContext(status.shopStock, status.coreMoney, stock);
     this.quickSlots.update(me, this.slotDrag.hoverCellOf('inventory'));
     this.updateSelfBar(me);
     this.updateTexts(snapshot, me);
@@ -409,6 +424,11 @@ export class HudScene extends Phaser.Scene {
     // 코어는 항상 원점(0,0). 서버(World.isNearCore)와 같은 반경으로 판정해야
     // "E가 안 먹는다"는 어긋남이 안 생긴다.
     this.nearCore = me ? Math.hypot(me.x, me.y) <= CORE_INTERACT_RADIUS : false;
+    this.dropInReach = me
+      ? snapshot.droppedItems.some(
+          (drop) => Math.hypot(drop.x - me.x, drop.y - me.y) <= PICKUP_RADIUS,
+        )
+      : false;
     if (this.warehouseModal.isOpen()) this.warehouseModal.setSlots(status.coreStorage);
   }
 
@@ -417,15 +437,20 @@ export class HudScene extends Phaser.Scene {
     maxHp: number,
     sharedWood: number,
     sharedStone: number,
-    sharedScrap: number,
+    coreParts: number,
     sharedEnergy: number,
+    money: number,
   ): void {
     const ratio = maxHp > 0 ? hp / maxHp : 1;
     this.coreBar.width = Math.max(0, this.coreBarBack.width * ratio);
     // 코어가 위험하면 색으로 먼저 알린다 — 숫자를 읽기 전에 눈에 들어와야 한다.
     this.coreBar.fillColor = barColor(ratio);
     this.coreLabel.setText(`CORE ${Math.ceil(hp)}`);
-    this.sharedResourceText.setText(`공유 나무 ${sharedWood} · 돌 ${sharedStone} · 파편 ${sharedScrap}`);
+    // 자금은 상점에서만 쓰지만 여기 같이 띄운다 — 팔러 갈지 말지를 코어 앞이 아니라
+    // 사냥 중에 판단하게 된다.
+    this.sharedResourceText.setText(
+      `공유 나무 ${sharedWood} · 돌 ${sharedStone} · 부품 ${coreParts} · ${money} G`,
+    );
     this.coreModal.setEnergy(sharedEnergy);
   }
 
@@ -445,7 +470,7 @@ export class HudScene extends Phaser.Scene {
     );
     this.resourceText.setText(
       me
-        ? `휴대 나무 ${me.wood} · 돌 ${me.stone} · 파편 ${me.scrap}`
+        ? `휴대 나무 ${me.wood} · 돌 ${me.stone} · 부품 ${me.parts}`
         : '휴대 나무 0 · 돌 0 · 파편 0',
     );
 
@@ -473,6 +498,19 @@ export class HudScene extends Phaser.Scene {
         : `${controlsHint} · ESC 나가기`,
     );
   }
+}
+
+/**
+ * 창고 칸 배열 → 아이템별 총 개수. 같은 아이템이 여러 칸에 나뉘어 있을 수 있어서
+ * 그대로는 "재료가 몇 개 있나"를 물을 수 없다(서버의 CoreStorage.countOf와 같은 계산).
+ */
+function summarizeStorage(slots: readonly (InventorySlot | null)[]): Record<string, number> {
+  const total: Record<string, number> = {};
+  for (const slot of slots) {
+    if (!slot) continue;
+    total[slot.itemId] = (total[slot.itemId] ?? 0) + slot.count;
+  }
+  return total;
 }
 
 /** 와이어프레임의 테두리 상자. HUD 전 구역이 같은 모양을 쓴다. */

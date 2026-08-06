@@ -11,8 +11,8 @@ import { wavesData } from '../src/data';
 function equipDefaultKit(world: World, playerId: string): void {
   const inventory = world.getPlayers().get(playerId)!.inventory;
   inventory.add('pistol', 1);
-  inventory.add('axe', 1);
-  inventory.add('pickax', 1);
+  inventory.add('axe_t1', 1);
+  inventory.add('pickax_t1', 1);
   inventory.add('bandage', 3);
 }
 
@@ -27,10 +27,10 @@ describe('Inventory', () => {
   it('아이템을 넣으면 앞 칸부터 채운다', () => {
     const inventory = new Inventory();
     inventory.add('pistol');
-    inventory.add('axe');
+    inventory.add('axe_t1');
 
     expect(inventory.slotAt(0)).toEqual({ itemId: 'pistol', count: 1 });
-    expect(inventory.slotAt(1)).toEqual({ itemId: 'axe', count: 1 });
+    expect(inventory.slotAt(1)).toEqual({ itemId: 'axe_t1', count: 1 });
   });
 
   it('같은 아이템은 새 칸을 열기 전에 기존 더미에 쌓인다', () => {
@@ -110,10 +110,10 @@ describe('Inventory', () => {
   it('무기 칸을 고르면 장착 무기가 나온다', () => {
     const inventory = new Inventory();
     inventory.add('pistol');
-    inventory.add('axe');
+    inventory.add('axe_t1');
 
     inventory.select(1);
-    expect(inventory.equippedWeaponId).toBe('axe');
+    expect(inventory.equippedWeaponId).toBe('axe_t1');
   });
 
   it('소모품 칸에서는 장착 무기가 나오지 않는다', () => {
@@ -156,7 +156,7 @@ describe('itemOfSlot', () => {
   });
 
   it('아이템 정의를 돌려준다', () => {
-    expect(itemOfSlot({ itemId: 'axe', count: 1 })?.kind).toBe('weapon');
+    expect(itemOfSlot({ itemId: 'axe_t1', count: 1 })?.kind).toBe('weapon');
   });
 });
 

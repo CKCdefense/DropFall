@@ -20,7 +20,10 @@ import {
   type BuildInputMessage,
   type CreateRoomOptions,
   type SelectSlotMessage,
+  type CraftMessage,
   type MoveItemMessage,
+  type ShopBuyMessage,
+  type ShopSellMessage,
   type JoinRoomOptions,
   type PlayerInputMessage,
   type SelectJobMessage,
@@ -70,6 +73,18 @@ export class GameRoom extends Room {
       if (this.state.phase !== RoomPhase.PLAYING) return;
       // 무기는 서버가 인벤토리에서 읽는다 — 페이로드가 없다(World.fireWeapon 참고).
       this.world.fireWeapon(client.sessionId);
+    },
+    craft: (client: Client, payload: CraftMessage) => {
+      if (this.state.phase !== RoomPhase.PLAYING) return;
+      this.world.craftItem(client.sessionId, payload?.recipeId);
+    },
+    shopSell: (client: Client, payload: ShopSellMessage) => {
+      if (this.state.phase !== RoomPhase.PLAYING) return;
+      this.world.sellToShop(client.sessionId, payload?.itemId, payload?.count);
+    },
+    shopBuy: (client: Client, payload: ShopBuyMessage) => {
+      if (this.state.phase !== RoomPhase.PLAYING) return;
+      this.world.buyFromShop(client.sessionId, payload?.itemId);
     },
     moveItem: (client: Client, payload: MoveItemMessage) => {
       if (this.state.phase !== RoomPhase.PLAYING) return;
@@ -262,7 +277,7 @@ export class GameRoom extends Room {
       // 요약 숫자만 세어 내려보낸다.
       schema.wood = player.inventory.countOf('wood');
       schema.stone = player.inventory.countOf('stone');
-      schema.scrap = player.inventory.countOf('scrap');
+      schema.parts = player.inventory.countOf('drop_normal');
       schema.channelProgress = player.channelProgress;
 
       // 슬롯은 매 틱 통째로 덮어쓴다. 4칸뿐이라 변경 감지를 따로 하는 것보다 싸고,
@@ -289,11 +304,16 @@ export class GameRoom extends Room {
     this.state.coreHp = core.hp;
     this.state.coreMaxHp = core.maxHp;
     // 자원이 전용 숫자 필드에서 창고 슬롯으로 바뀌었다 — HUD가 쓰는 요약 숫자는
-    // 창고에서 세어 내려보낸다(scrap 포함).
+    // 창고에서 세어 내려보낸다(부품 포함).
     this.state.coreSharedWood = core.storage.countOf('wood');
     this.state.coreSharedStone = core.storage.countOf('stone');
-    this.state.coreSharedScrap = core.storage.countOf('scrap');
+    this.state.coreParts = core.storage.countOf('drop_normal');
     this.state.coreSharedEnergy = core.sharedEnergy;
+    this.state.coreMoney = core.money;
+    // 진열은 하루에 한 번만 바뀐다 — 매 틱 덮어쓰지 않고 달라졌을 때만 갈아 끼운다.
+    if (!sameStrings(this.state.shopStock, core.shopStock)) {
+      this.state.shopStock.splice(0, this.state.shopStock.length, ...core.shopStock);
+    }
     this.state.coreTier = core.tier;
     this.state.coreBuildRadius = this.world.getBuildRadius();
     this.state.craftingUnlocked = this.world.isCraftingUnlocked();
@@ -457,4 +477,13 @@ export class GameRoom extends Room {
       schema.destroyed = colony.destroyed;
     }
   }
+}
+
+/** 두 문자열 목록이 같은지. 상점 진열처럼 "달라졌을 때만 내보내는" 판정에 쓴다. */
+function sameStrings(a: ArrayLike<string>, b: readonly string[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < b.length; i += 1) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
 }

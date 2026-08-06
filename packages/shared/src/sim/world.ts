@@ -3,13 +3,20 @@ import {
   buildingsData,
   coloniesData,
   coreUpgradesData,
+  craftingData,
+  itemsData,
+  shopData,
   loadoutData,
   monstersData,
   resourcesData,
   wavesData,
+  weaponsData,
   type BuildingType,
   type DropRange,
   type MonsterData,
+  type CraftRecipe,
+  type ItemKind,
+  type ItemRarity,
   type MonsterType,
   type ResourceType,
 } from '../data';
@@ -71,7 +78,13 @@ export const CORE_INTERACT_RADIUS = CORE_RADIUS + 32;
  * 바닥 드롭을 주울 수 있는 반경(px). 캐릭터 반경보다 넉넉하게 잡아야 정확히 밟지 않아도
  * 주워진다 — 너무 넓으면 여러 개가 한 번에 사정권에 들어와 "주우러 다니는" 맛이 없어진다.
  */
-const PICKUP_RADIUS = 22;
+/**
+ * 드롭을 주울 수 있는 거리(px). 클라이언트도 같은 값으로 "지금 주울 게 있나"를 판정해야
+ * 코어 앞에서 E가 창고를 열지 아이템을 줍을지 서버와 같은 결론을 낸다.
+ */
+export const PICKUP_RADIUS = 22;
+
+
 /** 콜로니 채널링(파괴 작업)을 시작할 수 있는 반경(px). CORE_INTERACT_RADIUS와 같은 값 — 둘 다 "구조물 바로 옆" 상호작용이다. */
 const COLONY_CHANNEL_RADIUS = CORE_INTERACT_RADIUS;
 /** 이 거리보다 가까운 몬스터끼리는 서로 밀어낸다 — 군집 분리(기술명세 §5.3). */
@@ -250,12 +263,17 @@ export interface CoreState {
    */
   /**
    * 팀 공용 창고. 예전의 sharedWood/sharedStone/sharedScrap 숫자 필드를 대체한다 —
-   * 자원 종류가 늘 때마다 필드를 추가할 필요가 없고(scrap이 그 예다), 도구도 같은
+   * 자원 종류가 늘 때마다 필드를 추가할 필요가 없고(몬스터 드랍이 그 예다), 도구도 같은
    * 방식으로 보관할 수 있다. 특정 재료 개수는 storage.countOf로 묻는다.
    */
   storage: CoreStorage;
   /**
-   * 콜로니 파괴 또는 보스 처치로만 얻는 희귀 자원. 나무/돌/scrap과 달리 "채집 후 입고"
+   * 팀 공용 자금. 몬스터 드랍을 상점에 팔아 번다 — 재료(창고)와 돈을 나눈 이유는
+   * "짓는 자원"과 "사는 자원"의 쓰임이 달라서다. 건축은 창고에서, 구매는 여기서 나간다.
+   */
+  money: number;
+  /**
+   * 콜로니 파괴 또는 보스 처치로만 얻는 희귀 자원. 나무/돌과 달리 "채집 후 입고"
    * 단계가 없다 — 획득 즉시 팀 전체 몫으로 귀속된다(누가 잡았든 팀 보상). 코어
    * 업그레이드/상점 구입 전용으로 쓸 예정(아직 그 소비처는 미구현 — CoreModal/
    * UpgradeModal의 "에너지" 플레이스홀더 행이 이 값을 보여줄 자리다).
@@ -267,6 +285,11 @@ export interface CoreState {
    * 조회한 뒤 tier를 1 늘린다.
    */
   tier: number;
+  /**
+   * 오늘의 상점 진열(아이템 id 목록). 낮이 시작될 때마다 새로 뽑는다 —
+   * 고정 진열이면 "돈이 모이면 언젠가 다 산다"가 되어 그날그날의 선택이 사라진다.
+   */
+  shopStock: string[];
 }
 
 let nextMonsterId = 1;
@@ -322,8 +345,10 @@ export class World {
     hp: wavesData.coreHp,
     maxHp: wavesData.coreHp,
     storage: new CoreStorage(),
+    money: 0,
     sharedEnergy: 0,
-    tier: 0,
+    tier: coreUpgradesData.startTier,
+    shopStock: [],
   };
   private elapsedSeconds = 0;
   /** 이번 낮 페이즈에 스킵 투표를 던진 플레이어 id 집합. 만장일치면 skipDay()를 부른다. */
@@ -344,6 +369,9 @@ export class World {
     for (const entry of loadoutData.coreStorage) {
       this.core.storage.add(entry.itemId, entry.count);
     }
+
+    // 게임은 낮으로 시작한다 — 첫날 진열도 여기서 뽑아둔다.
+    this.rollShopStock();
   }
 
   /** 콜로니처럼 위치가 절대 바뀌지 않는 장애물의 셀을 FlowField 차단 집합에 등록한다. */
@@ -440,13 +468,33 @@ export class World {
     // 쓰러진 플레이어는 스스로 회복할 수 없다 — 부활은 동료가 해야 한다.
     if (!player || player.hp <= 0) return;
 
-    // 체력이 가득이면 소모하지 않는다. 먼저 확인하지 않으면 붕대만 날린다.
-    if (player.hp >= wavesData.playerHp) return;
+    const selected = player.inventory.itemOfSelected();
+    if (!selected) return;
+
+    // 효과가 없는 상황이면 **소모하지 않는다.** 체력이 가득인데 붕대만 날리는 일이
+    // 없어야 한다 — 어떤 효과든 "지금 의미가 있는가"를 먼저 묻고 나서 꺼낸다.
+    if (selected.healAmount !== undefined && player.hp >= wavesData.playerHp) return;
+    if (selected.coreHealAmount !== undefined && this.core.hp >= this.core.maxHp) return;
+    if (
+      selected.healAmount === undefined &&
+      selected.coreHealAmount === undefined &&
+      selected.energyAmount === undefined
+    ) {
+      return; // 소모품이 아니다(무기·재료를 들고 있다)
+    }
 
     const item = player.inventory.consumeSelected();
-    if (!item?.healAmount) return;
+    if (!item) return;
 
-    player.hp = Math.min(wavesData.playerHp, player.hp + item.healAmount);
+    if (item.healAmount !== undefined) {
+      player.hp = Math.min(wavesData.playerHp, player.hp + item.healAmount);
+    }
+    if (item.coreHealAmount !== undefined) {
+      this.core.hp = Math.min(this.core.maxHp, this.core.hp + item.coreHealAmount);
+    }
+    if (item.energyAmount !== undefined) {
+      this.core.sharedEnergy += item.energyAmount;
+    }
   }
 
   /**
@@ -527,7 +575,8 @@ export class World {
     for (const node of this.resourceNodes.values()) {
       if (node.hp <= 0) continue;
       const data = resourcesData[node.type];
-      if (data.requiredTool !== weaponId) continue;
+      // 티어가 올라도 계열은 같다 — 도끼 T1/T2/T3 모두 나무를 캔다.
+      if (data.requiredTool !== weaponsData[weaponId]?.toolFamily) continue;
       if (!withinMeleeArc(hit, node.x, node.y, data.hitRadius)) continue;
       const distance = Math.hypot(node.x - hit.originX, node.y - hit.originY);
       if (distance >= targetDistance) continue;
@@ -646,8 +695,9 @@ export class World {
   upgradeCore(playerId: string): void {
     if (!this.players.has(playerId)) return;
 
-    const tier = coreUpgradesData.tiers[this.core.tier];
-    if (!tier) return; // 이미 최고 단계
+    // tiers는 "다음 티어로 올리는" 목록이라, 티어 1이 0번 항목을 산다.
+    const tier = coreUpgradesData.tiers[this.core.tier - coreUpgradesData.startTier];
+    if (!tier) return; // 이미 최고 티어
     if (this.core.sharedEnergy < tier.cost) return;
 
     this.core.sharedEnergy -= tier.cost;
@@ -656,10 +706,146 @@ export class World {
     this.core.hp += tier.coreHpBonus;
   }
 
+  /**
+   * 제작. 재료는 코어 창고에서 나가고 결과물은 **창고로** 들어간다 — 만든 사람이
+   * 바로 손에 쥐지 않는 이유는, 인벤토리가 꽉 찼을 때 결과물이 증발하는 경로를
+   * 아예 만들지 않기 위해서다. 꺼내 쓰는 건 드래그 한 번이면 된다.
+   *
+   * 코어 티어가 레시피 요구치에 못 미치거나 재료가 모자라면 조용히 무시한다 —
+   * 어느 쪽도 소비가 일어나지 않는다.
+   */
+  craftItem(playerId: string, recipeId: unknown): void {
+    const player = this.players.get(playerId);
+    if (!player || !this.isNearCore(player)) return;
+    if (typeof recipeId !== 'string') return;
+
+    const recipe = craftingData.recipes.find((entry) => entry.id === recipeId);
+    if (!recipe) return;
+    if (this.core.tier < recipe.requiresTier) return;
+
+    const storage = this.core.storage;
+    // 하나라도 모자라면 아무것도 소비하지 않는다(부분 차감 방지).
+    for (const [itemId, count] of Object.entries(recipe.cost)) {
+      if (storage.countOf(itemId) < count) return;
+    }
+    for (const [itemId, count] of Object.entries(recipe.cost)) {
+      storage.consume(itemId, count);
+    }
+
+    // 창고가 꽉 차 결과물이 못 들어가면 재료만 날아간다 — 미리 자리를 확인한다.
+    const leftover = storage.add(recipe.itemId, 1);
+    if (leftover > 0) {
+      for (const [itemId, count] of Object.entries(recipe.cost)) storage.add(itemId, count);
+    }
+  }
+
+  /** 코어 티어에서 만들 수 있는 레시피들. 클라이언트가 목록을 그릴 때도 같은 규칙을 쓴다. */
+  availableRecipes(): CraftRecipe[] {
+    return craftingData.recipes.filter((recipe) => recipe.requiresTier <= this.core.tier);
+  }
+
+  /**
+   * 창고의 재료를 상점에 판다. 팔 수 있는 것(sellPrice가 있는 것)만 팔리고,
+   * 대금은 팀 공용 자금으로 들어간다.
+   */
+  sellToShop(playerId: string, itemId: unknown, count: unknown): void {
+    const player = this.players.get(playerId);
+    if (!player || !this.isNearCore(player)) return;
+    if (typeof itemId !== 'string' || !Number.isInteger(count)) return;
+
+    const amount = count as number;
+    if (amount <= 0) return;
+
+    const price = itemsData[itemId]?.sellPrice;
+    if (price === undefined) return; // 팔 수 없는 물건
+
+    if (!this.core.storage.consume(itemId, amount)) return;
+    this.core.money += price * amount;
+  }
+
+  /** 상점에서 산다. 대금은 팀 자금에서 나가고 물건은 창고로 들어간다. */
+  buyFromShop(playerId: string, itemId: unknown): void {
+    const player = this.players.get(playerId);
+    if (!player || !this.isNearCore(player)) return;
+    if (typeof itemId !== 'string') return;
+    // 오늘 진열된 것만 살 수 있다. 어제 봤던 id를 그대로 보내도 통하지 않는다.
+    if (!this.core.shopStock.includes(itemId)) return;
+
+    const price = itemsData[itemId]?.buyPrice;
+    if (price === undefined || this.core.money < price) return;
+
+    // 창고에 자리가 없으면 돈만 나가는 일이 없도록 먼저 넣어보고 판단한다.
+    const leftover = this.core.storage.add(itemId, 1);
+    if (leftover > 0) return;
+
+    this.core.money -= price;
+  }
+
+  /**
+   * 오늘의 상점 진열을 새로 뽑는다. 무기와 소모품을 **따로** 뽑아서, 운 나쁜 날에
+   * 회복약이 하나도 없는 진열이 나오지 않게 한다.
+   */
+  private rollShopStock(): void {
+    this.core.shopStock = [
+      ...this.rollRotation('weapon', shopData.weaponsPerDay),
+      ...this.rollRotation('consumable', shopData.consumablesPerDay),
+    ];
+  }
+
+  /**
+   * 후보에서 `count`개를 등급 가중치에 따라 **중복 없이** 뽑는다.
+   *
+   * **등급을 먼저 뽑고, 그 등급 안에서 하나를 고른다.** 후보 하나하나에 자기 등급의
+   * 가중치를 얹어 한 번에 뽑는 방식이 더 간단해 보이지만, 그러면 등급별 후보 수가
+   * 확률을 왜곡한다 — 전설 무기가 2종, 에픽이 1종이면 전설이 에픽보다 두 배 자주
+   * 나온다(실제로 10%로 맞춘 가중치가 11.8%로 측정됐다). 등급을 먼저 뽑으면 몇 종이
+   * 있든 shop.json의 비율이 그대로 등장 확률이 된다.
+   *
+   * 뽑힌 것은 후보에서 빼고 다음 판을 돌린다. 어떤 등급이 동나면 그 등급은 후보
+   * 목록에서 사라지고 나머지 등급끼리 가중치를 다시 나눈다 — 진열 칸이 비는 것보다
+   * 낫다. 후보 자체가 모자라면 있는 만큼만 낸다.
+   */
+  private rollRotation(kind: ItemKind, count: number): string[] {
+    const byRarity = new Map<ItemRarity, string[]>();
+    for (const [itemId, item] of Object.entries(itemsData)) {
+      if (item.kind !== kind || !item.rarity || item.buyPrice === undefined) continue;
+      if ((shopData.rarityWeights[item.rarity] ?? 0) <= 0) continue;
+      const bucket = byRarity.get(item.rarity);
+      if (bucket) bucket.push(itemId);
+      else byRarity.set(item.rarity, [itemId]);
+    }
+
+    const picked: string[] = [];
+    for (let i = 0; i < count && byRarity.size > 0; i += 1) {
+      const rarity = this.pickWeighted([...byRarity.keys()]);
+      const bucket = byRarity.get(rarity)!;
+      const index = Math.min(bucket.length - 1, Math.floor(this.rng() * bucket.length));
+
+      picked.push(bucket[index]!);
+      bucket.splice(index, 1);
+      if (bucket.length === 0) byRarity.delete(rarity);
+    }
+    return picked;
+  }
+
+  /** 남아 있는 등급 중 하나를 가중치대로 뽑는다. */
+  private pickWeighted(rarities: ItemRarity[]): ItemRarity {
+    const total = rarities.reduce(
+      (sum, rarity) => sum + (shopData.rarityWeights[rarity] ?? 0),
+      0,
+    );
+    let roll = this.rng() * total;
+    for (const rarity of rarities) {
+      roll -= shopData.rarityWeights[rarity] ?? 0;
+      if (roll < 0) return rarity;
+    }
+    return rarities[rarities.length - 1]!; // rng가 1에 극히 가까울 때의 안전망
+  }
+
   /** 코어 원점 기준 건설 가능 반경(px). 구매한 단계만큼 baseBuildRadius에 누적된다. */
   getBuildRadius(): number {
     let radius = coreUpgradesData.baseBuildRadius;
-    for (let i = 0; i < this.core.tier; i += 1) {
+    for (let i = 0; i < this.core.tier - coreUpgradesData.startTier; i += 1) {
       radius += coreUpgradesData.tiers[i]?.buildRadiusBonus ?? 0;
     }
     return radius;
@@ -667,13 +853,15 @@ export class World {
 
   /** 현재 단계 이하 어떤 단계에서든 제작이 해금됐으면 true(한 번 해금되면 계속 유지). */
   isCraftingUnlocked(): boolean {
-    return coreUpgradesData.tiers.slice(0, this.core.tier).some((tier) => tier.unlocksCrafting);
+    return coreUpgradesData.tiers
+      .slice(0, this.core.tier - coreUpgradesData.startTier)
+      .some((tier) => tier.unlocksCrafting);
   }
 
   /** 플레이어 스텟 증가 시스템 해금 여부. 아직 그걸 실제로 쓸 UI/구매 로직은 없다 — 플래그만. */
   isStatUpgradesUnlocked(): boolean {
     return coreUpgradesData.tiers
-      .slice(0, this.core.tier)
+      .slice(0, this.core.tier - coreUpgradesData.startTier)
       .some((tier) => tier.unlocksStatUpgrades);
   }
 
@@ -764,6 +952,8 @@ export class World {
     if (previousPhase !== 'day' && this.waveManager.currentPhase === 'day') {
       this.revivePlayers();
       this.skipVotes.clear();
+      // 하루가 지나면 상점 물건이 통째로 바뀐다. 오늘 못 산 전설은 오늘로 끝이다.
+      this.rollShopStock();
     }
 
     this.tickMonsters(dtSeconds);
@@ -1789,16 +1979,15 @@ export class World {
 
   /**
    * 처치 보상 지급. 몬스터 타입 데이터에 `energyDrop`이 있으면(보스) 팀 공유분으로
-   * 즉시 지급하고, `scrapDrop`이 있으면(흔한 몬스터) 죽은 자리에 **바닥 드롭**을 남긴다 —
-   * 둘은 같은 몬스터 타입에 동시에 정의하지 않는 서로 다른 등급의 보상이다.
-   * 어느 쪽 필드도 없으면(설정 안 된 타입) 아무것도 지급하지 않는다.
+   * 즉시 지급하고 거기서 끝난다. 그 외 몬스터는 `itemDrops` 표를 굴려 죽은 자리에
+   * **바닥 드롭**을 남긴다 — 드랍은 부품/희귀부품 두 종류뿐이고, 쓸 데는 상점 판매다.
    *
-   * 누가 죽였는지(killerId)는 더 이상 필요 없다 — 바닥에 떨어뜨리므로 먼저 줍는 사람이
-   * 임자다. 막타를 누가 쳤는지로 보상이 갈리지 않는 편이 협동에 맞는다.
+   * 누가 죽였는지(killerId)는 필요 없다 — 바닥에 떨어뜨리므로 먼저 줍는 사람이 임자다.
+   * 막타를 누가 쳤는지로 보상이 갈리지 않는 편이 협동에 맞는다.
    *
-   * scrap을 잡은 사람 인벤토리에 바로 넣지 않는 이유: 자원이 전부 슬롯이 되면서
-   * 가방이 꽉 차면 보상이 조용히 증발한다. 나무/돌과 똑같이 바닥에 떨어뜨리면
-   * 못 주운 몫이 눈에 보이고, 전투 중엔 흘리고 나중에 회수하는 선택도 생긴다.
+   * 잡은 사람 인벤토리에 바로 넣지 않는 이유: 가방이 꽉 차면 보상이 조용히 증발한다.
+   * 나무/돌과 똑같이 바닥에 떨어뜨리면 못 주운 몫이 눈에 보이고, 전투 중엔 흘리고
+   * 나중에 회수하는 선택도 생긴다.
    */
   private grantMonsterDrop(monster: MonsterEntity): void {
     const data = monstersData[monster.type];
@@ -1808,8 +1997,10 @@ export class World {
       return;
     }
 
-    if (data.scrapDrop) {
-      this.dropItem('scrap', this.rollDropRange(data.scrapDrop), monster.x, monster.y);
+    // 드랍 테이블은 항목마다 독립 판정이다 — 한 마리가 부품과 희귀부품을 함께 줄 수 있다.
+    for (const entry of data.itemDrops ?? []) {
+      if (this.rng() >= entry.chance) continue;
+      this.dropItem(entry.itemId, this.rollDropRange(entry), monster.x, monster.y);
     }
   }
 

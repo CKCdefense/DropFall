@@ -68,7 +68,7 @@ function seededRng(seed: number): () => number {
 function createTestWorld(): World {
   const world = new World({ rng: seededRng(1) });
   const core = world.getCore() as { tier: number };
-  core.tier = coreUpgradesData.tiers.length;
+  core.tier = coreUpgradesData.startTier + coreUpgradesData.tiers.length;
   return world;
 }
 
@@ -131,8 +131,8 @@ function isolateNode(world: World, type: 'wood' | 'stone', x: number, y: number)
 function equipDefaultKit(world: World, playerId: string): void {
   const inventory = world.getPlayers().get(playerId)!.inventory;
   inventory.add('pistol', 1);
-  inventory.add('axe', 1);
-  inventory.add('pickax', 1);
+  inventory.add('axe_t1', 1);
+  inventory.add('pickax_t1', 1);
   inventory.add('bandage', 3);
 }
 
@@ -174,7 +174,7 @@ describe('World — 채집(근접 타격)', () => {
     const node = isolateNode(world, 'stone', 20, 0);
     const before = node.hp;
 
-    world.selectSlot('p1', 1); // 도끼 — stone.requiredTool은 'pickax'라 안 맞는다
+    world.selectSlot('p1', 1); // 도끼 — stone.requiredTool은 'pickax_t1'라 안 맞는다
     world.fireWeapon('p1');
 
     expect(node.hp).toBe(before);
@@ -296,8 +296,8 @@ describe('World — 코어 창고(moveItem)', () => {
     const world = createTestWorld();
 
     expect(storedCount(world, 'pistol')).toBe(1);
-    expect(storedCount(world, 'axe')).toBe(1);
-    expect(storedCount(world, 'pickax')).toBe(1);
+    expect(storedCount(world, 'axe_t1')).toBe(1);
+    expect(storedCount(world, 'pickax_t1')).toBe(1);
     expect(storedCount(world, 'bandage')).toBe(3);
   });
 

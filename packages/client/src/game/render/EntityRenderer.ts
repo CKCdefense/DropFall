@@ -30,6 +30,7 @@ import {
   walkAnimKey,
 } from './playerSprite';
 import { ACTION_PLANE_Y } from './plane';
+import { itemFrame } from './itemSprite';
 import {
   BULLET_ANIM,
   DEFAULT_WEAPON_ID,
@@ -149,18 +150,18 @@ const RESOURCE_STAGES: Record<string, [number, string][]> = {
   wood: [[0, 'tree_full_0']],
 };
 
-/** 드롭 아이템 스프라이트. items.json의 key → 아틀라스 프레임. */
-const DROP_SPRITE: Record<string, string> = {
-  wood: 'item_wood_idle_0',
-  stone: 'item_stone_idle_0',
-};
-
-/** 드롭이 바닥에서 살짝 떠 보이도록 위아래로 흔드는 폭(px)과 주기(ms). */
-/** 드롭 아이템 원본은 64x64라 그대로 두면 캐릭터보다 커진다. 한 손에 들 크기로 줄인다. */
-const DROP_SCALE = 0.22;
+/**
+ * 바닥 드롭을 그릴 크기(px). 원본이 재료는 64px, 몬스터 드랍은 32px로 제각각이라
+ * 배율을 고정하면 어떤 건 커지고 어떤 건 점만 해진다 — 화면 크기를 기준으로 되맞춘다.
+ * 캐릭터가 32px이니 한 손에 들 만한 크기다.
+ */
+const DROP_SIZE = 14;
 const DROP_BOB_PIXELS = 2;
 const DROP_BOB_PERIOD_MS = 1400;
 const COLONY_SIZE = 28;
+const COLONY_FRAME = 'colony_idle_0';
+/** 원본 125x128 → 코어(2타일)보다 조금 큰 랜드마크 크기로 줄인다. */
+const COLONY_SCALE = 0.45;
 /** 파괴된 콜로니는 지우지 않고 흐리게만 남긴다(엔티티 자체가 사라지지 않으므로, colony.ts 참고). */
 const COLONY_DESTROYED_ALPHA = 0.25;
 
@@ -1046,15 +1047,18 @@ export class EntityRenderer {
   }
 
   private createDroppedItem(drop: DroppedItemView): Phaser.GameObjects.Container {
-    const frame = DROP_SPRITE[drop.itemId];
+    // 바닥 드롭과 UI 아이콘은 같은 표를 본다(itemSprite.ts).
+    const frame = itemFrame(drop.itemId);
     const hasFrame =
       frame !== undefined &&
       this.scene.textures.exists(GAME_ATLAS) &&
       this.scene.textures.get(GAME_ATLAS).has(frame);
 
-    const body: Phaser.GameObjects.GameObject = hasFrame
-      ? this.scene.add.sprite(0, 0, GAME_ATLAS, frame).setScale(DROP_SCALE)
-      : this.scene.add.rectangle(0, 0, 8, 8, 0xd2ae76).setStrokeStyle(1, 0x1a1c23);
+    const sprite = hasFrame ? this.scene.add.sprite(0, 0, GAME_ATLAS, frame) : null;
+    if (sprite) sprite.setScale(DROP_SIZE / Math.max(sprite.width, sprite.height));
+
+    const body: Phaser.GameObjects.GameObject =
+      sprite ?? this.scene.add.rectangle(0, 0, 8, 8, 0xd2ae76).setStrokeStyle(1, 0x1a1c23);
 
     const count = this.scene.add
       .text(6, 4, '', { fontFamily: FONT_SMALL, fontSize: `${SIZE_SMALL}px`, color: '#f2f5fa' })
@@ -1089,6 +1093,17 @@ export class EntityRenderer {
   }
 
   private createColony(colony: ColonyView): Phaser.GameObjects.Container {
+    // 스프라이트가 있으면 쓴다. 원본이 125x128이라 타일 격자에 맞게 줄이고, 접지선을
+    // 캐릭터와 같은 규칙(발밑)으로 둔다.
+    if (this.scene.textures.exists(GAME_ATLAS) && this.scene.textures.get(GAME_ATLAS).has(COLONY_FRAME)) {
+      const sprite = this.scene.add
+        .sprite(0, 0, GAME_ATLAS, COLONY_FRAME)
+        .setOrigin(0.5, PLAYER_ORIGIN_Y)
+        .setScale(COLONY_SCALE)
+        .setName('body');
+      return this.scene.add.container(colony.x, colony.y, [sprite]);
+    }
+
     const body = this.scene.add.rectangle(0, 0, COLONY_SIZE, COLONY_SIZE, COLONY_COLOR);
     body.setStrokeStyle(2, 0x1a1c23);
     return this.scene.add.container(colony.x, colony.y, [body]);

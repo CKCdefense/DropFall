@@ -17,8 +17,8 @@ function grantEnergy(world: World, amount: number): void {
 function equipDefaultKit(world: World, playerId: string): void {
   const inventory = world.getPlayers().get(playerId)!.inventory;
   inventory.add('pistol', 1);
-  inventory.add('axe', 1);
-  inventory.add('pickax', 1);
+  inventory.add('axe_t1', 1);
+  inventory.add('pickax_t1', 1);
   inventory.add('bandage', 3);
 }
 
@@ -38,7 +38,7 @@ describe('World — 코어 업그레이드', () => {
     world.upgradeCore('p1');
 
     const core = world.getCore();
-    expect(core.tier).toBe(1);
+    expect(core.tier).toBe(coreUpgradesData.startTier + 1);
     expect(core.sharedEnergy).toBe(0); // 정확히 다 썼다
     expect(core.hp).toBe(hpBefore + tier0.coreHpBonus);
     expect(core.maxHp).toBe(maxHpBefore + tier0.coreHpBonus);
@@ -53,7 +53,7 @@ describe('World — 코어 업그레이드', () => {
 
     world.upgradeCore('p1');
 
-    expect(world.getCore().tier).toBe(0);
+    expect(world.getCore().tier).toBe(coreUpgradesData.startTier + 0);
     expect(world.getCore().sharedEnergy).toBe(coreUpgradesData.tiers[0]!.cost - 1); // 안 깎였다
   });
 
@@ -66,12 +66,12 @@ describe('World — 코어 업그레이드', () => {
       grantEnergy(world, tier.cost);
       world.upgradeCore('p1');
     }
-    expect(world.getCore().tier).toBe(coreUpgradesData.tiers.length);
+    expect(world.getCore().tier).toBe(coreUpgradesData.startTier + coreUpgradesData.tiers.length);
 
     grantEnergy(world, 999999);
     world.upgradeCore('p1');
 
-    expect(world.getCore().tier).toBe(coreUpgradesData.tiers.length); // 그대로
+    expect(world.getCore().tier).toBe(coreUpgradesData.startTier + coreUpgradesData.tiers.length); // 그대로
     expect(world.getCore().sharedEnergy).toBe(999999); // 차감되지 않았다
   });
 
@@ -80,7 +80,7 @@ describe('World — 코어 업그레이드', () => {
     grantEnergy(world, 999999);
 
     expect(() => world.upgradeCore('ghost')).not.toThrow();
-    expect(world.getCore().tier).toBe(0);
+    expect(world.getCore().tier).toBe(coreUpgradesData.startTier + 0);
   });
 
   it('제작/스텟증가 해금은 그 단계부터 계속 유지된다', () => {
