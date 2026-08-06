@@ -18,8 +18,16 @@ function seededRng(seed: number): () => number {
   };
 }
 
-function createTestWorld(): World {
-  return new World({ rng: seededRng(1) });
+/**
+ * 콜로니는 이제 startColonies()를 명시적으로 불러야 생긴다(docs/backend/41,
+ * 인원수가 확정돼야 만들 수 있어서 World 생성자에서 뺐다). 이 헬퍼는 이 파일
+ * 대부분의 테스트가 기대하는 예전 기본값(4개)으로 채운다 — 개수 자체를 검증하는
+ * 테스트는 이 헬퍼 대신 직접 다른 값으로 startColonies()를 부른다.
+ */
+function createTestWorld(colonyCount = 4): World {
+  const world = new World({ rng: seededRng(1) });
+  world.startColonies(colonyCount);
+  return world;
 }
 
 /**
@@ -60,16 +68,72 @@ describe('colonyStageFor — 웨이브 진행도에 따른 난이도 구간 선�
   });
 });
 
+/** 표준 수학적 사분면(I~IV) 인덱스(0~3). colony.ts의 사분면 정의와 같다. */
+function quadrantOf(x: number, y: number): number {
+  const angle = Math.atan2(y, x);
+  const normalized = angle < 0 ? angle + Math.PI * 2 : angle;
+  return Math.floor(normalized / (Math.PI / 2)) % 4;
+}
+
 describe('World — 콜로니 배치/스폰', () => {
-  it('4개가 코어를 중심으로 spawnRadius만큼 떨어진 고정 위치에 배치된다', () => {
+  it('4개가 코어 중심 spawnRadiusMin~Max 사이, 서로 다른 사분면에 배치된다(docs/backend/41)', () => {
     const world = createTestWorld();
     const colonies = [...world.getColonies().values()];
 
     expect(colonies).toHaveLength(4);
+    const seenQuadrants = new Set<number>();
     for (const colony of colonies) {
-      expect(Math.hypot(colony.x, colony.y)).toBeCloseTo(coloniesData.spawnRadius, 5);
+      const distance = Math.hypot(colony.x, colony.y);
+      expect(distance).toBeGreaterThanOrEqual(coloniesData.spawnRadiusMin);
+      expect(distance).toBeLessThanOrEqual(coloniesData.spawnRadiusMax);
       expect(colony.destroyed).toBe(false);
+
+      const quadrant = quadrantOf(colony.x, colony.y);
+      expect(seenQuadrants.has(quadrant)).toBe(false); // 사분면당 1개만
+      seenQuadrants.add(quadrant);
     }
+    expect(seenQuadrants.size).toBe(4);
+  });
+
+  it('인원수만큼만 콜로니가 생긴다(1~4명)', () => {
+    for (let n = 1; n <= 4; n += 1) {
+      const world = createTestWorld(n);
+      expect(world.getColonies().size).toBe(n);
+    }
+  });
+
+  it('사분면 수(4)를 넘는 인원을 넘겨도 콜로니는 4개로 clamp된다', () => {
+    const world = createTestWorld(7);
+    expect(world.getColonies().size).toBe(4);
+  });
+
+  it('어떤 두 콜로니 쌍도 minSpacing보다 가깝지 않다(사분면 경계 인접 방지, 여러 시드로 반복)', () => {
+    for (let seed = 1; seed <= 20; seed += 1) {
+      const world = new World({ rng: seededRng(seed) });
+      world.startColonies(4);
+      const colonies = [...world.getColonies().values()];
+
+      for (let i = 0; i < colonies.length; i += 1) {
+        for (let j = i + 1; j < colonies.length; j += 1) {
+          const a = colonies[i]!;
+          const b = colonies[j]!;
+          const distance = Math.hypot(a.x - b.x, a.y - b.y);
+          expect(distance).toBeGreaterThanOrEqual(coloniesData.minSpacing);
+        }
+      }
+    }
+  });
+
+  it('시드가 다르면 콜로니 위치도 달라진다(고정 위치가 아니다)', () => {
+    const worldA = new World({ rng: seededRng(1) });
+    worldA.startColonies(4);
+    const worldB = new World({ rng: seededRng(2) });
+    worldB.startColonies(4);
+
+    const positionsA = [...worldA.getColonies().values()].map((c) => `${c.x.toFixed(2)},${c.y.toFixed(2)}`);
+    const positionsB = [...worldB.getColonies().values()].map((c) => `${c.x.toFixed(2)},${c.y.toFixed(2)}`);
+
+    expect(positionsA).not.toEqual(positionsB);
   });
 
   it('낮에도(밤 웨이브가 시작되지 않아도) 스폰 주기가 지나면 몬스터가 생긴다', () => {

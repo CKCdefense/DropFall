@@ -1,5 +1,7 @@
 {
-  "spawnRadius": 900,
+  "spawnRadiusMin": 700,
+  "spawnRadiusMax": 1000,
+  "minSpacing": 400,
   "channelSeconds": 6,
   "essenceReward": 1,
   "stages": [

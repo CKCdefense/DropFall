@@ -38,6 +38,9 @@ export class LocalConnection implements GameConnection {
     this.nickname = nickname;
     // 서버(GameRoom#onJoin)와 마찬가지로 코어와 겹치지 않게 띄워 놓는다.
     this.world.addPlayer(LOCAL_SESSION_ID, SPAWN_X, SPAWN_Y);
+    // 로컬 모드는 로비 대기 없이 항상 혼자라 인원이 이미 확정돼 있다 — 서버가
+    // startGame() 시점에 하는 걸 여기선 생성자에서 바로 한다(docs/backend/41).
+    this.world.startColonies(1);
 
     // setInterval은 요청한 주기를 지켜주지 않는다. 불린 횟수만큼 틱하면 밀린 시간이
     // 그대로 사라져 게임이 슬로모션이 된다 — 실제 흐른 시간을 재서 그만큼 따라잡는다.

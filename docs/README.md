@@ -28,6 +28,7 @@
 | [backend/38-work-report-core-upgrade-static-collision.md](backend/38-work-report-core-upgrade-static-collision.md) | 작업 보고서 — 코어 업그레이드(에너지 소비, 체력·건설반경·해금 3단계) + 코어/자원/콜로니 하드 충돌(몹·플레이어·투사체 통과 불가) |
 | [backend/39-work-report-resource-respawn-relocation.md](backend/39-work-report-resource-respawn-relocation.md) | 작업 보고서 — 자원 노드 리스폰 재배치(같은 군집 안 새 위치, 플레이어 비겹침) + 몬스터 충돌 반경 누락 버그 수정 + 자원 스폰 최소거리 확대 |
 | [backend/40-work-report-monster-obstacle-sliding.md](backend/40-work-report-monster-obstacle-sliding.md) | 작업 보고서 — 몬스터가 자원 노드/콜로니에 막히면 영원히 멈추던 버그를 축 슬라이딩+접선 미끄러짐으로 수정, 콜로니 스폰 위치를 중심이 아닌 경계 밖으로 변경 |
+| [backend/41-work-report-colony-player-scaled-placement.md](backend/41-work-report-colony-player-scaled-placement.md) | 작업 보고서 — 콜로니를 접속 인원수만큼(사분면당 1개, 최소 간격 보장) 무작위 배치하도록 변경 |
 
 ### 역할 C — 클라이언트/렌더/UI 작업 문서 ([frontend/](frontend/))
 

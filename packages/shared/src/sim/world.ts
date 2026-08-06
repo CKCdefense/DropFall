@@ -257,10 +257,11 @@ export class World {
   private readonly resourceNodes = new Map<string, ResourceNodeEntity>();
   private readonly colonies = new ColonyRegistry();
   /**
-   * 콜로니가 차지한 그리드 셀("cx,cy" 키) 집합. 콜로니는 생성 후 위치가 절대
+   * 콜로니가 차지한 그리드 셀("cx,cy" 키) 집합. 콜로니는 배치된 후 위치가 절대
    * 바뀌지 않으므로(파괴돼도 폐허로 그 자리에 남는다, colony.ts) `BuildingRegistry`
-   * 같은 동적 인덱스 없이 **생성 시점에 한 번만 계산해서 캐싱**한다 — FlowField의
-   * `isBlocked` 콜백이 여기 기록된 셀도 같이 막힌 것으로 본다(§markColonyObstacleCell).
+   * 같은 동적 인덱스 없이 **`startColonies()` 호출 시점에 한 번만 계산해서 캐싱**한다
+   * — FlowField의 `isBlocked` 콜백이 여기 기록된 셀도 같이 막힌 것으로 본다
+   * (§markColonyObstacleCell). `World` 생성 시점엔 콜로니가 아직 없어 비어 있다.
    *
    * 코어 자신의 셀은 절대 여기 넣지 않는다 — FlowField의 목표(target) 셀이 막히면
    * `recompute()`가 전체 계산을 포기해버린다(치명적). 몬스터는 어차피
@@ -299,12 +300,27 @@ export class World {
 
   constructor(options: WorldOptions = {}) {
     this.rng = options.rng ?? Math.random;
-    // 콜로니는 이미 존재한다(필드 초기화 시점에 생성됨) — 셀부터 표시해 둔다.
-    for (const colony of this.colonies.values()) this.markColonyObstacleCell(colony.x, colony.y);
-    // 자원 노드는 위치/군집 정보만 채우고, 셀 등록은 아래에서 한 번에 한다.
+    // 콜로니는 여기서 아직 안 만든다 — 접속 인원수가 몇 명일지는 생성 시점엔 알 수
+    // 없다(서버는 로비가 끝나야 확정된다). 인원이 확정되면 호출자가 startColonies()를
+    // 명시적으로 불러야 한다(docs/backend/41).
     this.seedResourceNodes();
     this.rebuildResourceObstacleCells();
     // 정적 장애물 표시가 끝난 뒤에 계산해야 최초 FlowField가 이미 이걸 반영한다.
+    // 이 시점엔 콜로니가 없어 colonyObstacleCells도 비어 있다 — startColonies()가
+    // 나중에 다시 계산한다.
+    this.recomputeFlowField();
+  }
+
+  /**
+   * 콜로니를 접속 인원수만큼(사분면당 최대 1개, 최대 4개) 무작위 배치한다
+   * (docs/backend/41). `World` 생성 시점엔 인원을 몰라서 생성자가 아니라 이 메서드로
+   * 분리했다 — 인원이 확정된 바로 그 시점에 호출자가 정확히 한 번 불러야 한다
+   * (서버는 로비가 끝나 게임이 실제로 시작될 때, 로컬 모드는 유일한 플레이어를
+   * 추가한 직후). 두 번 부르면 사분면당 1개 제약이 깨지므로 호출부가 책임진다.
+   */
+  startColonies(count: number): void {
+    this.colonies.seed(count, this.rng);
+    for (const colony of this.colonies.values()) this.markColonyObstacleCell(colony.x, colony.y);
     this.recomputeFlowField();
   }
 

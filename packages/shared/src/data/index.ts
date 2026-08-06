@@ -264,16 +264,27 @@ const ColonyStageSchema = z.object({
   types: z.array(z.string()).min(1),
 });
 
-const ColoniesDataSchema = z.object({
-  /** 코어 중심으로 4방향(N/E/S/W) 고정 배치되는 반경(px). waves.json의 spawnRadius와
-   * 값을 맞춰서, 밤 웨이브 스폰 지점과 콜로니가 시각적으로 같은 "가장자리"에 서게 한다. */
-  spawnRadius: z.number().positive(),
-  /** 채널링(콜로니 파괴 작업)에 필요한 시간(초). */
-  channelSeconds: z.number().positive(),
-  /** 콜로니 파괴 1회당 팀 공유 창고(coreSharedEnergy)에 지급되는 양. */
-  essenceReward: z.number().int().positive(),
-  stages: z.array(ColonyStageSchema).min(1),
-});
+const ColoniesDataSchema = z
+  .object({
+    /** 콜로니가 코어에서 떨어질 수 있는 최소 거리(px). 사분면 안에서 무작위로 고를
+     * 거리의 하한이다(docs/backend/41). */
+    spawnRadiusMin: z.number().positive(),
+    /** 콜로니가 코어에서 떨어질 수 있는 최대 거리(px). waves.json의 spawnRadius(900)와
+     * 비슷한 대역을 유지해서, 밤 웨이브 스폰 지점과 콜로니가 시각적으로 비슷한
+     * "가장자리"에 서게 한다. */
+    spawnRadiusMax: z.number().positive(),
+    /** 콜로니끼리 최소 이 거리(px) 이상 떨어지게 재시도한다 — 사분면이 인접하면
+     * 경계 부근에서 서로 거의 붙어버릴 수 있어서 필요하다(docs/backend/41). */
+    minSpacing: z.number().positive(),
+    /** 채널링(콜로니 파괴 작업)에 필요한 시간(초). */
+    channelSeconds: z.number().positive(),
+    /** 콜로니 파괴 1회당 팀 공유 창고(coreSharedEnergy)에 지급되는 양. */
+    essenceReward: z.number().int().positive(),
+    stages: z.array(ColonyStageSchema).min(1),
+  })
+  .refine((data) => data.spawnRadiusMax >= data.spawnRadiusMin, {
+    message: 'spawnRadiusMax는 spawnRadiusMin 이상이어야 한다',
+  });
 
 export type ColonyStage = z.infer<typeof ColonyStageSchema>;
 export type ColoniesData = z.infer<typeof ColoniesDataSchema>;

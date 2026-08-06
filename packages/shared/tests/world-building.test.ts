@@ -69,6 +69,11 @@ function createTestWorld(): World {
   const world = new World({ rng: seededRng(1) });
   const core = world.getCore() as { tier: number };
   core.tier = coreUpgradesData.tiers.length;
+  // 콜로니는 이제 startColonies()를 명시적으로 불러야 생긴다(docs/backend/41,
+  // 인원수가 확정돼야 만들 수 있어서 World 생성자에서 뺐다) — 이 파일의 테스트는
+  // 콜로니 "개수"(플레이어 수 연동) 자체엔 관심이 없고 하드 충돌/FlowField 같은
+  // 다른 메커니즘을 보므로, 예전과 같은 4개로 채워서 기존 테스트 전제를 유지한다.
+  world.startColonies(4);
   return world;
 }
 

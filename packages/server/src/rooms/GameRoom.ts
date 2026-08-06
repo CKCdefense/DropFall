@@ -224,6 +224,10 @@ export class GameRoom extends Room {
 
   private startGame(): void {
     this.state.phase = RoomPhase.PLAYING;
+    // 콜로니는 여기서 처음 만든다 — 로비 동안은 인원이 계속 바뀔 수 있어서
+    // World 생성 시점(onCreate, 아직 아무도 안 들어온 때)엔 몇 명일지 알 수
+    // 없었다. 시작 버튼을 누른 지금이 인원이 확정되는 시점이다(docs/backend/41).
+    this.world.startColonies(this.state.players.size);
     // 시작 후 들어오는 사람이 대기실 상태를 보지 않도록 잠근다.
     void this.lock();
     console.log(`[GameRoom ${this.roomId}] game started (${this.state.players.size} players)`);
