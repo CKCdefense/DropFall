@@ -97,6 +97,17 @@ const SEPARATION_WEIGHT = 0.6;
 /** 한 번 잡은 어그로 타겟은 아그로 반경의 이 배수를 벗어나기 전까진 유지한다(타겟 떨림 방지). */
 const AGGRO_LEASH_MULTIPLIER = 1.5;
 /**
+ * 몬스터가 완전히 자유롭게(폴백 없이) 움직이지 못한 채 이 시간(초) 이상 이어지면
+ * 탈출 점프를 시도한다(docs/backend/42). 정상적인 장애물 모서리 우회(축 슬라이딩/
+ * 접선 미끄러짐)는 보통 1초 안에 끝나므로, 그보다 살짝 여유를 둬서 정상 우회
+ * 도중에 불필요하게 끼어들지 않게 한다.
+ */
+const STUCK_ESCAPE_SECONDS = 1.5;
+/** 탈출 점프 거리(px) — 자원 노드/콜로니 키프아웃 반경보다 확실히 크게 잡아 한 번에 벗어나게 한다. */
+const STUCK_ESCAPE_DISTANCE = 40;
+/** 탈출 점프 각도 재시도 횟수. world.ts의 다른 배치 재시도(`pickClusterNodePosition` 등)와 같은 값. */
+const STUCK_ESCAPE_ATTEMPTS = 8;
+/**
  * 플레이어와 이동 차단 건축물(벽/울타리) 사이의 하드 충돌 판정 반경(px) —
  * 플레이어 자신의 반경(`HIT_RADIUS`)과 건축물 자신의 반경(`TILE_SIZE / 2`)의 합이다.
  * 원-원 충돌은 "두 반경의 합보다 중심 간 거리가 가까우면 겹친다"는 규칙이라, 이
@@ -253,6 +264,13 @@ export interface MonsterEntity {
   pattern: BossPatternState;
   /** 다음 특수 패턴을 쓸 수 있게 되기까지 남은 시간(초). chargeAttack/slamAttack이 없는 타입은 쓰지 않는다. */
   specialAttackCooldown: number;
+  /**
+   * `moveMonster`가 이동을 전혀 못 시킨 채(축 슬라이딩·접선 미끄러짐까지 다 막힘)
+   * 연속으로 흐른 시간(초). 이동에 성공하면 0으로 리셋된다. 자원 노드 여러 개가
+   * 촘촘히 둘러싼 "주머니"에 갇히면 계속 쌓이는데, 임계값을 넘으면 탈출 점프를
+   * 시도한다(docs/backend/42) — 이게 없으면 그런 위치에서 영원히 못 움직인다.
+   */
+  stuckSeconds: number;
 }
 
 export interface CoreState {
@@ -317,10 +335,13 @@ export class World {
   private readonly droppedItems = new Map<string, DroppedItemEntity>();
   private readonly colonies = new ColonyRegistry();
   /**
-   * 콜로니가 차지한 그리드 셀("cx,cy" 키) 집합. 콜로니는 생성 후 위치가 절대
-   * 바뀌지 않으므로(파괴돼도 폐허로 그 자리에 남는다, colony.ts) `BuildingRegistry`
-   * 같은 동적 인덱스 없이 **생성 시점에 한 번만 계산해서 캐싱**한다 — FlowField의
-   * `isBlocked` 콜백이 여기 기록된 셀도 같이 막힌 것으로 본다(§markColonyObstacleCell).
+   * 파괴되지 않은 콜로니가 차지한 그리드 셀("cx,cy" 키) 집합. 콜로니는 위치가
+   * 절대 안 바뀌지만(colony.ts), **존재 여부(파괴됐는지)는 바뀐다** — 파괴된
+   * 콜로니는 더 이상 막지 않는다(docs/backend/43, 예전엔 폐허로 계속 막았지만
+   * 뒤집었다). 그래서 생성 시점에 한 번만 캐싱하지 않고, 콜로니가 새로 배치될
+   * 때(`startColonies`)와 파괴될 때(`tickChannels`) `rebuildColonyObstacleCells()`로
+   * 통째로 다시 계산한다 — 자원 노드의 `resourceObstacleCells`와 같은 패턴이다.
+   * FlowField의 `isBlocked` 콜백이 여기 기록된 셀도 같이 막힌 것으로 본다.
    *
    * 코어 자신의 셀은 절대 여기 넣지 않는다 — FlowField의 목표(target) 셀이 막히면
    * `recompute()`가 전체 계산을 포기해버린다(치명적). 몬스터는 어차피
@@ -359,12 +380,14 @@ export class World {
 
   constructor(options: WorldOptions = {}) {
     this.rng = options.rng ?? Math.random;
-    // 콜로니는 이미 존재한다(필드 초기화 시점에 생성됨) — 셀부터 표시해 둔다.
-    for (const colony of this.colonies.values()) this.markColonyObstacleCell(colony.x, colony.y);
-    // 자원 노드는 위치/군집 정보만 채우고, 셀 등록은 아래에서 한 번에 한다.
+    // 콜로니는 여기서 아직 안 만든다 — 접속 인원수가 몇 명일지는 생성 시점엔 알 수
+    // 없다(서버는 로비가 끝나야 확정된다). 인원이 확정되면 호출자가 startColonies()를
+    // 명시적으로 불러야 한다(docs/backend/41).
     this.seedResourceNodes();
     this.rebuildResourceObstacleCells();
     // 정적 장애물 표시가 끝난 뒤에 계산해야 최초 FlowField가 이미 이걸 반영한다.
+    // 이 시점엔 콜로니가 없어 colonyObstacleCells도 비어 있다 — startColonies()가
+    // 나중에 다시 계산한다.
     this.recomputeFlowField();
 
     // 도구는 개인이 아니라 팀 창고에서 시작한다 — 누가 무엇을 들지 정하는 것부터가
@@ -373,14 +396,36 @@ export class World {
       this.core.storage.add(entry.itemId, entry.count);
     }
 
-    // 게임은 낮으로 시작한다 — 첫날 진열도 여기서 뽑아둔다.
+    // 게임은 낮으로 시작한다 — 첫날 진열도 여기서 뽑아둔다. 둘 다 콜로니(인원수)와
+    // 무관하므로 startColonies()가 아니라 생성 시점에 정해진다.
     this.rollShopStock();
   }
 
-  /** 콜로니처럼 위치가 절대 바뀌지 않는 장애물의 셀을 FlowField 차단 집합에 등록한다. */
-  private markColonyObstacleCell(x: number, y: number): void {
-    const { cx, cy } = worldToCell(x, y);
-    this.colonyObstacleCells.add(`${cx},${cy}`);
+  /**
+   * 콜로니를 접속 인원수만큼(사분면당 최대 1개, 최대 4개) 무작위 배치한다
+   * (docs/backend/41). `World` 생성 시점엔 인원을 몰라서 생성자가 아니라 이 메서드로
+   * 분리했다 — 인원이 확정된 바로 그 시점에 호출자가 정확히 한 번 불러야 한다
+   * (서버는 로비가 끝나 게임이 실제로 시작될 때, 로컬 모드는 유일한 플레이어를
+   * 추가한 직후). 두 번 부르면 사분면당 1개 제약이 깨지므로 호출부가 책임진다.
+   */
+  startColonies(count: number): void {
+    this.colonies.seed(count, this.rng);
+    this.rebuildColonyObstacleCells();
+    this.recomputeFlowField();
+  }
+
+  /**
+   * 파괴되지 않은 콜로니의 현재 위치를 기준으로 차단 셀 집합을 통째로 다시
+   * 계산한다. 콜로니가 새로 배치되거나(`startColonies`) 파괴될 때(`tickChannels`)
+   * 호출해야 한다 — `rebuildResourceObstacleCells()`와 같은 패턴이다.
+   */
+  private rebuildColonyObstacleCells(): void {
+    this.colonyObstacleCells.clear();
+    for (const colony of this.colonies.values()) {
+      if (colony.destroyed) continue; // 파괴되면 더 이상 막지 않는다(docs/backend/43)
+      const { cx, cy } = worldToCell(colony.x, colony.y);
+      this.colonyObstacleCells.add(`${cx},${cy}`);
+    }
   }
 
   /**
@@ -679,6 +724,36 @@ export class World {
     if (displaced) source.placeAt(fromIndex as number, displaced);
   }
 
+  /**
+   * 쉬프트 클릭 빠른 이동(docs/backend/44) — 목적지 칸을 사람이 고르지 않고
+   * 반대편 컨테이너(인벤토리↔창고)에 자동으로 넣는다. `Inventory.add()`가 이미
+   * "같은 아이템에 먼저 쌓고, 남으면 빈 칸을 새로 연다" 규칙으로 목적지를 고르므로
+   * (`pickUpNearestDrop()`이 바닥 드롭을 주울 때 쓰는 것과 같은 메서드) 그대로
+   * 재사용한다. 목적지가 꽉 차서 일부만 옮겨지면 옮겨진 만큼만 원래 칸에서 빼고
+   * (`removeAt`), 하나도 못 옮기면 원래 칸을 그대로 둔다 — `moveItem`의 "다 못
+   * 들어가면 되돌린다" 원칙과 같은 결과다.
+   */
+  quickMoveItem(playerId: string, container: unknown, index: unknown): void {
+    const player = this.players.get(playerId);
+    if (!player) return;
+    if (!isContainerName(container)) return;
+    if (!Number.isInteger(index)) return;
+
+    // 인벤토리↔창고 중 한쪽은 항상 storage라 창고 근접 검사는 매번 적용된다.
+    if (!this.isNearCore(player)) return;
+
+    const source = container === 'storage' ? this.core.storage : player.inventory;
+    const target = container === 'storage' ? player.inventory : this.core.storage;
+
+    const slot = source.slotAt(index as number);
+    if (!slot) return;
+
+    const leftover = target.add(slot.itemId, slot.count);
+    if (leftover === slot.count) return; // 하나도 못 옮겼다 — 원래 칸 그대로 둔다
+
+    source.removeAt(index as number, slot.count - leftover);
+  }
+
   /** 코어 상호작용(창고 열기 등)이 가능한 거리인지. 클라이언트도 같은 판정을 보여준다. */
   isNearCore(player: PlayerEntity): boolean {
     return Math.hypot(player.x, player.y) <= CORE_INTERACT_RADIUS;
@@ -913,6 +988,24 @@ export class World {
 
     const id = `building_${nextBuildingId++}`;
     this.buildings.place(id, buildingType as BuildingType, cx, cy, x, y);
+    this.recomputeFlowField();
+  }
+
+  /**
+   * 철거 요청 처리(건설모드의 'demolish', docs/backend/43). 자원 환급은 없다 —
+   * 재배치/실수 정리용이지 자원 순환 수단이 아니다. 코어 건설 반경 검사는 안
+   * 한다 — 이미 지어진 건축물은 그 시점에 이미 반경 안이었고, 반경은 코어
+   * 티어가 오를수록만 넓어지므로(줄어들지 않으므로) 항상 유효하다.
+   */
+  demolishBuilding(playerId: string, cx: unknown, cy: unknown): void {
+    if (!isFiniteNumber(cx) || !isFiniteNumber(cy)) return;
+    if (!Number.isInteger(cx) || !Number.isInteger(cy)) return;
+    if (!this.players.has(playerId)) return;
+
+    const building = this.buildings.at(cx, cy);
+    if (!building) return;
+
+    this.buildings.remove(building.id);
     this.recomputeFlowField();
   }
 
@@ -1235,6 +1328,7 @@ export class World {
       facingY,
       pattern: { kind: 'idle' },
       specialAttackCooldown: data.chargeAttack || data.slamAttack ? BOSS_FIRST_PATTERN_DELAY : 0,
+      stuckSeconds: 0,
     });
   }
 
@@ -1405,6 +1499,10 @@ export class World {
       if (player.channelProgress < 1) continue;
 
       this.colonies.destroy(target.id);
+      // 파괴된 콜로니는 더 이상 막지 않는다(docs/backend/43) — 셀 캐시부터
+      // FlowField까지 다시 계산해야 그 즉시 반영된다(자원 노드 고갈 처리와 동일 패턴).
+      this.rebuildColonyObstacleCells();
+      this.recomputeFlowField();
       this.core.sharedEnergy += coloniesData.essenceReward;
       player.channelingColonyId = undefined;
       player.channelProgress = 0;
@@ -1711,6 +1809,7 @@ export class World {
       if (circlesOverlap(x, y, node.x, node.y, radius)) return true;
     }
     for (const colony of this.colonies.values()) {
+      if (colony.destroyed) continue; // 파괴된 콜로니는 더 이상 막지 않는다(docs/backend/43)
       if (circlesOverlap(x, y, colony.x, colony.y, PLAYER_COLONY_COLLISION_RADIUS)) return true;
     }
     if (circlesOverlap(x, y, 0, 0, PLAYER_CORE_COLLISION_RADIUS)) return true;
@@ -1735,6 +1834,7 @@ export class World {
       }
     }
     for (const colony of this.colonies.values()) {
+      if (colony.destroyed) continue; // 파괴된 콜로니는 더 이상 막지 않는다(docs/backend/43)
       if (circlesOverlap(x, y, colony.x, colony.y, monsterR + COLONY_RADIUS)) return true;
     }
     return false;
@@ -1765,6 +1865,7 @@ export class World {
       }
     }
     for (const colony of this.colonies.values()) {
+      if (colony.destroyed) continue; // 파괴된 콜로니는 더 이상 막지 않는다(docs/backend/43)
       const gap = Math.hypot(colony.x - x, colony.y - y) - (monsterR + COLONY_RADIUS);
       if (gap < nearestGap) {
         nearestGap = gap;
@@ -1913,50 +2014,115 @@ export class World {
     if (!this.isBlockedForMonster(fullX, fullY, monsterR)) {
       monster.x = fullX;
       monster.y = fullY;
+      monster.stuckSeconds = 0; // 완전히 자유로운 이동 — 확실히 안 막혔다
       return;
     }
 
-    if (!this.isBlockedForMonster(fullX, monster.y, monsterR)) {
+    // 여기부터는 뭔가 막혀서 폴백(축 슬라이딩/접선 미끄러짐)이 필요한 상태다.
+    // 폴백 중 하나가 "성공"해도 stuckSeconds를 0으로 리셋하지 않는다 — 장애물
+    // 하나의 모서리를 도는 정상적인 우회는 보통 1초 안에 끝나 escape 임계값을
+    // 넘기 전에 다시 완전히 자유로운 이동으로 돌아간다(위에서 리셋됨). 반면 여러
+    // 장애물이 촘촘히 둘러싼 "주머니"에서는 매 틱 아주 조금씩만 미끄러지며 계속
+    // 폴백에 의존하는 상태가 길게 이어질 수 있는데, 여기서 리셋해버리면 "뭔가는
+    // 계속 움직이니 안 막힌 것"으로 잘못 판단해 탈출 로직이 영원히 발동하지
+    // 않는다(docs/backend/42, 스트레스 테스트로 발견한 버그).
+    monster.stuckSeconds += dtSeconds;
+
+    // dx/dy가 정확히 0이면(장애물과 정확히 같은 x축 또는 y축으로 접근하는 흔한
+    // 경우) 그 축만의 "이동"은 사실 제자리(현재 좌표 그대로)다 — 아무 데도 안
+    // 움직였으면서 막힘 여부만 우연히 통과할 수 있어, 그 축이 실제로 변할 때만
+    // (dx/dy != 0) 결과를 인정한다.
+    if (dx !== 0 && !this.isBlockedForMonster(fullX, monster.y, monsterR)) {
       monster.x = fullX;
-      return;
-    }
-
-    if (!this.isBlockedForMonster(monster.x, fullY, monsterR)) {
+    } else if (dy !== 0 && !this.isBlockedForMonster(monster.x, fullY, monsterR)) {
       monster.y = fullY;
-      return;
+    } else {
+      // X/Y 축 슬라이딩도 안 됐다 — 목표가 장애물 중심과 거의 같은 x 또는 y라
+      // 두 축 다 원 안으로 다시 파고드는 경우다. 장애물 표면을 따라 접선 방향으로
+      // 미끄러뜨린다.
+      const obstacle = this.findNearestObstacleCenter(monster.x, monster.y, monsterR);
+      if (obstacle) {
+        const radialX = monster.x - obstacle.x;
+        const radialY = monster.y - obstacle.y;
+        const radialLength = Math.hypot(radialX, radialY);
+
+        if (radialLength > 0) {
+          // 반경 벡터에 수직인 두 접선 후보 중, 원래 가려던 방향(dx,dy)과 내적이
+          // 더 큰 쪽(더 그 방향에 가까운 쪽)을 고른다.
+          const tangentAX = -radialY / radialLength;
+          const tangentAY = radialX / radialLength;
+          const tangentBX = radialY / radialLength;
+          const tangentBY = -radialX / radialLength;
+          const useTangentA = tangentAX * dx + tangentAY * dy >= tangentBX * dx + tangentBY * dy;
+          const tangentX = useTangentA ? tangentAX : tangentBX;
+          const tangentY = useTangentA ? tangentAY : tangentBY;
+
+          const stepLength = Math.hypot(dx, dy);
+          const tangentFullX = monster.x + tangentX * stepLength;
+          const tangentFullY = monster.y + tangentY * stepLength;
+          if (!this.isBlockedForMonster(tangentFullX, tangentFullY, monsterR)) {
+            monster.x = tangentFullX;
+            monster.y = tangentFullY;
+          }
+        }
+      }
+
+      // 넷 다 막혔거나(자원 노드 여러 개에 완전히 둘러싸인 경우) 장애물 자체를
+      // 못 찾은 극단적인 경우 — 아무것도 안 하고 아래 탈출 검사로 넘어간다.
     }
 
-    // X/Y 축 슬라이딩도 안 됐다 — 목표가 장애물 중심과 거의 같은 x 또는 y라
-    // 두 축 다 원 안으로 다시 파고드는 경우다. 장애물 표면을 따라 접선 방향으로
-    // 미끄러뜨린다.
-    const obstacle = this.findNearestObstacleCenter(monster.x, monster.y, monsterR);
-    if (!obstacle) return; // 여기 도달했다는 건 뭔가 막았다는 뜻이라 원래 없을 케이스
-
-    const radialX = monster.x - obstacle.x;
-    const radialY = monster.y - obstacle.y;
-    const radialLength = Math.hypot(radialX, radialY);
-    if (radialLength === 0) return; // 장애물 중심과 완전히 겹친 극단적 경우 — 방향 정의 불가
-
-    // 반경 벡터에 수직인 두 접선 후보 중, 원래 가려던 방향(dx,dy)과 내적이 더 큰
-    // 쪽(더 그 방향에 가까운 쪽)을 고른다.
-    const tangentAX = -radialY / radialLength;
-    const tangentAY = radialX / radialLength;
-    const tangentBX = radialY / radialLength;
-    const tangentBY = -radialX / radialLength;
-    const useTangentA = tangentAX * dx + tangentAY * dy >= tangentBX * dx + tangentBY * dy;
-    const tangentX = useTangentA ? tangentAX : tangentBX;
-    const tangentY = useTangentA ? tangentAY : tangentBY;
-
-    const stepLength = Math.hypot(dx, dy);
-    const tangentFullX = monster.x + tangentX * stepLength;
-    const tangentFullY = monster.y + tangentY * stepLength;
-    if (!this.isBlockedForMonster(tangentFullX, tangentFullY, monsterR)) {
-      monster.x = tangentFullX;
-      monster.y = tangentFullY;
+    if (monster.stuckSeconds >= STUCK_ESCAPE_SECONDS) {
+      this.tryEscapeStuckMonster(monster, normX, normY, monsterR);
+      monster.stuckSeconds = 0; // 성공하든 실패하든 다음 주기에 새 각도로 다시 시도
     }
-    // 그래도 막히면(자원 노드 여러 개에 완전히 둘러싸인 극단적인 경우) 이 틱은
-    // 움직이지 않는다 — movePlayer도 축 슬라이딩 단계에서 같은 한계를 받아들이고
-    // 있어 일관적이다.
+  }
+
+  /**
+   * 완전히 막힌 몬스터를 "원래 가려던 방향"(목표를 향한 정규화 방향, `normX/normY`)
+   * 쪽으로 우선 점프시켜 탈출을 시도한다.
+   *
+   * 처음엔 가장 가까운 장애물 **반대쪽**으로 점프했는데, 실제로 써 보니(스크린샷
+   * 제보) 갇힌 지점에서 원래 가려던 목표(코어/플레이어)와 정반대 방향으로 튕겨
+   * 나가는 경우가 많았다 — 장애물 하나를 기준으로 "그것만 피하면 된다"고 판단한
+   * 것이지 "결국 어디로 가고 싶은지"는 전혀 고려하지 않았기 때문이다. 목표
+   * 방향을 정면으로 두고 좌우로 부채꼴을 벌려가며(`STUCK_ESCAPE_ATTEMPTS`회,
+   * 22.5도씩 번갈아 좌우로 확대) 처음 안 막힌 후보를 쓴다 — 목표에서 완전히
+   * 등지는 방향보다 목표 쪽으로 최대한 붙은 우회를 먼저 시도해야, 탈출 직후에도
+   * 계속 목표를 향해 나아갈 가능성이 높다.
+   *
+   * 매 틱 조금씩 후퇴시키는 대신 한 번에 장애물 키프아웃 반경보다 확실히 큰 거리
+   * (`STUCK_ESCAPE_DISTANCE`)를 옮기는 이유: 점진적 이동은 "탈출 중" 상태(타이머/
+   * 방향)를 따로 저장해야 해서 더 복잡한데, 실제로 갇히는 경우 대부분(노드 하나의
+   * 고리에 막힌 경우)은 한 번의 점프로 충분히 벗어난다 — 드물게(1.5초에 1회)
+   * 순간 이동처럼 보이는 것이 "영원히 멈춤" 또는 "목표 반대쪽으로 튕겨나감"보다
+   * 훨씬 낫다는 판단이다. 부채꼴 검색 안에서 전부 막히면 이번 틱은 포기한다
+   * (무한 재시도 방지 우선, `pickClusterNodePosition` 등 기존 패턴과 동일) —
+   * 호출부가 `stuckSeconds`를 리셋하므로 다음 주기에 다시 시도된다.
+   */
+  private tryEscapeStuckMonster(
+    monster: MonsterEntity,
+    normX: number,
+    normY: number,
+    monsterR: number,
+  ): void {
+    // 목표 방향을 못 구하면(정지 상태 등) 그냥 원점 반대쪽 아무 방향이나 기준으로
+    // 삼는다 — 이런 경우가 실제로는 거의 없지만 각도 자체를 정의 못 하는 사고를 막는다.
+    const desiredAngle =
+      normX !== 0 || normY !== 0 ? Math.atan2(normY, normX) : Math.atan2(monster.y, monster.x);
+
+    const ANGLE_STEP = Math.PI / 8; // 22.5도
+    for (let attempt = 0; attempt < STUCK_ESCAPE_ATTEMPTS; attempt += 1) {
+      const side = attempt % 2 === 0 ? 1 : -1;
+      const magnitude = Math.ceil(attempt / 2);
+      const angle = desiredAngle + side * magnitude * ANGLE_STEP + (this.rng() - 0.5) * 0.1;
+      const candidateX = monster.x + Math.cos(angle) * STUCK_ESCAPE_DISTANCE;
+      const candidateY = monster.y + Math.sin(angle) * STUCK_ESCAPE_DISTANCE;
+      if (!this.isBlockedForMonster(candidateX, candidateY, monsterR)) {
+        monster.x = candidateX;
+        monster.y = candidateY;
+        return;
+      }
+    }
   }
 
   /**
@@ -2047,6 +2213,7 @@ export class World {
       }
     }
     for (const colony of this.colonies.values()) {
+      if (colony.destroyed) continue; // 파괴된 콜로니는 투사체도 그냥 통과한다(docs/backend/43)
       if (circlesOverlap(projectile.x, projectile.y, colony.x, colony.y, COLONY_RADIUS)) {
         this.projectiles.delete(projectileId);
         return;

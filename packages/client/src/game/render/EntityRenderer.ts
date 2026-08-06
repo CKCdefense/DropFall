@@ -162,8 +162,6 @@ const COLONY_SIZE = 28;
 const COLONY_FRAME = 'colony_idle_0';
 /** 원본 125x128 → 코어(2타일)보다 조금 큰 랜드마크 크기로 줄인다. */
 const COLONY_SCALE = 0.45;
-/** 파괴된 콜로니는 지우지 않고 흐리게만 남긴다(엔티티 자체가 사라지지 않으므로, colony.ts 참고). */
-const COLONY_DESTROYED_ALPHA = 0.25;
 
 /** 이 거리보다 적게 움직였으면 정지로 본다(보간 지터로 걷기 애니메이션이 떨리는 것 방지) */
 const MOVE_EPSILON = 0.15;
@@ -769,8 +767,10 @@ export class EntityRenderer {
       // 더 잘 맞는다).
       sprite.setPosition(Math.round(node.x), Math.round(node.y));
       sprite.setDepth(node.y);
-      // 고갈되면(리스폰 대기 중) 흐리게 — 지금은 캘 수 없다는 걸 한눈에 보이게 한다.
-      sprite.setAlpha(node.hp > 0 ? 1 : 0.3);
+      // 고갈되면(리스폰 대기 중) 아예 숨긴다 — 예전엔 흐리게 표시했지만, 리스폰이
+      // 이제 같은 자리가 아니라 군집 안 새 위치로 옮겨가므로(docs/backend/39)
+      // 옛 자리에 "여기 있었다"는 잔상을 남길 이유가 없어졌다(docs/backend/43).
+      sprite.setVisible(node.hp > 0);
 
       // 내구도가 깎이면 겉모습도 단계적으로 바뀐다(돌 3단계).
       const body = sprite.getByName('body');
@@ -1084,9 +1084,10 @@ export class EntityRenderer {
       }
 
       sprite.setDepth(colony.y);
-      // 파괴돼도 엔티티는 안 사라진다(colony.ts) — 흐리게 표시해서 "여기 있었다"는
-      // 랜드마크는 남기되 더 이상 위협이 아님을 알린다.
-      sprite.setAlpha(colony.destroyed ? COLONY_DESTROYED_ALPHA : 1);
+      // 파괴돼도 엔티티는 안 사라진다(colony.ts) — 예전엔 흐리게 남겨 랜드마크로
+      // 계속 보여줬지만, 더 이상 위협도 아니고 하드 충돌도 없앴으니(docs/backend/43)
+      // 화면에서도 아예 숨긴다.
+      sprite.setVisible(!colony.destroyed);
     }
 
     this.removeMissing(this.colonies, alive);

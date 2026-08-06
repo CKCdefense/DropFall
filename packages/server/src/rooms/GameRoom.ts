@@ -19,11 +19,13 @@ import {
   sanitizeRoomName,
   type BuildInputMessage,
   type CreateRoomOptions,
+  type DemolishInputMessage,
   type SelectSlotMessage,
   type CraftMessage,
   type DevCommandMessage,
   type DevResultMessage,
   type MoveItemMessage,
+  type QuickMoveItemMessage,
   type ShopBuyMessage,
   type ShopSellMessage,
   type JoinRoomOptions,
@@ -111,6 +113,10 @@ export class GameRoom extends Room {
         payload?.toIndex,
       );
     },
+    quickMoveItem: (client: Client, payload: QuickMoveItemMessage) => {
+      if (this.state.phase !== RoomPhase.PLAYING) return;
+      this.world.quickMoveItem(client.sessionId, payload?.container, payload?.index);
+    },
     selectSlot: (client: Client, payload: SelectSlotMessage) => {
       this.world.selectSlot(client.sessionId, payload?.index);
     },
@@ -133,6 +139,10 @@ export class GameRoom extends Room {
     placeBuilding: (client: Client, payload: BuildInputMessage) => {
       if (this.state.phase !== RoomPhase.PLAYING) return;
       this.world.placeBuilding(client.sessionId, payload?.buildingType, payload?.cx, payload?.cy);
+    },
+    demolishBuilding: (client: Client, payload: DemolishInputMessage) => {
+      if (this.state.phase !== RoomPhase.PLAYING) return;
+      this.world.demolishBuilding(client.sessionId, payload?.cx, payload?.cy);
     },
 
     // 대기실 메시지. 클라이언트 입력은 신뢰하지 않는다 — 값과 권한을 모두 여기서 검증한다.
@@ -266,6 +276,10 @@ export class GameRoom extends Room {
 
   private startGame(): void {
     this.state.phase = RoomPhase.PLAYING;
+    // 콜로니는 여기서 처음 만든다 — 로비 동안은 인원이 계속 바뀔 수 있어서
+    // World 생성 시점(onCreate, 아직 아무도 안 들어온 때)엔 몇 명일지 알 수
+    // 없었다. 시작 버튼을 누른 지금이 인원이 확정되는 시점이다(docs/backend/41).
+    this.world.startColonies(this.state.players.size);
     // 시작 후 들어오는 사람이 대기실 상태를 보지 않도록 잠근다.
     void this.lock();
     console.log(`[GameRoom ${this.roomId}] game started (${this.state.players.size} players)`);

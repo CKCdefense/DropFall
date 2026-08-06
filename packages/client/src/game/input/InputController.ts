@@ -49,11 +49,12 @@ function fireIntervalMs(weaponId: string | undefined): number {
 }
 
 /**
- * 건축모드에서 순환할 건축물 목록(docs/backend/18 §1 "B 건축모드 토글"). 'off'가
+ * 건축모드에서 순환할 목록(docs/backend/18 §1 "B 건축모드 토글"). 'off'가
  * 항상 첫 자리라 B를 계속 누르면 결국 꺼진 상태로 돌아온다 — 별도 "나가기" 키가
- * 없어도 된다.
+ * 없어도 된다. 'demolish'(철거, docs/backend/43)는 건축물 타입이 아니라 별도
+ * 동작이라 좌클릭 처리에서 따로 분기한다(§pointerdown).
  */
-const BUILD_MODES = ['off', 'fence', 'wall'] as const;
+const BUILD_MODES = ['off', 'fence', 'wall', 'demolish'] as const;
 type BuildMode = (typeof BUILD_MODES)[number];
 
 /**
@@ -153,7 +154,11 @@ export class InputController {
       if (pointer.leftButtonDown()) {
         const world = this.scene.cameras.main.getWorldPoint(pointer.x, pointer.y);
         const { cx, cy } = worldToCell(world.x, world.y);
-        this.connection.placeBuilding(this.buildMode, cx, cy);
+        if (this.buildMode === 'demolish') {
+          this.connection.demolishBuilding(cx, cy);
+        } else {
+          this.connection.placeBuilding(this.buildMode, cx, cy);
+        }
       }
     });
   }

@@ -204,6 +204,11 @@ export interface GameConnection {
    */
   moveItem(from: SlotContainer, fromIndex: number, to: SlotContainer, toIndex: number): void;
   /**
+   * 쉬프트 클릭 빠른 이동(docs/backend/44). 목적지 칸은 안 정한다 — 항상 반대편
+   * 컨테이너에, 서버가 알아서 쌓거나 빈 칸을 골라 넣는다.
+   */
+  quickMoveItem(container: SlotContainer, index: number): void;
+  /**
    * 코어 업그레이드 요청. 다음 단계 비용을 팀 공유 에너지에서 차감하고 코어
    * 체력/건설 가능 반경/제작·스텟증가 해금을 한 번에 적용한다 — 서버가 비용/최고
    * 단계 여부를 판정한다.
@@ -217,6 +222,8 @@ export interface GameConnection {
   shopBuy(itemId: string): void;
   /** 건축 요청. cx/cy는 그리드 셀 좌표(worldToCell로 미리 변환해서 넘긴다). */
   placeBuilding(buildingType: string, cx: number, cy: number): void;
+  /** 철거 요청(건설모드의 'demolish', docs/backend/43). 자원 환급 없음. */
+  demolishBuilding(cx: number, cy: number): void;
   /** 매 프레임 호출된다. 구현체는 새 객체를 만들지 말고 내부 버퍼를 재사용할 것. */
   getSnapshot(): WorldSnapshot;
   /**

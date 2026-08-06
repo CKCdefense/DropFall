@@ -50,6 +50,7 @@ const BUILD_MODE_LABEL: Record<string, string> = {
   off: '꺼짐',
   fence: '울타리',
   wall: '벽',
+  demolish: '철거',
 };
 
 export const HUD_SCENE_KEY = 'Hud';
@@ -231,6 +232,8 @@ export class HudScene extends Phaser.Scene {
     this.slotDrag = new SlotDrag(this);
     this.slotDrag.onMove = (from, fromIndex, to, toIndex) =>
       this.connection.moveItem(from, fromIndex, to, toIndex);
+    this.slotDrag.onQuickMove = (container, index) =>
+      this.connection.quickMoveItem(container, index);
     this.slotDrag.getSlot = (container, index) =>
       (container === 'storage' ? this.latestStorage : this.latestInventory)[index] ?? null;
 
@@ -519,10 +522,13 @@ export class HudScene extends Phaser.Scene {
     this.buildModeText.setColor(buildMode === 'off' ? DIM_TEXT : ACCENT);
 
     // 낮에만 스킵 안내를 띄운다 — 밤에는 쓸 수 없는 조작이라 보여줄 이유가 없다.
+    // 철거 모드는 좌클릭이 "설치"가 아니라 "철거"라 힌트 문구도 따로 갈라야 한다.
     const controlsHint =
       buildMode === 'off'
         ? `WASD 이동 · 좌클릭 사용 · [1~${SLOT_COUNT}] 퀵슬롯 · [E] 코어 입고 · [F] 코어 메뉴 · [B] 건축모드 · [R] 콜로니 파괴(엄호 필요)`
-        : '좌클릭 설치 · 우클릭/[B] 취소 또는 다음 건축물';
+        : buildMode === 'demolish'
+          ? '좌클릭 철거(환급 없음) · 우클릭/[B] 취소 또는 다음 건축물'
+          : '좌클릭 설치 · 우클릭/[B] 취소 또는 다음 건축물';
     // 개발 도구가 붙어 있을 때만 그 키를 안내한다 — 없는 키를 알려주면 안 된다.
     const devHint = this.devConsole ? ' · [`] 콘솔 · [F9] 아이템' : '';
     this.helpText.setText(
@@ -534,10 +540,6 @@ export class HudScene extends Phaser.Scene {
 }
 
 /**
- * 창고 칸 배열 → 아이템별 총 개수. 같은 아이템이 여러 칸에 나뉘어 있을 수 있어서
- * 그대로는 "재료가 몇 개 있나"를 물을 수 없다(서버의 CoreStorage.countOf와 같은 계산).
- */
-/**
  * 개발 도구를 붙일지. Vite 개발 서버이거나 URL에 `?dev=1`이 있을 때만 켠다 —
  * 배포본에서 실수로 치트가 노출되지 않게 기본은 꺼짐이고, 켜더라도 실제 적용은
  * 서버가 다시 판단한다(GameRoom의 DEV_MODE).
@@ -547,6 +549,10 @@ function isDevBuild(): boolean {
   return new URLSearchParams(window.location.search).get('dev') === '1';
 }
 
+/**
+ * 창고 칸 배열 → 아이템별 총 개수. 같은 아이템이 여러 칸에 나뉘어 있을 수 있어서
+ * 그대로는 "재료가 몇 개 있나"를 물을 수 없다(서버의 CoreStorage.countOf와 같은 계산).
+ */
 function summarizeStorage(slots: readonly (InventorySlot | null)[]): Record<string, number> {
   const total: Record<string, number> = {};
   for (const slot of slots) {
