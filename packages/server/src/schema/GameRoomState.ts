@@ -1,5 +1,5 @@
 import { ArraySchema, MapSchema, Schema, type } from '@colyseus/schema';
-import { RoomPhase, SLOT_COUNT } from '@dropfall/shared';
+import { RoomPhase, SLOT_COUNT, STORAGE_SLOT_COUNT } from '@dropfall/shared';
 
 /**
  * 퀵슬롯 한 칸. 빈 칸은 배열에서 빼지 않고 itemId를 ''로 둔다 —
@@ -8,6 +8,14 @@ import { RoomPhase, SLOT_COUNT } from '@dropfall/shared';
 export class ItemSlotSchema extends Schema {
   @type('string') itemId = '';
   @type('number') count = 0;
+}
+
+/** 바닥에 떨어진 아이템 하나. */
+export class DroppedItemSchema extends Schema {
+  @type('string') itemId = '';
+  @type('number') count = 0;
+  @type('number') x = 0;
+  @type('number') y = 0;
 }
 
 export class PlayerSchema extends Schema {
@@ -101,6 +109,14 @@ export class GameRoomState extends Schema {
   @type('number') coreSharedStone = 0;
   /** 콜로니 파괴로만 얻는 전용 자원. 코어 업그레이드/상점 구입 전용(아직 소비처 미구현). */
   @type('number') coreSharedEnergy = 0;
+  @type({ map: DroppedItemSchema }) droppedItems = new MapSchema<DroppedItemSchema>();
+  /**
+   * 코어 창고. 인벤토리와 같은 슬롯 구조라 ItemSlotSchema를 재사용한다 —
+   * 빈 칸은 itemId ''로 두고 길이를 고정해 클라이언트의 칸 번호가 흔들리지 않게 한다.
+   */
+  @type([ItemSlotSchema]) coreStorage = new ArraySchema<ItemSlotSchema>(
+    ...Array.from({ length: STORAGE_SLOT_COUNT }, () => new ItemSlotSchema()),
+  );
   /** 'day' | 'night' | 'victory' | 'defeat' (shared/sim의 GamePhase) */
   @type('string') wavePhase = 'day';
   @type('number') currentWave = 0;

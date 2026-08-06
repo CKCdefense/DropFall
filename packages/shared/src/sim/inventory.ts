@@ -38,8 +38,16 @@ export function itemOfSlot(slot: InventorySlot | null | undefined): ItemData | u
 }
 
 export class Inventory {
-  private readonly slots: (InventorySlot | null)[] = Array.from({ length: SLOT_COUNT }, () => null);
+  private readonly slots: (InventorySlot | null)[];
   private selectedIndex = 0;
+
+  /**
+   * 칸 수를 받는다 — 퀵슬롯은 SLOT_COUNT(4), 코어 창고는 더 넉넉한 칸을 쓴다
+   * (storage.ts). 스택·빈 칸 규칙이 같아서 같은 클래스를 공유한다.
+   */
+  constructor(private readonly slotCount: number = SLOT_COUNT) {
+    this.slots = Array.from({ length: slotCount }, () => null);
+  }
 
   /**
    * 아이템을 넣는다. 같은 아이템이 있는 칸에 먼저 쌓고, 남으면 빈 칸을 채운다.
@@ -90,7 +98,7 @@ export class Inventory {
   /** 유효한 칸 번호면 선택하고 true를 반환한다. 빈 칸도 선택할 수 있다(맨손). */
   select(index: unknown): boolean {
     if (typeof index !== 'number' || !Number.isInteger(index)) return false;
-    if (index < 0 || index >= SLOT_COUNT) return false;
+    if (index < 0 || index >= this.slotCount) return false;
 
     this.selectedIndex = index;
     return true;
@@ -129,6 +137,51 @@ export class Inventory {
 
     this.removeAt(this.selectedIndex, 1);
     return item;
+  }
+
+  /**
+   * 칸의 내용을 통째로 꺼낸다(칸은 비워진다). 드래그앤드롭처럼 "집어서 다른 곳에 놓는"
+   * 조작에 쓴다 — add()는 빈 칸을 알아서 고르기 때문에 목적지를 지정할 수 없다.
+   */
+  takeAt(index: number): InventorySlot | null {
+    const slot = this.slotAt(index);
+    if (!slot) return null;
+    this.slots[index] = null;
+    return slot;
+  }
+
+  /**
+   * 지정한 칸에 놓는다. 결과는 셋 중 하나다:
+   *  - 빈 칸이면 그대로 놓인다
+   *  - 같은 아이템이면 stackSize까지 합치고 남은 것을 돌려준다
+   *  - 다른 아이템이면 자리를 바꾼다(밀려난 것을 돌려준다)
+   *
+   * 돌려준 값은 호출자가 원래 자리로 되돌려야 한다 — 그래야 아이템이 사라지지 않는다.
+   */
+  placeAt(index: number, incoming: InventorySlot): InventorySlot | null {
+    if (index < 0 || index >= this.slotCount) return incoming;
+
+    const item = itemOf(incoming.itemId);
+    if (!item) return incoming;
+
+    const existing = this.slots[index];
+    if (!existing) {
+      this.slots[index] = { ...incoming };
+      return null;
+    }
+
+    if (existing.itemId === incoming.itemId) {
+      const room = item.stackSize - existing.count;
+      const moved = Math.min(room, incoming.count);
+      existing.count += moved;
+
+      const leftover = incoming.count - moved;
+      return leftover > 0 ? { itemId: incoming.itemId, count: leftover } : null;
+    }
+
+    // 다른 아이템 — 자리를 바꾼다.
+    this.slots[index] = { ...incoming };
+    return existing;
   }
 
   /** 네트워크로 보낼 스냅샷. 내부 배열을 그대로 넘기면 밖에서 수정될 수 있어 복사한다. */

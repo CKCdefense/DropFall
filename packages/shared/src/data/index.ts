@@ -136,6 +136,8 @@ const ResourceDataSchema = z.object({
   hp: z.number().int().positive(),
   /** 고갈되는 순간(hp 0) 마지막 타격을 넣은 플레이어에게 한 번에 지급되는 양. */
   yieldOnDeplete: z.number().int().positive(),
+  /** 완전히 부서졌을 때 바닥에 떨구는 아이템(items.json의 key). */
+  dropItemId: z.string(),
   /** 고갈 후 재생까지 걸리는 시간(초) */
   respawnSeconds: z.number().positive(),
 });
@@ -188,11 +190,13 @@ const ItemDataSchema = z.object({
    * 슬롯이 이 아이템으로 무엇을 할 수 있는지 결정한다.
    *  - weapon:     장착하면 좌클릭 공격에 쓰인다
    *  - consumable: 사용하면 효과를 내고 1개 줄어든다
+   *  - material:   들고 다니다 코어 창고에 넣는다. 손에 들어도 아무 일도 안 일어난다
    *
-   * 건축 재료(나무/돌)는 여기 없다 — PlayerEntity의 전용 필드로 따로 센다.
-   * 퀵슬롯은 "손에 드는 것"만 다룬다.
+   * 자원 노드를 부수면 나오는 드롭을 주웠을 때 material로 인벤토리에 들어온다 —
+   * 예전처럼 PlayerEntity의 전용 필드(wood/stone)로 세지 않는다. 창고 입고가
+   * "슬롯을 옮기는 일"이 되어야 도구도 같은 방식으로 보관할 수 있다.
    */
-  kind: z.enum(['weapon', 'consumable']),
+  kind: z.enum(['weapon', 'consumable', 'material']),
   /** weapon 전용: weapons.json의 key. 아이템 id와 달라질 수 있어 따로 둔다. */
   weaponId: z.string().optional(),
   /** consumable 전용: 회복량 */
@@ -217,8 +221,13 @@ const LoadoutEntrySchema = z.object({
 });
 
 const LoadoutDataSchema = z.object({
-  /** 게임 시작 시 모든 플레이어에게 주는 아이템. 순서가 곧 퀵슬롯 순서다. */
-  starting: z.array(LoadoutEntrySchema),
+  /**
+   * 참가 시 개인 인벤토리에 들어가는 아이템. 순서가 곧 퀵슬롯 순서다.
+   * 지금은 비어 있다 — 도구는 팀 창고에서 꺼내 쓰는 것이 협동 게임의 시작점이라고 봤다.
+   */
+  playerStarting: z.array(LoadoutEntrySchema),
+  /** 게임 시작 시 팀 창고에 한 번 들어가는 아이템. 인원과 무관하게 한 세트다. */
+  coreStorage: z.array(LoadoutEntrySchema),
 });
 
 export type LoadoutEntry = z.infer<typeof LoadoutEntrySchema>;

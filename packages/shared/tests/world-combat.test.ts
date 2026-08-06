@@ -15,6 +15,19 @@ function spawnAtLeast(world: World, count: number): void {
   }
 }
 
+/**
+ * 예전 시작 지급품(권총/도끼/곡괭이/붕대)을 손에 쥐여준다. 이제 도구는 팀 창고에서
+ * 시작하므로(loadout.coreStorage), 장착을 전제하는 테스트는 명시적으로 꺼내 쓴다.
+ * 슬롯 순서는 예전과 같아서 기존 selectSlot 번호가 그대로 유효하다.
+ */
+function equipDefaultKit(world: World, playerId: string): void {
+  const inventory = world.getPlayers().get(playerId)!.inventory;
+  inventory.add('pistol', 1);
+  inventory.add('axe', 1);
+  inventory.add('pickax', 1);
+  inventory.add('bandage', 3);
+}
+
 describe('World — 전투/웨이브 통합', () => {
   it('day로 시작해서 dayDuration이 지나면 night(1웨이브)로 전환된다', () => {
     const world = new World();
@@ -30,6 +43,7 @@ describe('World — 전투/웨이브 통합', () => {
   it('근접 무기로 근처 몬스터를 때리면 데미지가 들어가고, 여러 번 맞으면 죽는다', () => {
     const world = new World();
     world.addPlayer('p1', 0, 0);
+    equipDefaultKit(world, 'p1');
     startFirstWave(world);
 
     // 스폰된 몬스터 중 하나를 플레이어 바로 옆으로 옮겨서 근접 사거리 안에 둔다
@@ -49,6 +63,7 @@ describe('World — 전투/웨이브 통합', () => {
   it('몬스터 타입마다 다른 히트박스 반경으로 판정한다', () => {
     const world = new World();
     world.addPlayer('p1', 0, 0);
+    equipDefaultKit(world, 'p1');
     startFirstWave(world);
 
     const [monster] = [...world.getMonsters().values()];
@@ -66,6 +81,7 @@ describe('World — 전투/웨이브 통합', () => {
   it('히트박스 반경 밖으로 스쳐 지나가면 맞지 않는다', () => {
     const world = new World();
     world.addPlayer('p1', 0, 0);
+    equipDefaultKit(world, 'p1');
     startFirstWave(world);
 
     const [monster] = [...world.getMonsters().values()];
@@ -83,6 +99,7 @@ describe('World — 전투/웨이브 통합', () => {
   it('사거리 밖 몬스터는 근접 공격이 닿지 않는다', () => {
     const world = new World();
     world.addPlayer('p1', 0, 0);
+    equipDefaultKit(world, 'p1');
     startFirstWave(world);
 
     const [monster] = [...world.getMonsters().values()];
@@ -99,6 +116,7 @@ describe('World — 전투/웨이브 통합', () => {
   it('권총(원거리)은 투사체를 만들고, 투사체가 이동해 몬스터에 맞으면 데미지를 준다', () => {
     const world = new World();
     world.addPlayer('p1', 0, 0);
+    equipDefaultKit(world, 'p1');
     startFirstWave(world);
 
     const [monster] = [...world.getMonsters().values()];
@@ -127,6 +145,7 @@ describe('World — 전투/웨이브 통합', () => {
     // 그 구간 자체를 아무도 검사하지 않았다).
     const world = new World();
     world.addPlayer('p1', 0, 0);
+    equipDefaultKit(world, 'p1');
     startFirstWave(world);
 
     const [monster] = [...world.getMonsters().values()];
@@ -143,6 +162,7 @@ describe('World — 전투/웨이브 통합', () => {
   it('총구 간격 밖의 몬스터는 평소처럼 투사체가 날아가 맞힌다(간격 안 판정이 먼 거리 사격을 막지 않는다)', () => {
     const world = new World();
     world.addPlayer('p1', 0, 0);
+    equipDefaultKit(world, 'p1');
     startFirstWave(world);
 
     const [monster] = [...world.getMonsters().values()];
@@ -164,6 +184,7 @@ describe('World — 전투/웨이브 통합', () => {
   it('쿨다운이 끝나기 전에 다시 발사하면 무시된다', () => {
     const world = new World();
     world.addPlayer('p1', 0, 0);
+    equipDefaultKit(world, 'p1');
     startFirstWave(world);
 
     const [monster] = [...world.getMonsters().values()];
@@ -181,6 +202,7 @@ describe('World — 전투/웨이브 통합', () => {
   it('무기가 아닌 슬롯(붕대)을 들고 있으면 공격이 성립하지 않는다', () => {
     const world = new World();
     world.addPlayer('p1', 0, 0);
+    equipDefaultKit(world, 'p1');
 
     world.selectSlot('p1', 3); // 붕대
     world.fireWeapon('p1');
@@ -191,6 +213,7 @@ describe('World — 전투/웨이브 통합', () => {
   it('슬롯 번호가 이상해도 크래시하지 않고 선택이 바뀌지 않는다(클라이언트 입력 불신)', () => {
     const world = new World();
     world.addPlayer('p1', 0, 0);
+    equipDefaultKit(world, 'p1');
 
     for (const bad of [-1, 99, 1.5, '1', null, undefined, NaN]) {
       expect(() => world.selectSlot('p1', bad)).not.toThrow();
@@ -235,6 +258,7 @@ describe('World — 전원 다운 = 즉시 패배', () => {
   it('플레이어 전원의 hp가 0이면 즉시 패배 상태가 된다', () => {
     const world = new World();
     world.addPlayer('p1', 0, 0);
+    equipDefaultKit(world, 'p1');
     world.addPlayer('p2', 10, 10);
 
     world.getPlayers().get('p1')!.hp = 0;
@@ -247,6 +271,7 @@ describe('World — 전원 다운 = 즉시 패배', () => {
   it('일부만 다운됐으면 패배가 아니다', () => {
     const world = new World();
     world.addPlayer('p1', 0, 0);
+    equipDefaultKit(world, 'p1');
     world.addPlayer('p2', 10, 10);
 
     world.getPlayers().get('p1')!.hp = 0;
@@ -286,6 +311,7 @@ describe('World — 전원 다운 = 즉시 패배', () => {
   it('웨이브를 클리어하고 새 낮이 시작되면 다운된 플레이어가 부활한다', () => {
     const world = new World();
     world.addPlayer('p1', 0, 0);
+    equipDefaultKit(world, 'p1');
     world.addPlayer('p2', 0, 0); // p2가 살아있어야 "전원 다운"이 안 돼서 패배로 안 끝난다
     startFirstWave(world);
     world.getPlayers().get('p1')!.hp = 0;
@@ -308,6 +334,7 @@ describe('World — 낮 스킵 투표', () => {
   it('전원이 투표하면 즉시 night으로 전환된다', () => {
     const world = new World();
     world.addPlayer('p1', 0, 0);
+    equipDefaultKit(world, 'p1');
     world.addPlayer('p2', 0, 0);
 
     world.castSkipVote('p1');
@@ -320,6 +347,7 @@ describe('World — 낮 스킵 투표', () => {
   it('night 페이즈에서는 투표해도 효과가 없다', () => {
     const world = new World();
     world.addPlayer('p1', 0, 0);
+    equipDefaultKit(world, 'p1');
     startFirstWave(world);
 
     world.castSkipVote('p1');
@@ -329,6 +357,7 @@ describe('World — 낮 스킵 투표', () => {
   it('존재하지 않는 플레이어의 투표는 무시된다', () => {
     const world = new World();
     world.addPlayer('p1', 0, 0);
+    equipDefaultKit(world, 'p1');
 
     expect(() => world.castSkipVote('ghost')).not.toThrow();
     expect(world.getWavePhase()).toBe('day');
@@ -337,6 +366,7 @@ describe('World — 낮 스킵 투표', () => {
   it('투표한 플레이어가 퇴장하면 그 표는 사라진다(새로 들어온 인원 기준으로 다시 만장일치 필요)', () => {
     const world = new World();
     world.addPlayer('p1', 0, 0);
+    equipDefaultKit(world, 'p1');
     world.addPlayer('p2', 0, 0);
 
     world.castSkipVote('p1');
@@ -523,6 +553,7 @@ describe('World — debugJumpToWave(테스트용)', () => {
   it('지정한 웨이브로 이동하고 그 웨이브의 몬스터가 스폰된다', () => {
     const world = new World();
     world.addPlayer('p1', 0, 0);
+    equipDefaultKit(world, 'p1');
 
     world.debugJumpToWave(5);
 
@@ -535,7 +566,8 @@ describe('World — debugJumpToWave(테스트용)', () => {
 
   it('이전 웨이브에서 남아있던 몬스터를 정리하고 새 웨이브 몬스터만 남긴다', () => {
     const world = new World();
-    world.addPlayer('p1', 500, 500); // 몬스터가 코어로 직행하도록 멀리 둔다
+    world.addPlayer('p1', 500, 500);
+    equipDefaultKit(world, 'p1'); // 몬스터가 코어로 직행하도록 멀리 둔다
     startFirstWave(world);
     spawnAtLeast(world, 1);
     expect(world.getMonsters().size).toBeGreaterThan(0); // 1웨이브 몬스터가 있는 상태
@@ -550,6 +582,7 @@ describe('World — debugJumpToWave(테스트용)', () => {
   it('코어/플레이어 HP는 건드리지 않는다', () => {
     const world = new World();
     world.addPlayer('p1', 0, 0);
+    equipDefaultKit(world, 'p1');
     world.getPlayers().get('p1')!.hp = 42;
 
     world.debugJumpToWave(5);
@@ -561,6 +594,7 @@ describe('World — debugJumpToWave(테스트용)', () => {
   it('존재하지 않는 웨이브 번호는 무시하고 기존 몬스터도 그대로 둔다', () => {
     const world = new World();
     world.addPlayer('p1', 500, 500);
+    equipDefaultKit(world, 'p1');
     startFirstWave(world);
     spawnAtLeast(world, 1);
     const aliveBefore = world.getMonsters().size;
