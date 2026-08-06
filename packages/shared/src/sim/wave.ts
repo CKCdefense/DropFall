@@ -108,6 +108,27 @@ export class WaveManager {
   }
 
   /**
+   * 테스트용: 진행 중인 밤을 즉시 끝내고 낮으로 되돌린다. 스폰 큐도 함께 비운다 —
+   * 남겨두면 낮에 몬스터가 계속 튀어나온다. 마지막 웨이브였다면 승리로 끝난다
+   * (정상 경로와 같은 판정이다). 실제로 밤을 끝냈으면 true.
+   *
+   * 낮에 딸린 부수 효과(부활·투표 초기화·상점 재추첨)는 여기서 하지 않는다 — 그건
+   * World의 몫이고, 정상 경로와 같은 함수를 쓴다.
+   */
+  debugEndNight(): boolean {
+    if (this.phase !== 'night') return false;
+
+    this.spawnQueue.length = 0;
+    if (this.waveIndex >= wavesData.waves.length - 1) {
+      this.phase = 'victory';
+      return true;
+    }
+    this.phase = 'day';
+    this.phaseTimer = wavesData.dayDuration;
+    return true;
+  }
+
+  /**
    * 테스트용: 특정 웨이브(1-based)로 즉시 이동해 그 웨이브의 밤을 시작한다. 중간
    * 웨이브는 전부 건너뛴다 — 게임 정상 진행 경로가 아니라 로컬 밸런스 테스트 전용이다
    * (docs/backend/23). `waveIndex`를 `beginNextWave()`가 기대하는 "한 칸 전"으로

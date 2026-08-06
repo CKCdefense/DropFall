@@ -227,6 +227,17 @@ export interface GameConnection {
    */
   debugJumpToWave?(waveNumber: number): void;
 
+  /**
+   * 개발자 커맨드 한 줄을 실행한다(devCommands.ts의 `runDevCommand`).
+   *
+   * 로컬 모드는 월드를 직접 들고 있어 결과를 바로 돌려주지만, 멀티플레이는 서버가
+   * 판정하고 결과가 나중에 온다 — 그래서 반환값이 아니라 `onDevResult` 콜백으로
+   * 통일했다. 두 모드가 같은 경로를 쓰면 콘솔 UI가 분기를 안 해도 된다.
+   *
+   * 개발 모드가 아닌 서버는 이 메시지를 조용히 무시한다(응답도 없다).
+   */
+  sendDevCommand(line: string): void;
+  onDevResult(callback: (result: { ok: boolean; message: string }) => void): void;
 
   // ---------------------------------------------------------------- 대기실
 

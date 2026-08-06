@@ -61,3 +61,16 @@ export interface ShopBuyMessage {
   itemId: string;
 }
 
+/**
+ * 개발자 커맨드 한 줄. **개발 모드에서만** 서버가 받아준다(GameRoom.isDevMode) —
+ * 치트 자체라서 켜는 조건을 서버가 쥐고 있어야 한다.
+ */
+export interface DevCommandMessage {
+  line: string;
+}
+
+/** 개발자 커맨드 실행 결과. 콘솔에 그대로 출력한다. */
+export interface DevResultMessage {
+  ok: boolean;
+  message: string;
+}

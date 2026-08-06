@@ -10,3 +10,4 @@ export * from './sim/fixedStep';
 export * from './data';
 export * from './terrain/noise';
 export * from './terrain/terrain';
+export * from './sim/devCommands';

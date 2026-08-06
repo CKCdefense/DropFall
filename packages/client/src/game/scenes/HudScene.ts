@@ -22,6 +22,8 @@ import { WarehouseModal } from '../ui/WarehouseModal';
 import { SlotDrag } from '../ui/SlotDrag';
 import type { Modal } from '../ui/Modal';
 import { CraftModal } from '../ui/CraftModal';
+import { DevConsole } from '../ui/DevConsole';
+import { DevItemModal } from '../ui/DevItemModal';
 import { Minimap } from '../ui/Minimap';
 import { PartyPanel } from '../ui/PartyPanel';
 import { QuickSlotBar } from '../ui/QuickSlotBar';
@@ -122,6 +124,12 @@ export class HudScene extends Phaser.Scene {
   private upgradeModal!: UpgradeModal;
   private storeModal!: StoreModal;
   private craftModal!: CraftModal;
+  /**
+   * 개발 모드 전용. 프로덕션 빌드에서는 아예 만들어지지 않는다 —
+   * `isDevBuild()` 참고.
+   */
+  private devConsole?: DevConsole;
+  private devItemModal?: DevItemModal;
 
   constructor() {
     super(HUD_SCENE_KEY);
@@ -186,6 +194,7 @@ export class HudScene extends Phaser.Scene {
     }
 
     this.createCoreModals();
+    if (isDevBuild()) this.createDevTools();
 
     // 패널 밖에 떠 있는 글자는 지형 위에 그대로 얹혀서 대비가 필요하다.
     // 패널 안 글자(코어, 퀵슬롯, 팀원)는 어두운 상자가 이미 받쳐주므로 놔둔다.
@@ -271,6 +280,8 @@ export class HudScene extends Phaser.Scene {
     // 게임 입력이 모달을 뚫고 나가지 않게 한다 — 차단막이 없으니 좌표로 직접 판정한다.
     this.registry.set(HUD_BLOCK_KEY, (x: number, y: number) => {
       if (this.slotDrag.isDragging()) return true;
+      // 콘솔에 타이핑하는 동안 클릭이 공격으로 새면 안 된다.
+      if (this.devConsole?.isOpen()) return true;
       return this.openModals().some((modal) => modal.containsPoint(x, y));
     });
 
@@ -293,6 +304,24 @@ export class HudScene extends Phaser.Scene {
     });
   }
 
+  /**
+   * 개발자 콘솔(`)과 아이템 도감(F9)을 붙인다.
+   *
+   * 둘 다 결국 같은 개발 커맨드로 내려간다 — 규칙이 shared 한 곳에만 있어야
+   * 로컬 모드와 멀티플레이가 같은 결과를 낸다.
+   */
+  private createDevTools(): void {
+    this.devConsole = new DevConsole(this, this.connection);
+
+    this.devItemModal = new DevItemModal(this);
+    this.devItemModal.onCommand = (line) => this.connection.sendDevCommand(line);
+
+    this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.F9).on('down', () => {
+      if (this.devItemModal?.isOpen()) this.devItemModal.close();
+      else this.devItemModal?.open();
+    });
+  }
+
   private openModals(): Modal[] {
     return [
       this.coreModal,
@@ -300,6 +329,7 @@ export class HudScene extends Phaser.Scene {
       this.upgradeModal,
       this.storeModal,
       this.craftModal,
+      ...(this.devItemModal ? [this.devItemModal] : []),
     ].filter((modal) => modal.isOpen());
   }
 
@@ -313,6 +343,7 @@ export class HudScene extends Phaser.Scene {
     this.upgradeModal.close();
     this.storeModal.close();
     this.craftModal.close();
+    this.devItemModal?.close();
   }
 
   /**
@@ -492,10 +523,12 @@ export class HudScene extends Phaser.Scene {
       buildMode === 'off'
         ? `WASD 이동 · 좌클릭 사용 · [1~${SLOT_COUNT}] 퀵슬롯 · [E] 코어 입고 · [F] 코어 메뉴 · [B] 건축모드 · [R] 콜로니 파괴(엄호 필요)`
         : '좌클릭 설치 · 우클릭/[B] 취소 또는 다음 건축물';
+    // 개발 도구가 붙어 있을 때만 그 키를 안내한다 — 없는 키를 알려주면 안 된다.
+    const devHint = this.devConsole ? ' · [`] 콘솔 · [F9] 아이템' : '';
     this.helpText.setText(
       status.wavePhase === 'day'
-        ? `${controlsHint} · [V] 낮 넘기기 ${status.skipVoteCount}/${snapshot.players.length}`
-        : `${controlsHint} · ESC 나가기`,
+        ? `${controlsHint} · [V] 낮 넘기기 ${status.skipVoteCount}/${snapshot.players.length}${devHint}`
+        : `${controlsHint} · ESC 나가기${devHint}`,
     );
   }
 }
@@ -504,6 +537,16 @@ export class HudScene extends Phaser.Scene {
  * 창고 칸 배열 → 아이템별 총 개수. 같은 아이템이 여러 칸에 나뉘어 있을 수 있어서
  * 그대로는 "재료가 몇 개 있나"를 물을 수 없다(서버의 CoreStorage.countOf와 같은 계산).
  */
+/**
+ * 개발 도구를 붙일지. Vite 개발 서버이거나 URL에 `?dev=1`이 있을 때만 켠다 —
+ * 배포본에서 실수로 치트가 노출되지 않게 기본은 꺼짐이고, 켜더라도 실제 적용은
+ * 서버가 다시 판단한다(GameRoom의 DEV_MODE).
+ */
+function isDevBuild(): boolean {
+  if (import.meta.env.DEV) return true;
+  return new URLSearchParams(window.location.search).get('dev') === '1';
+}
+
 function summarizeStorage(slots: readonly (InventorySlot | null)[]): Record<string, number> {
   const total: Record<string, number> = {};
   for (const slot of slots) {

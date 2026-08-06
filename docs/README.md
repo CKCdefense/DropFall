@@ -42,6 +42,7 @@
 | [frontend/07-asset-pipeline.md](frontend/07-asset-pipeline.md) | **에셋 파이프라인** — 원본/산출물 분리, 아틀라스 구성, 빌드 옵션 근거 |
 | [frontend/08-lobby-flow.md](frontend/08-lobby-flow.md) | **대기실 흐름** — 화면 전환, 직업/준비/시작 규격, 방 코드 입력 |
 | [frontend/09-work-report-ingame-modals.md](frontend/09-work-report-ingame-modals.md) | 작업 보고서 — 인게임 모달 UI 셸 4종(코어/코어관리/상점/제작) 선작업 |
+| [frontend/10-dev-mode.md](frontend/10-dev-mode.md) | **개발 모드** — 개발자 콘솔(`` ` ``)과 테스트 모드 아이템 도감(F9), 커맨드 목록, 켜는 방법 |
 
 ## 한 줄 요약
 

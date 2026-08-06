@@ -21,6 +21,8 @@ import {
   type CreateRoomOptions,
   type SelectSlotMessage,
   type CraftMessage,
+  type DevCommandMessage,
+  type DevResultMessage,
   type MoveItemMessage,
   type ShopBuyMessage,
   type ShopSellMessage,
@@ -56,6 +58,13 @@ async function allocateRoomCode(): Promise<string> {
   throw new ServerError(500, '방 코드를 발급하지 못했습니다. 잠시 후 다시 시도해 주세요.');
 }
 
+/**
+ * 개발 모드(치트 허용) 여부. **환경 변수로만 켜진다** — 배포본에서 실수로 켜지지
+ * 않도록 기본값은 꺼짐이고, 프로덕션에서는 값이 있어도 무시한다.
+ */
+const DEV_MODE =
+  process.env.NODE_ENV !== 'production' && process.env.DROPFALL_DEV === '1';
+
 export class GameRoom extends Room {
   maxClients = MAX_CLIENTS_PER_ROOM;
   state = new GameRoomState();
@@ -81,6 +90,12 @@ export class GameRoom extends Room {
     shopSell: (client: Client, payload: ShopSellMessage) => {
       if (this.state.phase !== RoomPhase.PLAYING) return;
       this.world.sellToShop(client.sessionId, payload?.itemId, payload?.count);
+    },
+    dev: (client: Client, payload: DevCommandMessage) => {
+      // 개발 플래그가 없으면 조용히 무시한다 — 존재를 알려줄 이유가 없다.
+      if (!DEV_MODE) return;
+      const result = this.world.runDevCommand(client.sessionId, payload?.line ?? '');
+      client.send('devResult', result satisfies DevResultMessage);
     },
     shopBuy: (client: Client, payload: ShopBuyMessage) => {
       if (this.state.phase !== RoomPhase.PLAYING) return;

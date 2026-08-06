@@ -28,6 +28,7 @@ export class LocalConnection implements GameConnection {
   readonly sessionId = LOCAL_SESSION_ID;
 
   private readonly world = new World();
+  private devResultCallback?: (result: { ok: boolean; message: string }) => void;
   /** world.tick()도 서버와 동일하게 TICK_RATE라 같은 보간이 필요하다(SnapshotInterpolator 참고). */
   private readonly interpolator = new SnapshotInterpolator();
   private readonly nickname: string;
@@ -104,6 +105,19 @@ export class LocalConnection implements GameConnection {
 
   placeBuilding(buildingType: string, cx: number, cy: number): void {
     this.world.placeBuilding(LOCAL_SESSION_ID, buildingType, cx, cy);
+  }
+
+  /**
+   * 로컬 모드는 개발 모드가 늘 켜져 있다 — 혼자 도는 시뮬레이션이라 치트로 망칠
+   * 남의 판이 없다.
+   */
+  sendDevCommand(line: string): void {
+    const result = this.world.runDevCommand(LOCAL_SESSION_ID, line);
+    this.devResultCallback?.(result);
+  }
+
+  onDevResult(callback: (result: { ok: boolean; message: string }) => void): void {
+    this.devResultCallback = callback;
   }
 
   debugJumpToWave(waveNumber: number): void {

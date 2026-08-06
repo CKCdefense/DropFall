@@ -257,6 +257,14 @@ export class ColyseusConnection implements GameConnection {
     this.room.send('shopSell', { itemId, count });
   }
 
+  sendDevCommand(line: string): void {
+    this.room.send('dev', { line });
+  }
+
+  onDevResult(callback: (result: { ok: boolean; message: string }) => void): void {
+    this.room.onMessage('devResult', callback);
+  }
+
   shopBuy(itemId: string): void {
     this.room.send('shopBuy', { itemId });
   }

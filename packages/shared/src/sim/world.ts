@@ -35,9 +35,10 @@ import {
   type ProjectileEntity,
 } from './combat';
 import { Inventory } from './inventory';
-import { CoreStorage } from './storage';
+import { CoreStorage, STORAGE_SLOT_COUNT } from './storage';
 import { normalizeMoveVector, stepPosition } from './movement';
 import { WaveManager, type GamePhase } from './wave';
+import { runDevCommand, type DevCommandResult, type DevWorldAccess } from './devCommands';
 
 /** moveItem이 받는 컨테이너 이름. 네트워크 경계를 넘어오므로 값부터 검증한다. */
 export type SlotContainer = 'inventory' | 'storage';
@@ -84,6 +85,8 @@ export const CORE_INTERACT_RADIUS = CORE_RADIUS + 32;
  */
 export const PICKUP_RADIUS = 22;
 
+/** 개발 커맨드로 몬스터를 부를 때 코어에서 띄우는 거리(px). 바로 옆에 붙여 놓으면 코어가 즉사한다. */
+const DEV_SPAWN_RADIUS = 160;
 
 /** 콜로니 채널링(파괴 작업)을 시작할 수 있는 반경(px). CORE_INTERACT_RADIUS와 같은 값 — 둘 다 "구조물 바로 옆" 상호작용이다. */
 const COLONY_CHANNEL_RADIUS = CORE_INTERACT_RADIUS;
@@ -926,6 +929,101 @@ export class World {
     }
   }
 
+  /**
+   * 새 낮이 시작될 때 한 번 일어나는 일들. 정상 진행(웨이브 클리어)과 개발 커맨드가
+   * **같은 함수**를 쓴다 — 둘이 갈라지면 "커맨드로 넘긴 낮"에서만 상점이 안 바뀌는
+   * 식의 차이가 생긴다.
+   */
+  private onDayBegan(): void {
+    this.revivePlayers();
+    this.skipVotes.clear();
+    // 하루가 지나면 상점 물건이 통째로 바뀐다. 오늘 못 산 전설은 오늘로 끝이다.
+    this.rollShopStock();
+  }
+
+  /**
+   * 개발자 커맨드 한 줄을 실행한다(devCommands.ts).
+   *
+   * **켜고 끄는 판단은 여기서 하지 않는다** — 호출하는 쪽(로컬 모드, 또는 개발
+   * 플래그가 켜진 서버)이 판단해서 부른다. World가 스스로 "개발 모드인가"를 들고
+   * 있으면 그 플래그가 시뮬레이션 규칙 곳곳으로 새기 쉽다.
+   */
+  runDevCommand(playerId: string, line: string): DevCommandResult {
+    return runDevCommand(this.devAccess(), playerId, line);
+  }
+
+  /**
+   * 개발 커맨드가 월드를 건드릴 수 있는 통로. private 필드를 커맨드 모듈에 통째로
+   * 열어주는 대신, 필요한 동작만 골라 함수로 넘긴다.
+   */
+  private devAccess(): DevWorldAccess {
+    return {
+      hasPlayer: (playerId) => this.players.has(playerId),
+
+      giveToInventory: (playerId, itemId, count) =>
+        this.players.get(playerId)?.inventory.add(itemId, count) ?? count,
+      giveToStorage: (itemId, count) => this.core.storage.add(itemId, count),
+      dropAtPlayer: (playerId, itemId, count) => {
+        const player = this.players.get(playerId);
+        if (player) this.dropItem(itemId, count, player.x, player.y);
+      },
+      clearInventory: (playerId) => {
+        const inventory = this.players.get(playerId)?.inventory;
+        if (!inventory) return;
+        for (let index = 0; index < inventory.toView().slots.length; index += 1) {
+          inventory.takeAt(index);
+        }
+      },
+      clearStorage: () => {
+        for (let index = 0; index < STORAGE_SLOT_COUNT; index += 1) this.core.storage.takeAt(index);
+      },
+
+      setMoney: (amount) => {
+        this.core.money = amount;
+      },
+      setEnergy: (amount) => {
+        this.core.sharedEnergy = amount;
+      },
+      setTier: (tier) => {
+        const maxTier = coreUpgradesData.startTier + coreUpgradesData.tiers.length;
+        this.core.tier = Math.max(coreUpgradesData.startTier, Math.min(maxTier, tier));
+        return this.core.tier;
+      },
+
+      jumpToWave: (waveNumber) => {
+        const moved = this.waveManager.debugJumpToWave(waveNumber);
+        if (moved) this.monsters.clear();
+        return moved;
+      },
+      forceDay: () => {
+        this.monsters.clear();
+        // 스폰 큐까지 비워야 낮에 몬스터가 계속 튀어나오지 않는다. 낮에 딸린 일은
+        // 정상 진행과 같은 함수로 처리한다.
+        if (this.waveManager.debugEndNight() && this.waveManager.currentPhase === 'day') {
+          this.onDayBegan();
+        }
+      },
+      spawnMonsters: (type, count) => {
+        for (let i = 0; i < count; i += 1) {
+          // 코어 주변 원형으로 흩뿌린다. 한 점에 겹쳐 놓으면 분리 로직이 튄다.
+          const angle = (i / count) * Math.PI * 2;
+          const radius = DEV_SPAWN_RADIUS + (i % 3) * TILE_SIZE;
+          this.addMonster(type, Math.cos(angle) * radius, Math.sin(angle) * radius);
+        }
+      },
+      clearMonsters: () => this.monsters.clear(),
+
+      healPlayer: (playerId) => {
+        const player = this.players.get(playerId);
+        if (player) player.hp = wavesData.playerHp;
+      },
+      setCoreHp: (amount) => {
+        this.core.hp = Math.min(this.core.maxHp, amount);
+      },
+      rerollShop: () => this.rollShopStock(),
+    };
+  }
+
   tick(dtSeconds: number): void {
     this.elapsedSeconds += dtSeconds;
 
@@ -950,10 +1048,7 @@ export class World {
     // 밤이 끝나고 새 낮이 시작되는 시점(웨이브 클리어) — 다운된 플레이어를 부활시키고
     // 지난 낮의 스킵 투표를 초기화한다(docs/backend/11 §4.1).
     if (previousPhase !== 'day' && this.waveManager.currentPhase === 'day') {
-      this.revivePlayers();
-      this.skipVotes.clear();
-      // 하루가 지나면 상점 물건이 통째로 바뀐다. 오늘 못 산 전설은 오늘로 끝이다.
-      this.rollShopStock();
+      this.onDayBegan();
     }
 
     this.tickMonsters(dtSeconds);
