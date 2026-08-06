@@ -59,7 +59,8 @@ export class ResourceNodeSchema extends Schema {
   @type('string') type = '';
   @type('number') x = 0;
   @type('number') y = 0;
-  @type('number') remainingHarvests = 0;
+  @type('number') hp = 0;
+  @type('number') maxHp = 0;
 }
 
 export class BuildingSchema extends Schema {
@@ -86,6 +87,9 @@ export class GameRoomState extends Schema {
   @type({ map: BuildingSchema }) buildings = new MapSchema<BuildingSchema>();
   @type('number') coreHp = 0;
   @type('number') coreMaxHp = 0;
+  /** 팀 공유 자원 창고(코어에 입고된 양). 건축 비용이 여기서 나간다. */
+  @type('number') coreSharedWood = 0;
+  @type('number') coreSharedStone = 0;
   /** 'day' | 'night' | 'victory' | 'defeat' (shared/sim의 GamePhase) */
   @type('string') wavePhase = 'day';
   @type('number') currentWave = 0;

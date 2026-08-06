@@ -54,7 +54,8 @@ interface RemoteResourceNodeState {
   type: string;
   x: number;
   y: number;
-  remainingHarvests: number;
+  hp: number;
+  maxHp: number;
 }
 
 interface RemoteBuildingState {
@@ -73,6 +74,8 @@ interface RemoteGameState {
   hostSessionId: string;
   coreHp: number;
   coreMaxHp: number;
+  coreSharedWood: number;
+  coreSharedStone: number;
   wavePhase: string;
   currentWave: number;
   phaseTimeRemaining: number;
@@ -212,8 +215,8 @@ export class ColyseusConnection implements GameConnection {
     this.room.send('skipVote', {});
   }
 
-  harvest(): void {
-    this.room.send('harvest', {});
+  deposit(): void {
+    this.room.send('deposit', {});
   }
 
   placeBuilding(buildingType: string, cx: number, cy: number): void {
@@ -281,7 +284,8 @@ export class ColyseusConnection implements GameConnection {
         type: node.type,
         x: node.x,
         y: node.y,
-        remainingHarvests: node.remainingHarvests,
+        hp: node.hp,
+        maxHp: node.maxHp,
       });
     });
 
@@ -306,6 +310,8 @@ export class ColyseusConnection implements GameConnection {
       status: {
         coreHp: state?.coreHp ?? 0,
         coreMaxHp: state?.coreMaxHp ?? 0,
+        coreSharedWood: state?.coreSharedWood ?? 0,
+        coreSharedStone: state?.coreSharedStone ?? 0,
         wavePhase: state?.wavePhase ?? 'day',
         currentWave: state?.currentWave ?? 0,
         phaseTimeRemaining: state?.phaseTimeRemaining ?? 0,

@@ -40,6 +40,8 @@ const FLOW_FIELD_GRID: FlowFieldGrid = {
 };
 /** 코어 자체의 판정 반경(px). 몬스터의 attackRange에 더해져 "코어에 도달했다"를 정의한다. */
 const CORE_RADIUS = TILE_SIZE;
+/** 코어 옆에서 자원을 입고(E)할 수 있는 반경(px). CORE_RADIUS보다 넉넉히 둬서 코어 바로 앞이 아니어도 상호작용할 수 있게 한다. */
+const CORE_INTERACT_RADIUS = CORE_RADIUS + 32;
 /** 이 거리보다 가까운 몬스터끼리는 서로 밀어낸다 — 군집 분리(기술명세 §5.3). */
 const SEPARATION_RADIUS = HIT_RADIUS * 2.5;
 /** 분리력이 주 이동 방향을 완전히 덮어쓰지 않도록 두는 가중치. */
@@ -101,9 +103,13 @@ const STONE_NODES_PER_CLUSTER = 3;
 const CLUSTER_MIN_DISTANCE = 150;
 const CLUSTER_MAX_DISTANCE = 350;
 /** 클러스터 중심 주변으로 노드가 흩어지는 반경(px). */
-const CLUSTER_JITTER_RADIUS = 48;
-/** 같은 클러스터 안에서 노드끼리 이 거리보다 가깝게는 두지 않는다(완전히 겹치는 것 방지). */
-const MIN_NODE_SPACING = 20;
+const CLUSTER_JITTER_RADIUS = 80;
+/**
+ * 같은 클러스터 안에서 노드끼리 이 거리보다 가깝게는 두지 않는다(완전히 겹치는 것
+ * 방지). 자원 노드를 근접 타격 대상으로 바꾸면서 판정 반경(resourcesData.hitRadius,
+ * 14px)에 맞춰 시각적으로도 커졌다 — 간격이 그보다 좁으면 옆 노드와 그림이 겹친다.
+ */
+const MIN_NODE_SPACING = 36;
 
 export interface PlayerEntity {
   id: string;
@@ -123,8 +129,9 @@ export interface ResourceNodeEntity {
   type: ResourceType;
   x: number;
   y: number;
-  remainingHarvests: number;
-  /** 0이면 채집 가능. 고갈되면 resourcesData[type].respawnSeconds로 세팅되고 매 틱 감소한다. */
+  hp: number;
+  maxHp: number;
+  /** 0이면 채집 가능(살아있음). 고갈되면 resourcesData[type].respawnSeconds로 세팅되고 매 틱 감소한다. */
   respawnTimer: number;
 }
 
@@ -169,6 +176,14 @@ export interface MonsterEntity {
 export interface CoreState {
   hp: number;
   maxHp: number;
+  /**
+   * 팀 전체가 공유하는 자원 창고. 플레이어 개인의 wood/stone은 "아직 코어에 입고하지
+   * 않은, 손에 든" 양이고, 건축 비용은 여기(공유 자원)에서만 나간다 — 자원을 모아서
+   * 함께 쓰는 협동 경험을 만들려는 의도다(자원채집 도구 도입에 맞춰 재설계, 이전엔
+   * 채집 즉시 개인 지갑에 꽂혔었다).
+   */
+  sharedWood: number;
+  sharedStone: number;
 }
 
 let nextMonsterId = 1;
@@ -189,13 +204,16 @@ export class World {
   private readonly waveManager = new WaveManager();
   private readonly buildings = new BuildingRegistry();
   private readonly resourceNodes = new Map<string, ResourceNodeEntity>();
-  /** `${playerId}:${resourceType}` → 마지막 채집 시각(elapsedSeconds). harvestInterval 속도 제한용. */
-  private readonly lastHarvestAt = new Map<string, number>();
   private readonly rng: () => number;
   private readonly flowField = new FlowField(FLOW_FIELD_GRID, (cx, cy) =>
     this.buildings.isBlockedForMovement(cx, cy),
   );
-  private readonly core: CoreState = { hp: wavesData.coreHp, maxHp: wavesData.coreHp };
+  private readonly core: CoreState = {
+    hp: wavesData.coreHp,
+    maxHp: wavesData.coreHp,
+    sharedWood: 0,
+    sharedStone: 0,
+  };
   private elapsedSeconds = 0;
   /** 이번 낮 페이즈에 스킵 투표를 던진 플레이어 id 집합. 만장일치면 skipDay()를 부른다. */
   private skipVotes = new Set<string>();
@@ -305,8 +323,22 @@ export class World {
       aimAngle: player.aimAngle,
     });
 
-    if (result.projectile) this.projectiles.set(result.projectile.id, result.projectile);
-    if (result.meleeHit) this.applyMeleeHit(result.meleeHit);
+    if (result.projectile) {
+      // 총구가 플레이어 좌표에서 muzzleOffset만큼 떨어진 곳에서 "순간이동하듯" 생겨난다
+      // (연출용 총구 위치 보정, backend/frontend 병합분). 그런데 몬스터가 그 사이
+      // 간격(0~muzzleOffset)에 딱 붙어 있으면, 투사체가 몬스터를 지나친 자리에서
+      // 시작해 버려서 조준이 정확해도 절대 맞힐 수 없었다(돌진형 몬스터가 근접
+      // 사거리까지 파고든 뒤 총으로는 못 잡는 버그로 제보받음). 총구가 "생겨나기 전"
+      // 그 간격을 지나가는 순간 몬스터가 있었을지를 먼저 검사해서, 있었으면 투사체를
+      // 날리는 대신 그 자리에서 바로 맞힌 것으로 처리한다.
+      if (!this.resolveMuzzleGapHit(player, result.projectile)) {
+        this.projectiles.set(result.projectile.id, result.projectile);
+      }
+    }
+    if (result.meleeHit) {
+      this.applyMeleeHit(result.meleeHit);
+      this.applyMeleeHitToResourceNode(player, result.meleeHit, weaponId);
+    }
   }
 
   /**
@@ -326,50 +358,67 @@ export class World {
   }
 
   /**
-   * 채집 요청. 타겟을 지정하지 않는다 — 플레이어 위치 기준 반경 안의, 아직 고갈되지
-   * 않은 가장 가까운 노드 하나에 자동으로 적용된다(근접 무기 판정과 같은 반경 스캔
-   * 방식). `fire()`처럼 호출 자체는 상태 없는 단발 액션이고, 클라이언트가 "E 홀드"
-   * 동안 반복 전송하는 방식으로 채널링 UX를 낸다(docs/backend/18 §3.1) — 서버는
-   * `harvestInterval` 쿨다운으로만 속도를 제한한다. 도구 소유권 검사는 없다(§확정한
-   * 설계 결정 1 — 상점이 없어서 검사할 대상 자체가 없다).
+   * 근접 공격 하나가 자원 노드도 때렸는지 검사한다. `fireWeapon`에서 몬스터 판정
+   * (`applyMeleeHit`)과 나란히 호출된다 — 몬스터 여러 마리를 한 번에 베는 것과 달리
+   * 자원 노드는 **가장 가까운 것 하나만** 맞힌다(군집으로 뭉쳐 있어서 광역으로 여러
+   * 노드를 한 스윙에 캐버리면 채집이 무의미해진다).
+   *
+   * `requiredTool`과 실제 장착 무기가 정확히 일치해야 데미지가 들어간다 — 도끼로는
+   * 나무만, 곡괭이로는 돌만 캘 수 있다(자원채집 도구가 도입된 이후 처음으로 실제
+   * 강제되는 규칙 — 예전엔 근접 무기 아무거나로도 "채집 요청"이 통과됐다).
    */
-  harvest(playerId: string): void {
-    const player = this.players.get(playerId);
-    if (!player) return;
-
+  private applyMeleeHitToResourceNode(player: PlayerEntity, hit: MeleeHit, weaponId: string): void {
     let target: ResourceNodeEntity | undefined;
     let targetDistance = Infinity;
     for (const node of this.resourceNodes.values()) {
-      if (node.remainingHarvests <= 0) continue;
+      if (node.hp <= 0) continue;
       const data = resourcesData[node.type];
-      const distance = Math.hypot(node.x - player.x, node.y - player.y);
-      if (distance > data.harvestRadius || distance >= targetDistance) continue;
+      if (data.requiredTool !== weaponId) continue;
+      if (!withinMeleeArc(hit, node.x, node.y, data.hitRadius)) continue;
+      const distance = Math.hypot(node.x - hit.originX, node.y - hit.originY);
+      if (distance >= targetDistance) continue;
       target = node;
       targetDistance = distance;
     }
     if (!target) return;
 
     const data = resourcesData[target.type];
-    const cooldownKey = `${playerId}:${target.type}`;
-    const lastHarvest = this.lastHarvestAt.get(cooldownKey);
-    if (lastHarvest !== undefined && this.elapsedSeconds - lastHarvest < data.harvestInterval) return;
-    this.lastHarvestAt.set(cooldownKey, this.elapsedSeconds);
+    target.hp = Math.max(0, target.hp - hit.damage);
+    if (target.hp > 0) return;
 
-    target.remainingHarvests -= 1;
-    if (target.remainingHarvests <= 0) target.respawnTimer = data.respawnSeconds;
+    target.respawnTimer = data.respawnSeconds;
 
     // ResourceType이 늘어나면(현재 wood/stone 2종) 여기에 분기를 추가해야 한다 —
     // PlayerEntity가 자원별 전용 필드를 쓰는 설계라(범용 인벤토리 맵이 아니다) 자동으로
     // 확장되지 않는다.
-    if (target.type === 'wood') player.wood += data.yieldPerHarvest;
-    else if (target.type === 'stone') player.stone += data.yieldPerHarvest;
+    if (target.type === 'wood') player.wood += data.yieldOnDeplete;
+    else if (target.type === 'stone') player.stone += data.yieldOnDeplete;
+  }
+
+  /**
+   * 코어 입고 요청(E). 플레이어가 들고 있는(=아직 입고하지 않은) 나무/돌을 코어의
+   * 공유 창고로 옮긴다 — 코어 반경 안에서만 되고, 들고 있는 게 하나도 없으면 조용히
+   * 무시한다. 입고 즉시 개인 지갑은 0이 된다(다시 캐야 다음 몫이 생긴다).
+   */
+  depositAtCore(playerId: string): void {
+    const player = this.players.get(playerId);
+    if (!player) return;
+    if (player.wood <= 0 && player.stone <= 0) return;
+
+    const distance = Math.hypot(player.x, player.y); // 코어는 항상 원점(0,0)
+    if (distance > CORE_INTERACT_RADIUS) return;
+
+    this.core.sharedWood += player.wood;
+    this.core.sharedStone += player.stone;
+    player.wood = 0;
+    player.stone = 0;
   }
 
   /**
    * 건축 요청 처리. `buildingType`/`cx`/`cy`는 네트워크 경계를 넘어온 값이라 타입부터
    * 검증한다. 배치 규칙(docs/backend/18 §3.5): 이미 다른 건축물/자원 노드/코어가 있는
-   * 셀, 플레이어가 서 있는 셀엔 지을 수 없다. 비용은 설치를 요청한 플레이어의
-   * 인벤토리에서만 차감한다(팀원 자원을 모아서 내는 기능은 범위 밖).
+   * 셀, 플레이어가 서 있는 셀엔 지을 수 없다. 비용은 코어의 공유 자원 풀에서 차감한다
+   * (자원채집 도구 도입에 맞춘 재설계 — 예전엔 요청자 개인 지갑에서만 나갔다).
    */
   placeBuilding(playerId: string, buildingType: unknown, cx: unknown, cy: unknown): void {
     if (typeof buildingType !== 'string' || !isFiniteNumber(cx) || !isFiniteNumber(cy)) return;
@@ -393,12 +442,11 @@ export class World {
       if (otherCell.cx === cx && otherCell.cy === cy) return;
     }
 
-    const player = this.players.get(playerId);
-    if (!player) return;
-    if (player.wood < data.woodCost || player.stone < data.stoneCost) return;
+    if (!this.players.has(playerId)) return;
+    if (this.core.sharedWood < data.woodCost || this.core.sharedStone < data.stoneCost) return;
 
-    player.wood -= data.woodCost;
-    player.stone -= data.stoneCost;
+    this.core.sharedWood -= data.woodCost;
+    this.core.sharedStone -= data.stoneCost;
 
     const { x, y } = cellCenterWorld(cx, cy);
     const id = `building_${nextBuildingId++}`;
@@ -528,7 +576,8 @@ export class World {
           type,
           x: position.x,
           y: position.y,
-          remainingHarvests: data.maxHarvests,
+          hp: data.hp,
+          maxHp: data.hp,
           respawnTimer: 0,
         });
       }
@@ -637,7 +686,7 @@ export class World {
       if (node.respawnTimer <= 0) continue;
       node.respawnTimer -= dtSeconds;
       if (node.respawnTimer <= 0) {
-        node.remainingHarvests = resourcesData[node.type].maxHarvests;
+        node.hp = resourcesData[node.type].hp;
         node.respawnTimer = 0;
       }
     }
@@ -1031,9 +1080,47 @@ export class World {
     monster.y += (normY * speed + separation.y * speed * SEPARATION_WEIGHT) * dtSeconds;
   }
 
+  /**
+   * 플레이어 좌표에서 투사체 생성 좌표(muzzleOffset만큼 떨어진 총구)까지의 구간에
+   * 몬스터가 걸쳐 있었는지 검사한다. 원-원 판정이 아니라 원-선분 판정이 필요한 이유:
+   * 몬스터가 정확히 그 구간 "중간"에 있으면 두 끝점(플레이어 좌표/총구 좌표) 중
+   * 어느 쪽과도 안 겹칠 수 있다 — 구간에서 몬스터 중심에 가장 가까운 점을 구해서
+   * 그 점과 겹치는지를 봐야 새는 경우가 없다. 걸쳐 있었으면 그 몬스터에게 즉시
+   * 데미지를 주고 true를 반환한다(투사체는 아예 만들지 않는다 — 총구가 생겨나기도
+   * 전에 이미 막고 있었으니 "총구에서 발사되어 날아가는" 연출 자체가 성립하지 않는다).
+   */
+  private resolveMuzzleGapHit(player: PlayerEntity, projectile: ProjectileEntity): boolean {
+    const gapX = projectile.x - player.x;
+    const gapY = projectile.y - player.y;
+    const gapLength = Math.hypot(gapX, gapY);
+    if (gapLength <= 0) return false;
+
+    const dirX = gapX / gapLength;
+    const dirY = gapY / gapLength;
+
+    let closestId: string | undefined;
+    let closestAlong = Infinity;
+    for (const [id, monster] of this.monsters) {
+      const hitRadius = monstersData[monster.type].hitRadius;
+      const alongRaw = (monster.x - player.x) * dirX + (monster.y - player.y) * dirY;
+      const along = Math.max(0, Math.min(gapLength, alongRaw));
+      const closestX = player.x + dirX * along;
+      const closestY = player.y + dirY * along;
+      if (!circlesOverlap(closestX, closestY, monster.x, monster.y, hitRadius)) continue;
+      if (along >= closestAlong) continue;
+      closestId = id;
+      closestAlong = along;
+    }
+
+    if (!closestId) return false;
+    const monster = this.monsters.get(closestId)!;
+    this.damageMonster(closestId, monster.hp - projectile.damage);
+    return true;
+  }
+
   private applyMeleeHit(hit: MeleeHit): void {
     for (const [id, monster] of this.monsters) {
-      if (withinMeleeArc(hit, monster.x, monster.y, HIT_RADIUS)) {
+      if (withinMeleeArc(hit, monster.x, monster.y, monstersData[monster.type].hitRadius)) {
         this.damageMonster(id, monster.hp - hit.damage);
       }
     }
@@ -1053,7 +1140,15 @@ export class World {
 
   private projectileHitsMonster(projectileId: string, projectile: ProjectileEntity): boolean {
     for (const [monsterId, monster] of this.monsters) {
-      if (circlesOverlap(projectile.x, projectile.y, monster.x, monster.y, HIT_RADIUS)) {
+      if (
+        circlesOverlap(
+          projectile.x,
+          projectile.y,
+          monster.x,
+          monster.y,
+          monstersData[monster.type].hitRadius,
+        )
+      ) {
         this.damageMonster(monsterId, monster.hp - projectile.damage);
         this.projectiles.delete(projectileId);
         return true;

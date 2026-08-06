@@ -3,9 +3,13 @@ import { MAX_CLIENTS_PER_ROOM, SLOT_COUNT, computeCameraZoom, wavesData } from '
 import type { GameConnection, PlayerView, WorldSnapshot } from '../../net/GameConnection';
 import { CONNECTION_KEY, INPUT_CONTROLLER_KEY } from '../createGame';
 import type { InputController } from '../input/InputController';
+import { CoreModal } from '../ui/CoreModal';
+import { CraftModal } from '../ui/CraftModal';
 import { Minimap } from '../ui/Minimap';
 import { PartyPanel } from '../ui/PartyPanel';
 import { QuickSlotBar } from '../ui/QuickSlotBar';
+import { StoreModal } from '../ui/StoreModal';
+import { UpgradeModal } from '../ui/UpgradeModal';
 import { WaveDial } from '../ui/WaveDial';
 import {
   ACCENT,
@@ -36,7 +40,7 @@ const DIM_STYLE = { fontFamily: FONT, fontSize: `${SIZE_BODY}px`, color: DIM_TEX
 const SMALL_STYLE = { fontFamily: FONT_SMALL, fontSize: `${SIZE_SMALL}px`, color: DIM_TEXT } as const;
 const PAD = 12;
 const CORE_PANEL_WIDTH = 190;
-const CORE_PANEL_HEIGHT = 46;
+const CORE_PANEL_HEIGHT = 60;
 const CORE_BAR_HEIGHT = 8;
 /** 자기 체력 바 — 퀵슬롯 바로 위에 붙인다. */
 const SELF_BAR_WIDTH = 180;
@@ -61,6 +65,8 @@ export class HudScene extends Phaser.Scene {
   private coreLabel!: Phaser.GameObjects.Text;
   private coreBarBack!: Phaser.GameObjects.Rectangle;
   private coreBar!: Phaser.GameObjects.Rectangle;
+  /** 코어에 입고된 팀 공유 자원(건축 비용이 여기서 나간다) — 개인 휴대량과는 다른 값이다. */
+  private sharedResourceText!: Phaser.GameObjects.Text;
 
   private waveDial!: WaveDial;
   private minimap!: Minimap;
@@ -78,6 +84,13 @@ export class HudScene extends Phaser.Scene {
   private debugJumpButton?: Phaser.GameObjects.Text;
   /** 바 너비를 다시 계산할 때 필요해서 보관한다. */
   private uiScale = 1;
+
+  // 코어 상호작용 모달 4종(docs/frontend/09) — [F]로 코어 모달을 열고, 거기서
+  // 나머지 셋으로 이동한다. 아직 선작업 단계라 실제 데이터/효과는 없다.
+  private coreModal!: CoreModal;
+  private upgradeModal!: UpgradeModal;
+  private storeModal!: StoreModal;
+  private craftModal!: CraftModal;
 
   constructor() {
     super(HUD_SCENE_KEY);
@@ -99,6 +112,7 @@ export class HudScene extends Phaser.Scene {
       SMALL_STYLE,
     );
     this.coreLabel = this.add.text(0, 0, 'CORE', TEXT_STYLE);
+    this.sharedResourceText = this.add.text(0, 0, '공유 나무 0 · 돌 0', SMALL_STYLE);
     this.coreBarBack = this.add.rectangle(0, 0, 10, CORE_BAR_HEIGHT, BAR_BACK).setOrigin(0, 0);
     this.coreBar = this.add.rectangle(0, 0, 10, CORE_BAR_HEIGHT, 0x6fd08c).setOrigin(0, 0);
 
@@ -115,7 +129,7 @@ export class HudScene extends Phaser.Scene {
     this.selfBarBack = this.add.rectangle(0, 0, 10, SELF_BAR_HEIGHT, BAR_BACK).setOrigin(0.5, 1);
     this.selfBar = this.add.rectangle(0, 0, 10, SELF_BAR_HEIGHT, 0x6fd08c).setOrigin(0, 1);
 
-    this.resourceText = this.add.text(0, 0, '나무 0 · 돌 0', DIM_STYLE);
+    this.resourceText = this.add.text(0, 0, '휴대 나무 0 · 돌 0', DIM_STYLE);
     this.buildModeText = this.add.text(0, 0, '건축모드: 꺼짐', DIM_STYLE);
     this.debugText = this.add.text(0, 0, '', SMALL_STYLE);
     this.helpText = this.add.text(0, 0, '', DIM_STYLE).setOrigin(0.5, 1);
@@ -137,10 +151,48 @@ export class HudScene extends Phaser.Scene {
         .on('pointerdown', () => this.connection.debugJumpToWave?.(5));
     }
 
+    this.createCoreModals();
+
     this.layout();
     this.scale.on(Phaser.Scale.Events.RESIZE, this.layout, this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.scale.off(Phaser.Scale.Events.RESIZE, this.layout, this);
+    });
+  }
+
+  /**
+   * 코어 상호작용 모달 4종을 만들고 배선한다(docs/frontend/09) — [F]로 허브(코어)
+   * 모달을 열고, 거기 있는 4개 버튼 중 3개가 각각 다른 모달로 넘어간다. "창고"는
+   * 아직 모달 자체가 없어서(와이어프레임에 잘려 있었다) 우선 로그만 남긴다 —
+   * 실제 코어 근접 판정이나 데이터 연결은 다음 작업이다.
+   */
+  private createCoreModals(): void {
+    this.coreModal = new CoreModal(this);
+    this.upgradeModal = new UpgradeModal(this);
+    this.storeModal = new StoreModal(this);
+    this.craftModal = new CraftModal(this);
+
+    this.coreModal.onManage = () => {
+      this.coreModal.close();
+      this.upgradeModal.open();
+    };
+    this.coreModal.onStore = () => {
+      this.coreModal.close();
+      this.storeModal.open();
+    };
+    this.coreModal.onCraft = () => {
+      this.coreModal.close();
+      this.craftModal.open();
+    };
+    this.coreModal.onWarehouse = () => {
+      console.log('[HudScene] 창고 모달은 아직 없다');
+    };
+
+    // 낮/밤 무관하게 언제든 열어볼 수 있다 — 아직 실제 효과가 없는 선작업 UI라
+    // 페이즈로 막을 이유가 없다(효과가 생기면 그때 막을지 정하면 된다).
+    this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.F).on('down', () => {
+      if (this.coreModal.isOpen()) this.coreModal.close();
+      else this.coreModal.open();
     });
   }
 
@@ -164,6 +216,9 @@ export class HudScene extends Phaser.Scene {
     this.corePanel.setSize(panelW, panelH).setPosition(pad, pad);
     this.roomText.setFontSize(SIZE_SMALL * scale).setPosition(pad + 8 * scale, pad + 5 * scale);
     this.coreLabel.setFontSize(SIZE_BODY * scale).setPosition(pad + 8 * scale, pad + 17 * scale);
+    this.sharedResourceText
+      .setFontSize(SIZE_SMALL * scale)
+      .setPosition(pad + 8 * scale, pad + 30 * scale);
 
     const coreBarW = panelW - 16 * scale;
     const coreBarY = pad + panelH - 14 * scale;
@@ -209,7 +264,7 @@ export class HudScene extends Phaser.Scene {
     const { status } = snapshot;
     const me = snapshot.players.find((player) => player.id === this.connection.sessionId);
 
-    this.updateCore(status.coreHp, status.coreMaxHp);
+    this.updateCore(status.coreHp, status.coreMaxHp, status.coreSharedWood, status.coreSharedStone);
     this.waveDial.update(status);
     this.minimap.update(snapshot, this.connection.sessionId);
     this.party.update(
@@ -220,12 +275,13 @@ export class HudScene extends Phaser.Scene {
     this.updateTexts(snapshot, me);
   }
 
-  private updateCore(hp: number, maxHp: number): void {
+  private updateCore(hp: number, maxHp: number, sharedWood: number, sharedStone: number): void {
     const ratio = maxHp > 0 ? hp / maxHp : 1;
     this.coreBar.width = Math.max(0, this.coreBarBack.width * ratio);
     // 코어가 위험하면 색으로 먼저 알린다 — 숫자를 읽기 전에 눈에 들어와야 한다.
     this.coreBar.fillColor = barColor(ratio);
     this.coreLabel.setText(`CORE ${Math.ceil(hp)}`);
+    this.sharedResourceText.setText(`공유 나무 ${sharedWood} · 돌 ${sharedStone}`);
   }
 
   private updateSelfBar(me: PlayerView | undefined): void {
@@ -242,7 +298,7 @@ export class HudScene extends Phaser.Scene {
         ? `x:${me.x.toFixed(0)} y:${me.y.toFixed(0)} mob:${snapshot.monsters.length} proj:${snapshot.projectiles.length}`
         : '동기화 대기 중...',
     );
-    this.resourceText.setText(me ? `나무 ${me.wood} · 돌 ${me.stone}` : '나무 0 · 돌 0');
+    this.resourceText.setText(me ? `휴대 나무 ${me.wood} · 돌 ${me.stone}` : '휴대 나무 0 · 돌 0');
 
     // InputController는 GameScene 소속이라 registry로만 접근한다 — 씬 시작 순서와
     // 무관하게 늦어도 다음 프레임엔 값이 채워져 있다(GameScene.create 참고).
@@ -254,7 +310,7 @@ export class HudScene extends Phaser.Scene {
     // 낮에만 스킵 안내를 띄운다 — 밤에는 쓸 수 없는 조작이라 보여줄 이유가 없다.
     const controlsHint =
       buildMode === 'off'
-        ? `WASD 이동 · 좌클릭 사용 · [1~${SLOT_COUNT}] 퀵슬롯 · [E] 채집 · [B] 건축모드`
+        ? `WASD 이동 · 좌클릭 사용 · [1~${SLOT_COUNT}] 퀵슬롯 · [E] 코어 입고 · [F] 코어 메뉴 · [B] 건축모드`
         : '좌클릭 설치 · 우클릭/[B] 취소 또는 다음 건축물';
     this.helpText.setText(
       status.wavePhase === 'day'

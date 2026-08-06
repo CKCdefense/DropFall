@@ -77,9 +77,9 @@ export class GameRoom extends Room {
       if (this.state.phase !== RoomPhase.PLAYING) return;
       this.world.castSkipVote(client.sessionId);
     },
-    harvest: (client: Client) => {
+    deposit: (client: Client) => {
       if (this.state.phase !== RoomPhase.PLAYING) return;
-      this.world.harvest(client.sessionId);
+      this.world.depositAtCore(client.sessionId);
     },
     placeBuilding: (client: Client, payload: BuildInputMessage) => {
       if (this.state.phase !== RoomPhase.PLAYING) return;
@@ -257,6 +257,8 @@ export class GameRoom extends Room {
     const core = this.world.getCore();
     this.state.coreHp = core.hp;
     this.state.coreMaxHp = core.maxHp;
+    this.state.coreSharedWood = core.sharedWood;
+    this.state.coreSharedStone = core.sharedStone;
     this.state.wavePhase = this.world.getWavePhase();
     this.state.currentWave = this.world.getCurrentWave();
     this.state.phaseTimeRemaining = this.world.getPhaseTimeRemaining();
@@ -333,9 +335,10 @@ export class GameRoom extends Room {
         schema.type = node.type;
         schema.x = node.x;
         schema.y = node.y;
+        schema.maxHp = node.maxHp;
         this.state.resourceNodes.set(id, schema);
       }
-      schema.remainingHarvests = node.remainingHarvests;
+      schema.hp = node.hp;
     }
 
     for (const id of [...this.state.resourceNodes.keys()]) {

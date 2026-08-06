@@ -50,98 +50,169 @@ function createTestWorld(): World {
   return new World({ rng: seededRng(1) });
 }
 
-describe('World — 채집', () => {
-  it('반경 안의 자원 노드를 채집하면 인벤토리가 늘고 노드 잔여 횟수가 준다', () => {
-    const world = createTestWorld();
-    world.addPlayer('p1', 0, 0);
+/**
+ * 건축 비용은 코어의 팀 공유 창고(core.sharedWood/sharedStone)에서 나간다(개인
+ * 지갑이 아니다) — 테스트에서 직접 채워 넣는다. `getCore()`의 반환 타입은
+ * `Readonly<CoreState>`이지만 실제로는 World가 들고 있는 같은 객체라, 다른 파일의
+ * 디버그 헬퍼들과 같은 방식으로 테스트 전용 캐스팅을 쓴다.
+ */
+function grantSharedResources(world: World, wood: number, stone: number): void {
+  const core = world.getCore() as { sharedWood: number; sharedStone: number };
+  core.sharedWood = wood;
+  core.sharedStone = stone;
+}
 
-    const [node] = [...world.getResourceNodes().values()];
-    const player = world.getPlayers().get('p1')!;
-    player.x = node.x;
-    player.y = node.y;
-
-    const before = node.remainingHarvests;
-    world.harvest('p1');
-
-    expect(node.remainingHarvests).toBe(before - 1);
-    if (node.type === 'wood') expect(player.wood).toBeGreaterThan(0);
-    else expect(player.stone).toBeGreaterThan(0);
-  });
-
-  it('harvestInterval 안에 다시 채집을 시도하면 무시된다', () => {
-    const world = createTestWorld();
-    world.addPlayer('p1', 0, 0);
-
-    const [node] = [...world.getResourceNodes().values()];
-    const player = world.getPlayers().get('p1')!;
-    player.x = node.x;
-    player.y = node.y;
-
-    const before = node.remainingHarvests;
-    world.harvest('p1');
-    const afterFirst = node.type === 'wood' ? player.wood : player.stone;
-    world.harvest('p1'); // 같은 틱, 쿨다운 안 지남
-
-    const afterSecond = node.type === 'wood' ? player.wood : player.stone;
-    expect(afterSecond).toBe(afterFirst);
-    expect(node.remainingHarvests).toBe(before - 1); // 정확히 1번만 채집됐어야 한다
-  });
-
-  it('반경 밖에서는 채집이 되지 않는다', () => {
-    const world = createTestWorld();
-    world.addPlayer('p1', 5000, 5000); // 어떤 노드와도 멀리 떨어진 위치
-
-    const [node] = [...world.getResourceNodes().values()];
-    const before = node.remainingHarvests;
-
-    world.harvest('p1');
-
-    expect(node.remainingHarvests).toBe(before);
-  });
-
-  it('고갈된 노드는 채집되지 않고, respawnSeconds 후에 다시 채집 가능해진다', () => {
-    const world = createTestWorld();
-    world.addPlayer('p1', 0, 0);
-
-    const [node] = [...world.getResourceNodes().values()];
-    const player = world.getPlayers().get('p1')!;
-    player.x = node.x;
-    player.y = node.y;
-
-    // 노드가 군집으로 배치돼서 반경 안에 같은 타입의 다른 노드가 더 있을 수 있다 —
-    // harvest()를 반복 호출해 "이 노드"만 자연스럽게 고갈시키는 방식은 그 다른 노드를
-    // 대신 캐버릴 수 있어 더 이상 안전하지 않다. 직접 고갈 상태로 만들어서
-    // "고갈된 노드는 후보에서 제외된다"를 확실히 검증한다(반경 안 전부 고갈시킴).
-    for (const other of world.getResourceNodes().values()) {
-      other.remainingHarvests = 0;
+describe('World — 채집(근접 타격)', () => {
+  /**
+   * 클러스터 자동 배치 위치를 그대로 쓰면 반경 안에 같은 타입의 다른 노드가 더
+   * 있을 수 있어(§backend/26) 어느 노드가 맞았는지 헷갈린다 — 타겟 노드만 플레이어
+   * 코앞(+x, 도끼/곡괭이 사거리 26px 안)으로 옮기고 나머지 같은 타입 노드는 멀리
+   * 치워서 완전히 격리한다.
+   */
+  function isolateNode(world: World, type: 'wood' | 'stone', x: number, y: number) {
+    const nodes = [...world.getResourceNodes().values()];
+    const target = nodes.find((n) => n.type === type)!;
+    for (const node of nodes) {
+      if (node === target) continue;
+      if (node.type === type) {
+        node.x = 5000;
+        node.y = 5000;
+      }
     }
-    node.respawnTimer = resourcesData[node.type].respawnSeconds;
+    target.x = x;
+    target.y = y;
+    return target;
+  }
 
-    const stockBefore = node.type === 'wood' ? player.wood : player.stone;
-    world.harvest('p1');
-    const stockAfterFailedTry = node.type === 'wood' ? player.wood : player.stone;
-    expect(stockAfterFailedTry).toBe(stockBefore);
+  it('맞는 도구(도끼)로 나무 노드를 때리면 체력이 깎이고, 고갈되면 자원을 얻는다', () => {
+    const world = createTestWorld();
+    world.addPlayer('p1', 0, 0);
+    const node = isolateNode(world, 'wood', 20, 0);
 
-    // 리스폰 타이머를 다 흘려보내면 다시 채집 가능해진다.
+    world.selectSlot('p1', 1); // loadout 순서: 0=권총 1=도끼 2=곡괭이 3=붕대
+    const player = world.getPlayers().get('p1')!;
+
+    // wood.hp=54, axe.damage=18 → 정확히 3타에 고갈된다.
+    world.fireWeapon('p1');
+    world.tick(1); // axe fireRate(1.5) 쿨다운을 넘긴다
+    expect(node.hp).toBe(36);
+    expect(player.wood).toBe(0); // 아직 고갈 전이라 지급되지 않는다
+
+    world.fireWeapon('p1');
+    world.tick(1);
+    expect(node.hp).toBe(18);
+
+    world.fireWeapon('p1');
+
+    expect(node.hp).toBe(0);
+    expect(node.respawnTimer).toBe(resourcesData.wood.respawnSeconds);
+    expect(player.wood).toBe(resourcesData.wood.yieldOnDeplete); // 고갈 순간 한 번에 지급
+  });
+
+  it('도구가 맞지 않으면(도끼로 돌) 데미지가 들어가지 않는다', () => {
+    const world = createTestWorld();
+    world.addPlayer('p1', 0, 0);
+    const node = isolateNode(world, 'stone', 20, 0);
+    const before = node.hp;
+
+    world.selectSlot('p1', 1); // 도끼 — stone.requiredTool은 'pickax'라 안 맞는다
+    world.fireWeapon('p1');
+
+    expect(node.hp).toBe(before);
+  });
+
+  it('사거리 밖 노드는 근접 공격이 닿지 않는다', () => {
+    const world = createTestWorld();
+    world.addPlayer('p1', 0, 0);
+    const node = isolateNode(world, 'wood', 5000, 0);
+    const before = node.hp;
+
+    world.selectSlot('p1', 1);
+    world.fireWeapon('p1');
+
+    expect(node.hp).toBe(before);
+  });
+
+  it('고갈된 노드는 공격해도 반응이 없고, respawnSeconds 후에 hp가 원상복구된다', () => {
+    const world = createTestWorld();
+    world.addPlayer('p1', 0, 0);
+    const node = isolateNode(world, 'stone', 20, 0);
+    node.hp = 0;
+    node.respawnTimer = resourcesData.stone.respawnSeconds;
+
+    world.selectSlot('p1', 2); // 곡괭이
+    world.fireWeapon('p1');
+    const player = world.getPlayers().get('p1')!;
+    expect(player.stone).toBe(0); // 고갈된 노드를 때려도 지급되지 않는다
+
     for (let i = 0; i < 200 && node.respawnTimer > 0; i += 1) {
       world.tick(1);
     }
     expect(node.respawnTimer).toBe(0);
-    expect(node.remainingHarvests).toBeGreaterThan(0);
+    expect(node.hp).toBe(resourcesData.stone.hp);
+  });
+});
+
+describe('World — 코어 입고', () => {
+  it('코어 근처에서 입고하면 들고 있던 자원이 팀 공유 창고로 옮겨지고 개인 지갑은 0이 된다', () => {
+    const world = createTestWorld();
+    world.addPlayer('p1', 10, 0); // CORE_INTERACT_RADIUS(TILE_SIZE+32=48) 안
+    const player = world.getPlayers().get('p1')!;
+    player.wood = 12;
+    player.stone = 7;
+
+    world.depositAtCore('p1');
+
+    expect(player.wood).toBe(0);
+    expect(player.stone).toBe(0);
+    expect(world.getCore().sharedWood).toBe(12);
+    expect(world.getCore().sharedStone).toBe(7);
+  });
+
+  it('코어 반경 밖에서는 입고되지 않는다', () => {
+    const world = createTestWorld();
+    world.addPlayer('p1', 1000, 0);
+    const player = world.getPlayers().get('p1')!;
+    player.wood = 12;
+    player.stone = 7;
+
+    world.depositAtCore('p1');
+
+    expect(player.wood).toBe(12);
+    expect(player.stone).toBe(7);
+    expect(world.getCore().sharedWood).toBe(0);
+    expect(world.getCore().sharedStone).toBe(0);
+  });
+
+  it('들고 있는 자원이 없으면 조용히 무시한다', () => {
+    const world = createTestWorld();
+    world.addPlayer('p1', 0, 0);
+
+    world.depositAtCore('p1');
+
+    expect(world.getCore().sharedWood).toBe(0);
+    expect(world.getCore().sharedStone).toBe(0);
+  });
+
+  it('여러 플레이어가 입고하면 같은 공유 창고에 누적된다', () => {
+    const world = createTestWorld();
+    world.addPlayer('p1', 10, 0);
+    world.addPlayer('p2', -10, 0);
+    world.getPlayers().get('p1')!.wood = 5;
+    world.getPlayers().get('p2')!.wood = 8;
+
+    world.depositAtCore('p1');
+    world.depositAtCore('p2');
+
+    expect(world.getCore().sharedWood).toBe(13);
   });
 });
 
 describe('World — 건축', () => {
-  function grantResources(world: World, playerId: string, wood: number, stone: number): void {
-    const player = world.getPlayers().get(playerId)!;
-    player.wood = wood;
-    player.stone = stone;
-  }
-
-  it('자원이 충분하면 빈 셀에 건축물을 지을 수 있고 비용이 차감된다', () => {
+  it('공유 자원이 충분하면 빈 셀에 건축물을 지을 수 있고 비용이 공유 풀에서 차감된다', () => {
     const world = createTestWorld();
     world.addPlayer('builder', 500, 500);
-    grantResources(world, 'builder', 10, 10);
+    grantSharedResources(world, 10, 10);
 
     // 본인이 서 있는 셀이 아니라 바로 옆 셀에 짓는다 — "플레이어가 서 있는 셀엔 못 짓는다"
     // 규칙은 배치를 요청한 본인에게도 적용된다(실제 게임에서도 자기 발밑이 아니라
@@ -149,33 +220,33 @@ describe('World — 건축', () => {
     const { cx, cy } = worldToCell(550, 500);
     world.placeBuilding('builder', 'fence', cx, cy);
 
-    const player = world.getPlayers().get('builder')!;
-    expect(player.wood).toBe(5); // fence woodCost=5
-    expect(player.stone).toBe(10); // fence stoneCost=0
+    const core = world.getCore();
+    expect(core.sharedWood).toBe(5); // fence woodCost=5
+    expect(core.sharedStone).toBe(10); // fence stoneCost=0
 
     const buildings = [...world.getBuildings().values()];
     expect(buildings).toHaveLength(1);
     expect(buildings[0]!.type).toBe('fence');
   });
 
-  it('자원이 부족하면 건축이 실패하고 아무것도 차감되지 않는다', () => {
+  it('공유 자원이 부족하면 건축이 실패하고 아무것도 차감되지 않는다', () => {
     const world = createTestWorld();
     world.addPlayer('builder', 500, 500);
-    grantResources(world, 'builder', 0, 0);
+    grantSharedResources(world, 0, 0);
 
     const { cx, cy } = worldToCell(550, 500);
     world.placeBuilding('builder', 'wall', cx, cy);
 
     expect(world.getBuildings().size).toBe(0);
-    const player = world.getPlayers().get('builder')!;
-    expect(player.wood).toBe(0);
-    expect(player.stone).toBe(0);
+    const core = world.getCore();
+    expect(core.sharedWood).toBe(0);
+    expect(core.sharedStone).toBe(0);
   });
 
   it('이미 건축물이 있는 셀엔 다시 지을 수 없다', () => {
     const world = createTestWorld();
     world.addPlayer('builder', 500, 500);
-    grantResources(world, 'builder', 100, 100);
+    grantSharedResources(world, 100, 100);
 
     const { cx, cy } = worldToCell(550, 500);
     world.placeBuilding('builder', 'fence', cx, cy);
@@ -187,7 +258,7 @@ describe('World — 건축', () => {
   it('코어가 있는 셀엔 지을 수 없다', () => {
     const world = createTestWorld();
     world.addPlayer('builder', 500, 500);
-    grantResources(world, 'builder', 100, 100);
+    grantSharedResources(world, 100, 100);
 
     const { cx, cy } = worldToCell(0, 0);
     world.placeBuilding('builder', 'fence', cx, cy);
@@ -198,7 +269,7 @@ describe('World — 건축', () => {
   it('자원 노드가 있는 셀엔 지을 수 없다', () => {
     const world = createTestWorld();
     world.addPlayer('builder', 500, 500);
-    grantResources(world, 'builder', 100, 100);
+    grantSharedResources(world, 100, 100);
 
     const [node] = [...world.getResourceNodes().values()];
     const { cx, cy } = worldToCell(node.x, node.y);
@@ -210,7 +281,7 @@ describe('World — 건축', () => {
   it('플레이어가 서 있는 셀엔 지을 수 없다', () => {
     const world = createTestWorld();
     world.addPlayer('builder', 500, 500);
-    grantResources(world, 'builder', 100, 100);
+    grantSharedResources(world, 100, 100);
 
     const { cx, cy } = worldToCell(500, 500); // builder 본인이 서 있는 셀
     world.placeBuilding('builder', 'fence', cx, cy);
@@ -221,7 +292,7 @@ describe('World — 건축', () => {
   it('존재하지 않는 건축물 타입이나 비정상 좌표는 조용히 무시한다', () => {
     const world = createTestWorld();
     world.addPlayer('builder', 500, 500);
-    grantResources(world, 'builder', 100, 100);
+    grantSharedResources(world, 100, 100);
 
     world.placeBuilding('builder', 'castle', 10, 10);
     world.placeBuilding('builder', 'fence', 1.5, 10);
@@ -251,9 +322,7 @@ describe('World — 건축물과 몬스터 상호작용', () => {
     const directionBefore = { x: monster!.facingX, y: monster!.facingY };
 
     // 몬스터와 코어를 잇는 직선의 중간 지점에 벽을 짓는다.
-    const grantAndBuild = world.getPlayers().get('builder')!;
-    grantAndBuild.wood = 100;
-    grantAndBuild.stone = 100;
+    grantSharedResources(world, 100, 100);
     const { cx, cy } = worldToCell(monster!.x / 2, monster!.y / 2);
     world.placeBuilding('builder', 'wall', cx, cy);
     expect(world.getBuildings().size).toBe(1);
@@ -278,9 +347,7 @@ describe('World — 건축물과 몬스터 상호작용', () => {
     monster!.x = 0;
     monster!.y = -100;
 
-    const grantAndBuild = world.getPlayers().get('builder')!;
-    grantAndBuild.wood = 100;
-    grantAndBuild.stone = 100;
+    grantSharedResources(world, 100, 100);
     // 몬스터 코앞(사거리 20 안)에 벽을 짓는다.
     const { cx, cy } = worldToCell(monster!.x, monster!.y + 10);
     world.placeBuilding('builder', 'wall', cx, cy);
@@ -311,9 +378,7 @@ describe('World — 건축물과 몬스터 상호작용', () => {
     monster!.x = 0;
     monster!.y = -60; // 코어 사거리(attackRange+CORE_RADIUS=36) 밖 — 코어 대신 건축물부터 공격해야 함
 
-    const grantAndBuild = world.getPlayers().get('builder')!;
-    grantAndBuild.wood = 100;
-    grantAndBuild.stone = 100;
+    grantSharedResources(world, 100, 100);
     const { cx, cy } = worldToCell(monster!.x, monster!.y + 10);
     world.placeBuilding('builder', 'fence', cx, cy); // fence hp=50, trash damage=5 → 10번이면 파괴
 
@@ -340,9 +405,7 @@ describe('World — 건축물과 몬스터 상호작용', () => {
     world.tick(0.05);
     expect(monster!.targetPlayerId).toBe('target'); // 타겟 획득 확인
 
-    const grantAndBuild = world.getPlayers().get('builder')!;
-    grantAndBuild.wood = 100;
-    grantAndBuild.stone = 100;
+    grantSharedResources(world, 100, 100);
     // 몬스터와 타겟 사이, 몬스터 사거리(20) 안에 벽을 짓는다.
     const { cx, cy } = worldToCell(monster!.x + 12, monster!.y);
     world.placeBuilding('builder', 'wall', cx, cy);
@@ -364,9 +427,7 @@ describe('World — 건축물과 몬스터 상호작용', () => {
     world.addPlayer('near', 2000, 2000); // 몬스터 어그로에서 멀리 둔다
     world.addPlayer('builder', -2000, -2000);
 
-    const builder = world.getPlayers().get('builder')!;
-    builder.wood = 1000;
-    builder.stone = 1000;
+    grantSharedResources(world, 1000, 1000);
 
     // 코어를 둘러싼 8칸 전부에 벽을 짓는다 — 바깥에서 코어로 가는 경로가 완전히 막힌다.
     const coreCell = worldToCell(0, 0);
@@ -415,9 +476,7 @@ describe('World — 건축물과 몬스터 상호작용', () => {
 
 describe('World — 건축물과 플레이어', () => {
   function build(world: World, playerId: string, type: 'fence' | 'wall', x: number, y: number): void {
-    const player = world.getPlayers().get(playerId)!;
-    player.wood = 100;
-    player.stone = 100;
+    grantSharedResources(world, 100, 100);
     const { cx, cy } = worldToCell(x, y);
     world.placeBuilding(playerId, type, cx, cy);
   }
@@ -482,9 +541,7 @@ describe('World — 건축물과 투사체', () => {
     world.addPlayer('shooter', 0, 0); // 기본 aimAngle=0 → +x 방향 조준
     world.addPlayer('builder', -500, -500);
 
-    const builder = world.getPlayers().get('builder')!;
-    builder.wood = 100;
-    builder.stone = 100;
+    grantSharedResources(world, 100, 100);
 
     // 사수 조준 방향(바로 앞)에 벽을 짓는다.
     const { cx, cy } = worldToCell(60, 0);
@@ -505,9 +562,7 @@ describe('World — 건축물과 투사체', () => {
     world.addPlayer('shooter', 0, 0);
     world.addPlayer('builder', -500, -500);
 
-    const builder = world.getPlayers().get('builder')!;
-    builder.wood = 100;
-    builder.stone = 100;
+    grantSharedResources(world, 100, 100);
 
     const { cx, cy } = worldToCell(60, 0);
     world.placeBuilding('builder', 'fence', cx, cy);

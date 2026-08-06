@@ -18,6 +18,7 @@ export interface PlayerView {
   aimAngle: number;
   lastProcessedSeq: number;
   hp: number;
+  /** 아직 코어에 입고하지 않고 들고 있는 나무/돌. 코어 근처에서 deposit()하면 0이 된다. */
   wood: number;
   stone: number;
   /** 퀵슬롯. 길이는 항상 SLOT_COUNT이고 빈 칸은 null이다. */
@@ -61,7 +62,8 @@ export interface ResourceNodeView {
   type: string;
   x: number;
   y: number;
-  remainingHarvests: number;
+  hp: number;
+  maxHp: number;
 }
 
 export interface BuildingView {
@@ -78,6 +80,9 @@ export interface BuildingView {
 export interface WorldStatus {
   coreHp: number;
   coreMaxHp: number;
+  /** 코어에 입고된 팀 공유 자원. 건축 비용은 여기서 나간다(개인 wood/stone이 아니다). */
+  coreSharedWood: number;
+  coreSharedStone: number;
   /** GamePhase: 'day' | 'night' | 'victory' | 'defeat' */
   wavePhase: string;
   currentWave: number;
@@ -140,11 +145,11 @@ export interface GameConnection {
   /** 낮 넘기기 투표 (만장일치) */
   voteSkipDay(): void;
   /**
-   * 채집 시도. 타겟을 지정하지 않는다 — 서버가 내 위치 기준 반경 안의 가장 가까운
-   * 채집 가능한 노드에 자동으로 적용한다. `fire()`처럼 호출 자체는 상태 없는 단발
-   * 액션이라, "E 홀드" UX는 이 메서드를 반복 호출하는 쪽(InputController)이 담당한다.
+   * 코어 입고 요청. 들고 있는(아직 코어에 안 넣은) 나무/돌을 팀 공유 창고로 옮긴다 —
+   * 코어 근처에서만 되고, 서버가 거리와 보유량을 판정한다. 채집 자체는 이 메서드가
+   * 아니라 도구를 장착하고 `fire()`(근접 공격)로 자원 노드를 때리는 방식이다.
    */
-  harvest(): void;
+  deposit(): void;
   /** 건축 요청. cx/cy는 그리드 셀 좌표(worldToCell로 미리 변환해서 넘긴다). */
   placeBuilding(buildingType: string, cx: number, cy: number): void;
   /** 매 프레임 호출된다. 구현체는 새 객체를 만들지 말고 내부 버퍼를 재사용할 것. */

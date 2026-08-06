@@ -41,6 +41,9 @@
 | [backend/28-work-report-player-building-collision.md](backend/28-work-report-player-building-collision.md) | 작업 보고서 — 플레이어-건축물 하드 충돌(벽/울타리 통과 방지) |
 | [backend/29-work-report-collision-debug-overlay.md](backend/29-work-report-collision-debug-overlay.md) | 작업 보고서 — 플레이어 충돌 반경 디버그 테두리(C 키 토글) |
 | [backend/30-work-report-boss-attack-patterns.md](backend/30-work-report-boss-attack-patterns.md) | 작업 보고서 — 보스 공격 패턴 추가(돌진 예고/광역 예고) |
+| [backend/31-work-report-hitbox-fix-and-resource-rework.md](backend/31-work-report-hitbox-fix-and-resource-rework.md) | 작업 보고서 — 몬스터 히트박스 버그 수정 + 자원채집 재설계(근접 타격 + 코어 입고) + 코어 모달 통합 |
+| [backend/32-work-report-muzzle-gap-miss-bug.md](backend/32-work-report-muzzle-gap-miss-bug.md) | 작업 보고서 — 근접 몬스터를 원거리 무기로 못 맞히는 버그(총구 간격 사각지대) 수정 + 몬스터 충돌 디버그 테두리 |
+| [backend/33-work-report-projectile-visual-offset-bug.md](backend/33-work-report-projectile-visual-offset-bug.md) | 작업 보고서 — 총알 궤적(그림)과 실제 피격 위치가 어긋나던 렌더링 오프셋 버그 수정 |
 
 ### 역할 C — 클라이언트/렌더/UI 작업 문서 ([frontend/](frontend/))
 
@@ -54,6 +57,7 @@
 | [frontend/06-ui-asset-slots.md](frontend/06-ui-asset-slots.md) | **UI 에셋 슬롯 교체 가이드** — 9-slice/이미지 플레이스홀더, 무스크롤 셸 |
 | [frontend/07-asset-pipeline.md](frontend/07-asset-pipeline.md) | **에셋 파이프라인** — 원본/산출물 분리, 아틀라스 구성, 빌드 옵션 근거 |
 | [frontend/08-lobby-flow.md](frontend/08-lobby-flow.md) | **대기실 흐름** — 화면 전환, 직업/준비/시작 규격, 방 코드 입력 |
+| [frontend/09-work-report-ingame-modals.md](frontend/09-work-report-ingame-modals.md) | 작업 보고서 — 인게임 모달 UI 셸 4종(코어/코어관리/상점/제작) 선작업 |
 
 ## 한 줄 요약
 
@@ -65,3 +69,6 @@
 - 문서 변경도 코드와 동일하게 PR로 올린다 (`docs:` 커밋 타입).
 - 결정이 바뀌면 문서를 고친다. 문서와 코드가 다르면 **문서가 틀린 것**으로 간주하고 즉시 갱신한다.
 - 확정되지 않은 안은 `> TBD:` 로 표기해 남겨둔다.
+
+
+코어 tier에 따라 구조물을 설치할 수 있는 범위가 넓어짐 -> 1tier(기본)값은 미정

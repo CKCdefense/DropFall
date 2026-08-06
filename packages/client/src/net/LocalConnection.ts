@@ -66,8 +66,8 @@ export class LocalConnection implements GameConnection {
     this.world.castSkipVote(LOCAL_SESSION_ID);
   }
 
-  harvest(): void {
-    this.world.harvest(LOCAL_SESSION_ID);
+  deposit(): void {
+    this.world.depositAtCore(LOCAL_SESSION_ID);
   }
 
   placeBuilding(buildingType: string, cx: number, cy: number): void {
@@ -136,7 +136,8 @@ export class LocalConnection implements GameConnection {
         type: node.type,
         x: node.x,
         y: node.y,
-        remainingHarvests: node.remainingHarvests,
+        hp: node.hp,
+        maxHp: node.maxHp,
       });
     }
 
@@ -163,6 +164,8 @@ export class LocalConnection implements GameConnection {
       status: {
         coreHp: core.hp,
         coreMaxHp: core.maxHp,
+        coreSharedWood: core.sharedWood,
+        coreSharedStone: core.sharedStone,
         wavePhase: this.world.getWavePhase(),
         currentWave: this.world.getCurrentWave(),
         phaseTimeRemaining: this.world.getPhaseTimeRemaining(),

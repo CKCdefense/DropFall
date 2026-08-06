@@ -40,8 +40,6 @@ function fireIntervalMs(weaponId: string | undefined): number {
   const weapon = weaponId ? weaponsData[weaponId] : undefined;
   return weapon ? (1000 / weapon.fireRate) * 0.9 : UNKNOWN_WEAPON_INTERVAL_MS;
 }
-/** 채집 홀드 재전송 간격. 실제 채집 주기는 서버(resources.json)가 정한다. */
-const HARVEST_INTERVAL_MS = 100;
 
 /**
  * 건축모드에서 순환할 건축물 목록(docs/backend/18 §1 "B 건축모드 토글"). 'off'가
@@ -60,10 +58,9 @@ type BuildMode = (typeof BUILD_MODES)[number];
  * (docs/frontend/02-lobby-room-protocol.md)
  */
 export class InputController {
-  private readonly keys: Record<'up' | 'down' | 'left' | 'right' | 'harvest', Phaser.Input.Keyboard.Key>;
+  private readonly keys: Record<'up' | 'down' | 'left' | 'right', Phaser.Input.Keyboard.Key>;
   private seq = 0;
   private fireTimer = 0;
-  private harvestTimer = 0;
   private elapsed = 0;
   private aimAngle = 0;
   private buildModeIndex = 0;
@@ -87,14 +84,18 @@ export class InputController {
       down: keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.S),
       left: keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A),
       right: keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D),
-      // 채집(E, 상호작용 키 — docs/backend/18 §3.1). 홀드하는 동안 반복 전송해서
-      // "채널링" 느낌을 낸다 — 서버는 harvestInterval 쿨다운으로 실제 속도를 정한다.
-      harvest: keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.E),
     };
 
     // 낮 넘기기 투표(만장일치). 서버가 중복 투표를 무시하므로 한 번만 보내면 된다.
     keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.V).on('down', () => {
       this.connection.voteSkipDay();
+    });
+
+    // 코어 입고(E). 채집(자원 노드 타격)은 더 이상 이 키가 아니라 좌클릭 근접
+    // 공격으로 한다 — E는 이제 "들고 있는 자원을 코어에 넣는다"는 단발 행동이라
+    // 홀드-재전송이 필요 없다(서버가 거리/보유량을 그 자리에서 바로 판정한다).
+    keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.E).on('down', () => {
+      this.connection.deposit();
     });
 
     // 퀵슬롯 선택(1~4). 슬롯 번호만 보내고 그 칸에 뭐가 들었는지는 서버가 판단한다.
@@ -173,26 +174,11 @@ export class InputController {
     this.onAttack?.(weaponId);
   }
 
-  /** 사격과 같은 홀드-재전송 패턴 — 실제 채집 여부/속도는 서버가 판정한다. */
-  private updateHarvest(delta: number): void {
-    if (!this.keys.harvest.isDown) {
-      this.harvestTimer = 0;
-      return;
-    }
-
-    this.harvestTimer -= delta;
-    if (this.harvestTimer > 0) return;
-
-    this.harvestTimer = HARVEST_INTERVAL_MS;
-    this.connection.harvest();
-  }
-
   /** 매 프레임 호출. 실제 전송은 SEND_INTERVAL_MS 마다 한 번. */
   update(delta: number, self: PlayerView): void {
     this.equipped = readEquipped(self);
     this.updateAim(self.x, self.y);
     this.updateFire(delta);
-    this.updateHarvest(delta);
 
     this.elapsed += delta;
     if (this.elapsed < SEND_INTERVAL_MS) return;

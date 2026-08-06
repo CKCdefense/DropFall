@@ -85,6 +85,48 @@ describe('World — 전투/웨이브 통합', () => {
     expect(monster!.hp).toBeLessThan(initialHp);
   });
 
+  it('몬스터가 총구 간격(0~muzzleOffset) 안에 붙어 있으면 투사체 없이 즉시 명중한다', () => {
+    // 회귀 테스트: 투사체가 플레이어 좌표가 아니라 muzzleOffset(pistol=19px)만큼
+    // 떨어진 "총구" 좌표에서 생겨나다 보니, 돌진형 몬스터가 그보다 더 가까이
+    // 파고들면 투사체가 몬스터를 이미 지나친 자리에서 시작해 조준이 정확해도
+    // 영원히 못 맞히는 버그가 있었다(총구가 생기기도 전에 몸이 막고 있었는데,
+    // 그 구간 자체를 아무도 검사하지 않았다).
+    const world = new World();
+    world.addPlayer('p1', 0, 0);
+    startFirstWave(world);
+
+    const [monster] = [...world.getMonsters().values()];
+    monster!.x = 8; // pistol muzzleOffset(19)보다 훨씬 가깝다
+    monster!.y = 0;
+    const initialHp = monster!.hp;
+
+    world.fireWeapon('p1'); // 기본 슬롯 = 권총, aimAngle 기본 0 → +x(몬스터 쪽)
+
+    expect(world.getProjectiles().size).toBe(0); // 총구 간격에서 이미 맞아서 안 날아간다
+    expect(monster!.hp).toBeLessThan(initialHp);
+  });
+
+  it('총구 간격 밖의 몬스터는 평소처럼 투사체가 날아가 맞힌다(간격 안 판정이 먼 거리 사격을 막지 않는다)', () => {
+    const world = new World();
+    world.addPlayer('p1', 0, 0);
+    startFirstWave(world);
+
+    const [monster] = [...world.getMonsters().values()];
+    monster!.x = 40; // muzzleOffset(19)보다 충분히 멀다
+    monster!.y = 0;
+    const initialHp = monster!.hp;
+
+    world.fireWeapon('p1');
+    expect(world.getProjectiles().size).toBe(1); // 이번엔 정상적으로 투사체가 생긴다
+
+    for (let i = 0; i < 60 && world.getProjectiles().size > 0; i += 1) {
+      world.tick(1 / 60);
+    }
+
+    expect(world.getProjectiles().size).toBe(0);
+    expect(monster!.hp).toBeLessThan(initialHp);
+  });
+
   it('쿨다운이 끝나기 전에 다시 발사하면 무시된다', () => {
     const world = new World();
     world.addPlayer('p1', 0, 0);

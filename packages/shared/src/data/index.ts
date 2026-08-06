@@ -39,6 +39,12 @@ const SlamAttackSchema = z.object({
 
 const MonsterDataSchema = z.object({
   hp: z.number().positive(),
+  /**
+   * 실제 피격 판정 반경(px) — 근접/투사체 판정이 이 값을 쓴다. 클라이언트 렌더러가
+   * 이 값을 그대로 읽어 시각적 박스 크기(반경*2)를 정하므로, 그림과 판정이 항상
+   * 일치한다(둘이 따로 놀아서 "히트박스가 네모칸이랑 안 맞는다"는 문제가 생기지 않게).
+   */
+  hitRadius: z.number().positive(),
   damage: z.number().nonnegative(),
   speed: z.number().nonnegative(),
   attackRange: z.number().nonnegative(),
@@ -117,15 +123,18 @@ export const wavesData = loadData(WavesDataSchema, wavesJson);
 // --- resources.json ------------------------------------------------------------
 
 const ResourceDataSchema = z.object({
-  /** 채집에 필요한 도구 id(tools.json 참고). 소유권 검사는 아직 없다 — 문서화 목적. */
+  /**
+   * 채집에 필요한 도구의 weaponId(items.json/weapons.json 기준, 예: 'axe').
+   * 실제로 강제된다 — 이 값과 장착 무기가 다르면 근접 공격이 노드에 아무 영향도
+   * 주지 않는다(World#applyMeleeHitToResourceNode).
+   */
   requiredTool: z.string(),
-  /** 노드 판정 반경(px, 플레이어 기준) */
-  harvestRadius: z.number().positive(),
-  /** 채집 1회당 최소 간격(초) */
-  harvestInterval: z.number().positive(),
-  yieldPerHarvest: z.number().int().positive(),
-  /** 고갈 전까지 채집 가능한 총 횟수 */
-  maxHarvests: z.number().int().positive(),
+  /** 노드 자신의 피격 판정 반경(px) — 근접 판정과 렌더링 크기(반경*2) 양쪽에 쓴다. */
+  hitRadius: z.number().positive(),
+  /** 노드를 고갈시키는 데 필요한 총 체력. 맞는 도구로 때린 데미지만큼 깎인다. */
+  hp: z.number().int().positive(),
+  /** 고갈되는 순간(hp 0) 마지막 타격을 넣은 플레이어에게 한 번에 지급되는 양. */
+  yieldOnDeplete: z.number().int().positive(),
   /** 고갈 후 재생까지 걸리는 시간(초) */
   respawnSeconds: z.number().positive(),
 });

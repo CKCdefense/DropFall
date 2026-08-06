@@ -1,5 +1,13 @@
 import Phaser from 'phaser';
-import { HIT_RADIUS, TILE_SIZE, buildingsData, itemOfSlot } from '@dropfall/shared';
+import {
+  HIT_RADIUS,
+  TILE_SIZE,
+  buildingsData,
+  itemOfSlot,
+  monstersData,
+  resourcesData,
+  type ResourceType,
+} from '@dropfall/shared';
 import type {
   BuildingView,
   MonsterView,
@@ -22,7 +30,6 @@ import {
   BULLET_ANIM,
   DEFAULT_WEAPON_ID,
   HAND_FRAME,
-  ORBIT_CENTER_Y,
   MUZZLE_ANIM,
   SWING_ANIM,
   SWING_STRIKE_DELAY_MS,
@@ -54,21 +61,31 @@ const LABEL_FONT_SIZE = SIZE_SMALL;
  * 몬스터 타입별 플레이스홀더 표현.
  * 아트가 들어오면 이 표만 스프라이트 키로 바꾸면 된다 — 렌더 로직은 그대로다.
  */
-const MONSTER_STYLE: Record<string, { color: number; size: number }> = {
-  trash: { color: 0xa4576a, size: 10 },
-  rusher: { color: 0xd07a4a, size: 9 },
-  tanker: { color: 0x8c5ba8, size: 16 },
-  ranged: { color: 0x5f9ea0, size: 10 },
-  boss: { color: 0xd94f4f, size: 24 },
+const MONSTER_COLOR: Record<string, number> = {
+  trash: 0xa4576a,
+  rusher: 0xd07a4a,
+  tanker: 0x8c5ba8,
+  ranged: 0x5f9ea0,
+  boss: 0xd94f4f,
 };
-const MONSTER_FALLBACK = { color: 0xa4576a, size: 10 };
+const MONSTER_COLOR_FALLBACK = 0xa4576a;
+/**
+ * 몬스터의 시각적 크기는 색상표가 아니라 `monstersData[type].hitRadius`(공유 데이터,
+ * 실제 판정 반경)에서 그대로 뽑아 쓴다 — 예전엔 이 표에 크기를 따로 박아뒀는데, 실제
+ * 피격 판정 반경(HIT_RADIUS 고정값)과 따로 놀아서 몬스터 종류에 따라 그림보다 판정이
+ * 최대 2배 넓거나 좁은 문제가 있었다("히트박스가 네모칸이랑 안 맞는다"). 반경 하나를
+ * 서버/클라 양쪽이 공유해서 쓰면 이 어긋남 자체가 구조적으로 생길 수 없다.
+ */
+const MONSTER_HIT_RADIUS_FALLBACK = 10;
 
-/** 자원 노드 타입별 플레이스홀더 표현(docs/backend/24). */
-const RESOURCE_STYLE: Record<string, { color: number; size: number }> = {
-  wood: { color: 0x5b8c4a, size: 10 },
-  stone: { color: 0x8a8f99, size: 9 },
+/** 자원 노드 타입별 플레이스홀더 색상(docs/backend/24). 크기는 몬스터와 같은 이유로
+ * resourcesData[type].hitRadius에서 그대로 뽑는다(그림-판정 어긋남 방지). */
+const RESOURCE_COLOR: Record<string, number> = {
+  wood: 0x5b8c4a,
+  stone: 0x8a8f99,
 };
-const RESOURCE_FALLBACK = { color: 0x8a8f99, size: 9 };
+const RESOURCE_COLOR_FALLBACK = 0x8a8f99;
+const RESOURCE_HIT_RADIUS_FALLBACK = 14;
 
 /** 건축물 타입별 플레이스홀더 표현. 울타리는 낮고 얇게, 벽은 크고 두껍게 그려서 구분한다. */
 const BUILDING_STYLE: Record<string, { color: number; size: number }> = {
@@ -89,16 +106,6 @@ const HAND_NAMES = ['hand0', 'hand1'] as const;
 
 /** 투사체는 항상 위에 그린다. */
 const PROJECTILE_DEPTH = 9000;
-/**
- * 투사체를 화면상 얼마나 띄울지(px).
- *
- * 공전 중심(ORBIT_CENTER_Y = -14)이 아니라 **총구 실제 높이**에 맞춘다 — 총구는 궤도
- * 중심보다 조금 더 위에 있어서(권총 기준 약 -4px), 궤도 높이에 맞추면 총알만 허리께로
- * 나가는 것처럼 보인다.
- *
- * 시뮬레이션은 2D 평면이고 이 값은 순수하게 보이는 위치만 바꾼다 — 판정에는 영향이 없다.
- */
-const PROJECTILE_LIFT = ORBIT_CENTER_Y - 4;
 
 const HP_BAR_WIDTH = 16;
 const HP_BAR_HEIGHT = 2;
@@ -114,6 +121,13 @@ const HP_BAR_HEIGHT = 2;
  */
 const PLAYER_COLLISION_DEBUG_COLOR = 0x33ccff;
 const BUILDING_COLLISION_DEBUG_COLOR = 0xffcc33;
+/**
+ * 몬스터 자신의 피격 판정 반경. 몸통 사각형(size = hitRadius*2)이 이미 이 값에서
+ * 그대로 계산되긴 하지만, 실제 판정은 **사각형이 아니라 원**이라 네 귀퉁이는 그림만
+ * 있고 실제로는 안 맞는 영역이다 — 이 원을 겹쳐 그리면 그 차이가 눈에 보인다("네모
+ * 끝을 스쳤는데 왜 안 맞지"의 답).
+ */
+const MONSTER_COLLISION_DEBUG_COLOR = 0xff5555;
 const COLLISION_DEBUG_ALPHA = 0.9;
 /** 건축물 자신의 충돌 반경 — world.ts의 isBlockedForPlayer가 쓰는 TILE_SIZE/2와 동일. */
 const BUILDING_COLLISION_RADIUS = TILE_SIZE / 2;
@@ -244,11 +258,13 @@ export class EntityRenderer {
    * 실제 캐릭터 에셋을 씌우면 그림과 판정 범위가 일치하지 않는 게 눈으로 안 보인다 —
    * 켜면 플레이어에는 플레이어 자신의 충돌 반경을, 건축물에는 건축물 자신의 충돌
    * 반경을 각각 원으로 겹쳐 그려서, 두 원이 맞닿는 지점이 곧 "막히는 지점"임을
-   * 눈으로 확인할 수 있게 한다.
+   * 눈으로 확인할 수 있게 한다. 몬스터도 같은 이유로 자신의 피격 판정 반경(원)을
+   * 겹쳐 그린다 — 몸통 사각형과 크기는 같아도 모양이 달라(사각형 vs 원) 귀퉁이가
+   * 실제로 맞는지 헷갈릴 수 있다.
    */
   setCollisionDebugVisible(visible: boolean): void {
     this.collisionDebugVisible = visible;
-    for (const map of [this.players, this.buildings]) {
+    for (const map of [this.players, this.buildings, this.monsters]) {
       for (const sprite of map.values()) {
         const circle = sprite.getByName('collisionDebug') as Phaser.GameObjects.Arc | null;
         circle?.setVisible(visible);
@@ -490,12 +506,14 @@ export class EntityRenderer {
   }
 
   private createMonster(monster: MonsterView): Phaser.GameObjects.Container {
-    const style = MONSTER_STYLE[monster.type] ?? MONSTER_FALLBACK;
+    const color = MONSTER_COLOR[monster.type] ?? MONSTER_COLOR_FALLBACK;
+    const hitRadius = monstersData[monster.type]?.hitRadius ?? MONSTER_HIT_RADIUS_FALLBACK;
+    const size = hitRadius * 2;
 
-    const body = this.scene.add.rectangle(0, 0, style.size, style.size, style.color);
+    const body = this.scene.add.rectangle(0, 0, size, size, color);
     body.setStrokeStyle(1, 0x1a1c23);
 
-    const barTop = -style.size / 2 - 4;
+    const barTop = -size / 2 - 4;
     const barBack = this.scene.add
       .rectangle(-HP_BAR_WIDTH / 2, barTop, HP_BAR_WIDTH, HP_BAR_HEIGHT, 0x2b303c)
       .setOrigin(0, 0.5);
@@ -509,7 +527,13 @@ export class EntityRenderer {
     barBack.setVisible(false);
     bar.setVisible(false);
 
-    return this.scene.add.container(monster.x, monster.y, [barBack, bar, body]);
+    const collisionDebug = this.scene.add.circle(0, 0, hitRadius);
+    collisionDebug.setStrokeStyle(1, MONSTER_COLLISION_DEBUG_COLOR, COLLISION_DEBUG_ALPHA);
+    collisionDebug.setFillStyle(0, 0);
+    collisionDebug.setName('collisionDebug');
+    collisionDebug.setVisible(this.collisionDebugVisible);
+
+    return this.scene.add.container(monster.x, monster.y, [barBack, bar, body, collisionDebug]);
   }
 
   // ---------------------------------------------------------------- 보스 공격 예고
@@ -599,9 +623,14 @@ export class EntityRenderer {
         this.projectiles.set(projectile.id, sprite);
       }
 
-      // 총구·휘두르기 이펙트와 같은 "가슴 높이" 평면에 올린다. 월드 좌표 그대로 그리면
-      // 총알만 발밑을 스치듯 날아가서 총구에서 나온 것처럼 보이지 않는다.
-      sprite.setPosition(Math.round(projectile.x), Math.round(projectile.y) + PROJECTILE_LIFT);
+      // 예전엔 총구 높이에 맞추려고 투사체를 y축으로 18px 띄워서 그렸는데(총구
+      // 이펙트와 같은 "가슴 높이" 평면) — 몬스터는 아무 오프셋 없이 실제 좌표에
+      // 그대로 그려지니, 화면에 보이는 총알 궤적이 실제 판정 위치보다 계속 위로
+      // 떠서 날아가는 꼴이 됐다("맞은 것처럼 안 보이는데 맞았다"/반대의 착시 제보로
+      // 발견). 총구에서 막 나가는 연출은 muzzle 이펙트(화면 위치가 고정된 섬광)가
+      // 이미 담당하므로, 날아가는 동안의 투사체는 판정과 똑같이 실제 좌표 그대로
+      // 그린다.
+      sprite.setPosition(Math.round(projectile.x), Math.round(projectile.y));
     }
 
     this.removeMissing(this.projectiles, alive);
@@ -640,17 +669,43 @@ export class EntityRenderer {
 
       sprite.setDepth(node.y);
       // 고갈되면(리스폰 대기 중) 흐리게 — 지금은 캘 수 없다는 걸 한눈에 보이게 한다.
-      sprite.setAlpha(node.remainingHarvests > 0 ? 1 : 0.3);
+      sprite.setAlpha(node.hp > 0 ? 1 : 0.3);
+
+      // 몬스터/건축물 HP 바와 동일한 규칙 — 맞은 적 없으면 숨긴다.
+      const bar = sprite.getByName('hp') as Phaser.GameObjects.Rectangle | null;
+      const barBack = sprite.getByName('hpBack') as Phaser.GameObjects.Rectangle | null;
+      if (bar && barBack) {
+        const ratio = node.maxHp > 0 ? node.hp / node.maxHp : 0;
+        const damaged = ratio < 1 && ratio > 0;
+        bar.setVisible(damaged);
+        barBack.setVisible(damaged);
+        bar.width = Math.max(0, HP_BAR_WIDTH * ratio);
+      }
     }
 
     this.removeMissing(this.resourceNodes, alive);
   }
 
   private createResourceNode(node: ResourceNodeView): Phaser.GameObjects.Container {
-    const style = RESOURCE_STYLE[node.type] ?? RESOURCE_FALLBACK;
-    const body = this.scene.add.circle(0, 0, style.size / 2, style.color);
+    const color = RESOURCE_COLOR[node.type] ?? RESOURCE_COLOR_FALLBACK;
+    const hitRadius = resourcesData[node.type as ResourceType]?.hitRadius ?? RESOURCE_HIT_RADIUS_FALLBACK;
+
+    const body = this.scene.add.circle(0, 0, hitRadius, color);
     body.setStrokeStyle(1, 0x1a1c23);
-    return this.scene.add.container(node.x, node.y, [body]);
+
+    const barTop = -hitRadius - 4;
+    const barBack = this.scene.add
+      .rectangle(-HP_BAR_WIDTH / 2, barTop, HP_BAR_WIDTH, HP_BAR_HEIGHT, 0x2b303c)
+      .setOrigin(0, 0.5);
+    const bar = this.scene.add
+      .rectangle(-HP_BAR_WIDTH / 2, barTop, HP_BAR_WIDTH, HP_BAR_HEIGHT, 0x6fd08c)
+      .setOrigin(0, 0.5);
+    bar.setName('hp');
+    barBack.setName('hpBack');
+    barBack.setVisible(false);
+    bar.setVisible(false);
+
+    return this.scene.add.container(node.x, node.y, [barBack, bar, body]);
   }
 
   // ---------------------------------------------------------------- 건축물

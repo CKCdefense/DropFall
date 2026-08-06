@@ -115,6 +115,8 @@ function extrapolateList<T extends Positioned>(
 const EMPTY_STATUS: WorldStatus = {
   coreHp: 0,
   coreMaxHp: 0,
+  coreSharedWood: 0,
+  coreSharedStone: 0,
   wavePhase: 'day',
   currentWave: 0,
   phaseTimeRemaining: 0,

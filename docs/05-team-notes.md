@@ -210,3 +210,6 @@ interface FireInputMessage {
 | [backend/28](backend/28-work-report-player-building-collision.md) | 플레이어-건축물 하드 충돌 — 벽/울타리를 캐릭터가 통과하지 못하게 원형 충돌 + 축 슬라이딩 적용 |
 | [backend/29](backend/29-work-report-collision-debug-overlay.md) | 플레이어 충돌 반경 디버그 테두리 — C 키 토글, 반경 상수를 shared에서 export해 실제 판정과 일치 보장 |
 | [backend/30](backend/30-work-report-boss-attack-patterns.md) | 보스 공격 패턴(돌진/광역) — 예고 후 발동하는 상태 머신, describeBossTelegraph로 서버/로컬 동기화 로직 통합 |
+| [backend/31](backend/31-work-report-hitbox-fix-and-resource-rework.md) | 몬스터 히트박스 버그 수정 + 자원채집 재설계(근접 타격 + 코어 입고 + 공유 자원 풀) + 코어 모달 통합 |
+| [backend/32](backend/32-work-report-muzzle-gap-miss-bug.md) | 근접 몬스터를 원거리 무기로 못 맞히는 버그(총구 간격 사각지대, muzzleOffset) 수정 + 몬스터 충돌 디버그 테두리 |
+| [backend/33](backend/33-work-report-projectile-visual-offset-bug.md) | 총알 궤적(그림)과 실제 피격 위치가 어긋나던 렌더링 오프셋(PROJECTILE_LIFT) 버그 수정 |
