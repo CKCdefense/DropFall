@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { HIT_RADIUS, TILE_SIZE, buildingsData, itemOfSlot } from '@dropfall/shared';
+import { HIT_RADIUS, TILE_SIZE, buildingsData, itemOfSlot, monstersData } from '@dropfall/shared';
 import type {
   BuildingView,
   MonsterView,
@@ -18,11 +18,11 @@ import {
   spritePrefix,
   walkAnimKey,
 } from './playerSprite';
+import { ACTION_PLANE_Y } from './plane';
 import {
   BULLET_ANIM,
   DEFAULT_WEAPON_ID,
   HAND_FRAME,
-  ORBIT_CENTER_Y,
   MUZZLE_ANIM,
   SWING_ANIM,
   SWING_STRIKE_DELAY_MS,
@@ -42,7 +42,7 @@ import {
   type SwingState,
   type WeaponParts,
 } from './weaponFx';
-import { FONT_SMALL, SIZE_SMALL } from '../ui/theme';
+import { FONT_SMALL, SIZE_SMALL, applyTextShadow } from '../ui/theme';
 
 /**
  * 월드 안에 그리는 텍스트의 기준 크기(월드 단위). 실제 화면 크기는 여기에 카메라 줌이 곱해진다.
@@ -51,17 +51,20 @@ import { FONT_SMALL, SIZE_SMALL } from '../ui/theme';
 const LABEL_FONT_SIZE = SIZE_SMALL;
 
 /**
- * 몬스터 타입별 플레이스홀더 표현.
- * 아트가 들어오면 이 표만 스프라이트 키로 바꾸면 된다 — 렌더 로직은 그대로다.
+ * 몬스터 타입별 플레이스홀더 색.
+ *
+ * **크기는 여기 없다** — monsters.json의 hitRadius에서 가져온다. 플레이스홀더 단계에서는
+ * "보이는 덩치 = 맞는 범위"여야 판정이 어긋났는지 눈으로 바로 알 수 있다.
+ * 아트가 들어오면 이 표를 스프라이트 키로 바꾸면 된다.
  */
-const MONSTER_STYLE: Record<string, { color: number; size: number }> = {
-  trash: { color: 0xa4576a, size: 10 },
-  rusher: { color: 0xd07a4a, size: 9 },
-  tanker: { color: 0x8c5ba8, size: 16 },
-  ranged: { color: 0x5f9ea0, size: 10 },
-  boss: { color: 0xd94f4f, size: 24 },
+const MONSTER_COLOR: Record<string, number> = {
+  trash: 0xa4576a,
+  rusher: 0xd07a4a,
+  tanker: 0x8c5ba8,
+  ranged: 0x5f9ea0,
+  boss: 0xd94f4f,
 };
-const MONSTER_FALLBACK = { color: 0xa4576a, size: 10 };
+const MONSTER_COLOR_FALLBACK = 0xa4576a;
 
 /** 자원 노드 타입별 플레이스홀더 표현(docs/backend/24). */
 const RESOURCE_STYLE: Record<string, { color: number; size: number }> = {
@@ -89,16 +92,7 @@ const HAND_NAMES = ['hand0', 'hand1'] as const;
 
 /** 투사체는 항상 위에 그린다. */
 const PROJECTILE_DEPTH = 9000;
-/**
- * 투사체를 화면상 얼마나 띄울지(px).
- *
- * 공전 중심(ORBIT_CENTER_Y = -14)이 아니라 **총구 실제 높이**에 맞춘다 — 총구는 궤도
- * 중심보다 조금 더 위에 있어서(권총 기준 약 -4px), 궤도 높이에 맞추면 총알만 허리께로
- * 나가는 것처럼 보인다.
- *
- * 시뮬레이션은 2D 평면이고 이 값은 순수하게 보이는 위치만 바꾼다 — 판정에는 영향이 없다.
- */
-const PROJECTILE_LIFT = ORBIT_CENTER_Y - 4;
+
 
 const HP_BAR_WIDTH = 16;
 const HP_BAR_HEIGHT = 2;
@@ -361,6 +355,8 @@ export class EntityRenderer {
       .setOrigin(0.5, 1);
     label.setName('label');
     label.setResolution(this.zoom);
+    // 닉네임도 지형 위에 그대로 얹힌다 — 풀·모래 무늬에 묻히지 않게 그림자를 준다.
+    applyTextShadow(label);
 
     // 컨테이너 원점(0,0)이 곧 서버 좌표(player.x/y)이므로, 반경만 플레이어 자신의
     // 충돌 반경(HIT_RADIUS)과 맞추면 스프라이트 origin/오프셋과 무관하게 정확한
@@ -490,12 +486,15 @@ export class EntityRenderer {
   }
 
   private createMonster(monster: MonsterView): Phaser.GameObjects.Container {
-    const style = MONSTER_STYLE[monster.type] ?? MONSTER_FALLBACK;
+    const color = MONSTER_COLOR[monster.type] ?? MONSTER_COLOR_FALLBACK;
+    // 보이는 크기 = 판정 크기. 플레이스홀더가 히트박스를 그대로 보여준다.
+    const size = (monstersData[monster.type]?.hitRadius ?? 6) * 2;
 
-    const body = this.scene.add.rectangle(0, 0, style.size, style.size, style.color);
+    // 총알과 같은 높이 평면에 올린다. 발밑(월드 좌표)에 그리면 총알이 머리 위로 지나간다.
+    const body = this.scene.add.rectangle(0, ACTION_PLANE_Y, size, size, color);
     body.setStrokeStyle(1, 0x1a1c23);
 
-    const barTop = -style.size / 2 - 4;
+    const barTop = ACTION_PLANE_Y - size / 2 - 4;
     const barBack = this.scene.add
       .rectangle(-HP_BAR_WIDTH / 2, barTop, HP_BAR_WIDTH, HP_BAR_HEIGHT, 0x2b303c)
       .setOrigin(0, 0.5);
@@ -601,7 +600,7 @@ export class EntityRenderer {
 
       // 총구·휘두르기 이펙트와 같은 "가슴 높이" 평면에 올린다. 월드 좌표 그대로 그리면
       // 총알만 발밑을 스치듯 날아가서 총구에서 나온 것처럼 보이지 않는다.
-      sprite.setPosition(Math.round(projectile.x), Math.round(projectile.y) + PROJECTILE_LIFT);
+      sprite.setPosition(Math.round(projectile.x), Math.round(projectile.y) + ACTION_PLANE_Y);
     }
 
     this.removeMissing(this.projectiles, alive);

@@ -74,12 +74,12 @@
   min-height: 54px;
   padding: 0 20px;
   background: none;
-  /* fill이 밝은 회색이라 기본 글자색(밝음)으로는 대비가 안 난다 */
-  color: #1b1f27;
+  /* btn_stone의 fill이 중간 회색(#6e6f74)이라 어두운 글자로는 대비가 부족하다 */
+  color: #f2f5fa;
 }
 
 .btn[data-asset]:hover:not(:disabled) {
-  color: #0f1a12;
+  color: #ffffff;
 }
 
 /* 프레임과 동일한 플레이스홀더 표현 (위 .frame 주석 참고) */

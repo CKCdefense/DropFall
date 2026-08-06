@@ -1,3 +1,4 @@
+import { TICK_RATE } from '../constants';
 import { weaponsData, type WeaponType } from '../data';
 
 /** 투사체가 이 거리(px)를 넘어가면 소멸한다. */
@@ -101,6 +102,17 @@ export function resetProjectileIdSequence(): void {
 }
 
 /**
+ * 쿨다운 판정에 주는 여유(초). 한 틱 분량이다.
+ *
+ * 클라이언트가 정확히 발사 주기마다 보내도, 네트워크 지터와 틱 경계 때문에 요청이
+ * 쿨다운 직전에 도착하는 일이 생긴다. 여유가 없으면 그런 요청이 거절되고 **다음 주기까지
+ * 통째로 밀려서** 실제 연사속도가 절반으로 떨어진다.
+ *
+ * 한 틱만큼 일찍 쏠 수 있게 되지만(권총 기준 6% 빠름) 밸런스에 의미 있는 차이는 아니다.
+ */
+const FIRE_COOLDOWN_GRACE = 1 / TICK_RATE;
+
+/**
  * 플레이어별·무기별 발사 쿨다운을 추적한다. "서버 권위" 모델의 일부 —
  * 클라이언트가 fireRate보다 빠르게 발사 메시지를 보내도 서버가 무시한다.
  */
@@ -117,7 +129,7 @@ export class WeaponCooldowns {
 
     const last = this.lastFireAt.get(this.key(playerId, weaponId));
     if (last === undefined) return true;
-    return now - last >= 1 / weapon.fireRate;
+    return now - last >= 1 / weapon.fireRate - FIRE_COOLDOWN_GRACE;
   }
 
   recordFire(playerId: string, weaponId: string, now: number): void {

@@ -34,8 +34,8 @@ export const IMAGE_ASSETS = {
   input: { cssVar: '--asset-input', path: 'assets/ui/input.png' },
   inputHover: { cssVar: '--asset-input-hover', path: 'assets/ui/input_hover.png' },
   /** 버튼 9-slice 프레임 */
-  button: { cssVar: '--asset-button', path: 'assets/ui/title_button.png' },
-  buttonHover: { cssVar: '--asset-button-hover', path: 'assets/ui/title_button_hover.png' },
+  button: { cssVar: '--asset-button', path: 'assets/ui/btn_stone.png' },
+  buttonHover: { cssVar: '--asset-button-hover', path: 'assets/ui/btn_stone_hover.png' },
 } as const satisfies Record<string, ImageAsset>;
 
 /**

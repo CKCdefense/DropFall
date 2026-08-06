@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { weaponsData, type WeaponData } from '@dropfall/shared';
 import { GAME_ATLAS } from './playerSprite';
+import { ACTION_PLANE_Y } from './plane';
 
 /**
  * 손에 든 무기 + 양손 + 이펙트.
@@ -77,10 +78,10 @@ export interface WeaponVisual {
 }
 
 /**
- * 컨테이너 원점이 **발밑**이라 y=0이 바닥이다 — 몸통 중심 높이를 따로 잡아야
- * 무기가 발치가 아니라 가슴 높이에서 돈다.
+ * 무기가 공전하는 높이. 컨테이너 원점이 **발밑**이라 y=0이 바닥이다 —
+ * 전투 평면(plane.ts)에 맞춰야 총알·몬스터와 높이가 어긋나지 않는다.
  */
-export const ORBIT_CENTER_Y = -14;
+export const ORBIT_CENTER_Y = ACTION_PLANE_Y;
 
 /** 이펙트 스프라이트에서 호의 바깥 반지름(px). 원본 캔버스 64 기준 값이다. */
 const SWING_FX_RADIUS = 30;

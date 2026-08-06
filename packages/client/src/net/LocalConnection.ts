@@ -1,4 +1,5 @@
 import {
+  FixedStepAccumulator,
   RoomPhase,
   TICK_RATE,
   World,
@@ -31,14 +32,24 @@ export class LocalConnection implements GameConnection {
   private readonly nickname: string;
   private job: JobId | '' = '';
   private timer: ReturnType<typeof setInterval> | null = null;
+  private readonly stepper = new FixedStepAccumulator(1 / TICK_RATE);
 
   constructor(nickname: string) {
     this.nickname = nickname;
     // 서버(GameRoom#onJoin)와 마찬가지로 코어와 겹치지 않게 띄워 놓는다.
     this.world.addPlayer(LOCAL_SESSION_ID, SPAWN_X, SPAWN_Y);
+
+    // setInterval은 요청한 주기를 지켜주지 않는다. 불린 횟수만큼 틱하면 밀린 시간이
+    // 그대로 사라져 게임이 슬로모션이 된다 — 실제 흐른 시간을 재서 그만큼 따라잡는다.
+    let previous = performance.now();
     this.timer = setInterval(() => {
-      this.world.tick(1 / TICK_RATE);
-      this.interpolator.push(this.readRawSnapshot());
+      const now = performance.now();
+      const elapsedSeconds = (now - previous) / 1000;
+      previous = now;
+
+      const steps = this.stepper.consume(elapsedSeconds);
+      for (let i = 0; i < steps; i += 1) this.world.tick(this.stepper.step);
+      if (steps > 0) this.interpolator.push(this.readRawSnapshot());
     }, 1000 / TICK_RATE);
   }
 
