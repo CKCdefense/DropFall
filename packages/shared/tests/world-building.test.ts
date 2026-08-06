@@ -1539,3 +1539,61 @@ describe('World — 자원 군집 스폰 최소거리(docs/backend/39)', () => {
     }
   });
 });
+
+describe('World — 맨손(기본 무기)', () => {
+  it('아무것도 안 들었어도 공격이 성립한다', () => {
+    const world = createTestWorld();
+    world.addPlayer('p1', 0, 0);
+    const node = isolateNode(world, 'wood', 20, 0);
+    const hpBefore = node.hp;
+
+    // 인벤토리가 비어 있다 — 예전에는 여기서 아무 일도 일어나지 않았다.
+    world.fireWeapon('p1');
+
+    expect(node.hp).toBeLessThan(hpBefore);
+  });
+
+  it('맨손은 나무와 돌을 가리지 않고 캔다(도구는 계열이 맞아야 한다)', () => {
+    const world = createTestWorld();
+    world.addPlayer('p1', 0, 0);
+    const stone = isolateNode(world, 'stone', 20, 0);
+    const hpBefore = stone.hp;
+
+    world.fireWeapon('p1'); // 맨손으로 돌
+
+    expect(stone.hp).toBeLessThan(hpBefore);
+  });
+
+  it('맨손 데미지는 제대로 된 도구보다 훨씬 낮다', () => {
+    const bare = createTestWorld();
+    bare.addPlayer('p1', 0, 0);
+    const bareNode = isolateNode(bare, 'wood', 20, 0);
+    bare.fireWeapon('p1');
+    const bareDamage = resourcesData.wood.hp - bareNode.hp;
+
+    const withAxe = createTestWorld();
+    withAxe.addPlayer('p1', 0, 0);
+    equipDefaultKit(withAxe, 'p1');
+    withAxe.selectSlot('p1', 1); // 도끼
+    const axeNode = isolateNode(withAxe, 'wood', 20, 0);
+    withAxe.fireWeapon('p1');
+    const axeDamage = resourcesData.wood.hp - axeNode.hp;
+
+    expect(bareDamage).toBeGreaterThan(0);
+    // "매우 약하게" — 도구의 1/3 아래로 둔다. 맨손으로 캐는 게 대안은 되어도
+    // 도구를 만들 이유를 없애면 안 된다.
+    expect(bareDamage * 3).toBeLessThan(axeDamage);
+  });
+
+  it('재료를 들고 있어도 맨손으로 친다(무기가 아니면 손이 빈 것과 같다)', () => {
+    const world = createTestWorld();
+    world.addPlayer('p1', 0, 0);
+    world.getPlayers().get('p1')!.inventory.add('wood', 10);
+    const node = isolateNode(world, 'wood', 20, 0);
+    const hpBefore = node.hp;
+
+    world.fireWeapon('p1');
+
+    expect(node.hp).toBeLessThan(hpBefore);
+  });
+});

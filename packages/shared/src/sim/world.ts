@@ -85,6 +85,12 @@ export const CORE_INTERACT_RADIUS = CORE_RADIUS + 32;
  */
 export const PICKUP_RADIUS = 22;
 
+/**
+ * 아무것도 안 들었을 때 쓰는 기본 무기(weapons.json의 key). 손이 비었다고 아무것도
+ * 못 하면 도구를 잃었을 때 할 수 있는 게 없어진다 — 대신 데미지가 매우 낮다.
+ */
+export const BARE_HANDS_WEAPON_ID = 'fist';
+
 /** 개발 커맨드로 몬스터를 부를 때 코어에서 띄우는 거리(px). 바로 옆에 붙여 놓으면 코어가 즉사한다. */
 const DEV_SPAWN_RADIUS = 160;
 
@@ -559,9 +565,9 @@ export class World {
     // 엄호가 필요한 협동 압박 요소로 설계됐다, docs/backend/35).
     if (player.channelingColonyId) return;
 
-    const weaponId = player.inventory.equippedWeaponId;
-    // 무기가 아닌 슬롯(붕대 등)을 들고 있으면 공격이 성립하지 않는다.
-    if (!weaponId) return;
+    // 무기를 안 들었으면 맨손이다. 붕대 같은 소모품을 들고 있을 때는 좌클릭이
+    // "사용"이라 여기까지 오지 않는다(클라이언트가 useSlot으로 보낸다).
+    const weaponId = player.inventory.equippedWeaponId ?? BARE_HANDS_WEAPON_ID;
     if (!this.cooldowns.canFire(playerId, weaponId, this.elapsedSeconds)) return;
 
     this.cooldowns.recordFire(playerId, weaponId, this.elapsedSeconds);
@@ -624,7 +630,9 @@ export class World {
       if (node.hp <= 0) continue;
       const data = resourcesData[node.type];
       // 티어가 올라도 계열은 같다 — 도끼 T1/T2/T3 모두 나무를 캔다.
-      if (data.requiredTool !== weaponsData[weaponId]?.toolFamily) continue;
+      // 맨손(harvestsAny)은 종류를 안 가리는 대신 데미지가 매우 낮다.
+      const weapon = weaponsData[weaponId];
+      if (!weapon?.harvestsAny && data.requiredTool !== weapon?.toolFamily) continue;
       if (!withinMeleeArc(hit, node.x, node.y, data.hitRadius)) continue;
       const distance = Math.hypot(node.x - hit.originX, node.y - hit.originY);
       if (distance >= targetDistance) continue;

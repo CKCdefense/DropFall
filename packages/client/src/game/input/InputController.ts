@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import {
+  BARE_HANDS_WEAPON_ID,
   INPUT_SEND_RATE,
   SLOT_COUNT,
   itemOfSlot,
@@ -21,11 +22,17 @@ interface EquippedItem {
   weaponId: string | undefined;
 }
 
-/** 스냅샷의 내 플레이어에서 "지금 손에 든 것"을 읽는다. */
+/**
+ * 스냅샷의 내 플레이어에서 "지금 손에 든 것"을 읽는다.
+ *
+ * 무기도 소모품도 아니면(빈 칸, 재료) **맨손**으로 친다 — 서버도 같은 판정을 한다
+ * (World.fireWeapon의 BARE_HANDS_WEAPON_ID). 손이 비었다고 아무것도 못 하면
+ * 도구를 잃었을 때 할 수 있는 게 없어진다.
+ */
 function readEquipped(self: PlayerView): EquippedItem {
   const item = itemOfSlot(self.slots[self.selectedSlot]);
-  if (!item) return { kind: null, weaponId: undefined };
-  return { kind: item.kind, weaponId: item.weaponId };
+  if (item?.kind === 'consumable') return { kind: 'consumable', weaponId: undefined };
+  return { kind: 'weapon', weaponId: item?.weaponId ?? BARE_HANDS_WEAPON_ID };
 }
 
 /**

@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import {
+  BARE_HANDS_WEAPON_ID,
   HIT_RADIUS,
   TILE_SIZE,
   buildingsData,
@@ -390,9 +391,11 @@ export class EntityRenderer {
       // 다운된 플레이어는 흐리게 — 부활 대상임을 한눈에 보이게 한다.
       sprite.setAlpha(player.hp > 0 ? 1 : 0.35);
 
-      // 무기는 서버가 정한다 — 손에 무기가 없으면(소모품 등) 직전 무기를 그대로 든 채 둔다.
-      const equippedWeaponId = itemOfSlot(player.slots[player.selectedSlot])?.weaponId;
-      if (equippedWeaponId) this.syncWeapon(player.id, equippedWeaponId);
+      // 무기는 서버가 정한다. 무기가 아닌 걸 들었으면 맨손이다 — 소모품을 든 동안에도
+      // 좌클릭으로 때릴 수 있으므로(서버의 BARE_HANDS_WEAPON_ID) 그림도 맨손이어야 한다.
+      const equippedWeaponId =
+        itemOfSlot(player.slots[player.selectedSlot])?.weaponId ?? BARE_HANDS_WEAPON_ID;
+      this.syncWeapon(player.id, equippedWeaponId);
 
       const aim = sprite.getByName('aim');
       if (aim instanceof Phaser.GameObjects.Sprite) {

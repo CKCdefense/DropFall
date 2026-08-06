@@ -1,5 +1,7 @@
 import Phaser from 'phaser';
 import type { GameConnection } from '../net/GameConnection';
+import { weaponsData } from '@dropfall/shared';
+import { WEAPON_VISUALS } from './render/weaponFx';
 import { GameScene } from './scenes/GameScene';
 import { HudScene } from './scenes/HudScene';
 
@@ -48,8 +50,15 @@ export function createGame(parent: HTMLElement, connection: GameConnection): Pha
   game.registry.set(CONNECTION_KEY, connection);
 
   // 개발 중 콘솔/자동화에서 상태를 들여다보기 위한 핸들. 프로덕션 번들에는 포함되지 않는다.
+  // weaponsData/WEAPON_VISUALS까지 얹어두면 "그려진 총구와 서버가 총알을 만드는 지점이
+  // 같은가" 같은 정합성 확인을 브라우저에서 그대로 돌려볼 수 있다.
   if (import.meta.env.DEV) {
-    (window as unknown as { __dropfall?: unknown }).__dropfall = { game, connection };
+    (window as unknown as { __dropfall?: unknown }).__dropfall = {
+      game,
+      connection,
+      weaponsData,
+      weaponVisuals: WEAPON_VISUALS,
+    };
   }
 
   return game;

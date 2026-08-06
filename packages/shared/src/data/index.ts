@@ -116,6 +116,11 @@ const WeaponDataSchema = z.object({
    */
   toolFamily: z.string().optional(),
   /**
+   * 자원 종류를 가리지 않고 캘 수 있다(맨손). 계열이 하나뿐인 toolFamily로는
+   * "무엇이든"을 표현할 수 없어서 따로 뒀다 — 대신 데미지가 매우 낮다.
+   */
+  harvestsAny: z.boolean().optional(),
+  /**
    * melee 전용: 조준 방향 기준 부채꼴 판정 각도(도). 100이면 좌우 ±50도.
    * 없으면 전방향(360도) — 기존 원형 판정과 같아진다.
    */

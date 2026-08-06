@@ -58,27 +58,19 @@ export interface WeaponVisual {
   center?: Point;
   scale: number;
   /**
-   * 스프라이트가 기본으로 향하는 방향(라디안).
-   * 권총은 총구가 오른쪽(+x)이라 0, 도끼·곡괭이는 날이 위(-y)라 -π/2다.
+   * 스프라이트 안에서 **총열(또는 날)이 향하는 방향**(라디안). 권총처럼 총열이 수평인
+   * 그림은 0, 대각선으로 누운 소총·도끼는 -20°~-46° 쯤이다.
    */
   forward: number;
   /**
-   * 왼쪽을 볼 때 뒤집을 축. 가로로 누운 무기는 y축(위아래 반전), 세로로 선 무기는
-   * x축(좌우 반전)으로 뒤집어야 자루가 아니라 겉모습만 미러링된다.
+   * 궤도 위에 올릴 기준점(스프라이트 좌표). **총열 축 위의 점**이어야 한다 —
+   * 이 점이 조준선 위에 놓이므로, 축 위가 아니면 총구가 조준선에서 벗어난다.
    */
-  mirror: 'x' | 'y';
-  /** 궤도 위에 올릴 기준점(스프라이트 좌표). 이 점이 캐릭터에서 orbitRadius만큼 떨어진다. */
   pivot: Point;
   /** [뒷손, 앞손] 잡는 지점(스프라이트 좌표) */
   grips: [Point, Point];
-  /**
-   * 원본 스프라이트를 좌우로 뒤집은 채 기본 자세로 삼는다.
-   *
-   * 근접 무기는 위에서 아래로 휘두르는데(시계방향), 날이 진행 방향 반대쪽에 그려져
-   * 있으면 칼등으로 때리는 꼴이 된다. 원본을 고치는 대신 여기서 뒤집는다 —
-   * 손잡이가 pivot 기준 좌우대칭이라 손 위치는 그대로 유지된다.
-   */
-  baseFlipX?: boolean;
+  /** 그릴 손 개수. 맨손은 무기 스프라이트 자체가 손이라 0이다. */
+  handCount: number;
   orbitRadius: number;
   /** ranged 전용: 총구 끝(스프라이트 좌표) */
   muzzle?: Point;
@@ -117,25 +109,25 @@ function meleeSwingFrom(weapon: WeaponData): MeleeSwing {
  * 내려온 그림에서는 그 선이 30° 넘게 기울어서 총구가 커서를 안 가리켰다. 손잡이 위치와
  * 총열 방향은 **별개로** 재야 한다.
  *
- * 손잡이(`grip`)가 궤도 위에 올라간다. 그래서 총열 축은 조준선보다 살짝 위를 지난다 —
- * 실총도 총열이 손보다 위에 있으니 그게 자연스럽다. 총알 자체는 서버가 조준선을 따라
- * 쏘고(muzzleOffset), 여기 muzzle 좌표는 총구 화염을 얹을 자리로만 쓴다.
+ * 궤도에 올리는 점(pivot)은 손잡이가 아니라 **손잡이를 총열 축에 내린 발**이다. 그래야
+ * 총열 축이 조준선 위에 정확히 놓여서, 총구가 커서를 향하고 총알이 총구에서 나가는
+ * 것처럼 보인다. 손은 그보다 몇 px 아래에 그려진다 — 실총도 손이 총열보다 아래다.
  */
 function measured(options: {
   frame: string;
-  /** 손이 쥐는 자리(스프라이트 좌표). 이 점이 캐릭터에서 orbitRadius만큼 떨어진다. */
+  /** 손이 쥐는 자리(스프라이트 좌표). */
   grip: Point;
   /** 총열/날 위의 두 점. 두 번째가 끝(총구·칼끝)이다. */
   axis: [Point, Point];
   /** 원본 대비 배율. 원본 캔버스 크기가 제각각이라 무기마다 직접 잰다. */
   scale: number;
   orbitRadius: number;
-  mirror: 'x' | 'y';
   center?: Point;
+  handCount?: number;
   /** ranged면 축의 끝을 총구로 등록한다. melee면 휘두르기 값이 나중에 붙는다. */
   ranged: boolean;
 }): WeaponVisual {
-  const { frame, grip, axis, scale, orbitRadius, mirror, center, ranged } = options;
+  const { frame, grip, axis, scale, orbitRadius, center, ranged } = options;
   const [near, tip] = axis;
   const forward = Math.atan2(tip.y - near.y, tip.x - near.x);
 
@@ -144,13 +136,27 @@ function measured(options: {
     center,
     scale,
     forward,
-    mirror,
-    pivot: grip,
+    pivot: projectOntoAxis(grip, near, tip),
     // 뒷손은 손잡이, 앞손은 조금 앞. 총열 방향으로 띄워야 두 손이 무기를 따라 놓인다.
-    grips: [grip, { x: grip.x + Math.cos(forward) * HAND_SPACING, y: grip.y + Math.sin(forward) * HAND_SPACING }],
+    grips: [
+      grip,
+      { x: grip.x + Math.cos(forward) * HAND_SPACING, y: grip.y + Math.sin(forward) * HAND_SPACING },
+    ],
+    handCount: options.handCount ?? 2,
     orbitRadius,
     ...(ranged ? { muzzle: tip } : {}),
   };
+}
+
+/** 점을 직선 위에 수직으로 내린 발. pivot을 총열 축 위로 올리는 데 쓴다. */
+function projectOntoAxis(point: Point, from: Point, to: Point): Point {
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const lengthSquared = dx * dx + dy * dy;
+  if (lengthSquared === 0) return { ...from };
+
+  const t = ((point.x - from.x) * dx + (point.y - from.y) * dy) / lengthSquared;
+  return { x: from.x + dx * t, y: from.y + dy * t };
 }
 
 /** 두 손 사이 간격(스프라이트 px). 원본이 32px든 128px든 손은 같은 크기로 그려진다. */
@@ -162,17 +168,25 @@ function toolVisual(frame: string): WeaponVisual {
     frame,
     grip: { x: 8, y: 25 },
     // 자루가 곧 축이다 — 자루 끝에서 머리 쪽으로.
-    axis: [{ x: 8, y: 25 }, { x: 25, y: 7 }],
+    axis: [
+      { x: 8, y: 25 },
+      { x: 25, y: 7 },
+    ],
     scale: 0.62,
     orbitRadius: 9,
-    mirror: 'x',
     ranged: false,
   });
 }
 
 /**
  * 128×64 총기 시트. grip/axis는 확대한 원본에 8px 격자를 얹어 눈으로 잰 값이다.
- * 스프라이트를 고치면 여기 좌표도 같이 고쳐야 한다.
+ *
+ * **궤도 반경은 직접 정하지 않고 weapons.json의 muzzleOffset에서 거꾸로 구한다.**
+ * 서버는 총알을 플레이어에서 muzzleOffset만큼 떨어진 곳에 만드는데, 그 거리와 그림상
+ * 총구 위치를 각자 손으로 맞춰두면 스프라이트를 손볼 때마다 조용히 어긋난다("총알이
+ * 총구가 아닌 데서 나온다"). 총구가 축 위에 있으므로 조준선을 따라 잰 총구 거리는
+ * `orbitRadius + 스프라이트상 총구거리 × scale`이다 — 이 식을 뒤집어 반경을 정하면
+ * 그려진 총구가 **항상** 총알이 생기는 자리와 같아진다.
  */
 function gunVisual(
   frame: string,
@@ -180,19 +194,53 @@ function gunVisual(
   axis: [Point, Point],
   scale: number,
 ): WeaponVisual {
+  const [near, tip] = axis;
+  const pivot = projectOntoAxis(grip, near, tip);
+  const muzzleDistance = Math.hypot(tip.x - pivot.x, tip.y - pivot.y) * scale;
+  const muzzleOffset = weaponsData[weaponIdOfFrame(frame)]?.muzzleOffset ?? muzzleDistance;
+
   return measured({
     frame,
     grip,
     axis,
     scale,
-    orbitRadius: 11,
-    mirror: 'y',
+    // 총이 몸 안으로 파고들지는 않게 최소 거리는 남긴다. 여기에 걸린다는 건
+    // muzzleOffset이 그림보다 너무 짧다는 뜻이라 데이터를 다시 재야 한다.
+    orbitRadius: Math.max(MIN_GUN_ORBIT_RADIUS, muzzleOffset - muzzleDistance),
     center: GUN_SHEET_CENTER,
     ranged: true,
   });
 }
 
+/** 총기가 몸에 파고들지 않도록 남기는 최소 궤도 반경(px). */
+const MIN_GUN_ORBIT_RADIUS = 6;
+
+/**
+ * 총기 프레임 이름(`weapons_rifle_0`)에서 weapons.json의 key를 뽑는다. 표를 만들 때만
+ * 쓰는 보조라 규약(시트이름_태그_프레임)에 기대는 정도로 충분하다.
+ */
+function weaponIdOfFrame(frame: string): string {
+  return frame.replace(/^weapons_/, '').replace(/_\d+$/, '');
+}
+
 export const WEAPON_VISUALS: Record<string, WeaponVisual> = {
+  /**
+   * 맨손 — 무기를 안 들었을 때의 기본 공격. 손 스프라이트 자체가 무기라
+   * 손을 따로 그리지 않는다(handCount 0).
+   */
+  fist: measured({
+    frame: HAND_FRAME,
+    grip: { x: 16, y: 16 },
+    axis: [
+      { x: 12, y: 16 },
+      { x: 22, y: 16 },
+    ],
+    scale: 1,
+    orbitRadius: 12,
+    handCount: 0,
+    ranged: false,
+  }),
+
   // --- 채집 도구: 티어가 올라도 구도는 같고 스프라이트만 바뀐다 ---
   axe_t1: toolVisual('axe_stone_axe_0'),
   axe_t2: toolVisual('axe_iron_axe_0'),
@@ -216,10 +264,12 @@ export const WEAPON_VISUALS: Record<string, WeaponVisual> = {
   beamsword: measured({
     frame: 'weapons_beamsword_0',
     grip: { x: 40, y: 55 },
-    axis: [{ x: 40, y: 55 }, { x: 95, y: 3 }],
+    axis: [
+      { x: 40, y: 55 },
+      { x: 95, y: 3 },
+    ],
     scale: 0.32,
     orbitRadius: 10,
-    mirror: 'y',
     center: GUN_SHEET_CENTER,
     ranged: false,
   }),
@@ -232,7 +282,8 @@ for (const [id, visual] of Object.entries(WEAPON_VISUALS)) {
   if (weapon?.type === 'melee') visual.melee = meleeSwingFrom(weapon);
 }
 
-export const DEFAULT_WEAPON_ID = 'pistol';
+/** 표에 없는 무기를 들었을 때의 대체. 맨손은 어떤 상태에서도 그릴 수 있다. */
+export const DEFAULT_WEAPON_ID = 'fist';
 
 export function weaponVisual(weaponId: string): WeaponVisual {
   return WEAPON_VISUALS[weaponId] ?? WEAPON_VISUALS[DEFAULT_WEAPON_ID];
@@ -425,20 +476,37 @@ export function layoutWeapon(
   const { weapon, hands, flash, swingFx } = parts;
 
   const pose = visual.melee && swing ? swingPose(visual.melee, swing.elapsedMs) : null;
+
+  // 왼쪽(±90도 밖)을 볼 때만 뒤집는다. 기준은 조준각이다 — 휘두르는 중에 무기가
+  // 좌우로 뒤집히면 눈에 거슬린다.
+  const facingLeft = Math.abs(aimAngle) > Math.PI / 2;
+
+  /*
+   * 휘두르는 방향은 **보는 쪽을 따라간다.**
+   *
+   * 오른쪽을 볼 때는 위에서 아래로(화면상 시계방향) 내려친다. 왼쪽을 볼 때 같은
+   * 부호를 쓰면 몸 쪽에서 바깥으로 퍼올리는 꼴이 된다 — 그림이 좌우로 뒤집혔으니
+   * 궤적도 같이 뒤집혀야 날이 앞서 나간다.
+   */
+  const swingOffset = (pose?.offset ?? 0) * (facingLeft ? -1 : 1);
   // 휘두르는 동안에는 무기가 조준선에서 벗어나 궤도를 따라 훑고 지나간다.
-  const angle = aimAngle + (pose?.offset ?? 0);
+  const angle = aimAngle + swingOffset;
   const radius = visual.orbitRadius + (pose?.thrust ?? 0);
 
-  // 왼쪽(±90도 밖)을 볼 때만 뒤집는다. 회전만 시키면 무기가 거꾸로 보인다.
-  // 기준은 조준각이다 — 휘두르는 중에 무기가 좌우로 뒤집히면 눈에 거슬린다.
-  const facingLeft = Math.abs(aimAngle) > Math.PI / 2;
-  // baseFlipX(기본 자세 뒤집기)와 방향 반전은 같은 축이라 XOR로 합친다.
-  // 둘 다 켜지면 서로 상쇄되어 원본 방향으로 돌아온다.
-  const flipX = (facingLeft && visual.mirror === 'x') !== Boolean(visual.baseFlipX);
-  const flipY = facingLeft && visual.mirror === 'y';
-
-  // 스프라이트의 forward가 angle을 향하도록 돌린다.
-  const rotation = angle - visual.forward;
+  /*
+   * 왼쪽을 볼 때의 반전은 **조준선을 거울로 삼는다.**
+   *
+   * 예전엔 무기마다 x축/y축 중 하나를 골라 뒤집었는데, 그건 무기가 정확히 가로나
+   * 세로로 그려졌을 때만 맞는 얘기다. 도끼처럼 45° 누운 그림은 어느 축으로 뒤집어도
+   * 날이 엉뚱한 쪽을 향한다("좌우 어느 쪽을 봐도 날이 같은 방향" 제보).
+   *
+   * 임의의 축 f에 대한 반전은 `flipY(=x축 반전) + 회전 2f`와 같다. 평소 회전이
+   * (angle - f)이므로, 거울상은 flipY에 회전 (angle + f)를 주면 정확히 얻어진다.
+   * 무기가 어떤 각도로 그려져 있든 이 한 줄이면 맞는다.
+   */
+  const flipX = false;
+  const flipY = facingLeft;
+  const rotation = facingLeft ? angle + visual.forward : angle - visual.forward;
   const cos = Math.cos(rotation);
   const sin = Math.sin(rotation);
 
@@ -457,6 +525,8 @@ export function layoutWeapon(
   weapon.setPosition(center.x, center.y);
 
   hands.forEach((hand, index) => {
+    // 맨손처럼 무기 스프라이트 자체가 손인 경우엔 손을 겹쳐 그리지 않는다.
+    hand.setVisible(index < visual.handCount);
     const point = toContainer(visual.grips[index] ?? visual.grips[0]);
     // 손은 캐릭터와 같은 32×32 캔버스에 그려져 원래 크기가 맞다 — 무기 배율을 적용하지 않는다.
     hand.setPosition(point.x, point.y);

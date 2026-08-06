@@ -45,8 +45,10 @@ describe('resolveFire', () => {
   it('투사체는 플레이어 중심이 아니라 총구에서 나간다', () => {
     const result = resolveFire({ playerId: 'p1', weaponId: 'pistol', x: 10, y: 20, aimAngle: 0 });
 
-    // pistol muzzleOffset = 19 → 조준 방향(+x)으로 그만큼 밀려난다
-    expect(result.projectile?.x).toBeCloseTo(29, 5);
+    // 총구 거리는 스프라이트에서 잰 값이라 무기마다 다르다 — 숫자를 박아두면
+    // 그림을 고칠 때마다 테스트가 깨진다. 데이터에서 읽어 쓴다.
+    const offset = weaponsData.pistol.muzzleOffset!;
+    expect(result.projectile?.x).toBeCloseTo(10 + offset, 5);
     expect(result.projectile?.y).toBeCloseTo(20, 5);
   });
 
@@ -54,7 +56,7 @@ describe('resolveFire', () => {
     const up = resolveFire({ playerId: 'p1', weaponId: 'pistol', x: 0, y: 0, aimAngle: -Math.PI / 2 });
 
     expect(up.projectile?.x).toBeCloseTo(0, 5);
-    expect(up.projectile?.y).toBeCloseTo(-19, 5);
+    expect(up.projectile?.y).toBeCloseTo(-weaponsData.pistol.muzzleOffset!, 5);
     expect(up.projectile?.angle).toBeCloseTo(-Math.PI / 2, 5);
   });
 

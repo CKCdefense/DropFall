@@ -7,7 +7,7 @@
     "magazine": 12,
     "reloadTime": 1.2,
     "projectileSpeed": 420,
-    "muzzleOffset": 19
+    "muzzleOffset": 25
   },
   "axe_t1": {
     "name": "도끼 T1",
@@ -89,7 +89,7 @@
     "magazine": 6,
     "reloadTime": 1.6,
     "projectileSpeed": 520,
-    "muzzleOffset": 19
+    "muzzleOffset": 27
   },
   "rifle": {
     "name": "소총",
@@ -99,7 +99,7 @@
     "magazine": 30,
     "reloadTime": 1.8,
     "projectileSpeed": 600,
-    "muzzleOffset": 19
+    "muzzleOffset": 32
   },
   "shotgun": {
     "name": "산탄총",
@@ -109,7 +109,7 @@
     "magazine": 6,
     "reloadTime": 2.2,
     "projectileSpeed": 420,
-    "muzzleOffset": 19
+    "muzzleOffset": 28
   },
   "minigun": {
     "name": "미니건",
@@ -119,7 +119,7 @@
     "magazine": 120,
     "reloadTime": 4.0,
     "projectileSpeed": 560,
-    "muzzleOffset": 19
+    "muzzleOffset": 37
   },
   "beamsword": {
     "name": "빔소드",
@@ -128,5 +128,14 @@
     "fireRate": 2.5,
     "range": 34,
     "arc": 120
+  },
+  "fist": {
+    "name": "맨손",
+    "type": "melee",
+    "damage": 4,
+    "fireRate": 2.2,
+    "range": 18,
+    "arc": 90,
+    "harvestsAny": true
   }
 }
