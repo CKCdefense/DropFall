@@ -3,6 +3,7 @@ import {
   LOBBY_ERROR_MESSAGE,
   LobbyMessage,
   MAX_CLIENTS_PER_ROOM,
+  FixedStepAccumulator,
   PATCH_RATE,
   RoomErrorCode,
   RoomPhase,
@@ -52,6 +53,7 @@ export class GameRoom extends Room {
   state = new GameRoomState();
 
   private world = new World();
+  private readonly stepper = new FixedStepAccumulator(1 / TICK_RATE);
   /** 평문 보관. 게임 방 비밀번호는 계정 자격증명이 아니라 입장 키라 해싱하지 않는다. */
   private password = '';
 
@@ -143,7 +145,9 @@ export class GameRoom extends Room {
     // Colyseus는 시뮬레이션 틱과 상태 전송 주기가 별개다. patchRate를 명시하지 않으면
     // 기본값 20Hz로 남아서, 서버를 60Hz로 돌려도 클라이언트는 20Hz로만 본다.
     this.patchRate = 1000 / PATCH_RATE;
-    this.setSimulationInterval(() => this.update(), 1000 / TICK_RATE);
+    // Colyseus가 넘겨주는 실제 경과 시간을 쓴다. 고정값으로 틱하면 타이머가 밀린 만큼
+    // 시뮬레이션 시간이 사라져서, 무기 쿨다운·웨이브 타이머가 실제 시간과 어긋난다.
+    this.setSimulationInterval((deltaMs) => this.update(deltaMs), 1000 / TICK_RATE);
   }
 
   /**
@@ -218,11 +222,14 @@ export class GameRoom extends Room {
     console.log(`[GameRoom ${this.roomId}] game started (${this.state.players.size} players)`);
   }
 
-  private update(): void {
-    // 대기실에서는 시뮬레이션을 돌리지 않는다.
+  private update(deltaMs: number): void {
+    // 대기실에서는 시뮬레이션을 돌리지 않는다. 누적기도 비워둬야 시작하자마자
+    // 대기 시간만큼 몰아서 틱하지 않는다.
     if (this.state.phase !== RoomPhase.PLAYING) return;
 
-    this.world.tick(1 / TICK_RATE);
+    const steps = this.stepper.consume(deltaMs / 1000);
+    if (steps === 0) return;
+    for (let i = 0; i < steps; i += 1) this.world.tick(this.stepper.step);
 
     for (const [id, player] of this.world.getPlayers()) {
       const schema = this.state.players.get(id);

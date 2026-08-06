@@ -5,4 +5,7 @@ export * from './protocol/lobby';
 export * from './sim/world';
 export * from './sim/movement';
 export * from './sim/inventory';
+export * from './sim/fixedStep';
 export * from './data';
+export * from './terrain/noise';
+export * from './terrain/terrain';

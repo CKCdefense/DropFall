@@ -16,6 +16,11 @@ export function loadData<T>(schema: z.ZodType<T>, json: unknown): T {
 
 const MonsterDataSchema = z.object({
   hp: z.number().positive(),
+  /**
+   * 원형 히트박스 반경(px). 화면에 그려지는 크기의 절반과 같아야 한다 —
+   * 눈에 보이는 덩치와 맞는 곳이 다르면 "빗나간 것 같은데 맞았다"가 된다.
+   */
+  hitRadius: z.number().positive(),
   damage: z.number().nonnegative(),
   speed: z.number().nonnegative(),
   attackRange: z.number().nonnegative(),

@@ -1,3 +1,5 @@
+import type Phaser from 'phaser';
+
 /**
  * HUD 공용 스타일 값.
  *
@@ -41,3 +43,17 @@ export const BAR_DANGER_RATIO = 0.3;
 export function barColor(ratio: number): number {
   return ratio > BAR_DANGER_RATIO ? BAR_OK : BAR_DANGER;
 }
+
+/**
+ * 패널 밖에 떠 있는 글자에 1px 그림자를 넣는다.
+ *
+ * 바닥이 단색이던 때는 필요 없었는데, 지형 타일을 깔면서 글자가 풀·모래 무늬에 묻히게 됐다.
+ * 픽셀 폰트라 외곽선(stroke)을 두르면 획이 번지므로, **흐림 없는 1px 그림자**로 대비만 준다.
+ *
+ * offset은 UI 배율을 따라간다 — 2배에서 1px 그림자는 너무 얇아 보이지 않는다.
+ */
+export function applyTextShadow(text: Phaser.GameObjects.Text, scale = 1): void {
+  text.setShadow(scale, scale, SHADOW, 0, false, true);
+}
+
+const SHADOW = '#0B0D12';

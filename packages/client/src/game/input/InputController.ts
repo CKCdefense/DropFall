@@ -9,6 +9,7 @@ import {
   type ItemKind,
   type PlayerInputMessage,
 } from '@dropfall/shared';
+import { ACTION_PLANE_Y } from '../render/plane';
 import type { GameConnection, PlayerView } from '../../net/GameConnection';
 
 const SEND_INTERVAL_MS = 1000 / INPUT_SEND_RATE;
@@ -28,9 +29,15 @@ function readEquipped(self: PlayerView): EquippedItem {
 }
 
 /**
- * 홀드 공격 재전송 간격(ms). 서버 쿨다운(1/fireRate)과 정확히 같게 보내면 네트워크
- * 지터 때문에 절반쯤이 "너무 이르다"고 거절당한다. 살짝 빠르게 보내서 서버가 준비되는
- * 즉시 다음 요청이 도착해 있게 한다 — 거절된 요청은 서버가 조용히 버린다.
+ * 홀드 공격 재전송 간격(ms). **무기의 발사 주기와 정확히 같게** 보낸다.
+ *
+ * 한때 여기에 0.9를 곱해 서버보다 살짝 빠르게 보냈다. 지터로 거절당하는 걸 줄이려던
+ * 건데 정반대 결과가 나왔다 — 매번 쿨다운 전에 도착해서 **요청 두 번당 한 번만** 발사됐고,
+ * 총구 화염은 요청마다 재생되니 이펙트가 실제 발사의 두 배로 보였다.
+ * (실측: 3초 홀드에 이펙트 10회 / 실제 발사 5회)
+ *
+ * 지터는 서버 쪽 쿨다운 여유(FIRE_COOLDOWN_GRACE)로 흡수한다. 클라이언트가 서버보다
+ * 빨리 쏘려고 하면 안 된다.
  *
  * 무기를 모르면(빈 손, 소모품) 넉넉한 기본값을 쓴다 — 어차피 서버가 공격을 만들지 않는다.
  */
@@ -38,7 +45,7 @@ const UNKNOWN_WEAPON_INTERVAL_MS = 200;
 
 function fireIntervalMs(weaponId: string | undefined): number {
   const weapon = weaponId ? weaponsData[weaponId] : undefined;
-  return weapon ? (1000 / weapon.fireRate) * 0.9 : UNKNOWN_WEAPON_INTERVAL_MS;
+  return weapon ? 1000 / weapon.fireRate : UNKNOWN_WEAPON_INTERVAL_MS;
 }
 /** 채집 홀드 재전송 간격. 실제 채집 주기는 서버(resources.json)가 정한다. */
 const HARVEST_INTERVAL_MS = 100;
@@ -214,7 +221,20 @@ export class InputController {
     const pointer = this.scene.input.activePointer;
     // 화면 좌표 → 월드 좌표. 카메라가 따라다니므로 이 변환이 없으면 조준이 어긋난다.
     const world = this.scene.cameras.main.getWorldPoint(pointer.x, pointer.y);
-    this.aimAngle = Math.atan2(world.y - selfY, world.x - selfX);
+
+    /*
+     * 커서 높이 보정.
+     *
+     * getWorldPoint는 "커서가 바닥 평면의 어디를 가리키는가"를 준다. 그런데 총알과 몬스터는
+     * 화면에서 ACTION_PLANE_Y만큼 올려 그려진다(plane.ts) — 커서가 실제로 가리키는 것은
+     * 바닥이 아니라 그 올라간 평면이다.
+     *
+     * 보정 없이 발밑에서 커서로 각을 재면, 올려 그려진 총알 궤적이 커서보다 딱 그만큼
+     * 위로 지나간다. 커서 지점을 바닥 좌표로 되돌린 뒤 각을 재야 화면상 궤적이 커서를
+     * 정확히 통과한다. (ACTION_PLANE_Y가 음수라 빼면 아래로 내려간다)
+     */
+    const targetY = world.y - ACTION_PLANE_Y;
+    this.aimAngle = Math.atan2(targetY - selfY, world.x - selfX);
   }
 
   private buildInput(): PlayerInputMessage {
