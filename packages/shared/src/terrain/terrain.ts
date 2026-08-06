@@ -182,3 +182,46 @@ export function decorationTileAt(cx: number, cy: number, seed: number): number |
     Math.min(variant, DECO_PER_TERRAIN - 1)
   );
 }
+
+// ---------------------------------------------------------------- 포장 타일 (코어 건축 구역)
+
+/** 포장 타일이 시작되는 번호(장식 뒤). 생성기(tiles_terrain.lua)의 배치와 짝을 맞춘 값이다. */
+export const PAVEMENT_TILE_START = DECO_TILE_START + 16;
+
+/**
+ * 건축 가능 반경 안 포장의 꼭짓점 판정. 지형 노이즈 대신 **원 안인지**만 본다 —
+ * 코어 업그레이드로 반경이 변해도 같은 함수로 다시 그리면 된다.
+ *
+ * 지형과 같은 코너 마스크 방식이라 경계가 저절로 매끈한 호가 된다. 꼭짓점 좌표는
+ * 월드 좌표(px)로 바꿔서 잰다 — 반경도 px 단위(getBuildRadius)라서다.
+ */
+function hasPavementAtVertex(vx: number, vy: number, radiusPx: number, mapOriginPx: number): boolean {
+  const worldX = mapOriginPx + vx * 16;
+  const worldY = mapOriginPx + vy * 16;
+  return worldX * worldX + worldY * worldY <= radiusPx * radiusPx;
+}
+
+/**
+ * 한 칸에 깔 포장 타일 번호. 반경 밖이면 null(그 칸은 비운다).
+ * 시그니처가 terrainTileAt과 같은 모양이라 TerrainLayer가 같은 흐름으로 쓴다.
+ */
+export function pavementTileAt(
+  cx: number,
+  cy: number,
+  radiusPx: number,
+  seed: number,
+  mapOriginPx: number,
+): number | null {
+  const nw = hasPavementAtVertex(cx, cy, radiusPx, mapOriginPx) ? 1 : 0;
+  const ne = hasPavementAtVertex(cx + 1, cy, radiusPx, mapOriginPx) ? 2 : 0;
+  const se = hasPavementAtVertex(cx + 1, cy + 1, radiusPx, mapOriginPx) ? 4 : 0;
+  const sw = hasPavementAtVertex(cx, cy + 1, radiusPx, mapOriginPx) ? 8 : 0;
+  const mask = nw | ne | se | sw;
+
+  if (mask === 0) return null;
+  if (mask === TERRAIN_MASK_COUNT - 1) {
+    // 꽉 찬 칸은 지형과 같은 변형 뽑기를 재사용한다(로컬 15~19 배치가 같다).
+    return PAVEMENT_TILE_START + fullTileLocal(cx, cy, seed + 4177);
+  }
+  return PAVEMENT_TILE_START + mask;
+}

@@ -766,6 +766,166 @@
     "spriteSourceSize": { "x": 0, "y": 0, "w": 16, "h": 16 },
     "sourceSize": { "w": 16, "h": 16 },
     "duration": 100
+   },
+   "terrain_pavement_0": {
+    "frame": { "x": 273, "y": 69, "w": 16, "h": 16 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 16, "h": 16 },
+    "sourceSize": { "w": 16, "h": 16 },
+    "duration": 100
+   },
+   "terrain_pavement_1": {
+    "frame": { "x": 290, "y": 69, "w": 16, "h": 16 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 16, "h": 16 },
+    "sourceSize": { "w": 16, "h": 16 },
+    "duration": 100
+   },
+   "terrain_pavement_2": {
+    "frame": { "x": 307, "y": 69, "w": 16, "h": 16 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 16, "h": 16 },
+    "sourceSize": { "w": 16, "h": 16 },
+    "duration": 100
+   },
+   "terrain_pavement_3": {
+    "frame": { "x": 324, "y": 69, "w": 16, "h": 16 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 16, "h": 16 },
+    "sourceSize": { "w": 16, "h": 16 },
+    "duration": 100
+   },
+   "terrain_pavement_4": {
+    "frame": { "x": 1, "y": 86, "w": 16, "h": 16 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 16, "h": 16 },
+    "sourceSize": { "w": 16, "h": 16 },
+    "duration": 100
+   },
+   "terrain_pavement_5": {
+    "frame": { "x": 18, "y": 86, "w": 16, "h": 16 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 16, "h": 16 },
+    "sourceSize": { "w": 16, "h": 16 },
+    "duration": 100
+   },
+   "terrain_pavement_6": {
+    "frame": { "x": 35, "y": 86, "w": 16, "h": 16 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 16, "h": 16 },
+    "sourceSize": { "w": 16, "h": 16 },
+    "duration": 100
+   },
+   "terrain_pavement_7": {
+    "frame": { "x": 52, "y": 86, "w": 16, "h": 16 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 16, "h": 16 },
+    "sourceSize": { "w": 16, "h": 16 },
+    "duration": 100
+   },
+   "terrain_pavement_8": {
+    "frame": { "x": 69, "y": 86, "w": 16, "h": 16 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 16, "h": 16 },
+    "sourceSize": { "w": 16, "h": 16 },
+    "duration": 100
+   },
+   "terrain_pavement_9": {
+    "frame": { "x": 86, "y": 86, "w": 16, "h": 16 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 16, "h": 16 },
+    "sourceSize": { "w": 16, "h": 16 },
+    "duration": 100
+   },
+   "terrain_pavement_10": {
+    "frame": { "x": 103, "y": 86, "w": 16, "h": 16 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 16, "h": 16 },
+    "sourceSize": { "w": 16, "h": 16 },
+    "duration": 100
+   },
+   "terrain_pavement_11": {
+    "frame": { "x": 120, "y": 86, "w": 16, "h": 16 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 16, "h": 16 },
+    "sourceSize": { "w": 16, "h": 16 },
+    "duration": 100
+   },
+   "terrain_pavement_12": {
+    "frame": { "x": 137, "y": 86, "w": 16, "h": 16 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 16, "h": 16 },
+    "sourceSize": { "w": 16, "h": 16 },
+    "duration": 100
+   },
+   "terrain_pavement_13": {
+    "frame": { "x": 154, "y": 86, "w": 16, "h": 16 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 16, "h": 16 },
+    "sourceSize": { "w": 16, "h": 16 },
+    "duration": 100
+   },
+   "terrain_pavement_14": {
+    "frame": { "x": 171, "y": 86, "w": 16, "h": 16 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 16, "h": 16 },
+    "sourceSize": { "w": 16, "h": 16 },
+    "duration": 100
+   },
+   "terrain_pavement_15": {
+    "frame": { "x": 188, "y": 86, "w": 16, "h": 16 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 16, "h": 16 },
+    "sourceSize": { "w": 16, "h": 16 },
+    "duration": 100
+   },
+   "terrain_pavement_16": {
+    "frame": { "x": 205, "y": 86, "w": 16, "h": 16 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 16, "h": 16 },
+    "sourceSize": { "w": 16, "h": 16 },
+    "duration": 100
+   },
+   "terrain_pavement_17": {
+    "frame": { "x": 222, "y": 86, "w": 16, "h": 16 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 16, "h": 16 },
+    "sourceSize": { "w": 16, "h": 16 },
+    "duration": 100
+   },
+   "terrain_pavement_18": {
+    "frame": { "x": 239, "y": 86, "w": 16, "h": 16 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 16, "h": 16 },
+    "sourceSize": { "w": 16, "h": 16 },
+    "duration": 100
+   },
+   "terrain_pavement_19": {
+    "frame": { "x": 256, "y": 86, "w": 16, "h": 16 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 16, "h": 16 },
+    "sourceSize": { "w": 16, "h": 16 },
+    "duration": 100
    }
  },
  "meta": {
@@ -773,14 +933,15 @@
   "version": "1.3.18.1-x64",
   "image": "tiles.png",
   "format": "RGBA8888",
-  "size": { "w": 341, "h": 86 },
+  "size": { "w": 341, "h": 103 },
   "scale": "1",
   "frameTags": [
    { "name": "grass", "from": 0, "to": 19, "direction": "forward", "color": "#000000ff" },
    { "name": "dirt", "from": 20, "to": 39, "direction": "forward", "color": "#000000ff" },
    { "name": "sand", "from": 40, "to": 59, "direction": "forward", "color": "#000000ff" },
    { "name": "stone", "from": 60, "to": 79, "direction": "forward", "color": "#000000ff" },
-   { "name": "deco", "from": 80, "to": 95, "direction": "forward", "color": "#000000ff" }
+   { "name": "deco", "from": 80, "to": 95, "direction": "forward", "color": "#000000ff" },
+   { "name": "pavement", "from": 96, "to": 115, "direction": "forward", "color": "#000000ff" }
   ]
  }
 }

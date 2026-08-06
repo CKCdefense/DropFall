@@ -48,7 +48,8 @@ import {
 const ROOM_CODE_MAX_ATTEMPTS = 10;
 
 /** 코어 주변 스폰 반경(px). 밸런스 확정 전까지 임의값. */
-const SPAWN_RADIUS = 40;
+// 코어 충돌 반경(46) 밖이어야 한다 — 겹친 채 태어나면 이동이 전부 막힌다.
+const SPAWN_RADIUS = 80;
 
 async function allocateRoomCode(): Promise<string> {
   for (let attempt = 0; attempt < ROOM_CODE_MAX_ATTEMPTS; attempt += 1) {

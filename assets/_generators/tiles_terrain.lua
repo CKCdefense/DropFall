@@ -497,9 +497,12 @@ local DECO_DRAWERS = {
 
 local frameCount = #TERRAINS * TILES_PER_TERRAIN
 local DECO_COUNT = #TERRAINS * 4
+-- 코어 건축 구역 포장. 지형과 같은 20장 구성(마스크 16 + 꽉 찬 변형 4)이라
+-- 클라이언트가 같은 마스크 로직을 그대로 쓴다. 번호는 96(장식 뒤)부터.
+local PAVEMENT_COUNT = TILES_PER_TERRAIN
 local sprite = Sprite(T, T, ColorMode.RGB)
 local layer = sprite.layers[1]
-for _ = 2, frameCount + DECO_COUNT do sprite:newEmptyFrame() end
+for _ = 2, frameCount + DECO_COUNT + PAVEMENT_COUNT do sprite:newEmptyFrame() end
 
 local frame = 1
 for _, terrain in ipairs(TERRAINS) do
@@ -545,6 +548,103 @@ for _, terrain in ipairs(TERRAINS) do
 end
 local decoTag = sprite:newTag(decoFirst, frame - 1)
 decoTag.name = 'deco'
+
+-- ============================================================================
+-- 포장 타일 (코어 건축 구역)
+-- ============================================================================
+-- 코어 주변 건축 가능 구역에 까는 "정돈된 바닥"이다. 지형과 같은 코너 마스크 방식을
+-- 쓰되 두 가지가 다르다:
+--
+--  1) **워프 없음.** 자연 지형의 경계는 구불구불해야 어울리지만, 포장은 사람이 깐
+--     바닥이라 경계가 매끈한 호(circular arc)를 그려야 "여기까지 정비했다"로 읽힌다.
+--  2) **석판 줄눈.** 얼룩·무늬 대신 8x8 석판을 반칸 엇갈리게(running bond) 깔고
+--     줄눈을 어둡게 판다. 절대 좌표(px % 16) 기준이라 이어 붙여도 줄눈이 이어진다.
+--
+-- 색은 코어 받침대의 회색 돌에서 가져와 살짝 밝게 — 지형 stone(0x53595F)보다 파랗고
+-- 정돈된 톤이라 "가공한 돌"과 "자연 암반"이 나뉜다.
+
+-- 첫 버전은 base 0x596171로 밝게 잡았더니 반경 250px 광장이 화면을 지배했다 —
+-- 포장은 "구역 표시"지 주인공이 아니라서, 지형 stone(0x53595F)과 비슷한 밝기로
+-- 낮추고 줄눈·베벨 대비도 줄였다. 푸른 기운만 남겨 자연 암반과 구분한다.
+local PAVE = {
+  grout = Color{ r = 0x2A, g = 0x2E, b = 0x38 },  -- 줄눈(가장 어둡다)
+  dark = Color{ r = 0x3A, g = 0x3F, b = 0x4C },
+  base = Color{ r = 0x4B, g = 0x51, b = 0x5F },
+  baseAlt = Color{ r = 0x45, g = 0x4B, b = 0x58 },
+  light = Color{ r = 0x59, g = 0x60, b = 0x6F },
+  accent = Color{ r = 0x46, g = 0x7E, b = 0x7A },  -- 코어 수정의 청록을 아주 옅게
+}
+
+--- 포장 경계 필드 — 워프도 지터도 없는 순수 이중선형. 등고선이 매끈한 직선/호가 된다.
+local function paveField(mask, px, py)
+  return cornerField(mask, (px + 0.5) / T, (py + 0.5) / T)
+end
+
+local function paveInside(mask, px, py)
+  return paveField(mask, px, py) > 0.5
+end
+
+--- 석판 한 장의 톤. 석판 좌표(절대) 해시라 옆 타일과 자연히 이어진다.
+local function slabTone(sx, sy)
+  local h = ((sx % 64 + 7) * 2654435761) ~ ((sy % 64 + 3) * 40503)
+  return (h % 100) / 100
+end
+
+local function drawPavement(image, mask, variant)
+  for py = 0, T - 1 do
+    for px = 0, T - 1 do
+      if paveInside(mask, px, py) then
+        -- 8x8 석판, 줄마다 반칸(4px) 엇갈림.
+        local row = math.floor(py / 8)
+        local shifted = px + (row % 2) * 4
+        local sx, sy = math.floor(shifted / 8), row
+
+        local color
+        if py % 8 == 7 or shifted % 8 == 7 then
+          color = PAVE.grout                       -- 줄눈
+        elseif py % 8 == 0 or shifted % 8 == 0 then
+          color = PAVE.light                       -- 줄눈 반대편 윗면 베벨
+        else
+          local tone = slabTone(sx + variant * 13, sy)
+          color = tone < 0.35 and PAVE.baseAlt or PAVE.base
+          -- 아주 드문 청록 상감 — 코어에서 뻗어 나온 설비라는 힌트. 넉 장에 한 번꼴.
+          if tone > 0.96 and py % 8 == 3 and shifted % 8 == 3 then color = PAVE.accent end
+          -- 모서리 칩: 석판마다 다른 위치가 살짝 패였다.
+          if tone < 0.12 and py % 8 == 5 and shifted % 8 == 5 then color = PAVE.dark end
+        end
+        image:drawPixel(px, py, color)
+      end
+    end
+  end
+
+  -- 경계 처리 — 지형과 같은 규칙(어두운 외곽 + 윗변 림)이라 화면 문법이 일관된다.
+  if mask ~= 15 then
+    for py = 0, T - 1 do
+      for px = 0, T - 1 do
+        if paveInside(mask, px, py) then
+          if paveField(mask, px, py) < 0.58 then image:drawPixel(px, py, PAVE.grout) end
+          if not paveInside(mask, px, py - 1) then image:drawPixel(px, py, PAVE.light) end
+        end
+      end
+    end
+  end
+end
+
+local paveFirst = frame
+for mask = 0, MASK_COUNT - 1 do
+  local image = Image(T, T, ColorMode.RGB)
+  if mask > 0 then drawPavement(image, mask, 0) end
+  sprite:newCel(layer, frame, image, Point(0, 0))
+  frame = frame + 1
+end
+for variant = 1, FULL_VARIANTS do
+  local image = Image(T, T, ColorMode.RGB)
+  drawPavement(image, 15, variant)
+  sprite:newCel(layer, frame, image, Point(0, 0))
+  frame = frame + 1
+end
+local paveTag = sprite:newTag(paveFirst, frame - 1)
+paveTag.name = 'pavement'
 
 sprite:saveAs(app.params['out'])
 print(string.format('saved: %s (지형 %d타일 + 장식 %d타일)', app.params['out'], frameCount, frame - decoFirst))

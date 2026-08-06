@@ -76,13 +76,14 @@ describe('World — 전투/웨이브 통합', () => {
 
   it('몬스터 타입마다 다른 히트박스 반경으로 판정한다', () => {
     const world = new World();
-    world.addPlayer('p1', 0, 0);
+    // 코어(반경 40) 밖에서 쏜다 — 원점에서 쏘면 총구(x≈25)가 코어 안이라 투사체가 흡수된다.
+    world.addPlayer('p1', 300, 0);
     equipDefaultKit(world, 'p1');
     startFirstWave(world);
 
     const [monster] = [...world.getMonsters().values()];
     // trash의 hitRadius는 6. 총알은 중심에서 6px 안으로 들어와야 맞는다.
-    monster!.x = 200;
+    monster!.x = 500;
     monster!.y = 0;
     const initialHp = monster!.hp;
 
@@ -94,13 +95,14 @@ describe('World — 전투/웨이브 통합', () => {
 
   it('히트박스 반경 밖으로 스쳐 지나가면 맞지 않는다', () => {
     const world = new World();
-    world.addPlayer('p1', 0, 0);
+    // 코어(반경 40) 밖에서 쏜다 — 원점에서 쏘면 총구(x≈25)가 코어 안이라 투사체가 흡수된다.
+    world.addPlayer('p1', 300, 0);
     equipDefaultKit(world, 'p1');
     startFirstWave(world);
 
     const [monster] = [...world.getMonsters().values()];
     // 진행선(+x)에서 세로로 hitRadius(6)보다 멀리 떨어뜨린다
-    monster!.x = 200;
+    monster!.x = 500;
     monster!.y = 12;
     const initialHp = monster!.hp;
 
@@ -129,12 +131,13 @@ describe('World — 전투/웨이브 통합', () => {
 
   it('권총(원거리)은 투사체를 만들고, 투사체가 이동해 몬스터에 맞으면 데미지를 준다', () => {
     const world = new World();
-    world.addPlayer('p1', 0, 0);
+    // 코어(반경 40) 밖에서 쏜다 — 원점에서 쏘면 총구(x≈25)가 코어 안이라 투사체가 흡수된다.
+    world.addPlayer('p1', 300, 0);
     equipDefaultKit(world, 'p1');
     startFirstWave(world);
 
     const [monster] = [...world.getMonsters().values()];
-    monster!.x = 100;
+    monster!.x = 400;
     monster!.y = 0;
     const initialHp = monster!.hp;
 
@@ -175,12 +178,13 @@ describe('World — 전투/웨이브 통합', () => {
 
   it('총구 간격 밖의 몬스터는 평소처럼 투사체가 날아가 맞힌다(간격 안 판정이 먼 거리 사격을 막지 않는다)', () => {
     const world = new World();
-    world.addPlayer('p1', 0, 0);
+    // 코어(반경 40) 밖에서 쏜다 — 원점에서 쏘면 총구(x≈25)가 코어 안이라 투사체가 흡수된다.
+    world.addPlayer('p1', 300, 0);
     equipDefaultKit(world, 'p1');
     startFirstWave(world);
 
     const [monster] = [...world.getMonsters().values()];
-    monster!.x = 40; // muzzleOffset(19)보다 충분히 멀다
+    monster!.x = 340; // muzzleOffset(19)보다 충분히 멀다
     monster!.y = 0;
     const initialHp = monster!.hp;
 
@@ -658,12 +662,13 @@ describe('World — 몬스터 처치 보상(부품/에너지)', () => {
 
   it('원거리 무기(투사체)로 죽여도 부품이 떨어진다', () => {
     const world = new World();
-    world.addPlayer('p1', 0, 0);
+    // 코어(반경 40) 밖에서 쏜다 — 원점에서 쏘면 총구(x≈25)가 코어 안이라 투사체가 흡수된다.
+    world.addPlayer('p1', 300, 0);
     equipDefaultKit(world, 'p1');
     startFirstWave(world);
 
     const [monster] = [...world.getMonsters().values()];
-    monster!.x = 100;
+    monster!.x = 400;
     monster!.y = 0;
     monster!.hp = 1;
 
@@ -732,12 +737,13 @@ describe('World — 몬스터 처치 보상(부품/에너지)', () => {
 
   it('투사체가 날아가는 동안 쏜 플레이어가 퇴장해도 처치 판정 자체는 크래시 없이 그대로 된다', () => {
     const world = new World();
-    world.addPlayer('p1', 0, 0);
+    // 코어(반경 40) 밖에서 쏜다 — 원점에서 쏘면 총구(x≈25)가 코어 안이라 투사체가 흡수된다.
+    world.addPlayer('p1', 300, 0);
     equipDefaultKit(world, 'p1');
     startFirstWave(world);
 
     const [monster] = [...world.getMonsters().values()];
-    monster!.x = 100;
+    monster!.x = 400;
     monster!.y = 0;
     monster!.hp = 1;
 

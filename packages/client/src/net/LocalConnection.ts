@@ -13,7 +13,9 @@ import type { GameConnection, LobbyView, RoomInfo, WorldSnapshot } from './GameC
 import { SnapshotInterpolator } from './SnapshotInterpolator';
 
 const LOCAL_SESSION_ID = 'local-player';
-const SPAWN_X = 40;
+// 코어 충돌 반경(PLAYER_CORE_COLLISION_RADIUS=46) 안에서 태어나면 이동이 전부
+// 막힌다 — 충돌 검사는 "이동 후 위치"를 보므로 겹친 채 시작하면 빠져나올 수도 없다.
+const SPAWN_X = 80;
 const SPAWN_Y = 0;
 
 /**

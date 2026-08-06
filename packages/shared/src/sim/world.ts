@@ -67,8 +67,15 @@ const FLOW_FIELD_GRID: FlowFieldGrid = {
   originX: MAP_ORIGIN,
   originY: MAP_ORIGIN,
 };
-/** 코어 자체의 판정 반경(px). 몬스터의 attackRange에 더해져 "코어에 도달했다"를 정의한다. */
-const CORE_RADIUS = TILE_SIZE;
+/**
+ * 코어 자체의 판정 반경(px). 몬스터의 attackRange에 더해져 "코어에 도달했다"를 정의하고,
+ * 투사체·플레이어 충돌에도 쓰인다.
+ *
+ * 스프라이트를 2배(108px)로 키우면서 16 → 40으로 맞췄다 — 받침대 바닥 폭(≈100px)의
+ * 반지름에서 원근으로 눌린 세로 폭을 감안한 값이다. 클라이언트가 건축 미리보기 등에서
+ * 같은 발자국을 봐야 해서 export한다.
+ */
+export const CORE_RADIUS = TILE_SIZE * 2.5;
 /** 코어 옆에서 자원을 입고(E)할 수 있는 반경(px). CORE_RADIUS보다 넉넉히 둬서 코어 바로 앞이 아니어도 상호작용할 수 있게 한다. */
 /**
  * 코어 상호작용 가능 반경(px). 클라이언트도 "E를 누를 수 있는가"를 같은 값으로 보여줘야
@@ -970,8 +977,9 @@ export class World {
     // 코어 업그레이드로 건설 가능 반경이 늘어난다(docs/backend/38) — 반경 밖은 아직 못 짓는다.
     if (Math.hypot(x, y) > this.getBuildRadius()) return;
 
-    const coreCell = worldToCell(0, 0);
-    if (cx === coreCell.cx && cy === coreCell.cy) return;
+    // 코어 발자국과 겹치는 셀은 전부 금지다. 예전엔 코어가 한 칸 크기라 셀 하나만
+    // 막으면 됐지만, 지금은 반경 40px — 스프라이트에 파묻히는 벽이 지어질 수 있다.
+    if (Math.hypot(x, y) <= CORE_RADIUS + TILE_SIZE / 2) return;
 
     for (const node of this.resourceNodes.values()) {
       const nodeCell = worldToCell(node.x, node.y);

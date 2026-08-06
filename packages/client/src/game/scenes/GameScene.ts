@@ -98,6 +98,8 @@ export class GameScene extends Phaser.Scene {
     // 휘두르기는 스냅샷이 아니라 시간으로 진행한다 — sync보다 먼저 갱신해야 이번 프레임에 반영된다.
     this.entityRenderer.advance(delta);
     this.entityRenderer.sync(snapshot);
+    // 건축 구역 포장 — 반경이 바뀐 순간에만 실제로 다시 그린다(TerrainLayer 참고).
+    this.terrain?.setBuildRadius(snapshot.status.coreBuildRadius);
 
     const me = snapshot.players.find((player) => player.id === this.connection.sessionId);
     if (!me) return;

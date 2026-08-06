@@ -670,8 +670,10 @@ describe('World — 건축물과 몬스터 상호작용', () => {
     // 코어(원점)와 대칭축(x=0 등) 위에 두면 장애물 하나가 좌우를 똑같이 막아서
     // 그라디언트의 수평 성분이 우연히 0으로 상쇄될 수 있다 — 일부러 비대칭 위치를 쓴다.
     const [monster] = [...world.getMonsters().values()];
-    monster!.x = 80;
-    monster!.y = -60;
+    // 중간 지점에 벽을 지어야 하므로, 그 중간 지점이 코어 건축 금지 반경(코어가
+    // 커지면서 48px) 밖에 오도록 몬스터를 충분히 멀리 둔다.
+    monster!.x = 160;
+    monster!.y = -120;
 
     world.tick(0.001);
     const directionBefore = { x: monster!.facingX, y: monster!.facingY };
@@ -750,14 +752,15 @@ describe('World — 건축물과 몬스터 상호작용', () => {
 
   it('추격 타겟이 있어도 사거리 안에 막는 건축물이 있으면 그것부터 공격한다', () => {
     const world = createTestWorld();
-    world.addPlayer('target', 100, 0); // aggroRadius(120) 안
+    world.addPlayer('target', 300, 0); // aggroRadius(120) 안 (몬스터 기준)
     world.addPlayer('builder', -500, -500);
     equipDefaultKit(world, 'builder');
     startFirstWave(world);
 
     const [monster] = [...world.getMonsters().values()];
     (monster as { type: string }).type = 'rusher'; // aggroRadius 120
-    monster!.x = 10;
+    // 코어가 커지면서(반경 40) 원점 근처는 건축 금지라, 무대를 +x로 옮겼다.
+    monster!.x = 210;
     monster!.y = 0;
     monster!.facingX = 1; // target(200,0) 쪽을 바라보게 시야각 안에 둔다
     monster!.facingY = 0;
@@ -790,22 +793,20 @@ describe('World — 건축물과 몬스터 상호작용', () => {
 
     grantSharedResources(world, 1000, 1000);
 
-    // 코어를 둘러싼 8칸 전부에 벽을 짓는다 — 바깥에서 코어로 가는 경로가 완전히 막힌다.
+    // 코어를 벽 고리로 완전히 둘러싼다 — 바깥에서 코어로 가는 경로가 완전히 막힌다.
+    // 코어가 커지면서(반경 40) 8이웃 셀은 건축 금지가 됐다. 금지 반경 밖에서 가장
+    // 가까운 완전한 고리인 체비쇼프 거리 4(9x9 테두리, 32칸)에 짓는다.
     const coreCell = worldToCell(0, 0);
-    const neighborOffsets = [
-      [-1, -1],
-      [0, -1],
-      [1, -1],
-      [-1, 0],
-      [1, 0],
-      [-1, 1],
-      [0, 1],
-      [1, 1],
-    ];
-    for (const [dx, dy] of neighborOffsets) {
-      world.placeBuilding('builder', 'wall', coreCell.cx + dx, coreCell.cy + dy);
+    let placed = 0;
+    for (let dx = -4; dx <= 4; dx += 1) {
+      for (let dy = -4; dy <= 4; dy += 1) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== 4) continue;
+        world.placeBuilding('builder', 'wall', coreCell.cx + dx, coreCell.cy + dy);
+        placed += 1;
+      }
     }
-    expect(world.getBuildings().size).toBe(8);
+    expect(placed).toBe(32);
+    expect(world.getBuildings().size).toBe(32);
 
     startFirstWave(world);
     spawnAtLeast(world, 1);
@@ -928,14 +929,15 @@ describe('World — 건축물과 투사체', () => {
 
   it('울타리는 투사체를 막지 않고 통과시킨다', () => {
     const world = createTestWorld();
-    world.addPlayer('shooter', 0, 0);
+    // 코어(반경 40) 밖에서 쏜다 — 원점에서 쏘면 총구가 코어 안이라 투사체가 흡수된다.
+    world.addPlayer('shooter', 200, 0);
     equipDefaultKit(world, 'shooter');
     world.addPlayer('builder', -500, -500);
     equipDefaultKit(world, 'builder');
 
     grantSharedResources(world, 100, 100);
 
-    const { cx, cy } = worldToCell(60, 0);
+    const { cx, cy } = worldToCell(260, 0);
     world.placeBuilding('builder', 'fence', cx, cy);
     expect(world.getBuildings().size).toBe(1);
 
@@ -943,7 +945,7 @@ describe('World — 건축물과 투사체', () => {
     spawnAtLeast(world, 1);
     const [monster] = [...world.getMonsters().values()];
     (monster as { type: string }).type = 'trash';
-    monster!.x = 150;
+    monster!.x = 350;
     monster!.y = 0;
     monster!.hp = monster!.maxHp;
 
@@ -1008,14 +1010,15 @@ describe('World — 자원 노드/콜로니/코어와 플레이어(하드 충돌
 
   it('코어는 플레이어의 이동을 막는다(통과 불가) — 코어는 항상 원점(0,0)이다', () => {
     const world = createTestWorld();
-    world.addPlayer('p1', -50, 0);
+    // 코어 충돌 반경이 46(플레이어 6 + 코어 40)이라, 그보다 확실히 밖에서 출발한다.
+    world.addPlayer('p1', -100, 0);
     equipDefaultKit(world, 'p1');
     world.setInput('p1', { seq: 1, moveX: 1, moveY: 0, aimAngle: 0 });
 
     const player = world.getPlayers().get('p1')!;
     for (let i = 0; i < 300; i += 1) world.tick(0.1);
 
-    expect(player.x).toBeGreaterThan(-50);
+    expect(player.x).toBeGreaterThan(-100);
     expect(player.x).toBeLessThan(0);
   });
 });

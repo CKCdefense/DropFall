@@ -9,6 +9,7 @@ import {
   TILE_SIZE,
   decorationTileAt,
   hashString,
+  pavementTileAt,
   terrainTileAt,
   type TerrainKind,
 } from '@dropfall/shared';
@@ -62,9 +63,14 @@ export function hasTerrainTileset(scene: Phaser.Scene): boolean {
 export class TerrainLayer {
   private readonly map: Phaser.Tilemaps.Tilemap;
   private readonly layers: Phaser.Tilemaps.TilemapLayer[] = [];
+  /** 코어 건축 구역 포장. 반경이 바뀔 때만 다시 그린다. */
+  private courtyard?: Phaser.Tilemaps.TilemapLayer;
+  private courtyardRadius = -1;
+  private readonly seed: number;
 
   constructor(scene: Phaser.Scene, seedSource: string) {
     const seed = hashString(seedSource);
+    this.seed = seed;
 
     this.map = scene.make.tilemap({
       tileWidth: TILE_SIZE,
@@ -90,6 +96,39 @@ export class TerrainLayer {
       this.layers.push(this.createLayer(kind, tileset, seed));
     }
     this.layers.push(this.createDecorationLayer(tileset, seed));
+
+    const courtyard = this.map.createBlankLayer('courtyard', tileset);
+    if (courtyard) {
+      courtyard.setPosition(MAP_ORIGIN, MAP_ORIGIN);
+      courtyard.setCullPadding(3, 3);
+      // 장식(꽃·자갈)보다 위 — 포장 아래 깔린 들꽃이 비쳐 보이면 어색하다.
+      courtyard.setDepth(TERRAIN_DEPTH + 2);
+      this.courtyard = courtyard;
+      this.layers.push(courtyard);
+    }
+  }
+
+  /**
+   * 코어 건축 가능 반경(px)에 맞춰 포장을 다시 깐다. 스냅샷마다 불러도 되지만 실제
+   * 다시 그리는 건 반경이 바뀐 순간뿐이다 — 코어 업그레이드는 게임당 몇 번 안 일어난다.
+   *
+   * 이전 반경과 새 반경 중 큰 쪽의 사각 범위만 순회한다. 최대 반경(900px ≈ 57칸)이라
+   * 최악에도 1만여 칸 — 업그레이드 순간 한 번이면 체감되지 않는다.
+   */
+  setBuildRadius(radiusPx: number): void {
+    if (!this.courtyard || radiusPx === this.courtyardRadius) return;
+
+    const span = Math.max(radiusPx, this.courtyardRadius);
+    this.courtyardRadius = radiusPx;
+
+    const center = MAP_SIZE_TILES / 2;
+    const reach = Math.min(center, Math.ceil(span / TILE_SIZE) + 1);
+    for (let ty = center - reach; ty < center + reach; ty += 1) {
+      for (let tx = center - reach; tx < center + reach; tx += 1) {
+        const tile = pavementTileAt(tx, ty, radiusPx, this.seed, MAP_ORIGIN);
+        this.courtyard.putTileAt(tile === null ? EMPTY_TILE : tile + FIRST_GID, tx, ty);
+      }
+    }
   }
 
   /** 꽃·자갈·뼈 같은 소품. 지형 위, 엔티티 아래에 깔린다. */
