@@ -165,7 +165,8 @@ const DROP_BOB_PERIOD_MS = 1400;
  */
 const CORE_FRAME = 'core__0';
 const CORE_SPRITE_SIZE = 128;
-const CORE_SCALE = 1.05;
+/** 원래 0.42였고, 랜드마크로 잘 보이도록 2배로 키웠다. */
+const CORE_SCALE = 0.84;
 const CORE_ORIGIN_Y = 0.86;
 /**
  * 스프라이트 안 수정(가운데 청록 구슬)의 중심과 크기. 원본에서 밝은 픽셀 범위를 재서
