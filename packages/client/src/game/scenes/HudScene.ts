@@ -1,9 +1,24 @@
 import Phaser from 'phaser';
-import { MAX_CLIENTS_PER_ROOM, SLOT_COUNT, computeCameraZoom, wavesData } from '@dropfall/shared';
+import type { InventorySlot } from '@dropfall/shared';
+import {
+  CORE_INTERACT_RADIUS,
+  MAX_CLIENTS_PER_ROOM,
+  SLOT_COUNT,
+  computeCameraZoom,
+  wavesData,
+} from '@dropfall/shared';
 import type { GameConnection, PlayerView, WorldSnapshot } from '../../net/GameConnection';
-import { CONNECTION_KEY, INPUT_CONTROLLER_KEY } from '../createGame';
+import {
+  CONNECTION_KEY,
+  CORE_INTERACT_KEY,
+  HUD_BLOCK_KEY,
+  INPUT_CONTROLLER_KEY,
+} from '../createGame';
 import type { InputController } from '../input/InputController';
 import { CoreModal } from '../ui/CoreModal';
+import { WarehouseModal } from '../ui/WarehouseModal';
+import { SlotDrag } from '../ui/SlotDrag';
+import type { Modal } from '../ui/Modal';
 import { CraftModal } from '../ui/CraftModal';
 import { Minimap } from '../ui/Minimap';
 import { PartyPanel } from '../ui/PartyPanel';
@@ -93,6 +108,13 @@ export class HudScene extends Phaser.Scene {
   // 코어 상호작용 모달 4종(docs/frontend/09) — [F]로 코어 모달을 열고, 거기서
   // 나머지 셋으로 이동한다. 아직 선작업 단계라 실제 데이터/효과는 없다.
   private coreModal!: CoreModal;
+  private warehouseModal!: WarehouseModal;
+  private slotDrag!: SlotDrag;
+  /** 최신 스냅샷의 내 슬롯/창고. 드래그가 "빈 칸인지"를 물어볼 때 쓴다. */
+  private latestInventory: (InventorySlot | null)[] = [];
+  private latestStorage: (InventorySlot | null)[] = [];
+  /** 코어 상호작용 반경 안에 있는지. update가 매 프레임 갱신한다. */
+  private nearCore = false;
   private upgradeModal!: UpgradeModal;
   private storeModal!: StoreModal;
   private craftModal!: CraftModal;
@@ -189,6 +211,28 @@ export class HudScene extends Phaser.Scene {
     this.upgradeModal = new UpgradeModal(this);
     this.storeModal = new StoreModal(this);
     this.craftModal = new CraftModal(this);
+    this.warehouseModal = new WarehouseModal(this);
+
+    // 창고 격자와 하단 퀵슬롯을 **하나의 드래그 공간**으로 묶는다. 둘은 별개 UI지만
+    // 아이템이 그 사이를 오가야 해서, 드래그 로직을 모달이 아니라 공용 컨트롤러에 둔다.
+    this.slotDrag = new SlotDrag(this);
+    this.slotDrag.onMove = (from, fromIndex, to, toIndex) =>
+      this.connection.moveItem(from, fromIndex, to, toIndex);
+    this.slotDrag.getSlot = (container, index) =>
+      (container === 'storage' ? this.latestStorage : this.latestInventory)[index] ?? null;
+
+    for (const cell of this.warehouseModal.storageCells) {
+      // 창고 칸은 모달이 열려 있을 때만 살아 있다 — 닫힌 모달의 칸이 드래그를 먹으면 안 된다.
+      this.slotDrag.register({
+        container: 'storage',
+        index: cell.index,
+        box: cell.box,
+        isActive: () => this.warehouseModal.isOpen(),
+      });
+    }
+    this.quickSlots.cells.forEach((box, index) => {
+      this.slotDrag.register({ container: 'inventory', index, box, isActive: () => true });
+    });
 
     this.coreModal.onManage = () => {
       this.coreModal.close();
@@ -203,15 +247,57 @@ export class HudScene extends Phaser.Scene {
       this.craftModal.open();
     };
     this.coreModal.onWarehouse = () => {
-      console.log('[HudScene] 창고 모달은 아직 없다');
+      this.coreModal.close();
+      this.warehouseModal.open();
     };
 
     // 낮/밤 무관하게 언제든 열어볼 수 있다 — 아직 실제 효과가 없는 선작업 UI라
     // 페이즈로 막을 이유가 없다(효과가 생기면 그때 막을지 정하면 된다).
     this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.F).on('down', () => {
-      if (this.coreModal.isOpen()) this.coreModal.close();
+      if (this.anyModalOpen()) this.closeAllModals();
       else this.coreModal.open();
     });
+
+    // 게임 입력이 모달을 뚫고 나가지 않게 한다 — 차단막이 없으니 좌표로 직접 판정한다.
+    this.registry.set(HUD_BLOCK_KEY, (x: number, y: number) => {
+      if (this.slotDrag.isDragging()) return true;
+      return this.openModals().some((modal) => modal.containsPoint(x, y));
+    });
+
+    // GameScene의 E 입력이 이 함수를 먼저 부른다. 코어 옆이면 모달을 열고 true를
+    // 돌려줘서 줍기를 막는다 — 코어 앞에서 E가 두 가지 일을 하지 않게 한다.
+    this.registry.set(CORE_INTERACT_KEY, () => {
+      if (this.anyModalOpen()) {
+        this.closeAllModals();
+        return true;
+      }
+      if (!this.nearCore) return false;
+
+      this.coreModal.open();
+      return true;
+    });
+  }
+
+  private openModals(): Modal[] {
+    return [
+      this.coreModal,
+      this.warehouseModal,
+      this.upgradeModal,
+      this.storeModal,
+      this.craftModal,
+    ].filter((modal) => modal.isOpen());
+  }
+
+  private anyModalOpen(): boolean {
+    return this.openModals().length > 0;
+  }
+
+  private closeAllModals(): void {
+    this.coreModal.close();
+    this.warehouseModal.close();
+    this.upgradeModal.close();
+    this.storeModal.close();
+    this.craftModal.close();
   }
 
   /**
@@ -299,9 +385,16 @@ export class HudScene extends Phaser.Scene {
     this.party.update(
       snapshot.players.filter((player) => player.id !== this.connection.sessionId),
     );
-    this.quickSlots.update(me);
+    this.latestInventory = me?.slots ?? [];
+    this.latestStorage = status.coreStorage;
+    this.quickSlots.update(me, this.slotDrag.hoverCellOf('inventory'));
     this.updateSelfBar(me);
     this.updateTexts(snapshot, me);
+
+    // 코어는 항상 원점(0,0). 서버(World.isNearCore)와 같은 반경으로 판정해야
+    // "E가 안 먹는다"는 어긋남이 안 생긴다.
+    this.nearCore = me ? Math.hypot(me.x, me.y) <= CORE_INTERACT_RADIUS : false;
+    if (this.warehouseModal.isOpen()) this.warehouseModal.setSlots(status.coreStorage);
   }
 
   private updateCore(

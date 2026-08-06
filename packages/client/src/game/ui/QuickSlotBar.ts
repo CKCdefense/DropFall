@@ -18,11 +18,17 @@ const SLOT_SIZE = 40;
 const SLOT_GAP = 6;
 const SELECTED_STROKE = 0x6fd08c;
 
+/** 드래그로 놓을 대상일 때의 강조색. */
+const HOVER_STROKE = 0x6fd08c;
+
 /**
  * 화면 하단 중앙의 퀵슬롯 바(와이어프레임 하단 4칸).
  *
  * 상태는 전부 스냅샷에서 온다 — 이 컴포넌트는 아무것도 기억하지 않는다.
  * 키를 눌러도 여기가 먼저 바뀌지 않고, 서버가 인정한 뒤에야 반영된다.
+ *
+ * 칸은 창고 모달과 **같은 드래그 공간**에 등록된다(SlotDrag) — 창고에서 집은 것을
+ * 여기에 바로 놓을 수 있어야 하기 때문이다. 그래서 칸에 setInteractive를 걸어둔다.
  */
 export class QuickSlotBar {
   private readonly boxes: Phaser.GameObjects.Rectangle[] = [];
@@ -41,7 +47,10 @@ export class QuickSlotBar {
         scene.add
           .rectangle(0, 0, SLOT_SIZE, SLOT_SIZE, PANEL_FILL, 0.86)
           .setOrigin(0, 0)
-          .setStrokeStyle(1, PANEL_STROKE),
+          .setStrokeStyle(1, PANEL_STROKE)
+          // 드래그 대상이 되려면 히트 영역이 있어야 한다. setSize로 크기가 바뀌므로
+          // 레이아웃마다 히트 영역도 다시 잡아준다(layout 참고).
+          .setInteractive({ useHandCursor: true }),
       );
       // 칸 번호는 곧 단축키다. 왼쪽 위 구석에 작게 박아둔다.
       this.keyLabels.push(
@@ -78,7 +87,10 @@ export class QuickSlotBar {
 
     for (let index = 0; index < this.slotCount; index += 1) {
       const x = startX + index * (size + gap);
-      this.boxes[index].setSize(size, size).setPosition(x, top);
+      const box = this.boxes[index];
+      box.setSize(size, size).setPosition(x, top);
+      // setSize는 히트 영역을 갱신하지 않는다 — UI 배율이 바뀌면 클릭 판정이 어긋난다.
+      box.input?.hitArea?.setSize(size, size);
       this.keyLabels[index].setFontSize(SIZE_SMALL * scale).setPosition(x + 3 * scale, top + 2 * scale);
       this.nameLabels[index].setFontSize(SIZE_BODY * scale).setPosition(x + size / 2, top + size / 2);
       this.countLabels[index]
@@ -87,17 +99,30 @@ export class QuickSlotBar {
     }
   }
 
-  update(me: PlayerView | undefined): void {
+  /** 드래그 컨트롤러(SlotDrag)에 등록할 칸 목록. */
+  get cells(): readonly Phaser.GameObjects.Rectangle[] {
+    return this.boxes;
+  }
+
+  /**
+   * @param hoverIndex 드래그로 놓을 대상 칸. 선택 강조보다 우선한다 —
+   *   지금 손에 든 것이 어디로 갈지가 더 급한 정보다.
+   */
+  update(me: PlayerView | undefined, hoverIndex: number | null = null): void {
     for (let index = 0; index < this.slotCount; index += 1) {
       const slot = me?.slots[index] ?? null;
       const item = itemOfSlot(slot);
       const isSelected = me?.selectedSlot === index;
+      const isHovered = hoverIndex === index;
 
       this.nameLabels[index].setText(item?.name ?? '');
       // 1개짜리(무기)는 개수를 안 띄운다 — 항상 "1"이면 정보가 아니라 잡음이다.
       this.countLabels[index].setText(slot && slot.count > 1 ? `${slot.count}` : '');
 
-      this.boxes[index].setStrokeStyle(isSelected ? 2 : 1, isSelected ? SELECTED_STROKE : PANEL_STROKE);
+      if (isHovered) this.boxes[index].setStrokeStyle(2, HOVER_STROKE);
+      else if (isSelected) this.boxes[index].setStrokeStyle(2, SELECTED_STROKE);
+      else this.boxes[index].setStrokeStyle(1, PANEL_STROKE);
+
       this.keyLabels[index].setColor(isSelected ? ACCENT : DIM_TEXT);
     }
   }

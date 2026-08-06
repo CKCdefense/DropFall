@@ -6,6 +6,7 @@ import {
   describeBossTelegraph,
   monstersData,
   type JobId,
+  type SlotContainer,
   type PlayerInputMessage,
 } from '@dropfall/shared';
 import type { GameConnection, LobbyView, RoomInfo, WorldSnapshot } from './GameConnection';
@@ -77,8 +78,12 @@ export class LocalConnection implements GameConnection {
     this.world.castSkipVote(LOCAL_SESSION_ID);
   }
 
-  deposit(): void {
-    this.world.depositAtCore(LOCAL_SESSION_ID);
+  pickUp(): void {
+    this.world.pickUpNearestDrop(LOCAL_SESSION_ID);
+  }
+
+  moveItem(from: SlotContainer, fromIndex: number, to: SlotContainer, toIndex: number): void {
+    this.world.moveItem(LOCAL_SESSION_ID, from, fromIndex, to, toIndex);
   }
 
   placeBuilding(buildingType: string, cx: number, cy: number): void {
@@ -153,6 +158,11 @@ export class LocalConnection implements GameConnection {
       });
     }
 
+    const droppedItems: WorldSnapshot['droppedItems'] = [];
+    for (const [id, drop] of this.world.getDroppedItems()) {
+      droppedItems.push({ id, itemId: drop.itemId, count: drop.count, x: drop.x, y: drop.y });
+    }
+
     const buildings: WorldSnapshot['buildings'] = [];
     for (const [id, building] of this.world.getBuildings()) {
       buildings.push({
@@ -177,13 +187,15 @@ export class LocalConnection implements GameConnection {
       monsters,
       projectiles,
       resourceNodes,
+      droppedItems,
       buildings,
       colonies,
       status: {
         coreHp: core.hp,
         coreMaxHp: core.maxHp,
-        coreSharedWood: core.sharedWood,
-        coreSharedStone: core.sharedStone,
+        coreSharedWood: core.storage.countOf('wood'),
+        coreSharedStone: core.storage.countOf('stone'),
+        coreStorage: core.storage.toView().slots,
         coreSharedEnergy: core.sharedEnergy,
         wavePhase: this.world.getWavePhase(),
         currentWave: this.world.getCurrentWave(),
