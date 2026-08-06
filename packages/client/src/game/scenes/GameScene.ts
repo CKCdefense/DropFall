@@ -101,7 +101,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private resizeDayNight(): void {
-    this.dayNight.resize(this.scale.width, this.scale.height);
+    this.dayNight.resize();
   }
 
   update(_time: number, delta: number): void {

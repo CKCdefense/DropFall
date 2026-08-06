@@ -6,20 +6,22 @@ import { CORE_CRYSTAL_WORLD } from './EntityRenderer';
 /**
  * 낮–밤 하늘 연출.
  *
- * **곱셈(MULTIPLY) RenderTexture + 수정구 위치의 광원 구멍** 방식이다.
+ * **월드 공간의 곱셈(MULTIPLY) RenderTexture + 수정구 위치의 광원 구멍** 방식이다.
  *
  * - 곱셈 블렌드가 핵심이다. 반투명 검정 덮개는 모든 대비를 덮개 색으로 눌러 화면을
  *   뿌옇게 만들지만, 곱셈은 원본 색에 하늘 색을 곱해 픽셀 경계·대비가 그대로 남은 채
  *   밝기만 내려간다 — 어두워져도 선명하다. erase로 지운 곳은 투명 = 곱셈 항등이라
  *   광원 안은 원래 밝기 그대로다.
- * - 광원은 원점이 아니라 **수정구**(CORE_CRYSTAL_WORLD)에 얹는다.
  * - 마스크(BitmapMask)를 쓰지 않는 이유: 곱셈 블렌드와 조합하면 이 렌더러에서
- *   마스크가 균일하게 새어 나와 광원이 사라졌다(실측). RT+erase는 검증됐다.
+ *   마스크가 균일하게 새어 나와 광원이 사라졌다(실측).
  *
- * 예전에 "광원이 캐릭터를 따라 변하는" 느낌이 났던 건 위치 계산이 아니라 **반경**
- * 때문이었다 — 그라디언트가 화면 전체를 덮으면 카메라가 움직일 때마다 월드 각 지점의
- * 밝기가 바뀐다. 반경을 화면보다 훨씬 작게 줄이면 광원 밖은 항상 같은 어둠이라
- * 완전히 고정된 광원으로 보인다.
+ * **어둠막은 화면이 아니라 월드에 붙어 있다.** 화면 고정(scrollFactor 0) 막에 코어의
+ * "화면 좌표"를 계산해 구멍을 지우는 방식은 그 좌표가 카메라 상태에 의존한다 —
+ * update() 시점의 worldView는 카메라가 렌더 단계에서 확정되기 **한 프레임 전** 값이라,
+ * 걷는 동안 광원이 코어에서 미끄러졌다. 막 자체를 월드 좌표(카메라 시야 + 여유분)에
+ * 놓고 구멍도 월드 좌표로 지우면, 막의 위치와 구멍 좌표가 같은 기준을 쓰므로 카메라가
+ * 언제 어떻게 움직여도 구멍은 **정의상** 수정구 위에 있다. 막의 위치가 한 프레임 늦는
+ * 것은 시야보다 큰 여유분(PAD)이 가려 준다.
  */
 
 /** 하늘 한 시점의 상태. */
@@ -58,6 +60,13 @@ const CORE_LIGHT_RADIUS = 110;
 /** 어둠막은 월드 위·HUD 아래. GameScene 안에서는 무엇보다 위면 된다. */
 const OVERLAY_DEPTH = 45000;
 
+/**
+ * 막이 카메라 시야보다 사방으로 이만큼(월드 px) 크다. 막의 위치 갱신이 한 프레임
+ * 늦으므로, 프레임당 카메라 이동량(수 px)보다 넉넉해야 화면 가장자리에 밝은 틈이
+ * 새지 않는다.
+ */
+const VIEW_PAD = 48;
+
 const LIGHT_TEXTURE_KEY = 'day-night-core-light';
 const LIGHT_TEXTURE_SIZE = 256;
 
@@ -80,31 +89,34 @@ function mixSky(a: Sky, b: Sky, t: number): Sky {
 }
 
 export class DayNightOverlay {
-  private readonly veil: Phaser.GameObjects.RenderTexture;
+  private veil: Phaser.GameObjects.RenderTexture;
   private readonly lightBrush: Phaser.GameObjects.Image;
   /** 화면에 실제로 얹힌 현재 하늘. 목표를 향해 SMOOTH_RATE로 따라간다. */
   private current: Sky = { ...DAYLIGHT };
   /** 첫 낮(게임 시작)은 어둠에서 밝아지면 안 된다 — 밤을 한 번 겪은 뒤에만 새벽 연출. */
   private hasSeenNight = false;
 
-  constructor(scene: Phaser.Scene) {
+  constructor(private readonly scene: Phaser.Scene) {
     ensureLightTexture(scene);
 
-    this.veil = scene.add
-      .renderTexture(0, 0, scene.scale.width, scene.scale.height)
-      .setOrigin(0, 0)
-      .setScrollFactor(0)
-      .setDepth(OVERLAY_DEPTH)
-      .setBlendMode(Phaser.BlendModes.MULTIPLY)
-      .setVisible(false);
+    // 크기는 첫 update에서 카메라 시야에 맞춰 다시 만든다(줌이 아직 정해지기 전일 수 있다).
+    this.veil = this.createVeil(4, 4);
 
     // 지우개로 쓸 원광. 화면에 직접 그리지 않으므로 표시 목록에 넣지 않는다.
     this.lightBrush = scene.make.image({ key: LIGHT_TEXTURE_KEY, add: false });
   }
 
-  resize(width: number, height: number): void {
-    this.veil.resize(width, height);
+  private createVeil(width: number, height: number): Phaser.GameObjects.RenderTexture {
+    return this.scene.add
+      .renderTexture(0, 0, width, height)
+      .setOrigin(0, 0)
+      .setDepth(OVERLAY_DEPTH)
+      .setBlendMode(Phaser.BlendModes.MULTIPLY)
+      .setVisible(false);
   }
+
+  /** 창 크기·줌 변화는 update가 시야 크기로 감지한다 — 여기서 할 일이 없다. */
+  resize(): void {}
 
   update(
     status: WorldSnapshot['status'],
@@ -125,19 +137,32 @@ export class DayNightOverlay {
       this.veil.setVisible(false);
       return;
     }
+
+    // 막의 텍스처는 **월드 px 단위**다(카메라가 알아서 줌한다). 시야 + 여유분 크기.
+    // resize()가 아니라 **재생성**한다 — 리사이즈된 RenderTexture는 이후 erase가
+    // 조용히 무시되는 문제가 있었다(구멍이 안 뚫린 채 어둠만 남음). 크기 변화는
+    // 창 크기·줌이 바뀔 때뿐이라 재생성 비용은 문제되지 않는다.
+    const width = Math.ceil(camera.displayWidth) + VIEW_PAD * 2;
+    const height = Math.ceil(camera.displayHeight) + VIEW_PAD * 2;
+    if (this.veil.width !== width || this.veil.height !== height) {
+      this.veil.destroy();
+      this.veil = this.createVeil(width, height);
+    }
+
     this.veil.setVisible(true);
+    this.veil.setPosition(camera.worldView.x - VIEW_PAD, camera.worldView.y - VIEW_PAD);
     this.veil.clear();
     this.veil.fill(this.current.tint, 1);
 
     if (this.current.light > 0.01) {
-      // 광원은 수정구 위. worldView가 줌을 이미 반영하고 있다.
-      const screenX = (CORE_CRYSTAL_WORLD.x - camera.worldView.x) * camera.zoom;
-      const screenY = (CORE_CRYSTAL_WORLD.y - camera.worldView.y) * camera.zoom;
-      const diameter = CORE_LIGHT_RADIUS * 2 * camera.zoom;
-
+      // 구멍도 막과 같은 월드 기준이라, 카메라 상태와 무관하게 항상 수정구 위다.
       this.lightBrush.setAlpha(this.current.light);
-      this.lightBrush.setDisplaySize(diameter, diameter);
-      this.veil.erase(this.lightBrush, screenX, screenY);
+      this.lightBrush.setDisplaySize(CORE_LIGHT_RADIUS * 2, CORE_LIGHT_RADIUS * 2);
+      this.veil.erase(
+        this.lightBrush,
+        CORE_CRYSTAL_WORLD.x - this.veil.x,
+        CORE_CRYSTAL_WORLD.y - this.veil.y,
+      );
     }
   }
 
