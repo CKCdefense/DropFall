@@ -52,10 +52,12 @@ const DAWN_SECONDS = 10;
 const SMOOTH_RATE = 1.4;
 
 /**
- * 코어 광원 반경(월드 px). 160은 화면의 절반을 넘게 밝혀서 "코어 주변만"이 아니었다 —
- * 수정구를 중심으로 받침대와 그 앞 몇 걸음이 보이는 정도로 줄였다.
+ * 광원 반경은 상수가 아니라 **건축 가능 구역의 한 변의 절반**(coreBuildRadius)이다 —
+ * 정사각형 구역에 원이 딱 내접해서 "코어의 힘이 미치는 범위"가 빛으로 표시되고,
+ * 티어를 올리면 구역과 함께 빛도 넓어진다. 스냅샷이 아직 안 온 첫 프레임을 위한
+ * 하한만 둔다.
  */
-const CORE_LIGHT_RADIUS = 110;
+const MIN_LIGHT_RADIUS = 80;
 
 /** 어둠막은 월드 위·HUD 아래. GameScene 안에서는 무엇보다 위면 된다. */
 const OVERLAY_DEPTH = 45000;
@@ -156,8 +158,9 @@ export class DayNightOverlay {
 
     if (this.current.light > 0.01) {
       // 구멍도 막과 같은 월드 기준이라, 카메라 상태와 무관하게 항상 수정구 위다.
+      const radius = Math.max(MIN_LIGHT_RADIUS, status.coreBuildRadius);
       this.lightBrush.setAlpha(this.current.light);
-      this.lightBrush.setDisplaySize(CORE_LIGHT_RADIUS * 2, CORE_LIGHT_RADIUS * 2);
+      this.lightBrush.setDisplaySize(radius * 2, radius * 2);
       this.veil.erase(
         this.lightBrush,
         CORE_CRYSTAL_WORLD.x - this.veil.x,
@@ -204,9 +207,11 @@ function ensureLightTexture(scene: Phaser.Scene): void {
   const half = LIGHT_TEXTURE_SIZE / 2;
 
   const gradient = ctx.createRadialGradient(half, half, 0, half, half, half);
-  // 중심 55%까지는 온전히 밝게 — 코어 앞 작업 공간은 또렷해야 한다.
+  // 중심 1/3은 온전히 밝고, 나머지 2/3에 걸쳐 길게 사그라진다 — 감쇠 구간이 좁으면
+  // 빛 가장자리가 스포트라이트처럼 뚝 끊긴다.
   gradient.addColorStop(0, 'rgba(255,255,255,1)');
-  gradient.addColorStop(0.55, 'rgba(255,255,255,0.95)');
+  gradient.addColorStop(0.35, 'rgba(255,255,255,0.95)');
+  gradient.addColorStop(0.7, 'rgba(255,255,255,0.45)');
   gradient.addColorStop(1, 'rgba(255,255,255,0)');
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, LIGHT_TEXTURE_SIZE, LIGHT_TEXTURE_SIZE);
