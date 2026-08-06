@@ -174,6 +174,15 @@ const CORE_ORIGIN_Y = 0.86;
  * 이 영역만 잘라내 덧그린다.
  */
 const CORE_CRYSTAL = { x: 63, y: 26 };
+
+/**
+ * 수정 중심의 **월드 좌표**. 밤 조명(DayNightOverlay)이 광원을 여기에 얹는다 —
+ * 좌표 셋(CORE_CRYSTAL/SCALE/ORIGIN_Y)을 그쪽에 또 적으면 코어를 옮길 때 어긋난다.
+ */
+export const CORE_CRYSTAL_WORLD = {
+  x: (CORE_CRYSTAL.x - CORE_SPRITE_SIZE * 0.5) * CORE_SCALE,
+  y: (CORE_CRYSTAL.y - CORE_SPRITE_SIZE * CORE_ORIGIN_Y) * CORE_SCALE,
+};
 const CORE_CRYSTAL_CROP = { x: 33, y: 0, width: 62, height: 58 };
 
 /**
