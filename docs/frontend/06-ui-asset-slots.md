@@ -55,11 +55,14 @@ el('div', { class: 'frame panel', 'data-asset': '' }, [...])
 | 슬롯 | 원본 | slice | 배율 | 적용 클래스 |
 |---|---|---|---|---|
 | 모달 프레임 | `title_modal.png` 64×64 | 16 | `--modal-px` 2 | `.modal` |
-| 버튼 | `title_button.png` 64×64 | 15 | `--button-px` 1 | `.btn` |
-| 버튼(호버) | `title_button_hover.png` | 15 | — | `.btn:hover` |
+| 버튼 | `btn_stone.png` 64×64 | 9 | `--button-px` 1 | `.btn` |
+| 버튼(호버) | `btn_stone_hover.png` | 9 | — | `.btn:hover` |
 | 입력창 | `input.png` 64×64 | 14 | `--input-px` 1 | `.field` |
 | 입력창(호버/포커스) | `input_hover.png` | 14 | — | `.field:hover, :focus-within` |
 | 창 프레임(미사용) | — | 6 | `--px` 3 | `.frame` |
+
+`btn_stone`은 바깥 2px가 투명 여백이고 그 안쪽 7px가 돌 테두리다(=slice 9). 호버 에셋은 이 2px
+여백이 흰색으로 차 있어서 호버 시 흰 아웃라인이 생긴다 — slice를 7로 줄이면 이 링이 잘려 효과가 사라진다.
 
 **slice × 배율 = 실제 테두리 두께.** slice가 큰 에셋(14~16)에 전역 `--px`(3)를 그대로 쓰면
 테두리가 45px가 넘어 버튼 안에 글자가 안 들어간다. 그래서 컴포넌트별 배율 토큰을 따로 뒀다.

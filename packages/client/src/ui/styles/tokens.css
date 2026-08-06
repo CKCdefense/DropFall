@@ -39,10 +39,10 @@
    */
   --asset-frame: none;
   --asset-frame-slice: 6; /* 원본 이미지의 모서리 크기(px) */
-  /* title_button.png 원본 64x64, 테두리 약 15px */
+  /* btn_stone.png 원본 64x64. 바깥 2px는 투명 여백, 그 안쪽 7px가 돌 테두리 → slice 9 */
   --asset-button: none;
   --asset-button-hover: none;
-  --asset-button-slice: 15;
+  --asset-button-slice: 9;
   --button-px: 1;
   /* input.png 원본 64x64, 테두리 약 14px */
   --asset-input: none;
