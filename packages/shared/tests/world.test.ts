@@ -29,8 +29,6 @@ describe('World', () => {
       aimAngle: 0,
       lastProcessedSeq: 0,
       hp: wavesData.playerHp,
-      wood: 0,
-      stone: 0,
     });
   });
 

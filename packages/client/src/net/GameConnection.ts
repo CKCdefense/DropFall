@@ -1,4 +1,10 @@
-import type { InventorySlot, JobId, PlayerInputMessage, RoomPhase } from '@dropfall/shared';
+import type {
+  InventorySlot,
+  JobId,
+  PlayerInputMessage,
+  RoomPhase,
+  SlotContainer,
+} from '@dropfall/shared';
 
 /**
  * 렌더링이 소비하는 엔티티 스냅샷.
@@ -60,6 +66,15 @@ export interface ProjectileView {
   angle: number;
 }
 
+/** 바닥에 떨어진 아이템. 주우면 인벤토리로 들어간다. */
+export interface DroppedItemView {
+  id: string;
+  itemId: string;
+  count: number;
+  x: number;
+  y: number;
+}
+
 export interface ResourceNodeView {
   id: string;
   /** ResourceType('wood' | 'stone'). 렌더러가 색/모양을 고르는 데만 쓴다 */
@@ -114,6 +129,8 @@ export interface WorldStatus {
   phaseTimeRemaining: number;
   /** 낮 스킵 투표 동의 인원. 필요 인원은 players.length(만장일치) */
   skipVoteCount: number;
+  /** 코어 창고 슬롯. 인벤토리와 같은 구조(빈 칸은 null). */
+  coreStorage: (InventorySlot | null)[];
 }
 
 export interface WorldSnapshot {
@@ -121,6 +138,7 @@ export interface WorldSnapshot {
   monsters: MonsterView[];
   projectiles: ProjectileView[];
   resourceNodes: ResourceNodeView[];
+  droppedItems: DroppedItemView[];
   buildings: BuildingView[];
   colonies: ColonyView[];
   status: WorldStatus;
@@ -170,11 +188,16 @@ export interface GameConnection {
   /** 낮 넘기기 투표 (만장일치) */
   voteSkipDay(): void;
   /**
-   * 코어 입고 요청. 들고 있는(아직 코어에 안 넣은) 나무/돌을 팀 공유 창고로 옮긴다 —
-   * 코어 근처에서만 되고, 서버가 거리와 보유량을 판정한다. 채집 자체는 이 메서드가
-   * 아니라 도구를 장착하고 `fire()`(근접 공격)로 자원 노드를 때리는 방식이다.
+   * 근처 바닥 드롭 줍기(E). 가장 가까운 것 하나가 인벤토리로 들어온다 —
+   * 자원 노드를 부수면 바로 지갑에 꽂히지 않고 바닥에 떨어지므로, 회수는 별도 행동이다.
+   * 채집 자체는 도구를 장착하고 `fire()`(근접 공격)로 노드를 때리는 방식이다.
    */
-  deposit(): void;
+  pickUp(): void;
+  /**
+   * 슬롯 사이 아이템 이동(드래그앤드롭). 인벤토리↔창고, 인벤토리 내부 재배치 모두
+   * 이 하나로 처리한다. 창고가 얽힌 이동은 서버가 코어 거리로 거른다.
+   */
+  moveItem(from: SlotContainer, fromIndex: number, to: SlotContainer, toIndex: number): void;
   /**
    * 코어 업그레이드 요청. 다음 단계 비용을 팀 공유 에너지에서 차감하고 코어
    * 체력/건설 가능 반경/제작·스텟증가 해금을 한 번에 적용한다 — 서버가 비용/최고

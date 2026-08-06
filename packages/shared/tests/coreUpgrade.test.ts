@@ -10,10 +10,23 @@ function grantEnergy(world: World, amount: number): void {
   core.sharedEnergy = amount;
 }
 
+/**
+ * 도구는 이제 팀 창고에서 시작한다(loadout.coreStorage) — 장착을 전제하는 테스트는
+ * 명시적으로 꺼내 쓴다. 슬롯 순서는 예전 시작 지급품과 같다.
+ */
+function equipDefaultKit(world: World, playerId: string): void {
+  const inventory = world.getPlayers().get(playerId)!.inventory;
+  inventory.add('pistol', 1);
+  inventory.add('axe', 1);
+  inventory.add('pickax', 1);
+  inventory.add('bandage', 3);
+}
+
 describe('World — 코어 업그레이드', () => {
   it('에너지가 충분하면 다음 단계를 사고, 비용이 차감되며 체력/최대체력/건설 반경이 늘어난다', () => {
     const world = new World();
     world.addPlayer('p1', 0, 0);
+    equipDefaultKit(world, 'p1');
 
     const tier0 = coreUpgradesData.tiers[0]!;
     grantEnergy(world, tier0.cost);
@@ -35,6 +48,7 @@ describe('World — 코어 업그레이드', () => {
   it('에너지가 부족하면 거절되고 아무것도 안 바뀐다', () => {
     const world = new World();
     world.addPlayer('p1', 0, 0);
+    equipDefaultKit(world, 'p1');
     grantEnergy(world, coreUpgradesData.tiers[0]!.cost - 1); // 1 모자라게
 
     world.upgradeCore('p1');
@@ -46,6 +60,7 @@ describe('World — 코어 업그레이드', () => {
   it('이미 최고 단계면 에너지가 아무리 많아도 더 살 수 없다', () => {
     const world = new World();
     world.addPlayer('p1', 0, 0);
+    equipDefaultKit(world, 'p1');
 
     for (const tier of coreUpgradesData.tiers) {
       grantEnergy(world, tier.cost);
@@ -71,6 +86,7 @@ describe('World — 코어 업그레이드', () => {
   it('제작/스텟증가 해금은 그 단계부터 계속 유지된다', () => {
     const world = new World();
     world.addPlayer('p1', 0, 0);
+    equipDefaultKit(world, 'p1');
 
     const craftingTierIndex = coreUpgradesData.tiers.findIndex((tier) => tier.unlocksCrafting);
     const statTierIndex = coreUpgradesData.tiers.findIndex((tier) => tier.unlocksStatUpgrades);
@@ -102,10 +118,12 @@ describe('World — 코어 업그레이드', () => {
   it('건설 가능 반경 밖에는 지을 수 없고, 업그레이드로 반경을 넓히면 지을 수 있게 된다', () => {
     const world = new World();
     world.addPlayer('builder', 0, 0);
+    equipDefaultKit(world, 'builder');
 
-    const core = world.getCore() as { sharedWood: number; sharedStone: number; sharedEnergy: number };
-    core.sharedWood = 100;
-    core.sharedStone = 100;
+    // 건축 비용은 코어 창고에서 나간다(자원이 숫자 필드에서 슬롯으로 바뀌었다).
+    const core = world.getCore() as { sharedEnergy: number };
+    world.getCore().storage.add('wood', 100);
+    world.getCore().storage.add('stone', 100);
 
     // baseBuildRadius보다 확실히 먼 지점(반경 밖), 코어(0,0)에서 +x 방향.
     const farDistance = coreUpgradesData.baseBuildRadius + 50;

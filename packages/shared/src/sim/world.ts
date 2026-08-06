@@ -28,8 +28,16 @@ import {
   type ProjectileEntity,
 } from './combat';
 import { Inventory } from './inventory';
+import { CoreStorage } from './storage';
 import { normalizeMoveVector, stepPosition } from './movement';
 import { WaveManager, type GamePhase } from './wave';
+
+/** moveItem이 받는 컨테이너 이름. 네트워크 경계를 넘어오므로 값부터 검증한다. */
+export type SlotContainer = 'inventory' | 'storage';
+
+function isContainerName(value: unknown): value is SlotContainer {
+  return value === 'inventory' || value === 'storage';
+}
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
@@ -54,7 +62,16 @@ const FLOW_FIELD_GRID: FlowFieldGrid = {
 /** 코어 자체의 판정 반경(px). 몬스터의 attackRange에 더해져 "코어에 도달했다"를 정의한다. */
 const CORE_RADIUS = TILE_SIZE;
 /** 코어 옆에서 자원을 입고(E)할 수 있는 반경(px). CORE_RADIUS보다 넉넉히 둬서 코어 바로 앞이 아니어도 상호작용할 수 있게 한다. */
-const CORE_INTERACT_RADIUS = CORE_RADIUS + 32;
+/**
+ * 코어 상호작용 가능 반경(px). 클라이언트도 "E를 누를 수 있는가"를 같은 값으로 보여줘야
+ * 화면과 서버 판정이 어긋나지 않아서 export한다.
+ */
+export const CORE_INTERACT_RADIUS = CORE_RADIUS + 32;
+/**
+ * 바닥 드롭을 주울 수 있는 반경(px). 캐릭터 반경보다 넉넉하게 잡아야 정확히 밟지 않아도
+ * 주워진다 — 너무 넓으면 여러 개가 한 번에 사정권에 들어와 "주우러 다니는" 맛이 없어진다.
+ */
+const PICKUP_RADIUS = 22;
 /** 콜로니 채널링(파괴 작업)을 시작할 수 있는 반경(px). CORE_INTERACT_RADIUS와 같은 값 — 둘 다 "구조물 바로 옆" 상호작용이다. */
 const COLONY_CHANNEL_RADIUS = CORE_INTERACT_RADIUS;
 /** 이 거리보다 가까운 몬스터끼리는 서로 밀어낸다 — 군집 분리(기술명세 §5.3). */
@@ -137,11 +154,10 @@ export interface PlayerEntity {
   aimAngle: number;
   lastProcessedSeq: number;
   hp: number;
-  wood: number;
-  stone: number;
+
   /** 흔한 몬스터(잡몹/돌진/탱커) 처치로 받는 휴대 자원. 나무/돌과 동일하게 코어에
    * 입고(E)해야 팀 공유(coreSharedScrap)가 된다. */
-  scrap: number;
+
   /** 퀵슬롯. 장착 무기도 여기서 나온다 — 클라이언트가 무기를 주장할 수 없다. */
   inventory: Inventory;
   /** 지금 채널링(콜로니 파괴 작업) 중인 콜로니 id. 채널링 중이 아니면 undefined. */
@@ -169,6 +185,20 @@ export interface ResourceNodeEntity {
    */
   clusterX: number;
   clusterY: number;
+}
+
+/**
+ * 바닥에 떨어진 아이템. 자원 노드를 완전히 부수면 생긴다.
+ *
+ * 예전에는 노드를 부순 순간 채집자의 지갑에 자원이 꽂혔다. 드롭을 거쳐야 "부수는 일"과
+ * "줍는 일"이 나뉘어서, 밤이 오면 못 주운 자원을 두고 도망칠지 같은 선택이 생긴다.
+ */
+export interface DroppedItemEntity {
+  id: string;
+  itemId: string;
+  count: number;
+  x: number;
+  y: number;
 }
 
 /**
@@ -218,10 +248,12 @@ export interface CoreState {
    * 함께 쓰는 협동 경험을 만들려는 의도다(자원채집 도구 도입에 맞춰 재설계, 이전엔
    * 채집 즉시 개인 지갑에 꽂혔었다).
    */
-  sharedWood: number;
-  sharedStone: number;
-  /** 흔한 몬스터 처치 보상(scrap)이 코어 입고(E)로 쌓이는 팀 공유분. 나무/돌과 동일한 흐름. */
-  sharedScrap: number;
+  /**
+   * 팀 공용 창고. 예전의 sharedWood/sharedStone/sharedScrap 숫자 필드를 대체한다 —
+   * 자원 종류가 늘 때마다 필드를 추가할 필요가 없고(scrap이 그 예다), 도구도 같은
+   * 방식으로 보관할 수 있다. 특정 재료 개수는 storage.countOf로 묻는다.
+   */
+  storage: CoreStorage;
   /**
    * 콜로니 파괴 또는 보스 처치로만 얻는 희귀 자원. 나무/돌/scrap과 달리 "채집 후 입고"
    * 단계가 없다 — 획득 즉시 팀 전체 몫으로 귀속된다(누가 잡았든 팀 보상). 코어
@@ -240,6 +272,7 @@ export interface CoreState {
 let nextMonsterId = 1;
 let nextResourceNodeId = 1;
 let nextBuildingId = 1;
+let nextDropId = 1;
 
 export interface WorldOptions {
   /** 자원 노드 군집 배치에 쓰는 RNG. 테스트에서 결정론적으로 검증하려고 주입한다(wave.ts와 동일 패턴). */
@@ -255,6 +288,7 @@ export class World {
   private readonly waveManager = new WaveManager();
   private readonly buildings = new BuildingRegistry();
   private readonly resourceNodes = new Map<string, ResourceNodeEntity>();
+  private readonly droppedItems = new Map<string, DroppedItemEntity>();
   private readonly colonies = new ColonyRegistry();
   /**
    * 콜로니가 차지한 그리드 셀("cx,cy" 키) 집합. 콜로니는 배치된 후 위치가 절대
@@ -288,9 +322,7 @@ export class World {
   private readonly core: CoreState = {
     hp: wavesData.coreHp,
     maxHp: wavesData.coreHp,
-    sharedWood: 0,
-    sharedStone: 0,
-    sharedScrap: 0,
+    storage: new CoreStorage(),
     sharedEnergy: 0,
     tier: 0,
   };
@@ -322,6 +354,12 @@ export class World {
     this.colonies.seed(count, this.rng);
     for (const colony of this.colonies.values()) this.markColonyObstacleCell(colony.x, colony.y);
     this.recomputeFlowField();
+
+    // 도구는 개인이 아니라 팀 창고에서 시작한다 — 누가 무엇을 들지 정하는 것부터가
+    // 협동의 첫 결정이다. 인원과 무관하게 한 세트만 들어간다.
+    for (const entry of loadoutData.coreStorage) {
+      this.core.storage.add(entry.itemId, entry.count);
+    }
   }
 
   /** 콜로니처럼 위치가 절대 바뀌지 않는 장애물의 셀을 FlowField 차단 집합에 등록한다. */
@@ -346,7 +384,7 @@ export class World {
 
   addPlayer(id: string, x = 0, y = 0): void {
     const inventory = new Inventory();
-    for (const entry of loadoutData.starting) inventory.add(entry.itemId, entry.count);
+    for (const entry of loadoutData.playerStarting) inventory.add(entry.itemId, entry.count);
 
     this.players.set(id, {
       id,
@@ -355,9 +393,6 @@ export class World {
       aimAngle: 0,
       lastProcessedSeq: 0,
       hp: wavesData.playerHp,
-      wood: 0,
-      stone: 0,
-      scrap: 0,
       inventory,
       channelProgress: 0,
       tookDamageThisTick: false,
@@ -527,32 +562,95 @@ export class World {
     this.rebuildResourceObstacleCells();
     this.recomputeFlowField();
 
-    // ResourceType이 늘어나면(현재 wood/stone 2종) 여기에 분기를 추가해야 한다 —
-    // PlayerEntity가 자원별 전용 필드를 쓰는 설계라(범용 인벤토리 맵이 아니다) 자동으로
-    // 확장되지 않는다.
-    if (target.type === 'wood') player.wood += data.yieldOnDeplete;
-    else if (target.type === 'stone') player.stone += data.yieldOnDeplete;
+    // 부순 사람 지갑에 바로 꽂지 않고 바닥에 떨군다 — 줍는 행동이 따로 있어야
+    // "부수기"와 "회수"가 분리된다. 자원 종류가 늘어도 분기 없이 데이터로 처리된다.
+    this.dropItem(data.dropItemId, data.yieldOnDeplete, target.x, target.y);
+  }
+
+  /** 바닥에 아이템을 떨군다. 노드 파괴 외에 몬스터 드랍 등으로도 쓸 수 있다. */
+  private dropItem(itemId: string, count: number, x: number, y: number): void {
+    const id = `drop_${nextDropId++}`;
+    this.droppedItems.set(id, { id, itemId, count, x, y });
   }
 
   /**
-   * 코어 입고 요청(E). 플레이어가 들고 있는(=아직 입고하지 않은) 나무/돌/scrap을
-   * 코어의 공유 창고로 옮긴다 — 코어 반경 안에서만 되고, 들고 있는 게 하나도 없으면
-   * 조용히 무시한다. 입고 즉시 개인 지갑은 0이 된다(다시 모아야 다음 몫이 생긴다).
+   * 근처 드롭을 줍는다(E). 반경 안에서 가장 가까운 것 하나만 줍는다 — 한 번에 바닥을
+   * 쓸어담으면 "주우러 다니는" 행동 자체가 사라진다.
+   *
+   * 인벤토리가 꽉 차면 들어간 만큼만 줄이고 나머지는 바닥에 남긴다. 조용히 증발시키면
+   * 플레이어는 자기 자원이 어디 갔는지 알 수 없다.
    */
-  depositAtCore(playerId: string): void {
+  pickUpNearestDrop(playerId: string): void {
     const player = this.players.get(playerId);
     if (!player) return;
-    if (player.wood <= 0 && player.stone <= 0 && player.scrap <= 0) return;
 
-    const distance = Math.hypot(player.x, player.y); // 코어는 항상 원점(0,0)
-    if (distance > CORE_INTERACT_RADIUS) return;
 
-    this.core.sharedWood += player.wood;
-    this.core.sharedStone += player.stone;
-    this.core.sharedScrap += player.scrap;
-    player.wood = 0;
-    player.stone = 0;
-    player.scrap = 0;
+    let target: DroppedItemEntity | undefined;
+    let targetDistance = Infinity;
+    for (const drop of this.droppedItems.values()) {
+      const distance = Math.hypot(drop.x - player.x, drop.y - player.y);
+      if (distance > PICKUP_RADIUS || distance >= targetDistance) continue;
+      target = drop;
+      targetDistance = distance;
+    }
+    if (!target) return;
+
+    const leftover = player.inventory.add(target.itemId, target.count);
+    if (leftover === target.count) return; // 한 개도 못 넣었다 — 그대로 둔다
+
+    if (leftover > 0) target.count = leftover;
+    else this.droppedItems.delete(target.id);
+  }
+
+  getDroppedItems(): ReadonlyMap<string, DroppedItemEntity> {
+    return this.droppedItems;
+  }
+
+  /**
+   * 슬롯 사이로 아이템을 옮긴다. 드래그앤드롭이 그대로 이 한 함수로 표현된다.
+   *
+   * 컨테이너를 문자열로 받는 이유: 인벤토리↔창고, 인벤토리 내부 재배치(퀵슬롯 순서
+   * 바꾸기)를 전부 같은 경로로 처리하기 위해서다. 방향마다 함수를 따로 두면 규칙
+   * (스택 병합·자리 바꾸기)을 여러 벌 구현하게 된다.
+   *
+   * 창고가 얽힌 이동은 코어 근처에서만 된다. 인벤토리 내부 재배치는 어디서든 가능하다.
+   */
+  moveItem(
+    playerId: string,
+    from: unknown,
+    fromIndex: unknown,
+    to: unknown,
+    toIndex: unknown,
+  ): void {
+    const player = this.players.get(playerId);
+    if (!player) return;
+    if (!isContainerName(from) || !isContainerName(to)) return;
+    if (!Number.isInteger(fromIndex) || !Number.isInteger(toIndex)) return;
+    if (from === to && fromIndex === toIndex) return;
+
+    const touchesStorage = from === 'storage' || to === 'storage';
+    if (touchesStorage && !this.isNearCore(player)) return;
+
+    const source = from === 'storage' ? this.core.storage : player.inventory;
+    const target = to === 'storage' ? this.core.storage : player.inventory;
+
+    const taken = source.takeAt(fromIndex as number);
+    if (!taken) return;
+
+    // 목적지에서 밀려난 것(자리 바꾸기)이나 다 못 들어간 것(스택 초과)은 원래 자리로
+    // 되돌린다. 안 그러면 아이템이 조용히 사라진다.
+    const displaced = target.placeAt(toIndex as number, taken);
+    if (displaced) source.placeAt(fromIndex as number, displaced);
+  }
+
+  /** 코어 상호작용(창고 열기 등)이 가능한 거리인지. 클라이언트도 같은 판정을 보여준다. */
+  isNearCore(player: PlayerEntity): boolean {
+    return Math.hypot(player.x, player.y) <= CORE_INTERACT_RADIUS;
+  }
+
+  canInteractWithCore(playerId: string): boolean {
+    const player = this.players.get(playerId);
+    return player ? this.isNearCore(player) : false;
   }
 
   /**
@@ -628,10 +726,15 @@ export class World {
     }
 
     if (!this.players.has(playerId)) return;
-    if (this.core.sharedWood < data.woodCost || this.core.sharedStone < data.stoneCost) return;
 
-    this.core.sharedWood -= data.woodCost;
-    this.core.sharedStone -= data.stoneCost;
+    // 비용은 코어 창고에서 나간다. 둘 중 하나라도 모자라면 아무것도 소비하지 않는다 —
+    // 나무만 깎이고 실패하면 자원이 조용히 증발한다.
+    const storage = this.core.storage;
+    if (storage.countOf('wood') < data.woodCost) return;
+    if (storage.countOf('stone') < data.stoneCost) return;
+
+    storage.consume('wood', data.woodCost);
+    storage.consume('stone', data.stoneCost);
 
     const id = `building_${nextBuildingId++}`;
     this.buildings.place(id, buildingType as BuildingType, cx, cy, x, y);
@@ -1621,14 +1724,14 @@ export class World {
 
     if (!closestId) return false;
     const monster = this.monsters.get(closestId)!;
-    this.damageMonster(closestId, monster.hp - projectile.damage, player.id);
+    this.damageMonster(closestId, monster.hp - projectile.damage);
     return true;
   }
 
   private applyMeleeHit(hit: MeleeHit): void {
     for (const [id, monster] of this.monsters) {
       if (withinMeleeArc(hit, monster.x, monster.y, monsterRadius(monster))) {
-        this.damageMonster(id, monster.hp - hit.damage, hit.ownerId);
+        this.damageMonster(id, monster.hp - hit.damage);
       }
     }
   }
@@ -1651,7 +1754,7 @@ export class World {
   private projectileHitsMonster(projectileId: string, projectile: ProjectileEntity): boolean {
     for (const [monsterId, monster] of this.monsters) {
       if (circlesOverlap(projectile.x, projectile.y, monster.x, monster.y, monsterRadius(monster))) {
-        this.damageMonster(monsterId, monster.hp - projectile.damage, projectile.ownerId);
+        this.damageMonster(monsterId, monster.hp - projectile.damage);
         this.projectiles.delete(projectileId);
         return true;
       }
@@ -1686,15 +1789,14 @@ export class World {
   }
 
   /**
-   * `killerId`는 처치 보상을 누구에게 줄지 판정하는 데만 쓴다 — 없거나 이미 퇴장한
-   * 플레이어면(투사체가 날아가는 동안 쏜 사람이 나간 경우 등) 흔한 자원(scrap) 보상만
-   * 조용히 사라진다(팀 공유 보상인 energy는 killerId 없이도 그대로 지급된다).
+   * 처치 보상은 죽은 자리에 떨어지므로 "누가 죽였는지"를 받지 않는다 — 투사체가
+   * 날아가는 동안 쏜 사람이 나가도 보상이 사라지지 않는다.
    */
-  private damageMonster(id: string, remainingHp: number, killerId?: string): void {
+  private damageMonster(id: string, remainingHp: number): void {
     if (remainingHp <= 0) {
       const monster = this.monsters.get(id);
       this.monsters.delete(id);
-      if (monster) this.grantMonsterDrop(monster, killerId);
+      if (monster) this.grantMonsterDrop(monster);
       return;
     }
     const monster = this.monsters.get(id);
@@ -1702,12 +1804,19 @@ export class World {
   }
 
   /**
-   * 처치 보상 지급. 몬스터 타입 데이터에 `energyDrop`이 있으면(보스) 팀 공유 창고로
-   * 즉시 지급하고, `scrapDrop`이 있으면(흔한 몬스터) 잡은 플레이어의 휴대 자원에
-   * 지급한다 — 둘은 같은 몬스터 타입에 동시에 정의하지 않는 서로 다른 등급의 보상이다
-   * (docs/backend 참고). 어느 쪽 필드도 없으면(설정 안 된 타입) 아무것도 지급하지 않는다.
+   * 처치 보상 지급. 몬스터 타입 데이터에 `energyDrop`이 있으면(보스) 팀 공유분으로
+   * 즉시 지급하고, `scrapDrop`이 있으면(흔한 몬스터) 죽은 자리에 **바닥 드롭**을 남긴다 —
+   * 둘은 같은 몬스터 타입에 동시에 정의하지 않는 서로 다른 등급의 보상이다.
+   * 어느 쪽 필드도 없으면(설정 안 된 타입) 아무것도 지급하지 않는다.
+   *
+   * 누가 죽였는지(killerId)는 더 이상 필요 없다 — 바닥에 떨어뜨리므로 먼저 줍는 사람이
+   * 임자다. 막타를 누가 쳤는지로 보상이 갈리지 않는 편이 협동에 맞는다.
+   *
+   * scrap을 잡은 사람 인벤토리에 바로 넣지 않는 이유: 자원이 전부 슬롯이 되면서
+   * 가방이 꽉 차면 보상이 조용히 증발한다. 나무/돌과 똑같이 바닥에 떨어뜨리면
+   * 못 주운 몫이 눈에 보이고, 전투 중엔 흘리고 나중에 회수하는 선택도 생긴다.
    */
-  private grantMonsterDrop(monster: MonsterEntity, killerId: string | undefined): void {
+  private grantMonsterDrop(monster: MonsterEntity): void {
     const data = monstersData[monster.type];
 
     if (data.energyDrop) {
@@ -1715,9 +1824,8 @@ export class World {
       return;
     }
 
-    if (data.scrapDrop && killerId) {
-      const player = this.players.get(killerId);
-      if (player) player.scrap += this.rollDropRange(data.scrapDrop);
+    if (data.scrapDrop) {
+      this.dropItem('scrap', this.rollDropRange(data.scrapDrop), monster.x, monster.y);
     }
   }
 

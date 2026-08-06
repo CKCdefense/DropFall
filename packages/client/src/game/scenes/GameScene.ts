@@ -1,7 +1,12 @@
 import Phaser from 'phaser';
 import { MAP_SIZE_TILES, TILE_SIZE, computeCameraZoom } from '@dropfall/shared';
 import type { GameConnection } from '../../net/GameConnection';
-import { CONNECTION_KEY, INPUT_CONTROLLER_KEY } from '../createGame';
+import {
+  CONNECTION_KEY,
+  CORE_INTERACT_KEY,
+  HUD_BLOCK_KEY,
+  INPUT_CONTROLLER_KEY,
+} from '../createGame';
 import { EntityRenderer } from '../render/EntityRenderer';
 import { queueGameAtlas } from '../render/playerSprite';
 import { TerrainLayer, hasTerrainTileset, queueTerrainTileset } from '../render/TerrainLayer';
@@ -56,8 +61,17 @@ export class GameScene extends Phaser.Scene {
     this.drawCore();
 
     this.entityRenderer = new EntityRenderer(this, this.connection.sessionId);
-    this.input_ = new InputController(this, this.connection, () =>
-      this.entityRenderer.playAttack(this.connection.sessionId),
+    this.input_ = new InputController(
+      this,
+      this.connection,
+      () => this.entityRenderer.playAttack(this.connection.sessionId),
+      // HudScene이 등록한다. 씬 시작 순서와 무관하도록 매번 registry에서 꺼내 쓴다.
+      () => (this.registry.get(CORE_INTERACT_KEY) as (() => boolean) | undefined)?.() ?? false,
+      (x, y) =>
+        (this.registry.get(HUD_BLOCK_KEY) as ((x: number, y: number) => boolean) | undefined)?.(
+          x,
+          y,
+        ) ?? false,
     );
     // HudScene은 매 프레임 registry에서 다시 읽으므로(HudScene.update), 씬 시작 순서와
     // 무관하게 늦어도 다음 프레임엔 값이 채워져 있다.

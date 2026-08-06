@@ -1,6 +1,7 @@
 import { Client, type Room } from '@colyseus/sdk';
 import type {
   CreateRoomOptions,
+  SlotContainer,
   JobId,
   JoinRoomOptions,
   PlayerInputMessage,
@@ -107,6 +108,12 @@ interface RemoteGameState {
   resourceNodes: {
     forEach(callback: (value: RemoteResourceNodeState, key: string) => void): void;
   };
+  droppedItems: {
+    forEach(
+      callback: (value: { itemId: string; count: number; x: number; y: number }, key: string) => void,
+    ): void;
+  };
+  coreStorage: ArrayLike<{ itemId: string; count: number }>;
   buildings: {
     forEach(callback: (value: RemoteBuildingState, key: string) => void): void;
   };
@@ -232,8 +239,12 @@ export class ColyseusConnection implements GameConnection {
     this.room.send('skipVote', {});
   }
 
-  deposit(): void {
+  pickUp(): void {
     this.room.send('deposit', {});
+  }
+
+  moveItem(from: SlotContainer, fromIndex: number, to: SlotContainer, toIndex: number): void {
+    this.room.send('moveItem', { from, fromIndex, to, toIndex });
   }
 
   upgradeCore(): void {
@@ -300,6 +311,11 @@ export class ColyseusConnection implements GameConnection {
       projectiles.push({ id, x: projectile.x, y: projectile.y, angle: projectile.angle });
     });
 
+    const droppedItems: WorldSnapshot['droppedItems'] = [];
+    state?.droppedItems?.forEach((drop, id) => {
+      droppedItems.push({ id, itemId: drop.itemId, count: drop.count, x: drop.x, y: drop.y });
+    });
+
     const resourceNodes: WorldSnapshot['resourceNodes'] = [];
     state?.resourceNodes?.forEach((node, id) => {
       resourceNodes.push({
@@ -334,6 +350,7 @@ export class ColyseusConnection implements GameConnection {
       monsters,
       projectiles,
       resourceNodes,
+      droppedItems,
       buildings,
       colonies,
       status: {
@@ -351,6 +368,10 @@ export class ColyseusConnection implements GameConnection {
         currentWave: state?.currentWave ?? 0,
         phaseTimeRemaining: state?.phaseTimeRemaining ?? 0,
         skipVoteCount: state?.skipVoteCount ?? 0,
+        // 서버는 빈 칸을 itemId ''로 내려보낸다(길이 고정). 클라이언트 표현은 null이다.
+        coreStorage: Array.from(state?.coreStorage ?? [], (slot) =>
+          slot.itemId ? { itemId: slot.itemId, count: slot.count } : null,
+        ),
       },
     };
   }
