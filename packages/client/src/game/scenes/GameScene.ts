@@ -107,7 +107,20 @@ export class GameScene extends Phaser.Scene {
     if (!this.isFollowing) {
       const sprite = this.entityRenderer.getSprite(me.id);
       if (sprite) {
-        this.cameras.main.startFollow(sprite, true, 0.2, 0.2);
+        /*
+         * **부드러운 추적(lerp)을 쓰지 않는다.**
+         *
+         * lerp 0.2로 따라가면 카메라가 플레이어를 한 박자 늦게 쫓는데, 픽셀아트에서는
+         * 이게 그대로 떨림이 된다: 플레이어 스프라이트는 정수 좌표로 스냅되고
+         * (EntityRenderer), 카메라 스크롤은 Phaser가 floor한다. 두 반올림이 프레임마다
+         * 다르게 떨어져서, 위아래로 걸으면 캐릭터의 화면상 위치가 ±2px씩 왕복했다
+         * (측정: 90프레임 중 21프레임이 반대 방향으로 튐). 바닥 타일도 같은 이유로
+         * 울렁거려 보인다.
+         *
+         * lerp 1이면 카메라가 정수로 스냅된 스프라이트를 그대로 따라간다 — 캐릭터는
+         * 화면에 고정되고 배경만 한 픽셀씩 미끄러진다.
+         */
+        this.cameras.main.startFollow(sprite, true, 1, 1);
         this.isFollowing = true;
       }
     }

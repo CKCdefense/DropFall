@@ -160,29 +160,33 @@ const DROP_SIZE = 14;
 const DROP_BOB_PIXELS = 2;
 const DROP_BOB_PERIOD_MS = 1400;
 /**
- * 코어. 원본 128x128을 충돌 반경(CORE_RADIUS=16, 지름 32px)보다 조금 크게 줄여
- * "랜드마크"로 세운다 — 콜로니와 같은 판단이다. 접지선은 아래 받침대 한가운데라
- * 캐릭터(발밑) 규칙보다 조금 위다.
+ * 코어. 맵의 중심이자 지켜야 할 목표라 충돌 반경(CORE_RADIUS=16)보다 훨씬 크게 세운다 —
+ * 눈으로 찾는 랜드마크가 먼저고, 부딪히는 크기는 그대로다.
  */
 const CORE_FRAME = 'core__0';
-const CORE_SCALE = 0.42;
+const CORE_SPRITE_SIZE = 128;
+const CORE_SCALE = 1.05;
 const CORE_ORIGIN_Y = 0.86;
 /**
- * 스프라이트 안 수정(가운데 청록 구슬)의 중심. 원본에서 밝은 픽셀 무게중심을 재서
- * 넣었다 — 반짝임 이펙트가 이 자리에 정확히 얹혀야 "수정이 빛난다"로 보인다.
+ * 스프라이트 안 수정(가운데 청록 구슬)의 중심과 크기. 원본에서 밝은 픽셀 범위를 재서
+ * 넣었다 — 반짝임이 이 자리에 정확히 얹혀야 "수정이 빛난다"로 보이고, 밝기 맥동은
+ * 이 영역만 잘라내 덧그린다.
  */
 const CORE_CRYSTAL = { x: 63, y: 26 };
+const CORE_CRYSTAL_CROP = { x: 33, y: 0, width: 62, height: 58 };
+
+/**
+ * 이펙트 배율은 코어 배율에 비례한다. 코어를 키웠는데 이펙트가 그대로면 반짝임이
+ * 구슬 안에 파묻히고, 승급 고리가 받침대도 못 덮는다.
+ */
+const CORE_GLINT_SCALE_RATIO = 2.4;
+const CORE_UPGRADE_SCALE_RATIO = 1.9;
 
 /** 수정 반짝임. 주기적으로 한 번씩 재생한다. */
 const CORE_GLINT_ANIM = 'fx_core_glint';
 const CORE_GLINT_PREFIX = 'fx_core_glint_';
 const CORE_GLINT_FRAMES = 12;
 const CORE_GLINT_RATE = 14;
-/**
- * 수정(지름 21px쯤)보다 커야 한다. 작게 잡으면 광선이 이미 새하얀 구슬 안에 갇혀
- * 아무것도 안 보인다 — 밖으로 뻗어 나와야 "반짝였다"로 읽힌다.
- */
-const CORE_GLINT_SCALE = 1;
 /** 반짝임 사이 간격(ms). 너무 잦으면 배경 소음이 되고, 너무 뜸하면 못 본다. */
 const CORE_GLINT_MIN_GAP_MS = 3200;
 const CORE_GLINT_MAX_GAP_MS = 5200;
@@ -193,7 +197,15 @@ const CORE_UPGRADE_PREFIX = 'fx_core_upgrade_';
 const CORE_UPGRADE_FRAMES = 14;
 /** 14프레임 × 14fps = 1초. 더 빠르면 고리가 퍼지는 걸 눈으로 못 쫓는다. */
 const CORE_UPGRADE_RATE = 14;
-const CORE_UPGRADE_SCALE = 0.8;
+
+/**
+ * 수정 밝기 맥동. 애니메이션 프레임이 아니라 **같은 그림을 덧대어 밝히는** 방식이라
+ * (가산 합성 + 알파 트윈), 스프라이트를 다시 그리지 않고도 밝기가 실제로 오르내린다.
+ * 숨 쉬듯 느려야 살아 있는 느낌이 나고, 빠르면 깜빡이는 전구가 된다.
+ */
+const CORE_PULSE_MIN_ALPHA = 0.06;
+const CORE_PULSE_MAX_ALPHA = 0.34;
+const CORE_PULSE_DURATION_MS = 1600;
 
 /** 코어 플레이스홀더(아틀라스가 없을 때). 예전 GameScene이 그리던 그대로다. */
 const CORE_PLACEHOLDER_SIZE = TILE_SIZE * 2;
@@ -916,14 +928,41 @@ export class EntityRenderer {
     // 이펙트는 수정 자리에 얹는다. 스프라이트 안 좌표를 컨테이너 좌표로 옮기려면
     // 원점(0.5, CORE_ORIGIN_Y)만큼 빼고 배율을 곱하면 된다.
     if (hasSprite) {
-      const crystalX = (CORE_CRYSTAL.x - 128 * 0.5) * CORE_SCALE;
-      const crystalY = (CORE_CRYSTAL.y - 128 * CORE_ORIGIN_Y) * CORE_SCALE;
+      const crystalX = (CORE_CRYSTAL.x - CORE_SPRITE_SIZE * 0.5) * CORE_SCALE;
+      const crystalY = (CORE_CRYSTAL.y - CORE_SPRITE_SIZE * CORE_ORIGIN_Y) * CORE_SCALE;
+
+      // 밝기 맥동: 코어 그림을 한 장 더 얹되 **수정 부분만 잘라내** 가산 합성한다.
+      // 잘라내기는 위치를 바꾸지 않으므로 본체와 정확히 겹친다 — 그래서 좌표 계산이
+      // 따로 필요 없다.
+      const pulse = this.scene.add
+        .sprite(0, 0, GAME_ATLAS, CORE_FRAME)
+        .setOrigin(0.5, CORE_ORIGIN_Y)
+        .setScale(CORE_SCALE)
+        .setBlendMode(Phaser.BlendModes.ADD)
+        .setAlpha(CORE_PULSE_MIN_ALPHA)
+        .setName('pulse');
+      pulse.setCrop(
+        CORE_CRYSTAL_CROP.x,
+        CORE_CRYSTAL_CROP.y,
+        CORE_CRYSTAL_CROP.width,
+        CORE_CRYSTAL_CROP.height,
+      );
+      parts.push(pulse);
+
+      this.scene.tweens.add({
+        targets: pulse,
+        alpha: CORE_PULSE_MAX_ALPHA,
+        duration: CORE_PULSE_DURATION_MS,
+        ease: 'Sine.easeInOut',
+        yoyo: true,
+        repeat: -1,
+      });
 
       if (this.scene.anims.exists(CORE_GLINT_ANIM)) {
         parts.push(
           this.scene.add
             .sprite(crystalX, crystalY, GAME_ATLAS, `${CORE_GLINT_PREFIX}0`)
-            .setScale(CORE_GLINT_SCALE)
+            .setScale(CORE_SCALE * CORE_GLINT_SCALE_RATIO)
             .setVisible(false)
             .setName('glint'),
         );
@@ -932,7 +971,7 @@ export class EntityRenderer {
         parts.push(
           this.scene.add
             .sprite(crystalX, crystalY, GAME_ATLAS, `${CORE_UPGRADE_PREFIX}0`)
-            .setScale(CORE_UPGRADE_SCALE)
+            .setScale(CORE_SCALE * CORE_UPGRADE_SCALE_RATIO)
             .setVisible(false)
             .setName('upgrade'),
         );

@@ -29,6 +29,13 @@ const FIRST_GID = 1;
 /** 비어 있는 칸. 아래 지형이 그대로 보인다. */
 const EMPTY_TILE = -1;
 
+/**
+ * 컬링 여유(타일 수). Tilemap은 카메라에 걸리는 칸만 그리는데, 기본 여유가 1칸이라
+ * 화면 가장자리 한 줄이 카메라가 움직이는 도중 그려졌다 말았다 한다 — 화면 아래쪽에
+ * 실금이 스치듯 나타나는 원인이다. 한 줄 더 그려도 비용은 거의 없다.
+ */
+const CULL_PADDING_TILES = 3;
+
 export function queueTerrainTileset(scene: Phaser.Scene): void {
   const base = import.meta.env.BASE_URL;
   const url = base.endsWith('/') ? `${base}${TILESET_PATH}` : `${base}/${TILESET_PATH}`;
@@ -101,6 +108,7 @@ export class TerrainLayer {
     }
 
     layer.setPosition(MAP_ORIGIN, MAP_ORIGIN);
+    layer.setCullPadding(CULL_PADDING_TILES, CULL_PADDING_TILES);
     // 지형보다 한 단계 위 — 그래도 모든 엔티티(depth = y)보다는 아래다.
     layer.setDepth(TERRAIN_DEPTH + 1);
     return layer;
@@ -124,6 +132,7 @@ export class TerrainLayer {
     // 타일맵 좌표는 0부터 시작하지만 월드 원점은 맵 한가운데다 — 시뮬레이션과 같은
     // 좌표계에 놓이도록 통째로 옮긴다.
     layer.setPosition(MAP_ORIGIN, MAP_ORIGIN);
+    layer.setCullPadding(CULL_PADDING_TILES, CULL_PADDING_TILES);
     layer.setDepth(TERRAIN_DEPTH);
     return layer;
   }
