@@ -36,6 +36,7 @@ import {
 } from './combat';
 import { Inventory } from './inventory';
 import { CoreStorage, STORAGE_SLOT_COUNT } from './storage';
+import { coreDistance, isWithinCoreInteract } from './coreShape';
 import { normalizeMoveVector, stepPosition } from './movement';
 import { WaveManager, type GamePhase } from './wave';
 import { runDevCommand, type DevCommandResult, type DevWorldAccess } from './devCommands';
@@ -68,20 +69,11 @@ const FLOW_FIELD_GRID: FlowFieldGrid = {
   originY: MAP_ORIGIN,
 };
 /**
- * 코어 자체의 판정 반경(px). 몬스터의 attackRange에 더해져 "코어에 도달했다"를 정의하고,
- * 투사체·플레이어 충돌에도 쓰인다.
- *
- * 스프라이트를 2배(108px)로 키우면서 16 → 40으로 맞췄다 — 받침대 바닥 폭(≈100px)의
- * 반지름에서 원근으로 눌린 세로 폭을 감안한 값이다. 클라이언트가 건축 미리보기 등에서
- * 같은 발자국을 봐야 해서 export한다.
+ * 코어 충돌은 반경이 아니라 **8각 발자국**(coreShape.ts)으로 판정한다. 스프라이트가
+ * 3/4 시점 다각형이라 원 하나로는 옆구리를 파고들거나 투명 픽셀까지 막는다 —
+ * 모든 코어 거리 판정은 coreDistance() 하나를 쓴다.
  */
-export const CORE_RADIUS = TILE_SIZE * 2.5;
-/** 코어 옆에서 자원을 입고(E)할 수 있는 반경(px). CORE_RADIUS보다 넉넉히 둬서 코어 바로 앞이 아니어도 상호작용할 수 있게 한다. */
-/**
- * 코어 상호작용 가능 반경(px). 클라이언트도 "E를 누를 수 있는가"를 같은 값으로 보여줘야
- * 화면과 서버 판정이 어긋나지 않아서 export한다.
- */
-export const CORE_INTERACT_RADIUS = CORE_RADIUS + 32;
+
 /**
  * 바닥 드롭을 주울 수 있는 반경(px). 캐릭터 반경보다 넉넉하게 잡아야 정확히 밟지 않아도
  * 주워진다 — 너무 넓으면 여러 개가 한 번에 사정권에 들어와 "주우러 다니는" 맛이 없어진다.
@@ -101,8 +93,8 @@ export const BARE_HANDS_WEAPON_ID = 'fist';
 /** 개발 커맨드로 몬스터를 부를 때 코어에서 띄우는 거리(px). 바로 옆에 붙여 놓으면 코어가 즉사한다. */
 const DEV_SPAWN_RADIUS = 160;
 
-/** 콜로니 채널링(파괴 작업)을 시작할 수 있는 반경(px). CORE_INTERACT_RADIUS와 같은 값 — 둘 다 "구조물 바로 옆" 상호작용이다. */
-const COLONY_CHANNEL_RADIUS = CORE_INTERACT_RADIUS;
+/** 콜로니 채널링(파괴 작업)을 시작할 수 있는 반경(px). "구조물 바로 옆" 상호작용 거리다. */
+const COLONY_CHANNEL_RADIUS = 72;
 /** 이 거리보다 가까운 몬스터끼리는 서로 밀어낸다 — 군집 분리(기술명세 §5.3). */
 const SEPARATION_RADIUS = HIT_RADIUS * 2.5;
 /** 분리력이 주 이동 방향을 완전히 덮어쓰지 않도록 두는 가중치. */
@@ -131,7 +123,7 @@ const STUCK_ESCAPE_ATTEMPTS = 8;
  */
 export const PLAYER_BUILDING_COLLISION_RADIUS = HIT_RADIUS + TILE_SIZE / 2;
 /** 플레이어-코어 하드 충돌 반경(px). 위와 같은 이유로 두 반경의 합을 상수로 export한다. */
-export const PLAYER_CORE_COLLISION_RADIUS = HIT_RADIUS + CORE_RADIUS;
+
 /** 플레이어-콜로니 하드 충돌 반경(px). */
 export const PLAYER_COLONY_COLLISION_RADIUS = HIT_RADIUS + COLONY_RADIUS;
 export { HIT_RADIUS };
@@ -358,7 +350,7 @@ export class World {
    *
    * 코어 자신의 셀은 절대 여기 넣지 않는다 — FlowField의 목표(target) 셀이 막히면
    * `recompute()`가 전체 계산을 포기해버린다(치명적). 몬스터는 어차피
-   * `attackRange + CORE_RADIUS`에서 멈춰 코어를 공격하므로 코어 셀까지 들어갈
+   * 발자국 가장자리에서 attackRange만큼 떨어져 멈춰 코어를 공격하므로 코어 셀까지 들어갈
    * 필요가 없어 막을 이유도 없다 — 코어의 플레이어/투사체 하드 충돌은 이 집합과
    * 무관하게 `isBlockedForPlayer`/`projectileHitsObstacle`이 원점 좌표로 직접 검사한다.
    */
@@ -771,7 +763,7 @@ export class World {
 
   /** 코어 상호작용(창고 열기 등)이 가능한 거리인지. 클라이언트도 같은 판정을 보여준다. */
   isNearCore(player: PlayerEntity): boolean {
-    return Math.hypot(player.x, player.y) <= CORE_INTERACT_RADIUS;
+    return isWithinCoreInteract(player.x, player.y);
   }
 
   canInteractWithCore(playerId: string): boolean {
@@ -980,9 +972,8 @@ export class World {
     // 딱 떨어진다.
     if (Math.max(Math.abs(x), Math.abs(y)) > this.getBuildRadius()) return;
 
-    // 코어 발자국과 겹치는 셀은 전부 금지다. 예전엔 코어가 한 칸 크기라 셀 하나만
-    // 막으면 됐지만, 지금은 반경 40px — 스프라이트에 파묻히는 벽이 지어질 수 있다.
-    if (Math.hypot(x, y) <= CORE_RADIUS + TILE_SIZE / 2) return;
+    // 코어 발자국과 겹치는 셀은 전부 금지다 — 스프라이트에 파묻히는 벽이 지어지면 안 된다.
+    if (coreDistance(x, y) <= TILE_SIZE / 2) return;
 
     for (const node of this.resourceNodes.values()) {
       const nodeCell = worldToCell(node.x, node.y);
@@ -1603,7 +1594,9 @@ export class World {
         continue;
       }
 
-      if (distanceToCore <= data.attackRange + CORE_RADIUS) {
+      // 코어 "도달"은 중심 거리가 아니라 발자국 가장자리 기준이다 — 어느 방향에서
+      // 와도 보이는 받침대 앞에서 멈춰 때린다.
+      if (coreDistance(monster.x, monster.y) <= data.attackRange) {
         if (distanceToCore > 0) {
           monster.facingX = -monster.x / distanceToCore;
           monster.facingY = -monster.y / distanceToCore;
@@ -1831,7 +1824,8 @@ export class World {
       if (colony.destroyed) continue; // 파괴된 콜로니는 더 이상 막지 않는다(docs/backend/43)
       if (circlesOverlap(x, y, colony.x, colony.y, PLAYER_COLONY_COLLISION_RADIUS)) return true;
     }
-    if (circlesOverlap(x, y, 0, 0, PLAYER_CORE_COLLISION_RADIUS)) return true;
+    // 코어는 원이 아니라 8각 발자국이다(coreShape.ts) — 스프라이트 윤곽 그대로 막는다.
+    if (coreDistance(x, y) < HIT_RADIUS) return true;
     return false;
   }
 
@@ -2238,7 +2232,8 @@ export class World {
         return;
       }
     }
-    if (circlesOverlap(projectile.x, projectile.y, 0, 0, CORE_RADIUS)) {
+    // 투사체는 점으로 취급한다 — 발자국 안에 들어오면 코어가 막은 것이다.
+    if (coreDistance(projectile.x, projectile.y) <= 0) {
       this.projectiles.delete(projectileId);
     }
   }

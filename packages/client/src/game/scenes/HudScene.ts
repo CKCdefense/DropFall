@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import type { InventorySlot } from '@dropfall/shared';
 import {
-  CORE_INTERACT_RADIUS,
+  isWithinCoreInteract,
   MAX_CLIENTS_PER_ROOM,
   PICKUP_RADIUS,
   SLOT_COUNT,
@@ -455,9 +455,10 @@ export class HudScene extends Phaser.Scene {
     this.updateSelfBar(me);
     this.updateTexts(snapshot, me);
 
-    // 코어는 항상 원점(0,0). 서버(World.isNearCore)와 같은 반경으로 판정해야
-    // "E가 안 먹는다"는 어긋남이 안 생긴다.
-    this.nearCore = me ? Math.hypot(me.x, me.y) <= CORE_INTERACT_RADIUS : false;
+    // 코어는 항상 원점(0,0). 서버(World.isNearCore)와 같은 함수로 판정해야
+    // "E가 안 먹는다"는 어긋남이 안 생긴다 — 코어가 8각 발자국이 되면서 반경
+    // 비교로는 같은 결론을 낼 수 없다.
+    this.nearCore = me ? isWithinCoreInteract(me.x, me.y) : false;
     this.dropInReach = me
       ? snapshot.droppedItems.some(
           (drop) => Math.hypot(drop.x - me.x, drop.y - me.y) <= PICKUP_RADIUS,

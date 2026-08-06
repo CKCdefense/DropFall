@@ -794,19 +794,19 @@ describe('World — 건축물과 몬스터 상호작용', () => {
     grantSharedResources(world, 1000, 1000);
 
     // 코어를 벽 고리로 완전히 둘러싼다 — 바깥에서 코어로 가는 경로가 완전히 막힌다.
-    // 코어가 커지면서(반경 40) 8이웃 셀은 건축 금지가 됐다. 금지 반경 밖에서 가장
-    // 가까운 완전한 고리인 체비쇼프 거리 4(9x9 테두리, 32칸)에 짓는다.
+    // 코어 8각 발자국(가로 ±52px)이 커서, 발자국과 겹치지 않는 가장 가까운 완전한
+    // 고리는 체비쇼프 거리 5(11x11 테두리, 40칸)다.
     const coreCell = worldToCell(0, 0);
     let placed = 0;
-    for (let dx = -4; dx <= 4; dx += 1) {
-      for (let dy = -4; dy <= 4; dy += 1) {
-        if (Math.max(Math.abs(dx), Math.abs(dy)) !== 4) continue;
+    for (let dx = -5; dx <= 5; dx += 1) {
+      for (let dy = -5; dy <= 5; dy += 1) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== 5) continue;
         world.placeBuilding('builder', 'wall', coreCell.cx + dx, coreCell.cy + dy);
         placed += 1;
       }
     }
-    expect(placed).toBe(32);
-    expect(world.getBuildings().size).toBe(32);
+    expect(placed).toBe(40);
+    expect(world.getBuildings().size).toBe(40);
 
     startFirstWave(world);
     spawnAtLeast(world, 1);

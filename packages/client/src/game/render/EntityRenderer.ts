@@ -160,7 +160,7 @@ const DROP_SIZE = 14;
 const DROP_BOB_PIXELS = 2;
 const DROP_BOB_PERIOD_MS = 1400;
 /**
- * 코어. 맵의 중심이자 지켜야 할 목표라 충돌 반경(CORE_RADIUS=16)보다 훨씬 크게 세운다 —
+ * 코어. 충돌은 스프라이트 윤곽을 실측한 8각 발자국(shared/coreShape.ts)이 판정한다 —
  * 눈으로 찾는 랜드마크가 먼저고, 부딪히는 크기는 그대로다.
  */
 const CORE_FRAME = 'core__0';
