@@ -20,6 +20,7 @@ import {
   type BuildInputMessage,
   type CreateRoomOptions,
   type SelectSlotMessage,
+  type MoveItemMessage,
   type JoinRoomOptions,
   type PlayerInputMessage,
   type SelectJobMessage,
@@ -32,6 +33,7 @@ import {
   MonsterSchema,
   PlayerSchema,
   ProjectileSchema,
+  DroppedItemSchema,
   ResourceNodeSchema,
 } from '../schema/GameRoomState';
 
@@ -69,6 +71,16 @@ export class GameRoom extends Room {
       // 무기는 서버가 인벤토리에서 읽는다 — 페이로드가 없다(World.fireWeapon 참고).
       this.world.fireWeapon(client.sessionId);
     },
+    moveItem: (client: Client, payload: MoveItemMessage) => {
+      if (this.state.phase !== RoomPhase.PLAYING) return;
+      this.world.moveItem(
+        client.sessionId,
+        payload?.from,
+        payload?.fromIndex,
+        payload?.to,
+        payload?.toIndex,
+      );
+    },
     selectSlot: (client: Client, payload: SelectSlotMessage) => {
       this.world.selectSlot(client.sessionId, payload?.index);
     },
@@ -82,7 +94,7 @@ export class GameRoom extends Room {
     },
     deposit: (client: Client) => {
       if (this.state.phase !== RoomPhase.PLAYING) return;
-      this.world.depositAtCore(client.sessionId);
+      this.world.pickUpNearestDrop(client.sessionId);
     },
     upgradeCore: (client: Client) => {
       if (this.state.phase !== RoomPhase.PLAYING) return;
@@ -246,9 +258,11 @@ export class GameRoom extends Room {
       schema.aimAngle = player.aimAngle;
       schema.lastProcessedSeq = player.lastProcessedSeq;
       schema.hp = player.hp;
-      schema.wood = player.wood;
-      schema.stone = player.stone;
-      schema.scrap = player.scrap;
+      // 휴대 자원은 이제 전용 숫자 필드가 아니라 인벤토리 슬롯이다 — HUD가 쓰는
+      // 요약 숫자만 세어 내려보낸다.
+      schema.wood = player.inventory.countOf('wood');
+      schema.stone = player.inventory.countOf('stone');
+      schema.scrap = player.inventory.countOf('scrap');
       schema.channelProgress = player.channelProgress;
 
       // 슬롯은 매 틱 통째로 덮어쓴다. 4칸뿐이라 변경 감지를 따로 하는 것보다 싸고,
@@ -268,13 +282,17 @@ export class GameRoom extends Room {
     this.syncResourceNodes();
     this.syncBuildings();
     this.syncColonies();
+    this.syncDroppedItems();
+    this.syncCoreStorage();
 
     const core = this.world.getCore();
     this.state.coreHp = core.hp;
     this.state.coreMaxHp = core.maxHp;
-    this.state.coreSharedWood = core.sharedWood;
-    this.state.coreSharedStone = core.sharedStone;
-    this.state.coreSharedScrap = core.sharedScrap;
+    // 자원이 전용 숫자 필드에서 창고 슬롯으로 바뀌었다 — HUD가 쓰는 요약 숫자는
+    // 창고에서 세어 내려보낸다(scrap 포함).
+    this.state.coreSharedWood = core.storage.countOf('wood');
+    this.state.coreSharedStone = core.storage.countOf('stone');
+    this.state.coreSharedScrap = core.storage.countOf('scrap');
     this.state.coreSharedEnergy = core.sharedEnergy;
     this.state.coreTier = core.tier;
     this.state.coreBuildRadius = this.world.getBuildRadius();
@@ -396,6 +414,37 @@ export class GameRoom extends Room {
    * 지운다"는 diff 루프가 필요 없다. 위치(x/y)는 게임 내내 안 바뀌므로 최초 생성
    * 시 한 번만 세팅하고, 매 틱은 `destroyed`만 갱신한다.
    */
+  private syncDroppedItems(): void {
+    const drops = this.world.getDroppedItems();
+    const aliveIds = new Set(drops.keys());
+
+    for (const [id, drop] of drops) {
+      let schema = this.state.droppedItems.get(id);
+      if (!schema) {
+        schema = new DroppedItemSchema();
+        this.state.droppedItems.set(id, schema);
+      }
+      schema.itemId = drop.itemId;
+      schema.count = drop.count;
+      schema.x = drop.x;
+      schema.y = drop.y;
+    }
+
+    for (const id of [...this.state.droppedItems.keys()]) {
+      if (!aliveIds.has(id)) this.state.droppedItems.delete(id);
+    }
+  }
+
+  private syncCoreStorage(): void {
+    const view = this.world.getCore().storage.toView();
+    view.slots.forEach((slot, index) => {
+      const schema = this.state.coreStorage[index];
+      if (!schema) return;
+      schema.itemId = slot?.itemId ?? '';
+      schema.count = slot?.count ?? 0;
+    });
+  }
+
   private syncColonies(): void {
     for (const [id, colony] of this.world.getColonies()) {
       let schema = this.state.colonies.get(id);

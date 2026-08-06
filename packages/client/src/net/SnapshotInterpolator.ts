@@ -5,6 +5,7 @@ import type {
   MonsterView,
   PlayerView,
   ProjectileView,
+  DroppedItemView,
   ResourceNodeView,
   WorldSnapshot,
   WorldStatus,
@@ -58,6 +59,7 @@ interface BufferedSnapshot {
   monsters: MonsterView[];
   projectiles: ProjectileView[];
   resourceNodes: ResourceNodeView[];
+  droppedItems: DroppedItemView[];
   buildings: BuildingView[];
   colonies: ColonyView[];
   status: WorldStatus;
@@ -129,6 +131,7 @@ const EMPTY_STATUS: WorldStatus = {
   currentWave: 0,
   phaseTimeRemaining: 0,
   skipVoteCount: 0,
+  coreStorage: [],
 };
 
 export class SnapshotInterpolator {
@@ -138,6 +141,7 @@ export class SnapshotInterpolator {
     monsters: [],
     projectiles: [],
     resourceNodes: [],
+  droppedItems: [],
     buildings: [],
     colonies: [],
     status: { ...EMPTY_STATUS },
@@ -151,6 +155,7 @@ export class SnapshotInterpolator {
       monsters: snapshot.monsters.map((monster) => ({ ...monster })),
       projectiles: snapshot.projectiles.map((projectile) => ({ ...projectile })),
       resourceNodes: snapshot.resourceNodes.map((node) => ({ ...node })),
+      droppedItems: snapshot.droppedItems.map((drop) => ({ ...drop })),
       buildings: snapshot.buildings.map((building) => ({ ...building })),
       colonies: snapshot.colonies.map((colony) => ({ ...colony })),
       status: { ...snapshot.status },
@@ -190,6 +195,7 @@ export class SnapshotInterpolator {
       );
       // 자원 노드/건축물/콜로니는 위치가 고정이라 외삽할 속도가 없다 — 그냥 최신값을 그대로 쓴다.
       this.output.resourceNodes = last.resourceNodes;
+      this.output.droppedItems = last.droppedItems;
       this.output.buildings = last.buildings;
       this.output.colonies = last.colonies;
       return this.output;
@@ -203,6 +209,7 @@ export class SnapshotInterpolator {
     blendList(from.monsters, to.monsters, t, this.output.monsters);
     blendList(from.projectiles, to.projectiles, t, this.output.projectiles);
     this.output.resourceNodes = to.resourceNodes;
+    this.output.droppedItems = to.droppedItems;
     this.output.buildings = to.buildings;
     this.output.colonies = to.colonies;
 

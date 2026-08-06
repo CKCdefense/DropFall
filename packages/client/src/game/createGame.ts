@@ -6,6 +6,16 @@ import { HudScene } from './scenes/HudScene';
 /** 씬들이 연결 객체를 꺼내가는 registry 키. 씬 시작 순서에 의존하지 않기 위해 registry를 쓴다. */
 export const CONNECTION_KEY = 'connection';
 /** HudScene이 건축모드 표시줄을 그리려고 GameScene의 InputController를 꺼내가는 키. */
+/**
+ * HudScene이 등록하는 "지금 포인터가 UI 위인가" 판정. 모달은 차단막 없이 게임 위에
+ * 떠 있으므로, 게임 입력(발사·건축)이 모달을 뚫고 나가지 않게 이 콜백으로 막는다.
+ * 발사는 이벤트가 아니라 매 프레임 폴링이라 Phaser의 이벤트 전파만으로는 안 막힌다.
+ */
+export const HUD_BLOCK_KEY = 'hudBlocksPointer';
+
+/** HudScene이 등록하는 코어 상호작용 콜백. GameScene의 E 입력이 이걸 먼저 부른다. */
+export const CORE_INTERACT_KEY = 'coreInteract';
+
 export const INPUT_CONTROLLER_KEY = 'inputController';
 
 /**

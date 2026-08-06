@@ -9,6 +9,7 @@
         "sprites/monsters",
         "sprites/items",
         "sprites/buildings",
+        "sprites/objects",
         "sprites/props",
         "sprites/fx"
       ]

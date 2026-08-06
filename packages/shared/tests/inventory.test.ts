@@ -3,6 +3,19 @@ import { Inventory, SLOT_COUNT, itemOfSlot } from '../src/sim/inventory';
 import { World } from '../src/sim/world';
 import { wavesData } from '../src/data';
 
+/**
+ * 예전 시작 지급품(권총/도끼/곡괭이/붕대)을 손에 쥐여준다. 이제 도구는 팀 창고에서
+ * 시작하므로(loadout.coreStorage), 장착을 전제하는 테스트는 명시적으로 꺼내 쓴다.
+ * 슬롯 순서는 예전과 같아서 기존 selectSlot 번호가 그대로 유효하다.
+ */
+function equipDefaultKit(world: World, playerId: string): void {
+  const inventory = world.getPlayers().get(playerId)!.inventory;
+  inventory.add('pistol', 1);
+  inventory.add('axe', 1);
+  inventory.add('pickax', 1);
+  inventory.add('bandage', 3);
+}
+
 describe('Inventory', () => {
   it('빈 인벤토리는 SLOT_COUNT개의 빈 칸을 가진다', () => {
     const view = new Inventory().toView();
@@ -151,6 +164,7 @@ describe('World 인벤토리 연동', () => {
   it('참가하면 loadout.json의 시작 지급품을 받는다', () => {
     const world = new World();
     world.addPlayer('p1');
+    equipDefaultKit(world, 'p1');
 
     const inventory = world.getPlayers().get('p1')!.inventory;
     expect(inventory.slotAt(0)?.itemId).toBe('pistol');
@@ -160,6 +174,7 @@ describe('World 인벤토리 연동', () => {
   it('붕대를 쓰면 체력이 회복된다', () => {
     const world = new World();
     world.addPlayer('p1');
+    equipDefaultKit(world, 'p1');
     const player = world.getPlayers().get('p1')!;
     player.hp = 10;
 
@@ -173,6 +188,7 @@ describe('World 인벤토리 연동', () => {
   it('최대 체력을 넘겨 회복하지 않는다', () => {
     const world = new World();
     world.addPlayer('p1');
+    equipDefaultKit(world, 'p1');
     const player = world.getPlayers().get('p1')!;
     player.hp = wavesData.playerHp - 5;
 
@@ -185,6 +201,7 @@ describe('World 인벤토리 연동', () => {
   it('체력이 가득이면 붕대를 소모하지 않는다', () => {
     const world = new World();
     world.addPlayer('p1');
+    equipDefaultKit(world, 'p1');
     const player = world.getPlayers().get('p1')!;
 
     world.selectSlot('p1', 3);
@@ -196,6 +213,7 @@ describe('World 인벤토리 연동', () => {
   it('쓰러진 플레이어는 스스로 회복할 수 없다', () => {
     const world = new World();
     world.addPlayer('p1');
+    equipDefaultKit(world, 'p1');
     const player = world.getPlayers().get('p1')!;
     player.hp = 0;
 

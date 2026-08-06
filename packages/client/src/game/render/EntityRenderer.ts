@@ -12,6 +12,7 @@ import {
 import type {
   BuildingView,
   ColonyView,
+  DroppedItemView,
   MonsterView,
   PlayerView,
   ProjectileView,
@@ -116,6 +117,49 @@ const BUILDING_FALLBACK = { color: 0x6b6f78, size: 14 };
  * 건축물보다 눈에 띄게 크게 그려서 "이건 부술 수 있는 랜드마크"임을 시각적으로 구분한다.
  */
 const COLONY_COLOR = 0x7a3fb0;
+
+/**
+ * 자원 노드 스프라이트. 내구도 구간마다 겉모습이 변한다 — 항목은 [최소 체력비율, 프레임]
+ * 쌍이고 위에서부터 먼저 맞는 것을 쓴다.
+ *
+ * 마지막 단계(부서지기 직전 모습)는 파괴 시점이 아니라 **30% 아래**부터 나온다.
+ * 파괴 순간에만 나오면 그 모습을 볼 시간이 없다 — "곧 부서진다"는 예고가 역할이다.
+ */
+/**
+ * 타격 이펙트. 노드 종류마다 다르다 — 나무는 잎이 흩날리고 돌은 조각이 튄다.
+ * offsetY는 이펙트가 터지는 높이(나무는 수관, 돌은 몸통 가운데).
+ */
+const GATHER_FX: Record<string, { anim: string; prefix: string; offsetY: number }> = {
+  wood: { anim: 'fx_gather_leaf', prefix: 'fx_gather_leaf_', offsetY: -40 },
+  stone: { anim: 'fx_gather_shard', prefix: 'fx_gather_shard_', offsetY: -12 },
+};
+const GATHER_FX_FRAMES = 5;
+const GATHER_FX_RATE = 16;
+
+/** 타격 흔들림 — 미세하고 빠르게. 크면 우스꽝스럽고 느리면 얻어맞는 느낌이 안 난다. */
+const SHAKE_PIXELS = 1.5;
+const SHAKE_DURATION_MS = 45;
+
+const RESOURCE_STAGES: Record<string, [number, string][]> = {
+  stone: [
+    [0.65, 'stone_full_0'],
+    [0.3, 'stone_cracked_0'],
+    [0, 'stone_broken_0'],
+  ],
+  wood: [[0, 'tree_full_0']],
+};
+
+/** 드롭 아이템 스프라이트. items.json의 key → 아틀라스 프레임. */
+const DROP_SPRITE: Record<string, string> = {
+  wood: 'item_wood_idle_0',
+  stone: 'item_stone_idle_0',
+};
+
+/** 드롭이 바닥에서 살짝 떠 보이도록 위아래로 흔드는 폭(px)과 주기(ms). */
+/** 드롭 아이템 원본은 64x64라 그대로 두면 캐릭터보다 커진다. 한 손에 들 크기로 줄인다. */
+const DROP_SCALE = 0.22;
+const DROP_BOB_PIXELS = 2;
+const DROP_BOB_PERIOD_MS = 1400;
 const COLONY_SIZE = 28;
 /** 파괴된 콜로니는 지우지 않고 흐리게만 남긴다(엔티티 자체가 사라지지 않으므로, colony.ts 참고). */
 const COLONY_DESTROYED_ALPHA = 0.25;
@@ -181,12 +225,17 @@ export class EntityRenderer {
   private readonly monsters = new Map<string, Phaser.GameObjects.Container>();
   private readonly projectiles = new Map<string, Phaser.GameObjects.Sprite | Phaser.GameObjects.Arc>();
   private readonly resourceNodes = new Map<string, Phaser.GameObjects.Container>();
+  private readonly droppedItems = new Map<string, Phaser.GameObjects.Container>();
+  /** 드롭 흔들기 애니메이션용 누적 시간(ms). */
+  private dropBobElapsed = 0;
   private readonly buildings = new Map<string, Phaser.GameObjects.Container>();
   private readonly colonies = new Map<string, Phaser.GameObjects.Container>();
   /** 보스 공격 예고(텔레그래프) 표시. 몬스터 id별로 하나씩, 예고 중일 때만 존재한다. */
   private readonly telegraphs = new Map<string, Phaser.GameObjects.Graphics>();
   /** 이동 여부 판정용 직전 좌표 */
   private readonly lastPositions = new Map<string, { x: number; y: number }>();
+  /** 노드 타격 감지용 직전 체력. 스냅샷에는 "맞았다"는 이벤트가 없어서 체력 감소로 추론한다. */
+  private readonly lastNodeHp = new Map<string, number>();
   private readonly hasSprite: boolean;
   private readonly hasWeapon: boolean;
   private readonly hasMuzzle: boolean;
@@ -217,12 +266,15 @@ export class EntityRenderer {
     this.hasSwing = hasSwingFx(scene);
     this.hasBullet = hasBulletFx(scene);
     if (this.hasMuzzle) registerMuzzleAnimation(scene);
+    this.registerGatherAnimations();
     if (this.hasSwing) registerSwingAnimation(scene);
     if (this.hasBullet) registerBulletAnimation(scene);
   }
 
   /** 매 프레임 호출. 휘두르기처럼 스냅샷과 무관하게 시간이 흐르는 연출을 진행시킨다. */
   advance(deltaMs: number): void {
+    this.dropBobElapsed += deltaMs;
+
     for (const [id, swing] of this.swings) {
       swing.elapsedMs += deltaMs;
 
@@ -276,6 +328,7 @@ export class EntityRenderer {
     this.syncResourceNodes(snapshot.resourceNodes);
     this.syncBuildings(snapshot.buildings);
     this.syncColonies(snapshot.colonies);
+    this.syncDroppedItems(snapshot.droppedItems);
   }
 
   getSprite(sessionId: string): Phaser.GameObjects.Container | undefined {
@@ -718,6 +771,20 @@ export class EntityRenderer {
       // 고갈되면(리스폰 대기 중) 흐리게 — 지금은 캘 수 없다는 걸 한눈에 보이게 한다.
       sprite.setAlpha(node.hp > 0 ? 1 : 0.3);
 
+      // 내구도가 깎이면 겉모습도 단계적으로 바뀐다(돌 3단계).
+      const body = sprite.getByName('body');
+      const frame = this.resourceFrame(node);
+      if (frame && body instanceof Phaser.GameObjects.Sprite && body.frame.name !== frame) {
+        body.setFrame(frame);
+      }
+
+      // 체력이 줄었다 = 맞았다. 스냅샷에 타격 이벤트가 따로 없어서 이 추론으로 연출한다.
+      const previousHp = this.lastNodeHp.get(node.id);
+      if (previousHp !== undefined && node.hp < previousHp) {
+        this.playNodeHit(node, body instanceof Phaser.GameObjects.Sprite ? body : null);
+      }
+      this.lastNodeHp.set(node.id, node.hp);
+
       // 몬스터/건축물 HP 바와 동일한 규칙 — 맞은 적 없으면 숨긴다.
       const bar = sprite.getByName('hp') as Phaser.GameObjects.Rectangle | null;
       const barBack = sprite.getByName('hpBack') as Phaser.GameObjects.Rectangle | null;
@@ -730,10 +797,83 @@ export class EntityRenderer {
       }
     }
 
+    for (const id of this.lastNodeHp.keys()) {
+      if (!alive.has(id)) this.lastNodeHp.delete(id);
+    }
     this.removeMissing(this.resourceNodes, alive);
   }
 
+  private registerGatherAnimations(): void {
+    if (!this.scene.textures.exists(GAME_ATLAS)) return;
+    for (const fx of Object.values(GATHER_FX)) {
+      if (this.scene.anims.exists(fx.anim)) continue;
+      if (!this.scene.textures.get(GAME_ATLAS).has(`${fx.prefix}0`)) continue;
+      this.scene.anims.create({
+        key: fx.anim,
+        frames: this.scene.anims.generateFrameNames(GAME_ATLAS, {
+          prefix: fx.prefix,
+          start: 0,
+          end: GATHER_FX_FRAMES - 1,
+        }),
+        frameRate: GATHER_FX_RATE,
+        repeat: 0,
+      });
+    }
+  }
+
+  /** 노드 타격 연출: 종류별 파편 이펙트 + 몸통이 미세하고 빠르게 흔들린다. */
+  private playNodeHit(node: ResourceNodeView, body: Phaser.GameObjects.Sprite | null): void {
+    const fx = GATHER_FX[node.type];
+    if (fx && this.scene.anims.exists(fx.anim)) {
+      const burst = this.scene.add
+        .sprite(node.x, node.y + fx.offsetY, GAME_ATLAS, `${fx.prefix}0`)
+        .setDepth(node.y + 1);
+      burst.play(fx.anim);
+      burst.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => burst.destroy());
+    }
+
+    if (body && !this.scene.tweens.isTweening(body)) {
+      // yoyo 왕복 두 번 — 전체 180ms짜리 짧은 진동이다. 컨테이너가 아니라 자식 스프라이트를
+      // 흔들어야 HP 바까지 같이 떨리지 않는다.
+      this.scene.tweens.add({
+        targets: body,
+        x: { from: 0, to: SHAKE_PIXELS },
+        duration: SHAKE_DURATION_MS,
+        yoyo: true,
+        repeat: 1,
+        onComplete: () => body.setX(0),
+      });
+    }
+  }
+
+  /** 남은 체력 비율로 파손 단계를 고른다. 단계가 하나뿐인 자원은 항상 그 프레임이다. */
+  private resourceFrame(node: ResourceNodeView): string | null {
+    const stages = RESOURCE_STAGES[node.type];
+    if (!stages || !this.scene.textures.exists(GAME_ATLAS)) return null;
+    if (!this.scene.textures.get(GAME_ATLAS).has(stages[0][1])) return null;
+
+    const ratio = node.maxHp > 0 ? Math.max(0, node.hp) / node.maxHp : 1;
+    for (const [threshold, frame] of stages) {
+      if (ratio >= threshold) return frame;
+    }
+    return stages[stages.length - 1][1];
+  }
+
   private createResourceNode(node: ResourceNodeView): Phaser.GameObjects.Container {
+    const frame = this.resourceFrame(node);
+    if (frame) {
+      // 접지선을 캐릭터와 같은 규칙(발밑)으로 둔다 — 바닥에 박혀 있는 것처럼 보인다.
+      const body = this.scene.add
+        .sprite(0, 0, GAME_ATLAS, frame)
+        .setOrigin(0.5, PLAYER_ORIGIN_Y)
+        .setName('body');
+      return this.scene.add.container(node.x, node.y, [body]);
+    }
+
+    return this.createResourceNodePlaceholder(node);
+  }
+
+  private createResourceNodePlaceholder(node: ResourceNodeView): Phaser.GameObjects.Container {
     const color = RESOURCE_COLOR[node.type] ?? RESOURCE_COLOR_FALLBACK;
     const hitRadius = resourcesData[node.type as ResourceType]?.hitRadius ?? RESOURCE_HIT_RADIUS_FALLBACK;
 
@@ -873,6 +1013,56 @@ export class EntityRenderer {
     }
 
     return this.scene.add.container(building.x, building.y, children);
+  }
+
+  // ---------------------------------------------------------------- 바닥 드롭
+
+  private syncDroppedItems(views: DroppedItemView[]): void {
+    const alive = new Set<string>();
+    // 위아래로 살짝 흔든다 — 바닥 무늬에 섞이지 않고 "주울 수 있는 것"으로 읽힌다.
+    const bob =
+      Math.sin((this.dropBobElapsed / DROP_BOB_PERIOD_MS) * Math.PI * 2) * DROP_BOB_PIXELS;
+
+    for (const drop of views) {
+      alive.add(drop.id);
+
+      let sprite = this.droppedItems.get(drop.id);
+      if (!sprite) {
+        sprite = this.createDroppedItem(drop);
+        this.droppedItems.set(drop.id, sprite);
+      }
+
+      sprite.setPosition(Math.round(drop.x), Math.round(drop.y) + Math.round(bob));
+      sprite.setDepth(drop.y);
+
+      const count = sprite.getByName('count');
+      if (count instanceof Phaser.GameObjects.Text) {
+        // 1개짜리는 숫자를 안 띄운다 — 항상 "1"이면 정보가 아니라 잡음이다.
+        count.setText(drop.count > 1 ? String(drop.count) : '');
+      }
+    }
+
+    this.removeMissing(this.droppedItems, alive);
+  }
+
+  private createDroppedItem(drop: DroppedItemView): Phaser.GameObjects.Container {
+    const frame = DROP_SPRITE[drop.itemId];
+    const hasFrame =
+      frame !== undefined &&
+      this.scene.textures.exists(GAME_ATLAS) &&
+      this.scene.textures.get(GAME_ATLAS).has(frame);
+
+    const body: Phaser.GameObjects.GameObject = hasFrame
+      ? this.scene.add.sprite(0, 0, GAME_ATLAS, frame).setScale(DROP_SCALE)
+      : this.scene.add.rectangle(0, 0, 8, 8, 0xd2ae76).setStrokeStyle(1, 0x1a1c23);
+
+    const count = this.scene.add
+      .text(6, 4, '', { fontFamily: FONT_SMALL, fontSize: `${SIZE_SMALL}px`, color: '#f2f5fa' })
+      .setOrigin(0.5, 0.5)
+      .setName('count');
+    applyTextShadow(count);
+
+    return this.scene.add.container(drop.x, drop.y, [body, count]);
   }
 
   // ---------------------------------------------------------------- 콜로니

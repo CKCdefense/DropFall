@@ -85,6 +85,16 @@ export class InputController {
     private readonly connection: GameConnection,
     /** 공격 순간 호출된다. 총구 화염·휘두르기처럼 즉시 반응해야 하는 연출에 쓴다. */
     private readonly onAttack?: (weaponId: string) => void,
+    /**
+     * E를 눌렀을 때 먼저 호출된다. true를 돌려주면(예: 코어 모달을 열었다) 줍기를
+     * 건너뛴다 — 코어 앞에서 E가 두 가지 일을 동시에 하지 않게 하는 장치다.
+     */
+    private readonly onInteract?: () => boolean,
+    /**
+     * 포인터가 HUD(모달 등) 위인지. true면 좌클릭을 게임 입력으로 쓰지 않는다 —
+     * 모달에 차단막이 없어서(게임을 계속 보여줘야 한다) 좌표로 판정해야 한다.
+     */
+    private readonly isPointerOverHud?: (x: number, y: number) => boolean,
   ) {
     const keyboard = scene.input.keyboard;
     if (!keyboard) throw new Error('키보드 입력을 사용할 수 없습니다.');
@@ -106,11 +116,12 @@ export class InputController {
       this.connection.voteSkipDay();
     });
 
-    // 코어 입고(E). 채집(자원 노드 타격)은 더 이상 이 키가 아니라 좌클릭 근접
-    // 공격으로 한다 — E는 이제 "들고 있는 자원을 코어에 넣는다"는 단발 행동이라
-    // 홀드-재전송이 필요 없다(서버가 거리/보유량을 그 자리에서 바로 판정한다).
+    // 상호작용(E). 무엇을 할지는 서 있는 위치가 정한다 — 코어 옆이면 창고를 열고,
+    // 아니면 바닥 드롭을 줍는다. 키를 늘리는 대신 맥락으로 나누는 편이 조작이 단순하다.
+    // 채집(자원 노드 타격)은 좌클릭 근접 공격이라 이 키와 무관하다.
     keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.E).on('down', () => {
-      this.connection.deposit();
+      if (this.onInteract?.()) return;
+      this.connection.pickUp();
     });
 
     // 퀵슬롯 선택(1~4). 슬롯 번호만 보내고 그 칸에 뭐가 들었는지는 서버가 판단한다.
@@ -133,6 +144,7 @@ export class InputController {
     scene.input.mouse?.disableContextMenu();
     scene.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
       if (this.buildMode === 'off') return;
+      if (this.isPointerOverHud?.(pointer.x, pointer.y)) return;
 
       if (pointer.rightButtonDown()) {
         this.buildModeIndex = 0;
@@ -163,6 +175,10 @@ export class InputController {
    */
   private updateFire(delta: number): void {
     const pointer = this.scene.input.activePointer;
+    if (this.isPointerOverHud?.(pointer.x, pointer.y)) {
+      this.fireTimer = 0;
+      return;
+    }
     if (this.buildMode !== 'off' || !pointer.leftButtonDown()) {
       this.fireTimer = 0;
       return;

@@ -22,5 +22,20 @@
     "kind": "consumable",
     "healAmount": 30,
     "stackSize": 5
+  },
+  "wood": {
+    "name": "나무",
+    "kind": "material",
+    "stackSize": 200
+  },
+  "stone": {
+    "name": "돌",
+    "kind": "material",
+    "stackSize": 200
+  },
+  "scrap": {
+    "name": "고철",
+    "kind": "material",
+    "stackSize": 200
   }
 }
