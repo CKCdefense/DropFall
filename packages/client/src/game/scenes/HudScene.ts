@@ -47,6 +47,7 @@ const BUILD_MODE_LABEL: Record<string, string> = {
   off: '꺼짐',
   fence: '울타리',
   wall: '벽',
+  demolish: '철거',
 };
 
 export const HUD_SCENE_KEY = 'Hud';
@@ -221,6 +222,8 @@ export class HudScene extends Phaser.Scene {
     this.slotDrag = new SlotDrag(this);
     this.slotDrag.onMove = (from, fromIndex, to, toIndex) =>
       this.connection.moveItem(from, fromIndex, to, toIndex);
+    this.slotDrag.onQuickMove = (container, index) =>
+      this.connection.quickMoveItem(container, index);
     this.slotDrag.getSlot = (container, index) =>
       (container === 'storage' ? this.latestStorage : this.latestInventory)[index] ?? null;
 
@@ -463,10 +466,13 @@ export class HudScene extends Phaser.Scene {
     this.buildModeText.setColor(buildMode === 'off' ? DIM_TEXT : ACCENT);
 
     // 낮에만 스킵 안내를 띄운다 — 밤에는 쓸 수 없는 조작이라 보여줄 이유가 없다.
+    // 철거 모드는 좌클릭이 "설치"가 아니라 "철거"라 힌트 문구도 따로 갈라야 한다.
     const controlsHint =
       buildMode === 'off'
         ? `WASD 이동 · 좌클릭 사용 · [1~${SLOT_COUNT}] 퀵슬롯 · [E] 코어 입고 · [F] 코어 메뉴 · [B] 건축모드 · [R] 콜로니 파괴(엄호 필요)`
-        : '좌클릭 설치 · 우클릭/[B] 취소 또는 다음 건축물';
+        : buildMode === 'demolish'
+          ? '좌클릭 철거(환급 없음) · 우클릭/[B] 취소 또는 다음 건축물'
+          : '좌클릭 설치 · 우클릭/[B] 취소 또는 다음 건축물';
     this.helpText.setText(
       status.wavePhase === 'day'
         ? `${controlsHint} · [V] 낮 넘기기 ${status.skipVoteCount}/${snapshot.players.length}`

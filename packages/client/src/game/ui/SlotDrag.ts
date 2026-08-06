@@ -34,6 +34,13 @@ export class SlotDrag {
     toIndex: number,
   ) => void = () => {};
 
+  /**
+   * 쉬프트+클릭했을 때 호출된다(docs/backend/44). HudScene이
+   * connection.quickMoveItem으로 배선한다 — 목적지 칸은 여기서 정하지 않는다
+   * (반대편 컨테이너 안 어디에 넣을지는 서버가 고른다).
+   */
+  onQuickMove: (container: SlotContainer, index: number) => void = () => {};
+
   /** 칸 내용 조회. 빈 칸은 집을 수 없어야 해서 최신 스냅샷을 물어본다. */
   getSlot: (container: SlotContainer, index: number) => InventorySlot | null = () => null;
 
@@ -50,7 +57,16 @@ export class SlotDrag {
   /** 칸을 드래그 공간에 등록한다. box는 setInteractive가 이미 걸려 있어야 한다. */
   register(cell: DragCell): void {
     this.cells.push(cell);
-    cell.box.on('pointerdown', () => this.beginDrag(cell));
+    cell.box.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      // 쉬프트를 누른 채 클릭하면 드래그 대신 반대편 컨테이너로 바로 옮긴다
+      // (docs/backend/44). pointer.event는 네이티브 DOM 이벤트라 shiftKey를
+      // 그대로 읽을 수 있다.
+      if ((pointer.event as MouseEvent | undefined)?.shiftKey) {
+        this.quickMove(cell);
+      } else {
+        this.beginDrag(cell);
+      }
+    });
   }
 
   /** 드래그 중인지. 이 동안은 좌클릭이 공격으로 새면 안 된다(HudScene의 입력 차단). */
@@ -61,6 +77,16 @@ export class SlotDrag {
   /** 지금 포인터가 올라가 있는 칸(강조 표시용). 퀵슬롯 바가 매 프레임 물어본다. */
   hoverCellOf(container: SlotContainer): number | null {
     return this.hover?.container === container ? this.hover.index : null;
+  }
+
+  /** 쉬프트+클릭 빠른 이동(docs/backend/44). 드래그 상태를 전혀 안 건드린다 —
+   * 유령도 안 띄우고 그 자리에서 바로 요청만 보낸다. */
+  private quickMove(cell: DragCell): void {
+    if (!cell.isActive()) return;
+    const slot = this.getSlot(cell.container, cell.index);
+    if (!slot) return; // 빈 칸은 옮길 게 없다
+
+    this.onQuickMove(cell.container, cell.index);
   }
 
   private beginDrag(cell: DragCell): void {

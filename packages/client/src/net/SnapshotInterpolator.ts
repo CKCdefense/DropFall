@@ -1,4 +1,12 @@
-import { PATCH_RATE } from '@dropfall/shared';
+import {
+  COLONY_RADIUS,
+  HIT_RADIUS,
+  PATCH_RATE,
+  circlesOverlap,
+  monstersData,
+  resourcesData,
+  type ResourceType,
+} from '@dropfall/shared';
 import type {
   BuildingView,
   ColonyView,
@@ -93,13 +101,50 @@ function blendList<T extends Positioned>(from: T[], to: T[], t: number, out: T[]
   }
 }
 
-/** 마지막 두 스냅샷 사이의 속도로 overshootMs만큼 앞으로 밀어서 예측한다. */
+/**
+ * (x,y)가 살아있는(hp>0) 자원 노드나 콜로니와 겹치는지 검사한다. 서버의
+ * `isBlockedForPlayer`/`isBlockedForMonster`(world.ts)와 같은 규칙이다 — 콜로니는
+ * 파괴돼도 폐허가 계속 막으므로 `destroyed` 여부를 보지 않는다. 외삽이 이 판정을
+ * 몰라서 장애물을 뚫고 그려지는 문제를 막는 데 쓴다(§extrapolateList, docs/backend/42).
+ */
+function wouldOverlapObstacle(
+  x: number,
+  y: number,
+  entityRadius: number,
+  resourceNodes: ResourceNodeView[],
+  colonies: ColonyView[],
+): boolean {
+  for (const node of resourceNodes) {
+    if (node.hp <= 0) continue; // 고갈된 자리는 서버도 막지 않는다(docs/backend/39)
+    const nodeRadius = resourcesData[node.type as ResourceType]?.hitRadius;
+    if (nodeRadius === undefined) continue;
+    if (circlesOverlap(x, y, node.x, node.y, entityRadius + nodeRadius)) return true;
+  }
+  for (const colony of colonies) {
+    if (circlesOverlap(x, y, colony.x, colony.y, entityRadius + COLONY_RADIUS)) return true;
+  }
+  return false;
+}
+
+/**
+ * 마지막 두 스냅샷 사이의 속도로 overshootMs만큼 앞으로 밀어서 예측한다.
+ *
+ * `isBlocked`(옵션): 외삽된 좌표가 이 콜백에서 true를 반환하면 외삽을 포기하고
+ * 마지막으로 알려진(서버가 항상 충돌 없음을 보증하는) 위치를 그대로 쓴다. 서버
+ * 시뮬레이션은 자원 노드/콜로니를 절대 뚫지 않지만, 이 함수는 원래 장애물을
+ * 전혀 모른 채 순수 속도만으로 미리 그리는 것이라 — 몬스터가 노드 앞에서 막히기
+ * 직전 두 스냅샷 사이를 외삽하면 다음 정정 스냅샷이 오기 전까지(최대
+ * `MAX_EXTRAPOLATION_MS`) 화면에서만 노드를 뚫고 지나가는 것처럼 보일 수 있었다
+ * (docs/backend/42, 실제 버그 리포트로 확인). 투사체는 이 콜백을 안 넘긴다 — 빠르게
+ * 스쳐 지나가 눈에 띄는 관통이 거의 없고, 막으면 오히려 허공에서 멈칫하는 게 더 어색하다.
+ */
 function extrapolateList<T extends Positioned>(
   previous: T[] | undefined,
   last: T[],
   dt: number,
   overshootMs: number,
   out: T[],
+  isBlocked?: (x: number, y: number, item: T) => boolean,
 ): void {
   out.length = 0;
   for (const item of last) {
@@ -108,11 +153,13 @@ function extrapolateList<T extends Positioned>(
       out.push(item); // 속도를 알 수 없으면 마지막 위치 그대로
       continue;
     }
-    out.push({
-      ...item,
-      x: item.x + ((item.x - before.x) / dt) * overshootMs,
-      y: item.y + ((item.y - before.y) / dt) * overshootMs,
-    });
+    const x = item.x + ((item.x - before.x) / dt) * overshootMs;
+    const y = item.y + ((item.y - before.y) / dt) * overshootMs;
+    if (isBlocked?.(x, y, item)) {
+      out.push(item); // 외삽하면 장애물을 뚫으니 포기하고 마지막으로 알려진 위치를 쓴다
+      continue;
+    }
+    out.push({ ...item, x, y });
   }
 }
 
@@ -184,8 +231,26 @@ export class SnapshotInterpolator {
       const dt = previous ? last.time - previous.time : 0;
       const overshootMs = Math.min(renderTime - last.time, MAX_EXTRAPOLATION_MS);
 
-      extrapolateList(previous?.players, last.players, dt, overshootMs, this.output.players);
-      extrapolateList(previous?.monsters, last.monsters, dt, overshootMs, this.output.monsters);
+      extrapolateList(previous?.players, last.players, dt, overshootMs, this.output.players, (x, y) =>
+        wouldOverlapObstacle(x, y, HIT_RADIUS, last.resourceNodes, last.colonies),
+      );
+      extrapolateList(
+        previous?.monsters,
+        last.monsters,
+        dt,
+        overshootMs,
+        this.output.monsters,
+        (x, y, item) =>
+          wouldOverlapObstacle(
+            x,
+            y,
+            monstersData[item.type]?.hitRadius ?? HIT_RADIUS,
+            last.resourceNodes,
+            last.colonies,
+          ),
+      );
+      // 투사체는 장애물 인지를 안 시킨다 — 빠르게 지나가 눈에 띄는 관통이 거의
+      // 없고, 막으면 오히려 허공에서 멈칫하는 게 더 어색하다(§extrapolateList).
       extrapolateList(
         previous?.projectiles,
         last.projectiles,

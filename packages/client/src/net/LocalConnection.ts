@@ -89,12 +89,20 @@ export class LocalConnection implements GameConnection {
     this.world.moveItem(LOCAL_SESSION_ID, from, fromIndex, to, toIndex);
   }
 
+  quickMoveItem(container: SlotContainer, index: number): void {
+    this.world.quickMoveItem(LOCAL_SESSION_ID, container, index);
+  }
+
   upgradeCore(): void {
     this.world.upgradeCore(LOCAL_SESSION_ID);
   }
 
   placeBuilding(buildingType: string, cx: number, cy: number): void {
     this.world.placeBuilding(LOCAL_SESSION_ID, buildingType, cx, cy);
+  }
+
+  demolishBuilding(cx: number, cy: number): void {
+    this.world.demolishBuilding(LOCAL_SESSION_ID, cx, cy);
   }
 
   debugJumpToWave(waveNumber: number): void {

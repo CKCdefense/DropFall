@@ -247,12 +247,20 @@ export class ColyseusConnection implements GameConnection {
     this.room.send('moveItem', { from, fromIndex, to, toIndex });
   }
 
+  quickMoveItem(container: SlotContainer, index: number): void {
+    this.room.send('quickMoveItem', { container, index });
+  }
+
   upgradeCore(): void {
     this.room.send('upgradeCore', {});
   }
 
   placeBuilding(buildingType: string, cx: number, cy: number): void {
     this.room.send('placeBuilding', { buildingType, cx, cy });
+  }
+
+  demolishBuilding(cx: number, cy: number): void {
+    this.room.send('demolishBuilding', { cx, cy });
   }
 
   /** 화면 렌더링용. TICK_RATE 상태를 60fps에 맞게 보간한, 몇 ms 지연된 스냅샷을 돌려준다. */

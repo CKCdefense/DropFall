@@ -19,8 +19,10 @@ import {
   sanitizeRoomName,
   type BuildInputMessage,
   type CreateRoomOptions,
+  type DemolishInputMessage,
   type SelectSlotMessage,
   type MoveItemMessage,
+  type QuickMoveItemMessage,
   type JoinRoomOptions,
   type PlayerInputMessage,
   type SelectJobMessage,
@@ -81,6 +83,10 @@ export class GameRoom extends Room {
         payload?.toIndex,
       );
     },
+    quickMoveItem: (client: Client, payload: QuickMoveItemMessage) => {
+      if (this.state.phase !== RoomPhase.PLAYING) return;
+      this.world.quickMoveItem(client.sessionId, payload?.container, payload?.index);
+    },
     selectSlot: (client: Client, payload: SelectSlotMessage) => {
       this.world.selectSlot(client.sessionId, payload?.index);
     },
@@ -103,6 +109,10 @@ export class GameRoom extends Room {
     placeBuilding: (client: Client, payload: BuildInputMessage) => {
       if (this.state.phase !== RoomPhase.PLAYING) return;
       this.world.placeBuilding(client.sessionId, payload?.buildingType, payload?.cx, payload?.cy);
+    },
+    demolishBuilding: (client: Client, payload: DemolishInputMessage) => {
+      if (this.state.phase !== RoomPhase.PLAYING) return;
+      this.world.demolishBuilding(client.sessionId, payload?.cx, payload?.cy);
     },
 
     // 대기실 메시지. 클라이언트 입력은 신뢰하지 않는다 — 값과 권한을 모두 여기서 검증한다.

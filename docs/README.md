@@ -29,6 +29,9 @@
 | [backend/39-work-report-resource-respawn-relocation.md](backend/39-work-report-resource-respawn-relocation.md) | 작업 보고서 — 자원 노드 리스폰 재배치(같은 군집 안 새 위치, 플레이어 비겹침) + 몬스터 충돌 반경 누락 버그 수정 + 자원 스폰 최소거리 확대 |
 | [backend/40-work-report-monster-obstacle-sliding.md](backend/40-work-report-monster-obstacle-sliding.md) | 작업 보고서 — 몬스터가 자원 노드/콜로니에 막히면 영원히 멈추던 버그를 축 슬라이딩+접선 미끄러짐으로 수정, 콜로니 스폰 위치를 중심이 아닌 경계 밖으로 변경 |
 | [backend/41-work-report-colony-player-scaled-placement.md](backend/41-work-report-colony-player-scaled-placement.md) | 작업 보고서 — 콜로니를 접속 인원수만큼(사분면당 1개, 최소 간격 보장) 무작위 배치하도록 변경 |
+| [backend/42-work-report-monster-stuck-escape-and-extrapolation-clamp.md](backend/42-work-report-monster-stuck-escape-and-extrapolation-clamp.md) | 작업 보고서 — 몬스터가 촘촘한 자원 군집에 완전히 갇히면 탈출 점프, 클라이언트 외삽이 장애물을 인지 못 해 뚫고 지나가 보이던 렌더링 버그 수정 |
+| [backend/43-work-report-object-fade-removal-and-demolish.md](backend/43-work-report-object-fade-removal-and-demolish.md) | 작업 보고서 — 고갈/파괴된 오브젝트 반투명 잔상 제거(완전히 숨김) + 파괴된 콜로니 하드 충돌 해제 + 건설모드 철거 기능(환급 없음) |
+| [backend/44-work-report-shift-click-quick-move.md](backend/44-work-report-shift-click-quick-move.md) | 작업 보고서 — 쉬프트 클릭으로 창고 ↔ 인벤토리 빠른 이동(목적지 칸 자동 선택) |
 
 ### 역할 C — 클라이언트/렌더/UI 작업 문서 ([frontend/](frontend/))
 

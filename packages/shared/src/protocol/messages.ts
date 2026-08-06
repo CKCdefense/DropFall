@@ -35,6 +35,15 @@ export interface BuildInputMessage {
 }
 
 /**
+ * 철거 요청(건설모드의 'demolish', docs/backend/43). 좌표만 보낸다 — 그 칸에
+ * 실제로 건축물이 있는지, 무엇인지는 서버가 판단한다. 자원 환급은 없다.
+ */
+export interface DemolishInputMessage {
+  cx: number;
+  cy: number;
+}
+
+/**
  * 슬롯 사이 아이템 이동(드래그앤드롭). 어느 컨테이너의 몇 번 칸에서 어디로 놓았는지만
  * 보낸다 — 그 칸에 뭐가 들었는지, 스택 병합/자리 바꾸기 처리는 전부 서버가 한다.
  */
@@ -43,4 +52,13 @@ export interface MoveItemMessage {
   fromIndex: number;
   to: 'inventory' | 'storage';
   toIndex: number;
+}
+
+/**
+ * 쉬프트 클릭 빠른 이동(docs/backend/44). 목적지는 안 보낸다 — 항상 반대편
+ * 컨테이너(인벤토리↔창고)이고, 그 안 어느 칸에 넣을지는 서버가 자동으로 고른다.
+ */
+export interface QuickMoveItemMessage {
+  container: 'inventory' | 'storage';
+  index: number;
 }

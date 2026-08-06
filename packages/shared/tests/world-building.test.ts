@@ -39,6 +39,9 @@ function worldToCell(x: number, y: number): { cx: number; cy: number } {
  */
 const TEST_CLUSTER_MIN_DISTANCE = 260;
 const TEST_CLUSTER_JITTER_RADIUS = 80;
+/** world.ts의 STUCK_ESCAPE_DISTANCE(private, docs/backend/42) 미러링 — 탈출 점프가
+ * 실제로 일어났는지(제자리걸음이 아닌지) 판단하는 데 쓴다. */
+const TEST_STUCK_ESCAPE_DISTANCE = 40;
 
 /** 매번 같은 시퀀스를 내는 결정론적 rng — wave.test.ts와 동일 패턴(테스트 재현성용). */
 function seededRng(seed: number): () => number {
@@ -396,6 +399,97 @@ describe('World — 코어 창고(moveItem)', () => {
   });
 });
 
+describe('World — 쉬프트 클릭 빠른 이동(quickMoveItem, docs/backend/44)', () => {
+  it('창고 칸을 쉬프트클릭하면 인벤토리 빈 칸으로 바로 들어간다', () => {
+    const world = createTestWorld();
+    world.addPlayer('p1', 10, 0); // CORE_INTERACT_RADIUS 안
+
+    world.quickMoveItem('p1', 'storage', 3); // 붕대 3개(초기 지급품)
+
+    expect(storedCount(world, 'bandage')).toBe(0);
+    expect(carriedCount(world, 'p1', 'bandage')).toBe(3);
+  });
+
+  it('인벤토리 칸을 쉬프트클릭하면 창고로 들어가고, 같은 아이템이 있으면 합쳐진다', () => {
+    const world = createTestWorld();
+    world.addPlayer('p1', 10, 0);
+    const inventory = world.getPlayers().get('p1')!.inventory;
+    inventory.add('bandage', 2);
+
+    world.quickMoveItem('p1', 'inventory', 0);
+
+    expect(carriedCount(world, 'p1', 'bandage')).toBe(0);
+    // 창고엔 이미 초기 지급품 붕대 3개가 있다 — 새 칸을 열지 않고 거기 합쳐져 5개(stackSize
+    // 5와 정확히 맞아떨어진다).
+    expect(storedCount(world, 'bandage')).toBe(5);
+  });
+
+  it('목적지가 꽉 차서 일부만 옮겨지면, 옮겨진 만큼만 원래 칸에서 빠지고 나머지는 남는다', () => {
+    const world = createTestWorld();
+    world.addPlayer('p1', 10, 0);
+    const inventory = world.getPlayers().get('p1')!.inventory;
+    // 인벤토리(4칸)를 거의 채운다 — 붕대 4개(1칸 남는 여유) + 서로 안 쌓이는
+    // 아이템 셋으로 나머지 3칸을 채워서, 총 여유가 "붕대 1개분"만 남게 한다.
+    inventory.add('bandage', 4);
+    inventory.add('pistol', 1);
+    inventory.add('axe', 1);
+    inventory.add('pickax', 1);
+
+    world.quickMoveItem('p1', 'storage', 3); // 창고 붕대 3개 시도 — 1개만 들어갈 자리
+
+    expect(carriedCount(world, 'p1', 'bandage')).toBe(5); // 4 + 1 = 스택 꽉 참
+    expect(storedCount(world, 'bandage')).toBe(2); // 3개 중 1개만 옮겨졌다 — 2개 남음
+  });
+
+  it('목적지가 완전히 꽉 차서 하나도 못 옮기면 원래 칸이 그대로다', () => {
+    const world = createTestWorld();
+    world.addPlayer('p1', 10, 0);
+    const inventory = world.getPlayers().get('p1')!.inventory;
+    // 4칸을 붕대와 안 섞이는 아이템으로 완전히 채운다(스택 여유도 없음).
+    inventory.add('pistol', 1);
+    inventory.add('axe', 1);
+    inventory.add('pickax', 1);
+    inventory.add('scrap', 1);
+
+    world.quickMoveItem('p1', 'storage', 3); // 창고 붕대 — 들어갈 자리가 전혀 없다
+
+    expect(storedCount(world, 'bandage')).toBe(3); // 그대로
+    expect(carriedCount(world, 'p1', 'bandage')).toBe(0);
+  });
+
+  it('코어 반경 밖에서는 무시된다', () => {
+    const world = createTestWorld();
+    world.addPlayer('p1', 1000, 0);
+
+    world.quickMoveItem('p1', 'storage', 3);
+
+    expect(storedCount(world, 'bandage')).toBe(3);
+    expect(carriedCount(world, 'p1', 'bandage')).toBe(0);
+  });
+
+  it('빈 칸을 대상으로 하면 아무 일도 일어나지 않는다', () => {
+    const world = createTestWorld();
+    world.addPlayer('p1', 10, 0);
+
+    world.quickMoveItem('p1', 'inventory', 0); // 인벤토리는 전부 비어 있다
+
+    expect(storedCount(world, 'pistol')).toBe(1); // 창고도 그대로
+  });
+
+  it('이상한 입력을 보내도 크래시하지 않고 아무것도 사라지지 않는다', () => {
+    const world = createTestWorld();
+    world.addPlayer('p1', 10, 0);
+
+    expect(() => world.quickMoveItem('ghost-player', 'storage', 3)).not.toThrow();
+    expect(() => world.quickMoveItem('p1', 'backpack', 3)).not.toThrow();
+    for (const bad of [-1, 999, 1.5, '1', null, undefined, NaN]) {
+      expect(() => world.quickMoveItem('p1', 'storage', bad)).not.toThrow();
+    }
+
+    expect(storedCount(world, 'bandage')).toBe(3);
+  });
+});
+
 describe('World — 건축', () => {
   it('공유 자원이 충분하면 빈 셀에 건축물을 지을 수 있고 비용이 공유 풀에서 차감된다', () => {
     const world = createTestWorld();
@@ -495,6 +589,71 @@ describe('World — 건축', () => {
     world.placeBuilding('builder', 'fence', NaN, 10);
 
     expect(world.getBuildings().size).toBe(0);
+  });
+});
+
+describe('World — 철거(demolishBuilding, docs/backend/43)', () => {
+  it('철거하면 건축물이 사라지고, 그 칸에 다시 지을 수 있다', () => {
+    const world = createTestWorld();
+    world.addPlayer('builder', 500, 500);
+    equipDefaultKit(world, 'builder');
+    grantSharedResources(world, 100, 100);
+
+    const { cx, cy } = worldToCell(550, 500);
+    world.placeBuilding('builder', 'fence', cx, cy);
+    expect(world.getBuildings().size).toBe(1);
+
+    world.demolishBuilding('builder', cx, cy);
+    expect(world.getBuildings().size).toBe(0);
+
+    // 철거된 칸에 다시 지을 수 있다(place가 여전히 "점유됨"으로 보지 않는지 확인).
+    world.placeBuilding('builder', 'wall', cx, cy);
+    expect(world.getBuildings().size).toBe(1);
+    expect([...world.getBuildings().values()][0]!.type).toBe('wall');
+  });
+
+  it('철거해도 자원을 돌려주지 않는다(환급 없음)', () => {
+    const world = createTestWorld();
+    world.addPlayer('builder', 500, 500);
+    equipDefaultKit(world, 'builder');
+    grantSharedResources(world, 100, 100);
+
+    const { cx, cy } = worldToCell(550, 500);
+    world.placeBuilding('builder', 'fence', cx, cy); // woodCost=5
+    const woodAfterBuild = storedCount(world, 'wood');
+    const stoneAfterBuild = storedCount(world, 'stone');
+
+    world.demolishBuilding('builder', cx, cy);
+
+    expect(storedCount(world, 'wood')).toBe(woodAfterBuild); // 안 늘어났다
+    expect(storedCount(world, 'stone')).toBe(stoneAfterBuild);
+  });
+
+  it('건축물이 없는 칸을 철거해도 아무 일도 일어나지 않는다', () => {
+    const world = createTestWorld();
+    world.addPlayer('builder', 500, 500);
+
+    const { cx, cy } = worldToCell(550, 500);
+    world.demolishBuilding('builder', cx, cy);
+
+    expect(world.getBuildings().size).toBe(0);
+  });
+
+  it('존재하지 않는 플레이어나 비정상 좌표는 조용히 무시한다', () => {
+    const world = createTestWorld();
+    world.addPlayer('builder', 500, 500);
+    equipDefaultKit(world, 'builder');
+    grantSharedResources(world, 100, 100);
+
+    const { cx, cy } = worldToCell(550, 500);
+    world.placeBuilding('builder', 'fence', cx, cy);
+    expect(world.getBuildings().size).toBe(1);
+
+    world.demolishBuilding('ghost-player', cx, cy);
+    world.demolishBuilding('builder', 1.5, cy);
+    world.demolishBuilding('builder', NaN, cy);
+
+    expect(world.getBuildings().size).toBe(1); // 그대로 남아있다
   });
 });
 
@@ -908,7 +1067,7 @@ describe('World — 자원 노드/콜로니/코어와 투사체(docs/backend/38)
   });
 });
 
-describe('World — 자원 노드/콜로니가 몬스터 이동을 막는다(docs/backend/38, docs/backend/40)', () => {
+describe('World — 자원 노드/콜로니가 몬스터 이동을 막는다(docs/backend/38, docs/backend/40, docs/backend/42)', () => {
   /**
    * 예전엔 `world.tick(1)`처럼 큰 dt 한 번으로 충분했다 — "이미 막힘 반경 안에
    * 있으면 그 자리에서 완전히 멈춘다"는 사전 검사(findBlockingStaticObstacle)가
@@ -924,7 +1083,7 @@ describe('World — 자원 노드/콜로니가 몬스터 이동을 막는다(doc
     for (let i = 0; i < steps; i += 1) world.tick(0.01);
   }
 
-  it('추격 중인 몬스터가 자원 노드에 막히면 공격 없이 그 자리에 멈춘다', () => {
+  it('추격 중인 몬스터가 자원 노드에 막히면(탈출 임계값 전까지는) 공격 없이 그 자리에 멈춘다', () => {
     const world = createTestWorld();
     world.addPlayer('p1', 0, 0);
     equipDefaultKit(world, 'p1');
@@ -932,7 +1091,7 @@ describe('World — 자원 노드/콜로니가 몬스터 이동을 막는다(doc
 
     const node = isolateResourceNode(world);
     const [monster] = [...world.getMonsters().values()];
-    (monster as { type: string }).type = 'rusher'; // aggroRadius 120
+    (monster as { type: string }).type = 'rusher'; // aggroRadius 120, attackInterval 0.8
     // rusher(반경6)+노드(반경14)=20px가 실제 충돌 경계 — 15px 앞은 이미 그 안이라
     // 축 슬라이딩으로도 한 발짝도 못 나간다(세 방향 후보 모두 이미 겹친 상태).
     monster!.x = node!.x - 15;
@@ -948,14 +1107,17 @@ describe('World — 자원 노드/콜로니가 몬스터 이동을 막는다(doc
     const nodeHpBefore = node!.hp;
     const playerHpBefore = player.hp;
 
-    tickFinely(world, 1); // attackInterval을 넘기고도 남을 시간
+    // attackInterval(0.8)은 넘기고도 남지만, docs/backend/42의 탈출 점프 임계값
+    // (STUCK_ESCAPE_SECONDS=1)은 아직 안 넘긴 시간 — 탈출 전 "완전히 멈춘다"는
+    // 여전히 성립해야 한다(탈출 자체는 아래 별도 테스트에서 검증).
+    tickFinely(world, 0.9);
 
     expect(monster!.x).toBe(monsterXBefore); // 이동하지 않았다
     expect(node!.hp).toBe(nodeHpBefore); // 공격하지도 않았다(파괴 불가)
     expect(player.hp).toBe(playerHpBefore); // 타겟에도 못 미쳤으니 공격 못 함
   });
 
-  it('추격 중인 몬스터가 콜로니에 막히면 공격 없이 그 자리에 멈춘다', () => {
+  it('추격 중인 몬스터가 콜로니에 막히면(탈출 임계값 전까지는) 공격 없이 그 자리에 멈춘다', () => {
     const world = createTestWorld();
     world.addPlayer('p1', 0, 0);
     equipDefaultKit(world, 'p1');
@@ -975,7 +1137,7 @@ describe('World — 자원 노드/콜로니가 몬스터 이동을 막는다(doc
 
     const monsterXBefore = monster!.x;
 
-    tickFinely(world, 1);
+    tickFinely(world, 0.9); // 탈출 점프 임계값(1초) 전까지는 그대로 멈춰 있어야 한다
 
     expect(monster!.x).toBe(monsterXBefore);
     expect(colony!.destroyed).toBe(false);
@@ -1087,6 +1249,147 @@ describe('World — 자원 노드/콜로니가 몬스터 이동을 막는다(doc
     const combinedRadius = 6 + resourcesData[node!.type].hitRadius; // rusher(6) + 노드(14) = 20
     expect(minDistanceToNode).toBeGreaterThan(combinedRadius - 0.1); // 뚫지 않았다(부동소수 오차 여유)
     expect(reachedPlayer).toBe(true); // 얼어붙지 않고 결국 우회해서 도달했다
+  });
+
+  it('자원 노드 여러 개가 촘촘히 둘러싼 "주머니"에 갇혀도 결국 탈출한다(docs/backend/42)', () => {
+    // 축 슬라이딩+접선 미끄러짐(docs/backend/40)도 노드 하나 상대로는 잘 통하지만,
+    // 노드 여러 개가 촘촘한 고리를 이루면(스크린샷으로 제보된 상황) 모든 방향이
+    // 동시에 막혀서 그 자체로는 영원히 못 움직인다 — 실제로 무작위 스트레스
+    // 테스트에서 재현됐다. 탈출 점프(STUCK_ESCAPE_SECONDS 이상 갇히면 장애물
+    // 반대쪽으로 점프)가 이걸 풀어주는지 확인한다.
+    const world = createTestWorld();
+    startFirstWave(world);
+
+    const nodes = [...world.getResourceNodes().values()];
+    const clusterCenter = { x: 700, y: 0 }; // 코어-군집 연장선 위(코어로 가는 직선이 정확히 관통)
+    const ringCount = 6;
+    const spacing = 34; // MIN_NODE_SPACING(36)에 가깝게, 촘촘한 고리
+    const ringPositions: { x: number; y: number }[] = [];
+    for (let i = 0; i < ringCount; i += 1) {
+      const angle = (i / ringCount) * Math.PI * 2;
+      ringPositions.push({
+        x: clusterCenter.x + Math.cos(angle) * spacing,
+        y: clusterCenter.y + Math.sin(angle) * spacing,
+      });
+    }
+    for (let i = 0; i < ringPositions.length; i += 1) {
+      nodes[i]!.x = ringPositions[i]!.x;
+      nodes[i]!.y = ringPositions[i]!.y;
+    }
+    // 나머지 노드는 멀리 치워서 이 고리와 무관하게 만든다.
+    for (let i = ringPositions.length; i < nodes.length; i += 1) {
+      nodes[i]!.x = 9000 + i;
+      nodes[i]!.y = 9000;
+    }
+
+    const [monster] = [...world.getMonsters().values()];
+    (monster as { type: string }).type = 'rusher'; // hitRadius 6
+    // 군집보다 바깥쪽(코어 반대편)에 둬서 코어로 가는 직선이 고리를 정확히 관통하게 한다.
+    monster!.x = clusterCenter.x + 200;
+    monster!.y = 0;
+
+    const nodeRadius = resourcesData.wood.hitRadius; // wood/stone 둘 다 14
+    const monsterR = 6;
+    const combinedRadius = monsterR + nodeRadius;
+
+    // 링 경계 바로 앞(막힌 상태)까지 접근한 뒤 "갇힌 지점"을 한 번 기록해 두고,
+    // 거기서 탈출 점프(STUCK_ESCAPE_DISTANCE=40px) 절반 넘게 실제로 움직였는지로
+    // 판단한다 — 시작 지점에서부터의 거리 같은 간접 지표보다 훨씬 직접적이다.
+    let stuckPosition: { x: number; y: number } | undefined;
+    let escaped = false;
+
+    for (let i = 0; i < 3600 && !escaped; i += 1) {
+      // 최대 60초(탈출 임계값 1초보다 훨씬 넉넉하게)
+      world.tick(1 / 60); // 실제 서버 틱레이트 — 탈출 점프도 실제 조건과 같은 dt로 확인
+
+      for (const pos of ringPositions) {
+        const distance = Math.hypot(monster!.x - pos.x, monster!.y - pos.y);
+        expect(distance).toBeGreaterThanOrEqual(combinedRadius - 0.01); // 탈출 점프 중에도 절대 안 뚫는다
+      }
+
+      if (!stuckPosition) {
+        const nearAnyNode = ringPositions.some(
+          (pos) => Math.hypot(monster!.x - pos.x, monster!.y - pos.y) < combinedRadius + 3,
+        );
+        if (nearAnyNode) stuckPosition = { x: monster!.x, y: monster!.y };
+        continue;
+      }
+
+      const movedDistance = Math.hypot(monster!.x - stuckPosition.x, monster!.y - stuckPosition.y);
+      if (movedDistance > TEST_STUCK_ESCAPE_DISTANCE / 2) escaped = true;
+    }
+
+    expect(stuckPosition).toBeDefined(); // 실제로 링에 막히는 상황까지 재현됐다
+    expect(escaped).toBe(true); // 그리고 결국 탈출했다
+  });
+});
+
+describe('World — 파괴된 콜로니는 아무것도 막지 않는다(docs/backend/43)', () => {
+  it('파괴된 콜로니는 플레이어의 이동을 막지 않는다', () => {
+    const world = createTestWorld();
+    const [colony] = [...world.getColonies().values()];
+    (colony as { destroyed: boolean }).destroyed = true;
+
+    world.addPlayer('p1', colony!.x - 50, colony!.y);
+    equipDefaultKit(world, 'p1');
+    world.setInput('p1', { seq: 1, moveX: 1, moveY: 0, aimAngle: 0 });
+
+    const player = world.getPlayers().get('p1')!;
+    for (let i = 0; i < 300; i += 1) world.tick(0.1);
+
+    expect(player.x).toBeGreaterThan(colony!.x); // 막히지 않고 뚫고 지나갔다
+  });
+
+  it('파괴된 콜로니는 투사체를 막지 않는다', () => {
+    const world = createTestWorld();
+    const [colony] = [...world.getColonies().values()];
+    (colony as { destroyed: boolean }).destroyed = true;
+
+    world.addPlayer('shooter', colony!.x - 60, colony!.y);
+    equipDefaultKit(world, 'shooter');
+
+    world.fireWeapon('shooter');
+    expect(world.getProjectiles().size).toBe(1);
+
+    for (let i = 0; i < 5; i += 1) world.tick(0.1); // 420px/s × 0.5s = 210px, 콜로니를 지나치기 충분
+
+    expect(world.getProjectiles().size).toBe(1); // 막혀서 소멸하지 않았다
+    const [projectile] = [...world.getProjectiles().values()];
+    expect(projectile!.x).toBeGreaterThan(colony!.x); // 이미 지나쳤다
+  });
+
+  it('코어로 걸어가는 몬스터는 파괴된 콜로니를 더 이상 우회하지 않고 그냥 통과한다(FlowField 갱신 확인)', () => {
+    const world = createTestWorld();
+    const [colony] = [...world.getColonies().values()];
+
+    // 직접 destroyed만 뒤집으면 FlowField 셀 캐시(colonyObstacleCells)가 갱신 안
+    // 된다 — 이 테스트가 검증하려는 게 바로 그 갱신이라, 실제 채널링 경로
+    // (tickChannels → rebuildColonyObstacleCells → recomputeFlowField)를 그대로 탄다.
+    world.addPlayer('channeler', colony!.x, colony!.y);
+    let seq = 1;
+    for (let i = 0; i < 200 && !colony!.destroyed; i += 1) {
+      world.setInput('channeler', { seq: seq++, moveX: 0, moveY: 0, aimAngle: 0, channeling: true });
+      world.tick(0.1);
+    }
+    expect(colony!.destroyed).toBe(true);
+    world.removePlayer('channeler');
+
+    startFirstWave(world);
+
+    const [monster] = [...world.getMonsters().values()];
+    const colonyDistance = Math.hypot(colony!.x, colony!.y);
+    const towardCore = { x: -colony!.x / colonyDistance, y: -colony!.y / colonyDistance };
+    monster!.x = colony!.x - towardCore.x * 60;
+    monster!.y = colony!.y - towardCore.y * 60;
+
+    let minDistanceToColony = Infinity;
+    for (let i = 0; i < 500; i += 1) {
+      world.tick(0.1);
+      const distance = Math.hypot(monster!.x - colony!.x, monster!.y - colony!.y);
+      if (distance < minDistanceToColony) minDistanceToColony = distance;
+    }
+
+    expect(minDistanceToColony).toBeLessThan(COLONY_RADIUS); // 더 이상 우회하지 않고 뚫고 지나갔다
   });
 });
 
