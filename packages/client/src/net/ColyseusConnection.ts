@@ -29,6 +29,7 @@ interface RemotePlayerState {
   hp: number;
   wood: number;
   stone: number;
+  scrap: number;
   slots: { itemId: string; count: number }[];
   selectedSlot: number;
   channelProgress: number;
@@ -83,7 +84,12 @@ interface RemoteGameState {
   coreMaxHp: number;
   coreSharedWood: number;
   coreSharedStone: number;
+  coreSharedScrap: number;
   coreSharedEnergy: number;
+  coreTier: number;
+  coreBuildRadius: number;
+  craftingUnlocked: boolean;
+  statUpgradesUnlocked: boolean;
   wavePhase: string;
   currentWave: number;
   phaseTimeRemaining: number;
@@ -230,6 +236,10 @@ export class ColyseusConnection implements GameConnection {
     this.room.send('deposit', {});
   }
 
+  upgradeCore(): void {
+    this.room.send('upgradeCore', {});
+  }
+
   placeBuilding(buildingType: string, cx: number, cy: number): void {
     this.room.send('placeBuilding', { buildingType, cx, cy });
   }
@@ -254,6 +264,7 @@ export class ColyseusConnection implements GameConnection {
         hp: player.hp,
         wood: player.wood,
         stone: player.stone,
+        scrap: player.scrap,
         // 서버는 빈 칸을 itemId '' 로 내려보낸다(길이 고정). 클라이언트 표현은 null이다.
         slots: Array.from(player.slots ?? [], (slot) =>
           slot.itemId ? { itemId: slot.itemId, count: slot.count } : null,
@@ -330,7 +341,12 @@ export class ColyseusConnection implements GameConnection {
         coreMaxHp: state?.coreMaxHp ?? 0,
         coreSharedWood: state?.coreSharedWood ?? 0,
         coreSharedStone: state?.coreSharedStone ?? 0,
+        coreSharedScrap: state?.coreSharedScrap ?? 0,
         coreSharedEnergy: state?.coreSharedEnergy ?? 0,
+        coreTier: state?.coreTier ?? 0,
+        coreBuildRadius: state?.coreBuildRadius ?? 0,
+        craftingUnlocked: state?.craftingUnlocked ?? false,
+        statUpgradesUnlocked: state?.statUpgradesUnlocked ?? false,
         wavePhase: state?.wavePhase ?? 'day',
         currentWave: state?.currentWave ?? 0,
         phaseTimeRemaining: state?.phaseTimeRemaining ?? 0,

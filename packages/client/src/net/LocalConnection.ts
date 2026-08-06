@@ -81,6 +81,10 @@ export class LocalConnection implements GameConnection {
     this.world.depositAtCore(LOCAL_SESSION_ID);
   }
 
+  upgradeCore(): void {
+    this.world.upgradeCore(LOCAL_SESSION_ID);
+  }
+
   placeBuilding(buildingType: string, cx: number, cy: number): void {
     this.world.placeBuilding(LOCAL_SESSION_ID, buildingType, cx, cy);
   }
@@ -108,6 +112,7 @@ export class LocalConnection implements GameConnection {
         hp: player.hp,
         wood: player.wood,
         stone: player.stone,
+        scrap: player.scrap,
         slots: inventory.slots,
         selectedSlot: inventory.selectedIndex,
         channelProgress: player.channelProgress,
@@ -184,7 +189,12 @@ export class LocalConnection implements GameConnection {
         coreMaxHp: core.maxHp,
         coreSharedWood: core.sharedWood,
         coreSharedStone: core.sharedStone,
+        coreSharedScrap: core.sharedScrap,
         coreSharedEnergy: core.sharedEnergy,
+        coreTier: core.tier,
+        coreBuildRadius: this.world.getBuildRadius(),
+        craftingUnlocked: this.world.isCraftingUnlocked(),
+        statUpgradesUnlocked: this.world.isStatUpgradesUnlocked(),
         wavePhase: this.world.getWavePhase(),
         currentWave: this.world.getCurrentWave(),
         phaseTimeRemaining: this.world.getPhaseTimeRemaining(),

@@ -25,6 +25,8 @@ export interface ProjectileEntity {
 }
 
 export interface MeleeHit {
+  /** 이 공격을 날린 플레이어. 몬스터 처치 보상(scrap)을 누구에게 줄지 판정하는 데 쓴다. */
+  ownerId: string;
   originX: number;
   originY: number;
   /** 판정 반경(px) */
@@ -154,6 +156,7 @@ export function resolveFire(request: FireRequest): FireResult {
   if (weapon.type === 'melee') {
     return {
       meleeHit: {
+        ownerId: request.playerId,
         originX: request.x,
         originY: request.y,
         range: weapon.range ?? 0,

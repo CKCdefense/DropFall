@@ -1,0 +1,26 @@
+{
+  "baseBuildRadius": 250,
+  "tiers": [
+    {
+      "cost": 5,
+      "coreHpBonus": 200,
+      "buildRadiusBonus": 150,
+      "unlocksCrafting": false,
+      "unlocksStatUpgrades": false
+    },
+    {
+      "cost": 10,
+      "coreHpBonus": 300,
+      "buildRadiusBonus": 200,
+      "unlocksCrafting": true,
+      "unlocksStatUpgrades": false
+    },
+    {
+      "cost": 20,
+      "coreHpBonus": 500,
+      "buildRadiusBonus": 300,
+      "unlocksCrafting": true,
+      "unlocksStatUpgrades": true
+    }
+  ]
+}

@@ -106,6 +106,45 @@ describe('World — 콜로니 배치/스폰', () => {
     // 기여분 0"이라는 건 아래 별도 테스트(채널 불가)로 더 직접적으로 검증한다.
     expect(monstersAfter).toBeGreaterThan(monstersBefore);
   });
+
+  it('채널링 중인 콜로니는 스폰 경계가 와도 몬스터가 안 나오고, 타이머도 얼어붙는다', () => {
+    const world = createTestWorld();
+    world.addPlayer('p1', 0, 0);
+    const [colony] = [...world.getColonies().values()];
+    const player = world.getPlayers().get('p1')!;
+    player.x = colony!.x;
+    player.y = colony!.y;
+
+    // 스폰 경계를 바로 코앞으로 당겨둔다 — 채널링 중이 아니었다면 다음 틱에 바로 스폰됐을 것.
+    (world.getColonies().get(colony!.id) as { spawnTimer: number }).spawnTimer = 0.01;
+
+    world.setInput('p1', { seq: 1, moveX: 0, moveY: 0, aimAngle: 0, channeling: true });
+    const monstersBefore = world.getMonsters().size;
+    world.tick(0.1); // 스폰 경계를 넘겼을 시간이지만 채널링 중이라 멈춰야 한다
+
+    expect(world.getMonsters().size).toBe(monstersBefore);
+    expect(world.getColonies().get(colony!.id)!.spawnTimer).toBeCloseTo(0.01, 5);
+  });
+
+  it('채널링이 끊기면(파괴되지 않은 채) 얼어붙었던 스폰 타이머가 다시 흐른다', () => {
+    const world = createTestWorld();
+    world.addPlayer('p1', 0, 0);
+    const [colony] = [...world.getColonies().values()];
+    const player = world.getPlayers().get('p1')!;
+    player.x = colony!.x;
+    player.y = colony!.y;
+
+    (world.getColonies().get(colony!.id) as { spawnTimer: number }).spawnTimer = 0.01;
+
+    world.setInput('p1', { seq: 1, moveX: 0, moveY: 0, aimAngle: 0, channeling: true });
+    world.tick(0.1); // 채널링 중이라 타이머가 그대로 0.01에 멈춰 있다
+
+    const monstersBefore = world.getMonsters().size;
+    world.setInput('p1', { seq: 2, moveX: 1, moveY: 0, aimAngle: 0, channeling: false }); // 이동 → 채널 중단
+    world.tick(0.1); // 다시 흐르는 타이머가 이미 음수라 즉시 스폰된다
+
+    expect(world.getMonsters().size).toBeGreaterThan(monstersBefore);
+  });
 });
 
 describe('World — 콜로니 채널링(파괴 작업)', () => {

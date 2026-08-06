@@ -21,6 +21,8 @@ export interface PlayerView {
   /** 아직 코어에 입고하지 않고 들고 있는 나무/돌. 코어 근처에서 deposit()하면 0이 된다. */
   wood: number;
   stone: number;
+  /** 흔한 몬스터 처치로 받는 휴대 자원. 나무/돌과 동일하게 deposit()으로 입고한다. */
+  scrap: number;
   /** 퀵슬롯. 길이는 항상 SLOT_COUNT이고 빈 칸은 null이다. */
   slots: (InventorySlot | null)[];
   selectedSlot: number;
@@ -93,8 +95,18 @@ export interface WorldStatus {
   /** 코어에 입고된 팀 공유 자원. 건축 비용은 여기서 나간다(개인 wood/stone이 아니다). */
   coreSharedWood: number;
   coreSharedStone: number;
-  /** 콜로니 파괴로만 얻는 전용 자원. 코어 업그레이드/상점 구입 전용(아직 소비처 미구현). */
+  /** 흔한 몬스터 처치 보상(scrap)이 코어 입고로 쌓이는 팀 공유분. */
+  coreSharedScrap: number;
+  /** 콜로니 파괴 또는 보스 처치로만 얻는 희귀 자원. 코어 업그레이드/상점 구입 전용(아직 소비처 미구현). */
   coreSharedEnergy: number;
+  /** 구매한 코어 업그레이드 단계(0부터, 미구매 상태). */
+  coreTier: number;
+  /** 코어 원점 기준 건설 가능 반경(px) — 업그레이드로 늘어난다. */
+  coreBuildRadius: number;
+  /** 제작(CraftModal) 해금 여부. */
+  craftingUnlocked: boolean;
+  /** 플레이어 스텟 증가 시스템 해금 여부(아직 그걸 쓸 UI/구매 로직은 없음 — 플래그만). */
+  statUpgradesUnlocked: boolean;
   /** GamePhase: 'day' | 'night' | 'victory' | 'defeat' */
   wavePhase: string;
   currentWave: number;
@@ -163,6 +175,12 @@ export interface GameConnection {
    * 아니라 도구를 장착하고 `fire()`(근접 공격)로 자원 노드를 때리는 방식이다.
    */
   deposit(): void;
+  /**
+   * 코어 업그레이드 요청. 다음 단계 비용을 팀 공유 에너지에서 차감하고 코어
+   * 체력/건설 가능 반경/제작·스텟증가 해금을 한 번에 적용한다 — 서버가 비용/최고
+   * 단계 여부를 판정한다.
+   */
+  upgradeCore(): void;
   /** 건축 요청. cx/cy는 그리드 셀 좌표(worldToCell로 미리 변환해서 넘긴다). */
   placeBuilding(buildingType: string, cx: number, cy: number): void;
   /** 매 프레임 호출된다. 구현체는 새 객체를 만들지 말고 내부 버퍼를 재사용할 것. */

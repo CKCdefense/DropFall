@@ -1,5 +1,11 @@
 import Phaser from 'phaser';
-import { MAX_CLIENTS_PER_ROOM, SLOT_COUNT, computeCameraZoom, wavesData } from '@dropfall/shared';
+import {
+  MAX_CLIENTS_PER_ROOM,
+  SLOT_COUNT,
+  computeCameraZoom,
+  coreUpgradesData,
+  wavesData,
+} from '@dropfall/shared';
 import type { GameConnection, PlayerView, WorldSnapshot } from '../../net/GameConnection';
 import { CONNECTION_KEY, INPUT_CONTROLLER_KEY } from '../createGame';
 import type { InputController } from '../input/InputController';
@@ -96,6 +102,8 @@ export class HudScene extends Phaser.Scene {
   private upgradeModal!: UpgradeModal;
   private storeModal!: StoreModal;
   private craftModal!: CraftModal;
+  /** update()가 매 프레임 최신 값으로 갱신한다 — onCraft 클릭 시점에 읽어서 게이팅한다. */
+  private craftingUnlocked = false;
 
   constructor() {
     super(HUD_SCENE_KEY);
@@ -117,7 +125,7 @@ export class HudScene extends Phaser.Scene {
       SMALL_STYLE,
     );
     this.coreLabel = this.add.text(0, 0, 'CORE', TEXT_STYLE);
-    this.sharedResourceText = this.add.text(0, 0, '공유 나무 0 · 돌 0', SMALL_STYLE);
+    this.sharedResourceText = this.add.text(0, 0, '공유 나무 0 · 돌 0 · 파편 0', SMALL_STYLE);
     this.coreBarBack = this.add.rectangle(0, 0, 10, CORE_BAR_HEIGHT, BAR_BACK).setOrigin(0, 0);
     this.coreBar = this.add.rectangle(0, 0, 10, CORE_BAR_HEIGHT, 0x6fd08c).setOrigin(0, 0);
 
@@ -134,7 +142,7 @@ export class HudScene extends Phaser.Scene {
     this.selfBarBack = this.add.rectangle(0, 0, 10, SELF_BAR_HEIGHT, BAR_BACK).setOrigin(0.5, 1);
     this.selfBar = this.add.rectangle(0, 0, 10, SELF_BAR_HEIGHT, 0x6fd08c).setOrigin(0, 1);
 
-    this.resourceText = this.add.text(0, 0, '휴대 나무 0 · 돌 0', DIM_STYLE);
+    this.resourceText = this.add.text(0, 0, '휴대 나무 0 · 돌 0 · 파편 0', DIM_STYLE);
     this.buildModeText = this.add.text(0, 0, '건축모드: 꺼짐', DIM_STYLE);
     this.debugText = this.add.text(0, 0, '', SMALL_STYLE);
     this.helpText = this.add.text(0, 0, '', DIM_STYLE).setOrigin(0.5, 1);
@@ -200,8 +208,12 @@ export class HudScene extends Phaser.Scene {
     };
     this.coreModal.onCraft = () => {
       this.coreModal.close();
-      this.craftModal.open();
+      // 코어 업그레이드로 해금되기 전엔 열지 않는다(docs/backend/38) — 아직 열
+      // 콘텐츠가 없어서 그냥 무시한다. this.craftingUnlocked는 update()가 매
+      // 프레임 최신 상태로 갱신해 둔다.
+      if (this.craftingUnlocked) this.craftModal.open();
     };
+    this.upgradeModal.onTierUp = () => this.connection.upgradeCore();
     this.coreModal.onWarehouse = () => {
       console.log('[HudScene] 창고 모달은 아직 없다');
     };
@@ -292,7 +304,15 @@ export class HudScene extends Phaser.Scene {
       status.coreMaxHp,
       status.coreSharedWood,
       status.coreSharedStone,
+      status.coreSharedScrap,
       status.coreSharedEnergy,
+    );
+    this.craftingUnlocked = status.craftingUnlocked;
+    const nextTier = coreUpgradesData.tiers[status.coreTier];
+    this.upgradeModal.setTierInfo(
+      status.coreTier,
+      coreUpgradesData.tiers.length,
+      nextTier ? nextTier.cost : null,
     );
     this.waveDial.update(status);
     this.minimap.update(snapshot, this.connection.sessionId);
@@ -309,6 +329,7 @@ export class HudScene extends Phaser.Scene {
     maxHp: number,
     sharedWood: number,
     sharedStone: number,
+    sharedScrap: number,
     sharedEnergy: number,
   ): void {
     const ratio = maxHp > 0 ? hp / maxHp : 1;
@@ -316,7 +337,7 @@ export class HudScene extends Phaser.Scene {
     // 코어가 위험하면 색으로 먼저 알린다 — 숫자를 읽기 전에 눈에 들어와야 한다.
     this.coreBar.fillColor = barColor(ratio);
     this.coreLabel.setText(`CORE ${Math.ceil(hp)}`);
-    this.sharedResourceText.setText(`공유 나무 ${sharedWood} · 돌 ${sharedStone}`);
+    this.sharedResourceText.setText(`공유 나무 ${sharedWood} · 돌 ${sharedStone} · 파편 ${sharedScrap}`);
     this.coreModal.setEnergy(sharedEnergy);
   }
 
@@ -334,7 +355,11 @@ export class HudScene extends Phaser.Scene {
         ? `x:${me.x.toFixed(0)} y:${me.y.toFixed(0)} mob:${snapshot.monsters.length} proj:${snapshot.projectiles.length}`
         : '동기화 대기 중...',
     );
-    this.resourceText.setText(me ? `휴대 나무 ${me.wood} · 돌 ${me.stone}` : '휴대 나무 0 · 돌 0');
+    this.resourceText.setText(
+      me
+        ? `휴대 나무 ${me.wood} · 돌 ${me.stone} · 파편 ${me.scrap}`
+        : '휴대 나무 0 · 돌 0 · 파편 0',
+    );
 
     // 채널링 중일 때만 보인다 — 진행률 0(채널링 아님)이면 빈 문자열로 완전히 숨긴다.
     const channelProgress = me?.channelProgress ?? 0;

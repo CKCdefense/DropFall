@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { World } from '../src/sim/world';
-import { wavesData } from '../src/data';
+import { monstersData, wavesData } from '../src/data';
 
 /** 1웨이브가 시작될 때까지(day → night) 틱을 진행시킨다. */
 function startFirstWave(world: World): void {
@@ -569,5 +569,117 @@ describe('World — debugJumpToWave(테스트용)', () => {
 
     expect(world.getMonsters().size).toBe(aliveBefore);
     expect(world.getCurrentWave()).toBe(1);
+  });
+});
+
+describe('World — 몬스터 처치 보상(scrap/energy)', () => {
+  it('흔한 몬스터(잡몹)를 근접 무기로 죽이면 잡은 플레이어의 scrap이 늘어난다', () => {
+    const world = new World();
+    world.addPlayer('p1', 0, 0);
+    startFirstWave(world);
+
+    const [monster] = [...world.getMonsters().values()];
+    monster!.x = 5;
+    monster!.y = 0;
+    monster!.hp = 1; // 한 방에 죽도록
+
+    const scrapBefore = world.getPlayers().get('p1')!.scrap;
+    world.selectSlot('p1', 1); // 도끼
+    world.fireWeapon('p1');
+
+    expect(world.getMonsters().has(monster!.id)).toBe(false); // 죽었다
+    const gained = world.getPlayers().get('p1')!.scrap - scrapBefore;
+    const drop = monstersData.trash.scrapDrop!;
+    expect(gained).toBeGreaterThanOrEqual(drop.min);
+    expect(gained).toBeLessThanOrEqual(drop.max);
+  });
+
+  it('원거리 무기(투사체)로 죽여도 쏜 플레이어에게 scrap이 간다', () => {
+    const world = new World();
+    world.addPlayer('p1', 0, 0);
+    startFirstWave(world);
+
+    const [monster] = [...world.getMonsters().values()];
+    monster!.x = 100;
+    monster!.y = 0;
+    monster!.hp = 1;
+
+    world.fireWeapon('p1'); // 기본 슬롯 = 권총
+    for (let i = 0; i < 60 && world.getProjectiles().size > 0; i += 1) world.tick(1 / 60);
+
+    expect(world.getMonsters().has(monster!.id)).toBe(false);
+    expect(world.getPlayers().get('p1')!.scrap).toBeGreaterThan(0);
+  });
+
+  it('총구 간격(muzzle gap) 즉시 명중으로 죽여도 쏜 플레이어에게 scrap이 간다', () => {
+    const world = new World();
+    world.addPlayer('p1', 0, 0);
+    startFirstWave(world);
+
+    const [monster] = [...world.getMonsters().values()];
+    monster!.x = 8; // muzzleOffset(19)보다 가깝다 — resolveMuzzleGapHit 경로
+    monster!.y = 0;
+    monster!.hp = 1;
+
+    world.fireWeapon('p1');
+
+    expect(world.getMonsters().has(monster!.id)).toBe(false);
+    expect(world.getPlayers().get('p1')!.scrap).toBeGreaterThan(0);
+  });
+
+  it('보스를 죽이면 플레이어 scrap이 아니라 팀 공유 에너지가 늘어난다', () => {
+    const world = new World();
+    world.addPlayer('p1', 0, 0);
+    startFirstWave(world);
+
+    // 실제 5웨이브까지 자연스럽게 보스가 스폰되길 기다리면(수백 초) 그 사이 몬스터
+    // 무리가 코어/플레이어를 먼저 전멸시켜버린다 — 다른 테스트들과 같은 트릭으로
+    // 이미 스폰된 몬스터의 타입을 보스로 바꿔서 처치 보상 로직만 정확히 검증한다.
+    const [monster] = [...world.getMonsters().values()];
+    (monster as { type: string }).type = 'boss';
+    monster!.x = 5;
+    monster!.y = 0;
+    monster!.hp = 1;
+
+    const energyBefore = world.getCore().sharedEnergy;
+    world.selectSlot('p1', 1);
+    world.fireWeapon('p1');
+
+    expect(world.getMonsters().has(monster!.id)).toBe(false);
+    expect(world.getPlayers().get('p1')!.scrap).toBe(0); // 보스는 scrap을 안 준다
+    const gained = world.getCore().sharedEnergy - energyBefore;
+    const drop = monstersData.boss.energyDrop!;
+    expect(gained).toBeGreaterThanOrEqual(drop.min);
+    expect(gained).toBeLessThanOrEqual(drop.max);
+  });
+
+  it('scrap도 나무/돌처럼 코어 입고(E)로 팀 공유 풀에 쌓인다', () => {
+    const world = new World();
+    world.addPlayer('p1', 0, 0);
+    world.getPlayers().get('p1')!.scrap = 5;
+
+    world.depositAtCore('p1');
+
+    expect(world.getPlayers().get('p1')!.scrap).toBe(0);
+    expect(world.getCore().sharedScrap).toBe(5);
+  });
+
+  it('투사체가 날아가는 동안 쏜 플레이어가 퇴장해도 처치 판정 자체는 크래시 없이 그대로 된다', () => {
+    const world = new World();
+    world.addPlayer('p1', 0, 0);
+    startFirstWave(world);
+
+    const [monster] = [...world.getMonsters().values()];
+    monster!.x = 100;
+    monster!.y = 0;
+    monster!.hp = 1;
+
+    world.fireWeapon('p1'); // 발사 — 아직 몬스터에 안 닿음
+    world.removePlayer('p1'); // 발사 직후 퇴장(scrap을 줄 대상이 사라짐)
+
+    expect(() => {
+      for (let i = 0; i < 60 && world.getProjectiles().size > 0; i += 1) world.tick(1 / 60);
+    }).not.toThrow();
+    expect(world.getMonsters().has(monster!.id)).toBe(false); // 판정 자체는 그대로 적용된다
   });
 });

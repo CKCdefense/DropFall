@@ -21,6 +21,7 @@ describe('resolveFire', () => {
     const result = resolveFire({ playerId: 'p1', weaponId: 'club', x: 10, y: 20, aimAngle: 0.5 });
     expect(result.projectile).toBeUndefined();
     expect(result.meleeHit).toEqual({
+      ownerId: 'p1',
       originX: 10,
       originY: 20,
       range: 24,
@@ -87,6 +88,7 @@ describe('angleDifference', () => {
 describe('withinMeleeArc', () => {
   /** 원점에서 +x를 보고 range 24 / 부채꼴 100도(절반 50도)로 휘두른 상태 */
   const swing: MeleeHit = {
+    ownerId: 'p1',
     originX: 0,
     originY: 0,
     range: 24,

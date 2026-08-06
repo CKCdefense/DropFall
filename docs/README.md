@@ -15,30 +15,7 @@
 
 | 문서 | 내용 |
 |---|---|
-| [backend/05-backend-demo-plan.md](backend/05-backend-demo-plan.md) | 예선 데모(1~2주) 백엔드/서버 담당 압축 계획 |
-| [backend/06-backend-setup-notes.md](backend/06-backend-setup-notes.md) | 백엔드 초기 스캐폴딩 기록 — Colyseus 0.17 API, pnpm 트러블슈팅 |
-| [backend/07-work-report-input-sync-hardening.md](backend/07-work-report-input-sync-hardening.md) | 작업 보고서 — seq 응답/aimAngle 동기화/입력 검증 |
-| [backend/08-work-report-connection-smoke-test.md](backend/08-work-report-connection-smoke-test.md) | 작업 보고서 — client-server 연결 실제 검증(스모크 테스트) |
-| [backend/09-work-report-browser-playground.md](backend/09-work-report-browser-playground.md) | 작업 보고서 — 브라우저에서 직접 테스트(Colyseus Playground) |
-| [backend/10-work-report-nan-input-bug.md](backend/10-work-report-nan-input-bug.md) | 작업 보고서 — NaN 오염 버그(입력 타입 미검증) 수정 |
-| [backend/11-mvp-scope-proposal-combat-wave.md](backend/11-mvp-scope-proposal-combat-wave.md) | 제안서 — 전투·몬스터·웨이브 MVP 범위 (팀 협의용) |
-| [backend/12-work-report-snapshot-interpolation.md](backend/12-work-report-snapshot-interpolation.md) | 작업 보고서 — 스냅샷 보간으로 20Hz 렌더링 끊김 보강 |
-| [backend/13-work-report-tick-rate-60hz.md](backend/13-work-report-tick-rate-60hz.md) | 작업 보고서 — 서버 틱레이트 20Hz → 60Hz 상향 |
-| [backend/14-work-report-extrapolation.md](backend/14-work-report-extrapolation.md) | 작업 보고서 — 보간 버퍼 부족 시 외삽(dead reckoning) 추가 |
-| [backend/15-work-report-combat-monster-wave.md](backend/15-work-report-combat-monster-wave.md) | 작업 보고서 — 전투·몬스터·웨이브 MVP 구현(서버 시뮬레이션) |
-| [backend/16-work-report-defeat-and-day-skip-vote.md](backend/16-work-report-defeat-and-day-skip-vote.md) | 작업 보고서 — 전원 다운 즉시패배 + 낮 스킵 투표(만장일치) 구현 |
-| [backend/17-work-report-monster-spawn-movement-refinement.md](backend/17-work-report-monster-spawn-movement-refinement.md) | 작업 보고서 — 몬스터 스폰/이동 구체화(군집 분리·어그로 히스테리시스·스폰 지점 순환) |
-| [backend/18-mvp-scope-proposal-resource-building.md](backend/18-mvp-scope-proposal-resource-building.md) | 제안서 — 자원채집·건축 MVP 범위(팀 협의용) |
-| [backend/19-work-report-flow-field-diagonal-weighting.md](backend/19-work-report-flow-field-diagonal-weighting.md) | 작업 보고서 — Flow Field 대각선 가중치 수정(이동 경로 꺾임 버그) |
-| [backend/20-work-report-monster-aggro-fov.md](backend/20-work-report-monster-aggro-fov.md) | 작업 보고서 — 몬스터 어그로 시야각(120도) 도입 |
-| [backend/21-work-report-monster-movement-los-steering.md](backend/21-work-report-monster-movement-los-steering.md) | 작업 보고서 — 몬스터 이동 자연스럽게(시야선 직진 + Flow Field 우회 병행) |
-| [backend/22-work-report-premature-day-transition-bug.md](backend/22-work-report-premature-day-transition-bug.md) | 작업 보고서 — 몬스터가 남았는데 낮으로 바뀌는 버그 수정(스냅샷/콜백 경합) |
-| [backend/23-work-report-debug-jump-to-wave.md](backend/23-work-report-debug-jump-to-wave.md) | 작업 보고서 — 테스트용 "웨이브 5로 점프" 버튼(로컬 모드 전용) |
-| [backend/24-work-report-resource-building-mvp.md](backend/24-work-report-resource-building-mvp.md) | 작업 보고서 — 자원채집·건축 MVP 구현(서버/공유 시뮬레이션) |
-| [backend/25-work-report-resource-building-client-placeholder.md](backend/25-work-report-resource-building-client-placeholder.md) | 작업 보고서 — 자원채집·건축 클라이언트 연결(에셋 없이 도형 플레이스홀더) |
-| [backend/26-work-report-resource-node-clustering.md](backend/26-work-report-resource-node-clustering.md) | 작업 보고서 — 자원 노드를 군집(클러스터)으로 랜덤 배치 |
-| [backend/27-work-report-building-defense-bugs.md](backend/27-work-report-building-defense-bugs.md) | 작업 보고서 — 건축물 관련 버그 두 건(몬스터 정지, 투사체가 벽 통과) 수정 |
-| [backend/28-work-report-player-building-collision.md](backend/28-work-report-player-building-collision.md) | 작업 보고서 — 플레이어-건축물 하드 충돌(벽/울타리 통과 방지) |
+| [backend/00-summary-05-28.md](backend/00-summary-05-28.md) | **요약** — 05~28 24건(서버 초기 구축 → 렌더링 보간/틱레이트 → 전투·웨이브 MVP → 몬스터 AI 정교화 → 자원채집·건축 MVP)을 주제별로 묶어 정리. 개별 문서는 아래 표 대신 이 요약의 링크로 찾아갈 것 |
 | [backend/29-work-report-collision-debug-overlay.md](backend/29-work-report-collision-debug-overlay.md) | 작업 보고서 — 플레이어 충돌 반경 디버그 테두리(C 키 토글) |
 | [backend/30-work-report-boss-attack-patterns.md](backend/30-work-report-boss-attack-patterns.md) | 작업 보고서 — 보스 공격 패턴 추가(돌진 예고/광역 예고) |
 | [backend/31-work-report-hitbox-fix-and-resource-rework.md](backend/31-work-report-hitbox-fix-and-resource-rework.md) | 작업 보고서 — 몬스터 히트박스 버그 수정 + 자원채집 재설계(근접 타격 + 코어 입고) + 코어 모달 통합 |
@@ -46,6 +23,11 @@
 | [backend/33-work-report-projectile-visual-offset-bug.md](backend/33-work-report-projectile-visual-offset-bug.md) | 작업 보고서 — 총알 궤적(그림)과 실제 피격 위치가 어긋나던 렌더링 오프셋 버그 수정 (이후 backend/34로 해법 대체됨) |
 | [backend/34-work-report-develop-merge-combat-accuracy.md](backend/34-work-report-develop-merge-combat-accuracy.md) | 작업 보고서 — client develop 병합(연사속도·히트박스·조준 정합성 FixedStep 수정 + 지형 시스템), 겹치는 수정사항 해결 과정 |
 | [backend/35-work-report-monster-colony.md](backend/35-work-report-monster-colony.md) | 작업 보고서 — 몬스터 콜로니(낮에도 스폰·채널링 파괴·엄호 협동) 도입, 몬스터 스폰 반경을 맵 가장자리로 조정 |
+| [backend/36-work-report-camera-bounds-stale-constant-bug.md](backend/36-work-report-camera-bounds-stale-constant-bug.md) | 작업 보고서 — 카메라 스크롤 범위가 실제 맵보다 작게 방치돼 콜로니에 갈 수 없던 버그 수정 |
+| [backend/37-work-report-monster-kill-drops.md](backend/37-work-report-monster-kill-drops.md) | 작업 보고서 — 몬스터 처치 보상(흔한 자원 "파편" 개인 휴대 + 희귀 자원 "에너지" 팀 공유, 콜로니와 통합) 추가 |
+| [backend/38-work-report-core-upgrade-static-collision.md](backend/38-work-report-core-upgrade-static-collision.md) | 작업 보고서 — 코어 업그레이드(에너지 소비, 체력·건설반경·해금 3단계) + 코어/자원/콜로니 하드 충돌(몹·플레이어·투사체 통과 불가) |
+| [backend/39-work-report-resource-respawn-relocation.md](backend/39-work-report-resource-respawn-relocation.md) | 작업 보고서 — 자원 노드 리스폰 재배치(같은 군집 안 새 위치, 플레이어 비겹침) + 몬스터 충돌 반경 누락 버그 수정 + 자원 스폰 최소거리 확대 |
+| [backend/40-work-report-monster-obstacle-sliding.md](backend/40-work-report-monster-obstacle-sliding.md) | 작업 보고서 — 몬스터가 자원 노드/콜로니에 막히면 영원히 멈추던 버그를 축 슬라이딩+접선 미끄러짐으로 수정, 콜로니 스폰 위치를 중심이 아닌 경계 밖으로 변경 |
 
 ### 역할 C — 클라이언트/렌더/UI 작업 문서 ([frontend/](frontend/))
 

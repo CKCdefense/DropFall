@@ -708,6 +708,12 @@ export class EntityRenderer {
         this.resourceNodes.set(node.id, sprite);
       }
 
+      // 리스폰될 때 같은 자리가 아니라 같은 군집 안 새 위치로 옮겨간다(docs/backend/39)
+      // — 예전엔 자원 노드가 절대 안 움직인다는 전제로 생성 시점에만 위치를 잡았는데,
+      // 이제는 매 스냅샷 갱신해야 리스폰 이동이 화면에도 반영된다. 보간 없이 순간
+      // 이동으로 처리한다(리스폰이라는 사건 자체가 "펑 하고 새로 생긴다"는 연출과
+      // 더 잘 맞는다).
+      sprite.setPosition(Math.round(node.x), Math.round(node.y));
       sprite.setDepth(node.y);
       // 고갈되면(리스폰 대기 중) 흐리게 — 지금은 캘 수 없다는 걸 한눈에 보이게 한다.
       sprite.setAlpha(node.hp > 0 ? 1 : 0.3);

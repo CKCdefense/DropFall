@@ -8,6 +8,7 @@ import buildingsJson from './buildings.json';
 import itemsJson from './items.json';
 import loadoutJson from './loadout.json';
 import coloniesJson from './colonies.json';
+import coreUpgradesJson from './coreUpgrades.json';
 
 export function loadData<T>(schema: z.ZodType<T>, json: unknown): T {
   return schema.parse(json);
@@ -38,6 +39,17 @@ const SlamAttackSchema = z.object({
   cooldown: z.number().positive(),
 });
 
+/**
+ * 처치 보상 랜덤 범위(정수, 양끝 포함). `min === max`면 고정값이 된다.
+ * `World.grantMonsterDrop()`이 처치 순간 이 범위 안에서 하나를 뽑는다.
+ */
+const DropRangeSchema = z
+  .object({
+    min: z.number().int().nonnegative(),
+    max: z.number().int().nonnegative(),
+  })
+  .refine((range) => range.min <= range.max, { message: 'min은 max보다 클 수 없다' });
+
 const MonsterDataSchema = z.object({
   hp: z.number().positive(),
   /**
@@ -56,12 +68,24 @@ const MonsterDataSchema = z.object({
   chargeAttack: ChargeAttackSchema.optional(),
   /** 있으면 이 타입은 광역 패턴을 쓸 수 있다(보스 전용, 없으면 미사용). */
   slamAttack: SlamAttackSchema.optional(),
+  /**
+   * 처치 시 잡은 플레이어의 휴대 자원(scrap)에 지급되는 랜덤량. 흔한 몬스터(잡몹/돌진/
+   * 탱커)용 — 나무/돌처럼 코어에 입고(E)해야 팀 공유가 된다. `energyDrop`과 같은 타입에
+   * 동시에 두지 않는다(둘은 서로 다른 등급의 보상이라 한 타입은 하나만 준다).
+   */
+  scrapDrop: DropRangeSchema.optional(),
+  /**
+   * 처치 즉시 팀 공유 창고(coreSharedEnergy)에 지급되는 랜덤량. 콜로니 파괴 보상과
+   * 같은 자원이다 — 보스 전용(희귀 등급), 개인 소지 단계 없이 바로 팀 전체 몫이 된다.
+   */
+  energyDrop: DropRangeSchema.optional(),
 });
 
 const MonstersDataSchema = z.record(z.string(), MonsterDataSchema);
 
 export type MonsterType = keyof typeof monstersData;
 export type MonsterData = z.infer<typeof MonsterDataSchema>;
+export type DropRange = z.infer<typeof DropRangeSchema>;
 
 export const monstersData = loadData(MonstersDataSchema, monstersJson);
 
@@ -255,3 +279,34 @@ export type ColonyStage = z.infer<typeof ColonyStageSchema>;
 export type ColoniesData = z.infer<typeof ColoniesDataSchema>;
 
 export const coloniesData = loadData(ColoniesDataSchema, coloniesJson);
+
+// --- coreUpgrades.json ------------------------------------------------------------
+
+/**
+ * 코어 업그레이드 한 단계. `World.upgradeCore()`가 `core.tier`번째(0-based) 항목의
+ * `cost`를 코어 공유 에너지에서 차감하고 나머지 보너스를 한꺼번에 적용한다 — 코어
+ * 체력/건설 가능 반경/제작·스텟증가 해금이 전부 "한 번의 업그레이드"로 묶여 있다.
+ */
+const CoreUpgradeTierSchema = z.object({
+  /** coreSharedEnergy에서 차감되는 비용. */
+  cost: z.number().int().positive(),
+  /** 이 단계를 사면 coreMaxHp와 coreHp에 동시에 더해지는 양(즉시 체감되는 회복 겸 증축). */
+  coreHpBonus: z.number().nonnegative(),
+  /** 건설 가능 반경(baseBuildRadius 기준 누적)에 더해지는 양. */
+  buildRadiusBonus: z.number().nonnegative(),
+  /** 이 단계부터 CraftModal을 열 수 있게 되는지. 한 번 true면 그 이후 단계도 계속 true로 본다. */
+  unlocksCrafting: z.boolean(),
+  /** 이 단계부터 플레이어 스텟 증가 시스템을 쓸 수 있게 되는지(UI/구매 로직은 아직 없음 — 해금 플래그만). */
+  unlocksStatUpgrades: z.boolean(),
+});
+
+const CoreUpgradesDataSchema = z.object({
+  /** 업그레이드 전(tier 0) 기본 건설 가능 반경(px, 코어 원점 기준). */
+  baseBuildRadius: z.number().positive(),
+  tiers: z.array(CoreUpgradeTierSchema).min(1),
+});
+
+export type CoreUpgradeTier = z.infer<typeof CoreUpgradeTierSchema>;
+export type CoreUpgradesData = z.infer<typeof CoreUpgradesDataSchema>;
+
+export const coreUpgradesData = loadData(CoreUpgradesDataSchema, coreUpgradesJson);

@@ -2,11 +2,13 @@ import { MAP_ORIGIN, MAP_SIZE_TILES, TILE_SIZE, cellCenterWorld, worldToCell } f
 import {
   buildingsData,
   coloniesData,
+  coreUpgradesData,
   loadoutData,
   monstersData,
   resourcesData,
   wavesData,
   type BuildingType,
+  type DropRange,
   type MonsterData,
   type MonsterType,
   type ResourceType,
@@ -14,7 +16,7 @@ import {
 import type { PlayerInputMessage } from '../protocol/messages';
 import { FlowField, type FlowFieldGrid } from './ai/flowField';
 import { BuildingRegistry, type BuildingEntity } from './building';
-import { ColonyRegistry, colonyStageFor, type ColonyEntity } from './colony';
+import { COLONY_RADIUS, ColonyRegistry, colonyStageFor, type ColonyEntity } from './colony';
 import {
   HIT_RADIUS,
   WeaponCooldowns,
@@ -71,6 +73,10 @@ const AGGRO_LEASH_MULTIPLIER = 1.5;
  * 정확히 같아야 한다(값이 서버/시뮬레이션 쪽과 어긋나면 안 됨).
  */
 export const PLAYER_BUILDING_COLLISION_RADIUS = HIT_RADIUS + TILE_SIZE / 2;
+/** 플레이어-코어 하드 충돌 반경(px). 위와 같은 이유로 두 반경의 합을 상수로 export한다. */
+export const PLAYER_CORE_COLLISION_RADIUS = HIT_RADIUS + CORE_RADIUS;
+/** 플레이어-콜로니 하드 충돌 반경(px). */
+export const PLAYER_COLONY_COLLISION_RADIUS = HIT_RADIUS + COLONY_RADIUS;
 export { HIT_RADIUS };
 /**
  * 몬스터가 "처음" 플레이어를 발견할 때만 적용하는 시야각(120도, 바라보는 방향 기준 ±60도).
@@ -104,17 +110,17 @@ const STONE_CLUSTER_COUNT = 2;
 const STONE_NODES_PER_CLUSTER = 3;
 /**
  * 클러스터 중심이 코어로부터 떨어져야 하는 최소/최대 거리(px). 맵 자체는 훨씬
- * 크지만(MAP_SIZE_TILES 기준 코어에서 최대 1024px), 그 전체를 다 쓰면 자원이 몬스터
- * 스폰 반경(wavesData.spawnRadius=300)보다도 훨씬 멀리 나올 수 있어서 낮 시간 안에
- * 왕복하기엔 너무 멀었다. 몬스터 스폰 반경 바로 안팎으로만 좁혀서 — 위험을 살짝
- * 감수하는 정도의 거리로 맞췄다.
+ * 크지만(MAP_SIZE_TILES 기준 코어에서 최대 1024px), 그 전체를 다 쓰면 낮 시간
+ * 안에 왕복하기엔 너무 멀다 — 밤 웨이브/콜로니 스폰 반경(900px, backend/35)
+ * 안쪽으로만 좁혀서, 위험을 살짝 감수하는 정도의 거리로 맞췄다.
  *
- * 최소 거리는 플레이어 스폰 반경(40px, GameRoom/LocalConnection의 SPAWN_RADIUS)보다
- * 한참 더 떨어뜨려 뒀다 — 스폰하자마자 코앞에서 바로 채집이 시작되면 낮 시간의
- * "찾아간다"는 긴장감이 사라져서 너무 쉬워진다.
+ * 최소 거리는 **코어 업그레이드 전 기본 건설 가능 반경**(`coreUpgradesData.
+ * baseBuildRadius`=250px, backend/38)보다 넉넉히 멀리 뒀다 — 안 그러면 자원
+ * 군집이 코어 바로 코앞까지 파고들어서 건축은 물론 그냥 이동조차 불편해진다
+ * (실제로 250 이하였을 때 이 문제가 보고됐다, docs/backend/39).
  */
-const CLUSTER_MIN_DISTANCE = 150;
-const CLUSTER_MAX_DISTANCE = 350;
+const CLUSTER_MIN_DISTANCE = 260;
+const CLUSTER_MAX_DISTANCE = 500;
 /** 클러스터 중심 주변으로 노드가 흩어지는 반경(px). */
 const CLUSTER_JITTER_RADIUS = 80;
 /**
@@ -133,6 +139,9 @@ export interface PlayerEntity {
   hp: number;
   wood: number;
   stone: number;
+  /** 흔한 몬스터(잡몹/돌진/탱커) 처치로 받는 휴대 자원. 나무/돌과 동일하게 코어에
+   * 입고(E)해야 팀 공유(coreSharedScrap)가 된다. */
+  scrap: number;
   /** 퀵슬롯. 장착 무기도 여기서 나온다 — 클라이언트가 무기를 주장할 수 없다. */
   inventory: Inventory;
   /** 지금 채널링(콜로니 파괴 작업) 중인 콜로니 id. 채널링 중이 아니면 undefined. */
@@ -153,6 +162,13 @@ export interface ResourceNodeEntity {
   maxHp: number;
   /** 0이면 채집 가능(살아있음). 고갈되면 resourcesData[type].respawnSeconds로 세팅되고 매 틱 감소한다. */
   respawnTimer: number;
+  /**
+   * 이 노드가 속한 군집(클러스터) 중심 좌표. 리스폰될 때 같은 군집 안에서만 새
+   * 위치를 고르기 위해 기억해 둔다 — x/y 자신은 리스폰마다 바뀌지만 이 값은
+   * 노드가 존재하는 내내 고정이다.
+   */
+  clusterX: number;
+  clusterY: number;
 }
 
 /**
@@ -204,13 +220,21 @@ export interface CoreState {
    */
   sharedWood: number;
   sharedStone: number;
+  /** 흔한 몬스터 처치 보상(scrap)이 코어 입고(E)로 쌓이는 팀 공유분. 나무/돌과 동일한 흐름. */
+  sharedScrap: number;
   /**
-   * 콜로니 파괴로만 얻는 전용 자원. 나무/돌과 달리 "채집 후 입고" 단계가 없다 —
-   * 파괴 즉시 팀 전체 몫으로 귀속된다(누가 채널링했든 팀 보상). 코어 업그레이드/상점
-   * 구입 전용으로 쓸 예정(아직 그 소비처는 미구현 — CoreModal/UpgradeModal의
-   * "에너지" 플레이스홀더 행이 이 값을 보여줄 자리다).
+   * 콜로니 파괴 또는 보스 처치로만 얻는 희귀 자원. 나무/돌/scrap과 달리 "채집 후 입고"
+   * 단계가 없다 — 획득 즉시 팀 전체 몫으로 귀속된다(누가 잡았든 팀 보상). 코어
+   * 업그레이드/상점 구입 전용으로 쓸 예정(아직 그 소비처는 미구현 — CoreModal/
+   * UpgradeModal의 "에너지" 플레이스홀더 행이 이 값을 보여줄 자리다).
    */
   sharedEnergy: number;
+  /**
+   * 구매한 코어 업그레이드 단계(0부터 시작, 미구매 상태). `coreUpgradesData.tiers[tier]`가
+   * "다음에 살 단계"를 가리킨다 — `upgradeCore()`가 이 인덱스로 다음 단계 비용/보너스를
+   * 조회한 뒤 tier를 1 늘린다.
+   */
+  tier: number;
 }
 
 let nextMonsterId = 1;
@@ -232,16 +256,42 @@ export class World {
   private readonly buildings = new BuildingRegistry();
   private readonly resourceNodes = new Map<string, ResourceNodeEntity>();
   private readonly colonies = new ColonyRegistry();
+  /**
+   * 콜로니가 차지한 그리드 셀("cx,cy" 키) 집합. 콜로니는 생성 후 위치가 절대
+   * 바뀌지 않으므로(파괴돼도 폐허로 그 자리에 남는다, colony.ts) `BuildingRegistry`
+   * 같은 동적 인덱스 없이 **생성 시점에 한 번만 계산해서 캐싱**한다 — FlowField의
+   * `isBlocked` 콜백이 여기 기록된 셀도 같이 막힌 것으로 본다(§markColonyObstacleCell).
+   *
+   * 코어 자신의 셀은 절대 여기 넣지 않는다 — FlowField의 목표(target) 셀이 막히면
+   * `recompute()`가 전체 계산을 포기해버린다(치명적). 몬스터는 어차피
+   * `attackRange + CORE_RADIUS`에서 멈춰 코어를 공격하므로 코어 셀까지 들어갈
+   * 필요가 없어 막을 이유도 없다 — 코어의 플레이어/투사체 하드 충돌은 이 집합과
+   * 무관하게 `isBlockedForPlayer`/`projectileHitsObstacle`이 원점 좌표로 직접 검사한다.
+   */
+  private readonly colonyObstacleCells = new Set<string>();
+  /**
+   * 자원 노드가 차지한 그리드 셀 집합. 콜로니와 달리 **위치도 존재 여부도 바뀐다**
+   * — 고갈(hp 0)되면 더 이상 막지 않고, 리스폰될 때 같은 군집 안 새 위치로
+   * 옮겨간다(docs/backend/39). 그래서 한 번만 캐싱하지 않고, 고갈/리스폰이 일어날
+   * 때마다 `rebuildResourceObstacleCells()`로 통째로 다시 계산한다.
+   */
+  private readonly resourceObstacleCells = new Set<string>();
   private readonly rng: () => number;
-  private readonly flowField = new FlowField(FLOW_FIELD_GRID, (cx, cy) =>
-    this.buildings.isBlockedForMovement(cx, cy),
+  private readonly flowField = new FlowField(
+    FLOW_FIELD_GRID,
+    (cx, cy) =>
+      this.buildings.isBlockedForMovement(cx, cy) ||
+      this.colonyObstacleCells.has(`${cx},${cy}`) ||
+      this.resourceObstacleCells.has(`${cx},${cy}`),
   );
   private readonly core: CoreState = {
     hp: wavesData.coreHp,
     maxHp: wavesData.coreHp,
     sharedWood: 0,
     sharedStone: 0,
+    sharedScrap: 0,
     sharedEnergy: 0,
+    tier: 0,
   };
   private elapsedSeconds = 0;
   /** 이번 낮 페이즈에 스킵 투표를 던진 플레이어 id 집합. 만장일치면 skipDay()를 부른다. */
@@ -249,8 +299,33 @@ export class World {
 
   constructor(options: WorldOptions = {}) {
     this.rng = options.rng ?? Math.random;
-    this.recomputeFlowField();
+    // 콜로니는 이미 존재한다(필드 초기화 시점에 생성됨) — 셀부터 표시해 둔다.
+    for (const colony of this.colonies.values()) this.markColonyObstacleCell(colony.x, colony.y);
+    // 자원 노드는 위치/군집 정보만 채우고, 셀 등록은 아래에서 한 번에 한다.
     this.seedResourceNodes();
+    this.rebuildResourceObstacleCells();
+    // 정적 장애물 표시가 끝난 뒤에 계산해야 최초 FlowField가 이미 이걸 반영한다.
+    this.recomputeFlowField();
+  }
+
+  /** 콜로니처럼 위치가 절대 바뀌지 않는 장애물의 셀을 FlowField 차단 집합에 등록한다. */
+  private markColonyObstacleCell(x: number, y: number): void {
+    const { cx, cy } = worldToCell(x, y);
+    this.colonyObstacleCells.add(`${cx},${cy}`);
+  }
+
+  /**
+   * 살아있는(hp>0) 자원 노드의 현재 위치를 기준으로 차단 셀 집합을 통째로 다시
+   * 계산한다. 고갈/리스폰(위치 변경)이 일어날 때마다 호출해야 한다 — 콜로니와
+   * 달리 캐싱만 해 두면 안 되는 이유(§resourceObstacleCells)를 그대로 반영한다.
+   */
+  private rebuildResourceObstacleCells(): void {
+    this.resourceObstacleCells.clear();
+    for (const node of this.resourceNodes.values()) {
+      if (node.hp <= 0) continue; // 고갈되면 더 이상 막지 않는다
+      const { cx, cy } = worldToCell(node.x, node.y);
+      this.resourceObstacleCells.add(`${cx},${cy}`);
+    }
   }
 
   addPlayer(id: string, x = 0, y = 0): void {
@@ -266,6 +341,7 @@ export class World {
       hp: wavesData.playerHp,
       wood: 0,
       stone: 0,
+      scrap: 0,
       inventory,
       channelProgress: 0,
       tookDamageThisTick: false,
@@ -430,6 +506,10 @@ export class World {
     if (target.hp > 0) return;
 
     target.respawnTimer = data.respawnSeconds;
+    // 고갈된 순간 그 자리는 더 이상 아무것도 막지 않는다("다 캐면 지나갈 수 있다",
+    // docs/backend/39) — FlowField가 이 칸을 다시 열린 것으로 즉시 반영하게 한다.
+    this.rebuildResourceObstacleCells();
+    this.recomputeFlowField();
 
     // ResourceType이 늘어나면(현재 wood/stone 2종) 여기에 분기를 추가해야 한다 —
     // PlayerEntity가 자원별 전용 필드를 쓰는 설계라(범용 인벤토리 맵이 아니다) 자동으로
@@ -439,22 +519,64 @@ export class World {
   }
 
   /**
-   * 코어 입고 요청(E). 플레이어가 들고 있는(=아직 입고하지 않은) 나무/돌을 코어의
-   * 공유 창고로 옮긴다 — 코어 반경 안에서만 되고, 들고 있는 게 하나도 없으면 조용히
-   * 무시한다. 입고 즉시 개인 지갑은 0이 된다(다시 캐야 다음 몫이 생긴다).
+   * 코어 입고 요청(E). 플레이어가 들고 있는(=아직 입고하지 않은) 나무/돌/scrap을
+   * 코어의 공유 창고로 옮긴다 — 코어 반경 안에서만 되고, 들고 있는 게 하나도 없으면
+   * 조용히 무시한다. 입고 즉시 개인 지갑은 0이 된다(다시 모아야 다음 몫이 생긴다).
    */
   depositAtCore(playerId: string): void {
     const player = this.players.get(playerId);
     if (!player) return;
-    if (player.wood <= 0 && player.stone <= 0) return;
+    if (player.wood <= 0 && player.stone <= 0 && player.scrap <= 0) return;
 
     const distance = Math.hypot(player.x, player.y); // 코어는 항상 원점(0,0)
     if (distance > CORE_INTERACT_RADIUS) return;
 
     this.core.sharedWood += player.wood;
     this.core.sharedStone += player.stone;
+    this.core.sharedScrap += player.scrap;
     player.wood = 0;
     player.stone = 0;
+    player.scrap = 0;
+  }
+
+  /**
+   * 코어 업그레이드 요청. `core.tier`번째(0-based) 단계를 팀 공유 에너지로 산다 —
+   * 코어 체력(즉시 회복 + 최대치 증가)·건설 가능 반경·제작/스텟증가 해금이 전부
+   * 한 번에 적용된다(docs/backend/38). 마지막 단계까지 다 샀거나 에너지가
+   * 부족하면 조용히 무시한다.
+   */
+  upgradeCore(playerId: string): void {
+    if (!this.players.has(playerId)) return;
+
+    const tier = coreUpgradesData.tiers[this.core.tier];
+    if (!tier) return; // 이미 최고 단계
+    if (this.core.sharedEnergy < tier.cost) return;
+
+    this.core.sharedEnergy -= tier.cost;
+    this.core.tier += 1;
+    this.core.maxHp += tier.coreHpBonus;
+    this.core.hp += tier.coreHpBonus;
+  }
+
+  /** 코어 원점 기준 건설 가능 반경(px). 구매한 단계만큼 baseBuildRadius에 누적된다. */
+  getBuildRadius(): number {
+    let radius = coreUpgradesData.baseBuildRadius;
+    for (let i = 0; i < this.core.tier; i += 1) {
+      radius += coreUpgradesData.tiers[i]?.buildRadiusBonus ?? 0;
+    }
+    return radius;
+  }
+
+  /** 현재 단계 이하 어떤 단계에서든 제작이 해금됐으면 true(한 번 해금되면 계속 유지). */
+  isCraftingUnlocked(): boolean {
+    return coreUpgradesData.tiers.slice(0, this.core.tier).some((tier) => tier.unlocksCrafting);
+  }
+
+  /** 플레이어 스텟 증가 시스템 해금 여부. 아직 그걸 실제로 쓸 UI/구매 로직은 없다 — 플래그만. */
+  isStatUpgradesUnlocked(): boolean {
+    return coreUpgradesData.tiers
+      .slice(0, this.core.tier)
+      .some((tier) => tier.unlocksStatUpgrades);
   }
 
   /**
@@ -471,6 +593,10 @@ export class World {
     if (!data) return;
     if (cx < 0 || cy < 0 || cx >= MAP_SIZE_TILES || cy >= MAP_SIZE_TILES) return;
     if (!this.buildings.canPlace(cx, cy)) return;
+
+    const { x, y } = cellCenterWorld(cx, cy);
+    // 코어 업그레이드로 건설 가능 반경이 늘어난다(docs/backend/38) — 반경 밖은 아직 못 짓는다.
+    if (Math.hypot(x, y) > this.getBuildRadius()) return;
 
     const coreCell = worldToCell(0, 0);
     if (cx === coreCell.cx && cy === coreCell.cy) return;
@@ -491,7 +617,6 @@ export class World {
     this.core.sharedWood -= data.woodCost;
     this.core.sharedStone -= data.stoneCost;
 
-    const { x, y } = cellCenterWorld(cx, cy);
     const id = `building_${nextBuildingId++}`;
     this.buildings.place(id, buildingType as BuildingType, cx, cy, x, y);
     this.recomputeFlowField();
@@ -540,10 +665,12 @@ export class World {
 
     this.tickMonsters(dtSeconds);
     this.tickResourceNodes(dtSeconds);
-    this.tickColonies(dtSeconds);
     // tickMonsters() 다음에 불러야 한다 — 이번 틱의 피격(tookDamageThisTick)이
     // 이미 반영된 뒤여야 "피격 시 채널 중단"이 정확히 판정된다.
     this.tickChannels(dtSeconds);
+    // tickChannels() 다음에 불러야 한다 — 이번 틱에 새로 채널링이 시작된 콜로니도
+    // 한 틱 지연 없이 바로 스폰이 멈춰야 한다(§tickColonies의 채널링 중 스폰 정지).
+    this.tickColonies(dtSeconds);
 
     tickProjectiles(this.projectiles, dtSeconds);
     this.resolveProjectileHits();
@@ -622,7 +749,7 @@ export class World {
 
       const placed: { x: number; y: number }[] = [];
       for (let n = 0; n < nodesPerCluster; n += 1) {
-        const position = this.pickClusterNodePosition(clusterX, clusterY, placed);
+        const position = this.pickClusterNodePosition(clusterX, clusterY, placed, data.hitRadius);
         placed.push(position);
 
         const id = `resource_${nextResourceNodeId++}`;
@@ -634,21 +761,31 @@ export class World {
           hp: data.hp,
           maxHp: data.hp,
           respawnTimer: 0,
+          clusterX,
+          clusterY,
         });
+        // 셀 등록은 여기서 하지 않는다 — 생성자가 시딩이 다 끝난 뒤
+        // rebuildResourceObstacleCells()를 한 번만 불러 한꺼번에 계산한다.
       }
     }
   }
 
   /**
    * 클러스터 중심 주변 `CLUSTER_JITTER_RADIUS` 안에서 무작위 위치를 고른다. 이미 놓인
-   * 노드와 `MIN_NODE_SPACING`보다 가까우면 다시 뽑는다 — 몇 번 재시도해도 계속 겹치면
-   * (좁은 지터 반경 안에 노드가 너무 많은 극단적인 경우) 완벽한 간격보다 무한 재시도
-   * 방지가 우선이라 마지막으로 뽑은 위치를 그냥 쓴다.
+   * 것(같은 군집의 다른 노드)과 `MIN_NODE_SPACING`보다 가깝거나, 지금 서 있는
+   * 플레이어와 겹치면 다시 뽑는다 — 몇 번 재시도해도 계속 안 되면(좁은 지터 반경
+   * 안에 노드가 너무 많거나 플레이어가 하필 그 자리에 서 있는 극단적인 경우)
+   * 완벽한 조건보다 무한 재시도 방지가 우선이라 마지막으로 뽑은 위치를 그냥 쓴다.
+   *
+   * 최초 시딩(World 생성자)과 리스폰 재배치(§relocateRespawnedNode) 둘 다 이
+   * 메서드를 쓴다 — 생성자 시점엔 아직 플레이어가 한 명도 없어서(addPlayer()는
+   * 항상 그 이후에 불린다) 플레이어 충돌 검사가 자동으로 아무 효과가 없다.
    */
   private pickClusterNodePosition(
     centerX: number,
     centerY: number,
     placed: { x: number; y: number }[],
+    nodeRadius: number,
   ): { x: number; y: number } {
     const MAX_ATTEMPTS = 8;
     let candidate = { x: centerX, y: centerY };
@@ -658,13 +795,37 @@ export class World {
       const radius = this.rng() * CLUSTER_JITTER_RADIUS;
       candidate = { x: centerX + Math.cos(angle) * radius, y: centerY + Math.sin(angle) * radius };
 
-      const tooClose = placed.some(
+      const tooCloseToSibling = placed.some(
         (p) => Math.hypot(p.x - candidate.x, p.y - candidate.y) < MIN_NODE_SPACING,
       );
-      if (!tooClose) return candidate;
+      const overlapsPlayer = [...this.players.values()].some((player) =>
+        circlesOverlap(player.x, player.y, candidate.x, candidate.y, HIT_RADIUS + nodeRadius),
+      );
+      if (!tooCloseToSibling && !overlapsPlayer) return candidate;
     }
 
     return candidate;
+  }
+
+  /**
+   * 고갈됐다가 리스폰하는 노드를 같은 군집 안 새 무작위 위치로 옮긴다(docs/backend/39)
+   * — 항상 같은 자리에 다시 나던 걸 바꿔서, 자주 캐는 자리 하나가 사실상 영구
+   * 장애물처럼 남지 않게 한다. `pickClusterNodePosition`을 그대로 재사용하되
+   * "이미 놓인 것"으로 같은 군집의 **살아있는** 형제 노드만 넘긴다(다른 군집이나
+   * 고갈된 노드는 겹쳐도 상관없다).
+   */
+  private relocateRespawnedNode(node: ResourceNodeEntity): void {
+    const data = resourcesData[node.type];
+    const siblings: { x: number; y: number }[] = [];
+    for (const other of this.resourceNodes.values()) {
+      if (other === node || other.hp <= 0) continue;
+      if (other.clusterX !== node.clusterX || other.clusterY !== node.clusterY) continue;
+      siblings.push({ x: other.x, y: other.y });
+    }
+
+    const position = this.pickClusterNodePosition(node.clusterX, node.clusterY, siblings, data.hitRadius);
+    node.x = position.x;
+    node.y = position.y;
   }
 
   private addMonster(type: MonsterType, x: number, y: number): void {
@@ -747,14 +908,29 @@ export class World {
   }
 
   /** 고갈된 자원 노드의 리스폰 타이머를 감소시키고, 다 되면 채집 가능 상태로 되돌린다. */
+  /**
+   * 고갈된 자원 노드의 리스폰 타이머를 감소시키고, 다 되면 채집 가능 상태로 되돌린다
+   * — 이때 같은 자리가 아니라 같은 군집 안 새 위치로 옮긴다(§relocateRespawnedNode,
+   * docs/backend/39). 한 틱에 여러 노드가 동시에 리스폰될 수 있어서, 장애물 셀
+   * 재계산은 노드마다 하지 않고 루프가 끝난 뒤 한 번만 한다.
+   */
   private tickResourceNodes(dtSeconds: number): void {
+    let anyRespawned = false;
+
     for (const node of this.resourceNodes.values()) {
       if (node.respawnTimer <= 0) continue;
       node.respawnTimer -= dtSeconds;
       if (node.respawnTimer <= 0) {
         node.hp = resourcesData[node.type].hp;
         node.respawnTimer = 0;
+        this.relocateRespawnedNode(node);
+        anyRespawned = true;
       }
+    }
+
+    if (anyRespawned) {
+      this.rebuildResourceObstacleCells();
+      this.recomputeFlowField();
     }
   }
 
@@ -768,20 +944,45 @@ export class World {
    * 스테이지(난이도 구간)는 현재 웨이브 진행도(WaveManager.currentWave) 기준으로
    * 콜로니 전체가 공유한다 — "시간이 지날수록 강해진다"를 밤 웨이브와 같은 축으로
    * 표현한다(§colonyStageFor).
+   *
+   * **채널링 중인 콜로니는 스폰이 완전히 멈춘다.** 누군가 파괴 작업 중인 콜로니가
+   * 그 와중에도 계속 몬스터를 뱉으면 엄호하는 인원이 오히려 더 불리해지기만 하고,
+   * "채널링 = 그 콜로니를 무력화하기 시작했다"는 의미도 흐려진다. 스폰 타이머
+   * 자체를 얼려서(감소시키지 않음) 멈추는 이유: 그냥 스폰만 건너뛰고 타이머는
+   * 계속 줄이면, 채널링이 중간에 끊겼을 때 밀린 스폰이 한꺼번에(또는 다음 틱에
+   * 바로) 터져나오는 부자연스러운 결과가 된다.
    */
   private tickColonies(dtSeconds: number): void {
     const stage = colonyStageFor(this.waveManager.currentWave);
 
     for (const colony of this.colonies.values()) {
       if (colony.destroyed) continue;
+      if (this.isColonyBeingChanneled(colony.id)) continue;
 
       colony.spawnTimer -= dtSeconds;
       if (colony.spawnTimer > 0) continue;
 
       colony.spawnTimer = stage.spawnIntervalSeconds;
       const type = stage.types[Math.floor(this.rng() * stage.types.length)] as MonsterType;
-      this.addMonster(type, colony.x, colony.y);
+
+      // 콜로니 중심 좌표 그대로 스폰시키면(예전 방식) 콜로니 자신의 하드 충돌
+      // 반경(docs/backend/38) 안에서 태어나는 셈이라, moveMonster의 장애물 회피가
+      // "이미 겹친 상태"를 벗어날 방법이 없어 그 자리에 영구히 끼어버린다
+      // (docs/backend/40). 콜로니 경계 바로 바깥, 무작위 각도의 지점에 스폰시켜서
+      // 처음부터 안 겹치게 한다.
+      const spawnMonsterR = monstersData[type]?.hitRadius ?? HIT_RADIUS;
+      const angle = this.rng() * Math.PI * 2;
+      const offset = COLONY_RADIUS + spawnMonsterR + 2; // 여유 2px — 겹침 없이 확실히 밖
+      this.addMonster(type, colony.x + Math.cos(angle) * offset, colony.y + Math.sin(angle) * offset);
     }
+  }
+
+  /** 이번 틱 기준으로 이 콜로니를 채널링 중인 플레이어가 있는지. */
+  private isColonyBeingChanneled(colonyId: string): boolean {
+    for (const player of this.players.values()) {
+      if (player.channelingColonyId === colonyId) return true;
+    }
+    return false;
   }
 
   /**
@@ -882,6 +1083,8 @@ export class World {
             monster.attackCooldown = data.attackInterval;
           }
         } else {
+          // 자원 노드/콜로니가 경로를 막아도 moveMonster가 축 슬라이딩으로 알아서
+          // 미끄러지며 우회한다(docs/backend/40) — 여기서 따로 멈출지 말지 검사하지 않는다.
           this.moveMonster(monster, monster.facingX, monster.facingY, data.speed, dtSeconds);
         }
         continue;
@@ -927,6 +1130,12 @@ export class World {
 
       monster.facingX = dir.x;
       monster.facingY = dir.y;
+
+      // FlowField는 셀(16px) 단위로만 "막혔다/열렸다"를 판정하는데, 자원 노드/콜로니의
+      // 실제 충돌 원은 셀 경계와 딱 맞아떨어지지 않는다 — 그래서 셀 기준으로는
+      // "우회하는 경로"로 보여도, 그 경로가 실제 충돌 원 아주 가까이(또는 코너를 스치듯)
+      // 지나가는 순간이 생길 수 있다. moveMonster의 축 슬라이딩이 그 마지막 몇십 px의
+      // 정밀도를 담당한다(docs/backend/40) — 셀 기반 라우팅은 큰 그림의 우회만 맡는다.
       this.moveMonster(monster, dir.x, dir.y, data.speed, dtSeconds);
     }
   }
@@ -1095,7 +1304,12 @@ export class World {
     return nearest;
   }
 
-  /** 이동을 막는(blocksMovement) 건축물과 겹치는지 검사한다(플레이어-건축물 하드 충돌). */
+  /**
+   * 이동을 막는(blocksMovement) 건축물, 그리고 코어/자원 노드/콜로니와 겹치는지
+   * 검사한다(플레이어 하드 충돌, docs/backend/38). 건축물은 `blocksMovement`
+   * 타입만 막지만 코어/자원/콜로니는 예외 없이 전부 막는다(사용자가 "코어, 나무,
+   * 돌, 콜로니 다" 통과 못 하게 해달라고 명시).
+   */
   private isBlockedForPlayer(x: number, y: number): boolean {
     for (const building of this.buildings.values()) {
       if (!buildingsData[building.type].blocksMovement) continue;
@@ -1103,7 +1317,74 @@ export class World {
         return true;
       }
     }
+    for (const node of this.resourceNodes.values()) {
+      if (node.hp <= 0) continue; // 고갈된 자리는 통과할 수 있다(docs/backend/39)
+      const radius = HIT_RADIUS + resourcesData[node.type].hitRadius;
+      if (circlesOverlap(x, y, node.x, node.y, radius)) return true;
+    }
+    for (const colony of this.colonies.values()) {
+      if (circlesOverlap(x, y, colony.x, colony.y, PLAYER_COLONY_COLLISION_RADIUS)) return true;
+    }
+    if (circlesOverlap(x, y, 0, 0, PLAYER_CORE_COLLISION_RADIUS)) return true;
     return false;
+  }
+
+  /**
+   * 몬스터가 (x,y)에 있다고 가정했을 때 자원 노드/콜로니와 겹치는지 검사한다.
+   * `isBlockedForPlayer`와 같은 모양이지만 반경이 `HIT_RADIUS`(플레이어 고정값) 대신
+   * 인자로 받은 몬스터 반경(`monsterRadius(monster)`, 타입마다 다름)이다.
+   *
+   * 건축물은 여기서 다루지 않는다 — 몬스터에게 건축물은 "부수는 대상"이라
+   * `findBlockingBuildingInRange`가 따로 처리한다(가로막으면 멈추는 게 아니라
+   * 공격해서 없앤다). 코어도 다루지 않는다 — 몬스터의 목표 자체라 막으면 안 된다
+   * (docs/backend/38).
+   */
+  private isBlockedForMonster(x: number, y: number, monsterR: number): boolean {
+    for (const node of this.resourceNodes.values()) {
+      if (node.hp <= 0) continue; // 고갈된 자리는 통과할 수 있다(docs/backend/39)
+      if (circlesOverlap(x, y, node.x, node.y, monsterR + resourcesData[node.type].hitRadius)) {
+        return true;
+      }
+    }
+    for (const colony of this.colonies.values()) {
+      if (circlesOverlap(x, y, colony.x, colony.y, monsterR + COLONY_RADIUS)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * (x,y) 기준으로 "경계에 가장 바짝 붙어 있는" 자원 노드/콜로니의 중심 좌표를 찾는다.
+   * `moveMonster`의 접선(탄젠트) 미끄러짐 폴백이 쓴다 — 원형 장애물은 어느 방향이
+   * 막혔는지가 아니라 "장애물 중심에서 몬스터로 향하는 방향"을 알아야 그 방향에
+   * 수직인 접선으로 미끄러뜨릴 수 있다. 거리에서 막힘 반경을 뺀 값(음수면 이미
+   * 겹친 것)이 가장 작은 후보를 고른다 — 지금 이 몬스터를 막고 있는 바로 그
+   * 장애물을 찾기 위함이다.
+   */
+  private findNearestObstacleCenter(
+    x: number,
+    y: number,
+    monsterR: number,
+  ): { x: number; y: number } | undefined {
+    let nearest: { x: number; y: number } | undefined;
+    let nearestGap = Infinity;
+
+    for (const node of this.resourceNodes.values()) {
+      if (node.hp <= 0) continue;
+      const gap = Math.hypot(node.x - x, node.y - y) - (monsterR + resourcesData[node.type].hitRadius);
+      if (gap < nearestGap) {
+        nearestGap = gap;
+        nearest = { x: node.x, y: node.y };
+      }
+    }
+    for (const colony of this.colonies.values()) {
+      const gap = Math.hypot(colony.x - x, colony.y - y) - (monsterR + COLONY_RADIUS);
+      if (gap < nearestGap) {
+        nearestGap = gap;
+        nearest = { x: colony.x, y: colony.y };
+      }
+    }
+
+    return nearest;
   }
 
   /**
@@ -1196,14 +1477,32 @@ export class World {
   }
 
   /**
-   * 주 이동 방향(단위 벡터일 필요 없음)에 군집 분리를 더해 이동시킨다.
+   * 주 이동 방향(단위 벡터일 필요 없음)에 군집 분리를 더하고, 자원 노드/콜로니에
+   * 막히면 미끄러뜨려서 이동시킨다.
    *
-   * 주 방향과 분리 벡터를 먼저 더한 뒤 그 합을 단위 벡터로 정규화하던 예전 방식은,
-   * 몬스터가 코어와 일직선(예: y=0 축)에 있을 때 분리력이 주 방향과 같은 축 위에서만
-   * 작용하면 정규화 후 결국 둘 다 똑같은 단위 벡터로 수렴해버려 — 분리력의 세기 차이가
-   * 사라지고 두 몬스터가 완전히 같은 거리만큼 이동해 간격이 전혀 벌어지지 않는 버그가
-   * 있었다. 주 방향은 그 자체로 단위 벡터로 정규화해 속도를 정하고, 분리 벡터는
-   * 별도의 변위로 그 위에 더해야 몬스터마다 실제로 받는 분리력 세기가 이동 결과에 반영된다.
+   * **분리력 계산**: 주 방향과 분리 벡터를 먼저 더한 뒤 그 합을 단위 벡터로
+   * 정규화하던 예전 방식은, 몬스터가 코어와 일직선(예: y=0 축)에 있을 때 분리력이
+   * 주 방향과 같은 축 위에서만 작용하면 정규화 후 결국 둘 다 똑같은 단위 벡터로
+   * 수렴해버려 — 분리력의 세기 차이가 사라지고 두 몬스터가 완전히 같은 거리만큼
+   * 이동해 간격이 전혀 벌어지지 않는 버그가 있었다. 주 방향은 그 자체로 단위
+   * 벡터로 정규화해 속도를 정하고, 분리 벡터는 별도의 변위로 그 위에 더해야
+   * 몬스터마다 실제로 받는 분리력 세기가 이동 결과에 반영된다.
+   *
+   * **장애물 회피(docs/backend/40)**: 목적지가 자원 노드/콜로니와 겹치면 그
+   * 자리에 완전히 멈추던 이전 방식(`findBlockingStaticObstacle`, docs/backend/38~39)은
+   * 추격 중이던 몬스터가 경로의 자원 노드 하나에 막혀 영원히 멈춰버리는 버그,
+   * 그리고 그렇게 멈춘 몬스터가 시야각도 같이 얼어붙어 근처를 스쳐 지나가는
+   * 플레이어를 다시는 인지 못 하는 버그로 이어졌다. `movePlayer`/`isBlockedForPlayer`가
+   * 쓰던 축 슬라이딩("전체 이동이 막히면 X축만, 그것도 막히면 Y축만")을 그대로
+   * 옮겨 왔지만, 이것만으로는 부족했다 — 그 패턴은 **벽 같은 직선 장애물**
+   * 전제라, 목표가 원형 장애물 중심과 거의 같은 x 또는 y 좌표에 있으면 X축
+   * 이동도 Y축 이동도 둘 다 그 원 안으로 다시 파고드는 경우가 실제로 있다
+   * (대각선 추격 경로가 자원 노드를 스치는 상황을 500틱 이상 추적해서 재현·
+   * 확인). 그래서 셋째 폴백으로 **접선(탄젠트) 미끄러짐**을 추가했다: 장애물
+   * 중심→몬스터 방향 벡터에 수직인 두 방향 중, 원래 가려던 방향과 더 가까운
+   * 쪽으로 미끄러뜨린다 — 원의 표면을 따라 도는 동작이라 X/Y 축 슬라이딩이
+   * 실패하는 바로 그 상황(장애물이 목표 방향의 정면을 가로막을 때)에서 특히
+   * 잘 통한다.
    */
   private moveMonster(
     monster: MonsterEntity,
@@ -1217,8 +1516,59 @@ export class World {
     const normX = dirLength > 0 ? dirX / dirLength : 0;
     const normY = dirLength > 0 ? dirY / dirLength : 0;
 
-    monster.x += (normX * speed + separation.x * speed * SEPARATION_WEIGHT) * dtSeconds;
-    monster.y += (normY * speed + separation.y * speed * SEPARATION_WEIGHT) * dtSeconds;
+    const dx = (normX * speed + separation.x * speed * SEPARATION_WEIGHT) * dtSeconds;
+    const dy = (normY * speed + separation.y * speed * SEPARATION_WEIGHT) * dtSeconds;
+    const monsterR = monsterRadius(monster);
+
+    const fullX = monster.x + dx;
+    const fullY = monster.y + dy;
+    if (!this.isBlockedForMonster(fullX, fullY, monsterR)) {
+      monster.x = fullX;
+      monster.y = fullY;
+      return;
+    }
+
+    if (!this.isBlockedForMonster(fullX, monster.y, monsterR)) {
+      monster.x = fullX;
+      return;
+    }
+
+    if (!this.isBlockedForMonster(monster.x, fullY, monsterR)) {
+      monster.y = fullY;
+      return;
+    }
+
+    // X/Y 축 슬라이딩도 안 됐다 — 목표가 장애물 중심과 거의 같은 x 또는 y라
+    // 두 축 다 원 안으로 다시 파고드는 경우다. 장애물 표면을 따라 접선 방향으로
+    // 미끄러뜨린다.
+    const obstacle = this.findNearestObstacleCenter(monster.x, monster.y, monsterR);
+    if (!obstacle) return; // 여기 도달했다는 건 뭔가 막았다는 뜻이라 원래 없을 케이스
+
+    const radialX = monster.x - obstacle.x;
+    const radialY = monster.y - obstacle.y;
+    const radialLength = Math.hypot(radialX, radialY);
+    if (radialLength === 0) return; // 장애물 중심과 완전히 겹친 극단적 경우 — 방향 정의 불가
+
+    // 반경 벡터에 수직인 두 접선 후보 중, 원래 가려던 방향(dx,dy)과 내적이 더 큰
+    // 쪽(더 그 방향에 가까운 쪽)을 고른다.
+    const tangentAX = -radialY / radialLength;
+    const tangentAY = radialX / radialLength;
+    const tangentBX = radialY / radialLength;
+    const tangentBY = -radialX / radialLength;
+    const useTangentA = tangentAX * dx + tangentAY * dy >= tangentBX * dx + tangentBY * dy;
+    const tangentX = useTangentA ? tangentAX : tangentBX;
+    const tangentY = useTangentA ? tangentAY : tangentBY;
+
+    const stepLength = Math.hypot(dx, dy);
+    const tangentFullX = monster.x + tangentX * stepLength;
+    const tangentFullY = monster.y + tangentY * stepLength;
+    if (!this.isBlockedForMonster(tangentFullX, tangentFullY, monsterR)) {
+      monster.x = tangentFullX;
+      monster.y = tangentFullY;
+    }
+    // 그래도 막히면(자원 노드 여러 개에 완전히 둘러싸인 극단적인 경우) 이 틱은
+    // 움직이지 않는다 — movePlayer도 축 슬라이딩 단계에서 같은 한계를 받아들이고
+    // 있어 일관적이다.
   }
 
   /**
@@ -1255,34 +1605,37 @@ export class World {
 
     if (!closestId) return false;
     const monster = this.monsters.get(closestId)!;
-    this.damageMonster(closestId, monster.hp - projectile.damage);
+    this.damageMonster(closestId, monster.hp - projectile.damage, player.id);
     return true;
   }
 
   private applyMeleeHit(hit: MeleeHit): void {
     for (const [id, monster] of this.monsters) {
       if (withinMeleeArc(hit, monster.x, monster.y, monsterRadius(monster))) {
-        this.damageMonster(id, monster.hp - hit.damage);
+        this.damageMonster(id, monster.hp - hit.damage, hit.ownerId);
       }
     }
   }
 
   /**
-   * 투사체 충돌 처리. 몬스터 판정을 먼저 하고, 못 맞혔으면 건축물 판정으로 넘어간다
-   * — `blocksProjectile`인 건축물(벽)만 투사체를 막는다(울타리는 통과시킨다,
-   * docs/backend/18 §1). 건축물은 데미지를 입지 않는다 — 몬스터 공격으로만 부서진다.
+   * 투사체 충돌 처리. 몬스터 판정을 먼저 하고, 못 맞혔으면 정적 장애물(건축물/자원
+   * 노드/콜로니/코어) 판정으로 넘어간다. 건축물은 `blocksProjectile`인 타입(벽)만
+   * 막는다(울타리는 통과시킨다, docs/backend/18 §1) — 자원 노드/콜로니/코어는
+   * 타입 구분 없이 전부 막는다(docs/backend/38, 사용자가 넷 다 막아달라고 명시).
+   * 어느 쪽이든 맞으면 투사체만 사라지고 대상은 피해를 입지 않는다(건축물은 몬스터
+   * 공격으로만, 자원/콜로니/코어는 아예 파괴 불가로 설계됐다).
    */
   private resolveProjectileHits(): void {
     for (const [projectileId, projectile] of this.projectiles) {
       if (this.projectileHitsMonster(projectileId, projectile)) continue;
-      this.projectileHitsBuilding(projectileId, projectile);
+      this.projectileHitsObstacle(projectileId, projectile);
     }
   }
 
   private projectileHitsMonster(projectileId: string, projectile: ProjectileEntity): boolean {
     for (const [monsterId, monster] of this.monsters) {
       if (circlesOverlap(projectile.x, projectile.y, monster.x, monster.y, monsterRadius(monster))) {
-        this.damageMonster(monsterId, monster.hp - projectile.damage);
+        this.damageMonster(monsterId, monster.hp - projectile.damage, projectile.ownerId);
         this.projectiles.delete(projectileId);
         return true;
       }
@@ -1290,7 +1643,7 @@ export class World {
     return false;
   }
 
-  private projectileHitsBuilding(projectileId: string, projectile: ProjectileEntity): void {
+  private projectileHitsObstacle(projectileId: string, projectile: ProjectileEntity): void {
     for (const building of this.buildings.values()) {
       if (!buildingsData[building.type].blocksProjectile) continue;
       if (circlesOverlap(projectile.x, projectile.y, building.x, building.y, TILE_SIZE / 2)) {
@@ -1298,15 +1651,64 @@ export class World {
         return;
       }
     }
+    for (const node of this.resourceNodes.values()) {
+      if (node.hp <= 0) continue; // 고갈된 자리는 투사체도 그냥 통과한다(docs/backend/39)
+      if (circlesOverlap(projectile.x, projectile.y, node.x, node.y, resourcesData[node.type].hitRadius)) {
+        this.projectiles.delete(projectileId);
+        return;
+      }
+    }
+    for (const colony of this.colonies.values()) {
+      if (circlesOverlap(projectile.x, projectile.y, colony.x, colony.y, COLONY_RADIUS)) {
+        this.projectiles.delete(projectileId);
+        return;
+      }
+    }
+    if (circlesOverlap(projectile.x, projectile.y, 0, 0, CORE_RADIUS)) {
+      this.projectiles.delete(projectileId);
+    }
   }
 
-  private damageMonster(id: string, remainingHp: number): void {
+  /**
+   * `killerId`는 처치 보상을 누구에게 줄지 판정하는 데만 쓴다 — 없거나 이미 퇴장한
+   * 플레이어면(투사체가 날아가는 동안 쏜 사람이 나간 경우 등) 흔한 자원(scrap) 보상만
+   * 조용히 사라진다(팀 공유 보상인 energy는 killerId 없이도 그대로 지급된다).
+   */
+  private damageMonster(id: string, remainingHp: number, killerId?: string): void {
     if (remainingHp <= 0) {
+      const monster = this.monsters.get(id);
       this.monsters.delete(id);
+      if (monster) this.grantMonsterDrop(monster, killerId);
       return;
     }
     const monster = this.monsters.get(id);
     if (monster) monster.hp = remainingHp;
+  }
+
+  /**
+   * 처치 보상 지급. 몬스터 타입 데이터에 `energyDrop`이 있으면(보스) 팀 공유 창고로
+   * 즉시 지급하고, `scrapDrop`이 있으면(흔한 몬스터) 잡은 플레이어의 휴대 자원에
+   * 지급한다 — 둘은 같은 몬스터 타입에 동시에 정의하지 않는 서로 다른 등급의 보상이다
+   * (docs/backend 참고). 어느 쪽 필드도 없으면(설정 안 된 타입) 아무것도 지급하지 않는다.
+   */
+  private grantMonsterDrop(monster: MonsterEntity, killerId: string | undefined): void {
+    const data = monstersData[monster.type];
+
+    if (data.energyDrop) {
+      this.core.sharedEnergy += this.rollDropRange(data.energyDrop);
+      return;
+    }
+
+    if (data.scrapDrop && killerId) {
+      const player = this.players.get(killerId);
+      if (player) player.scrap += this.rollDropRange(data.scrapDrop);
+    }
+  }
+
+  /** [min, max] 정수 범위(양끝 포함)에서 하나를 뽑는다. World의 rng를 재사용해 테스트에서 결정론적으로 검증할 수 있게 한다. */
+  private rollDropRange(range: DropRange): number {
+    if (range.max <= range.min) return range.min;
+    return range.min + Math.floor(this.rng() * (range.max - range.min + 1));
   }
 }
 

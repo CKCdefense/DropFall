@@ -13,6 +13,13 @@ export interface ColonyEntity {
 
 const DIRECTIONS = 4;
 
+/**
+ * 콜로니 자신의 충돌 판정 반경(px) — 몬스터/플레이어/투사체가 통과하지 못하게 막는
+ * 하드 충돌에 쓴다(docs/backend/38). 클라이언트 렌더 크기(`COLONY_SIZE = 28` in
+ * EntityRenderer.ts)의 절반과 값을 맞춰서 "보이는 크기 = 막히는 범위" 원칙을 지킨다.
+ */
+export const COLONY_RADIUS = 14;
+
 let nextColonyId = 1;
 
 /**

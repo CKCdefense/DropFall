@@ -84,6 +84,10 @@ export class GameRoom extends Room {
       if (this.state.phase !== RoomPhase.PLAYING) return;
       this.world.depositAtCore(client.sessionId);
     },
+    upgradeCore: (client: Client) => {
+      if (this.state.phase !== RoomPhase.PLAYING) return;
+      this.world.upgradeCore(client.sessionId);
+    },
     placeBuilding: (client: Client, payload: BuildInputMessage) => {
       if (this.state.phase !== RoomPhase.PLAYING) return;
       this.world.placeBuilding(client.sessionId, payload?.buildingType, payload?.cx, payload?.cy);
@@ -244,6 +248,7 @@ export class GameRoom extends Room {
       schema.hp = player.hp;
       schema.wood = player.wood;
       schema.stone = player.stone;
+      schema.scrap = player.scrap;
       schema.channelProgress = player.channelProgress;
 
       // 슬롯은 매 틱 통째로 덮어쓴다. 4칸뿐이라 변경 감지를 따로 하는 것보다 싸고,
@@ -269,7 +274,12 @@ export class GameRoom extends Room {
     this.state.coreMaxHp = core.maxHp;
     this.state.coreSharedWood = core.sharedWood;
     this.state.coreSharedStone = core.sharedStone;
+    this.state.coreSharedScrap = core.sharedScrap;
     this.state.coreSharedEnergy = core.sharedEnergy;
+    this.state.coreTier = core.tier;
+    this.state.coreBuildRadius = this.world.getBuildRadius();
+    this.state.craftingUnlocked = this.world.isCraftingUnlocked();
+    this.state.statUpgradesUnlocked = this.world.isStatUpgradesUnlocked();
     this.state.wavePhase = this.world.getWavePhase();
     this.state.currentWave = this.world.getCurrentWave();
     this.state.phaseTimeRemaining = this.world.getPhaseTimeRemaining();

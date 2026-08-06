@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { World } from '../src/sim/world';
-import { resourcesData, wavesData } from '../src/data';
+import { coreUpgradesData, monstersData, resourcesData, wavesData } from '../src/data';
+import { HIT_RADIUS } from '../src/sim/combat';
+import { COLONY_RADIUS } from '../src/sim/colony';
 
 /** 1웨이브가 시작될 때까지(day → night) 틱을 진행시킨다. */
 function startFirstWave(world: World): void {
@@ -30,6 +32,14 @@ function worldToCell(x: number, y: number): { cx: number; cy: number } {
   };
 }
 
+/**
+ * world.ts의 자원 군집 배치 상수(CLUSTER_MIN_DISTANCE/CLUSTER_JITTER_RADIUS, private)를
+ * 스폰 최소거리·리스폰 재배치 범위를 검증하는 테스트에서 쓰려고 같은 값으로 미러링한다
+ * — 위 worldToCell과 같은 이유(private 상수를 굳이 export하기보단 테스트에서 재구성).
+ */
+const TEST_CLUSTER_MIN_DISTANCE = 260;
+const TEST_CLUSTER_JITTER_RADIUS = 80;
+
 /** 매번 같은 시퀀스를 내는 결정론적 rng — wave.test.ts와 동일 패턴(테스트 재현성용). */
 function seededRng(seed: number): () => number {
   let state = seed;
@@ -46,8 +56,20 @@ function seededRng(seed: number): () => number {
  * 좌표에 자원 노드가 우연히 겹치면 테스트가 간헐적으로 실패할 수 있다. 시드를 고정해서
  * 이 파일의 모든 테스트가 완전히 결정론적인 배치를 쓰게 한다.
  */
+/**
+ * 이 파일의 테스트는 대부분 코어에서 멀리 떨어진 좌표(예: (550,500))에 건축물을
+ * 짓는다 — 건설 가능 반경(docs/backend/38, `getBuildRadius()`) 자체를 검증하는
+ * 테스트가 아니라 충돌/비용/파괴 같은 다른 메커니즘을 보는 테스트라, 반경 제한이
+ * 우연히 걸려서 실패하면 안 된다. 티어를 최고 단계로 올려 반경을 사실상 무제한에
+ * 가깝게 넉넉히 열어둔다 — `grantSharedResources`가 자원 비용 제약을 없애는 것과
+ * 같은 이유의 같은 패턴이다. 반경 제한 자체는 별도 테스트(coreUpgrade.test.ts)에서
+ * 검증한다.
+ */
 function createTestWorld(): World {
-  return new World({ rng: seededRng(1) });
+  const world = new World({ rng: seededRng(1) });
+  const core = world.getCore() as { tier: number };
+  core.tier = coreUpgradesData.tiers.length;
+  return world;
 }
 
 /**
@@ -483,40 +505,40 @@ describe('World — 건축물과 플레이어', () => {
 
   it('벽은 플레이어의 이동을 막는다(통과 불가)', () => {
     const world = createTestWorld();
-    world.addPlayer('builder', 800, 800);
-    build(world, 'builder', 'wall', 850, 800);
+    world.addPlayer('builder', 500, 500);
+    build(world, 'builder', 'wall', 550, 500);
     const wall = [...world.getBuildings().values()][0]!;
 
-    world.addPlayer('p1', 800, 800);
+    world.addPlayer('p1', 500, 500);
     world.setInput('p1', { seq: 1, moveX: 1, moveY: 0, aimAngle: 0 });
 
     const player = world.getPlayers().get('p1')!;
     for (let i = 0; i < 300; i += 1) world.tick(0.1);
 
-    expect(player.x).toBeGreaterThan(800); // 벽까지는 다가갔다
+    expect(player.x).toBeGreaterThan(500); // 벽까지는 다가갔다
     expect(player.x).toBeLessThan(wall.x); // 벽을 뚫고 지나가지는 못했다
   });
 
   it('울타리도 플레이어의 이동을 막는다(통과 불가)', () => {
     const world = createTestWorld();
-    world.addPlayer('builder', 800, 800);
-    build(world, 'builder', 'fence', 850, 800);
+    world.addPlayer('builder', 500, 500);
+    build(world, 'builder', 'fence', 550, 500);
     const fence = [...world.getBuildings().values()][0]!;
 
-    world.addPlayer('p1', 800, 800);
+    world.addPlayer('p1', 500, 500);
     world.setInput('p1', { seq: 1, moveX: 1, moveY: 0, aimAngle: 0 });
 
     const player = world.getPlayers().get('p1')!;
     for (let i = 0; i < 300; i += 1) world.tick(0.1);
 
-    expect(player.x).toBeGreaterThan(800);
+    expect(player.x).toBeGreaterThan(500);
     expect(player.x).toBeLessThan(fence.x);
   });
 
   it('건축물에 대각선으로 부딪히면 완전히 멈추지 않고 옆으로 미끄러진다(축 슬라이딩)', () => {
     const world = createTestWorld();
-    world.addPlayer('builder', 800, 800);
-    build(world, 'builder', 'wall', 850, 800);
+    world.addPlayer('builder', 500, 500);
+    build(world, 'builder', 'wall', 550, 500);
     const wall = [...world.getBuildings().values()][0]!;
 
     world.addPlayer('p1', 0, 0);
@@ -590,5 +612,425 @@ describe('World — 건축물과 투사체', () => {
     for (let i = 0; i < 80; i += 1) world.tick(0.01);
 
     expect(monster!.hp).toBeLessThan(monster!.maxHp); // 울타리를 통과해서 맞았다
+  });
+});
+
+/**
+ * 자원 노드는 군집(클러스터)으로 배치돼서(§backend/26) 첫 번째 노드를 그대로 쓰면
+ * 근처(간격 최소 36px)에 다른 노드가 있어 하드 충돌 테스트가 "어느 노드에 막혔는지"
+ * 헷갈릴 수 있다 — 클러스터 범위(최대 CLUSTER_MAX_DISTANCE+JITTER≈430) 밖의 완전히
+ * 격리된 좌표로 옮겨서 반환한다.
+ */
+function isolateResourceNode(world: World): { x: number; y: number } {
+  const node = [...world.getResourceNodes().values()][0]!;
+  node.x = 600;
+  node.y = 0;
+  return node;
+}
+
+describe('World — 자원 노드/콜로니/코어와 플레이어(하드 충돌, docs/backend/38)', () => {
+  it('자원 노드는 플레이어의 이동을 막는다(통과 불가)', () => {
+    const world = createTestWorld();
+    const node = isolateResourceNode(world);
+    world.addPlayer('p1', node!.x - 50, node!.y);
+    world.setInput('p1', { seq: 1, moveX: 1, moveY: 0, aimAngle: 0 });
+
+    const player = world.getPlayers().get('p1')!;
+    for (let i = 0; i < 300; i += 1) world.tick(0.1);
+
+    expect(player.x).toBeGreaterThan(node!.x - 50); // 다가가긴 했다
+    expect(player.x).toBeLessThan(node!.x); // 뚫고 지나가지는 못했다
+  });
+
+  it('콜로니는 플레이어의 이동을 막는다(통과 불가)', () => {
+    const world = createTestWorld();
+    const [colony] = [...world.getColonies().values()];
+    world.addPlayer('p1', colony!.x - 50, colony!.y);
+    world.setInput('p1', { seq: 1, moveX: 1, moveY: 0, aimAngle: 0 });
+
+    const player = world.getPlayers().get('p1')!;
+    for (let i = 0; i < 300; i += 1) world.tick(0.1);
+
+    expect(player.x).toBeGreaterThan(colony!.x - 50);
+    expect(player.x).toBeLessThan(colony!.x);
+  });
+
+  it('코어는 플레이어의 이동을 막는다(통과 불가) — 코어는 항상 원점(0,0)이다', () => {
+    const world = createTestWorld();
+    world.addPlayer('p1', -50, 0);
+    world.setInput('p1', { seq: 1, moveX: 1, moveY: 0, aimAngle: 0 });
+
+    const player = world.getPlayers().get('p1')!;
+    for (let i = 0; i < 300; i += 1) world.tick(0.1);
+
+    expect(player.x).toBeGreaterThan(-50);
+    expect(player.x).toBeLessThan(0);
+  });
+});
+
+describe('World — 자원 노드/콜로니/코어와 투사체(docs/backend/38)', () => {
+  it('자원 노드는 투사체를 막고 피해를 입지 않는다', () => {
+    const world = createTestWorld();
+    const node = isolateResourceNode(world);
+    const hpBefore = node!.hp;
+    world.addPlayer('shooter', node!.x - 60, node!.y); // aimAngle 기본 0 → +x 방향 조준
+
+    world.fireWeapon('shooter');
+    expect(world.getProjectiles().size).toBe(1);
+
+    for (let i = 0; i < 30; i += 1) world.tick(0.1);
+
+    expect(world.getProjectiles().size).toBe(0); // 막혀서 소멸했다
+    expect(node!.hp).toBe(hpBefore); // 자원 노드는 피해를 입지 않는다(파괴 불가)
+  });
+
+  it('콜로니는 투사체를 막고 파괴되지 않는다', () => {
+    const world = createTestWorld();
+    const [colony] = [...world.getColonies().values()];
+    world.addPlayer('shooter', colony!.x - 60, colony!.y);
+
+    world.fireWeapon('shooter');
+    expect(world.getProjectiles().size).toBe(1);
+
+    for (let i = 0; i < 30; i += 1) world.tick(0.1);
+
+    expect(world.getProjectiles().size).toBe(0);
+    expect(colony!.destroyed).toBe(false);
+  });
+
+  it('코어는 투사체를 막고 피해를 입지 않는다', () => {
+    const world = createTestWorld();
+    const hpBefore = world.getCore().hp;
+    world.addPlayer('shooter', -60, 0);
+
+    world.fireWeapon('shooter');
+    expect(world.getProjectiles().size).toBe(1);
+
+    for (let i = 0; i < 30; i += 1) world.tick(0.1);
+
+    expect(world.getProjectiles().size).toBe(0);
+    expect(world.getCore().hp).toBe(hpBefore);
+  });
+});
+
+describe('World — 자원 노드/콜로니가 몬스터 이동을 막는다(docs/backend/38, docs/backend/40)', () => {
+  /**
+   * 예전엔 `world.tick(1)`처럼 큰 dt 한 번으로 충분했다 — "이미 막힘 반경 안에
+   * 있으면 그 자리에서 완전히 멈춘다"는 사전 검사(findBlockingStaticObstacle)가
+   * 이동 여부와 무관하게 즉시 얼렸기 때문이다. docs/backend/40에서 목적지 기반
+   * 축 슬라이딩(moveMonster, isBlockedForMonster)으로 바뀌면서 큰 dt 한 번은
+   * 오히려 장애물을 한 틱에 건너뛰어(터널링) "안 막힌 것처럼" 보이게 만든다 —
+   * 투사체/근접 판정에서 이미 겪은 것과 같은 종류의 문제라 같은 해법(dt를
+   * 촘촘히 쪼갠다)을 쓴다. 실제 게임은 항상 1/60초 단위로 틱하므로 이건 순전히
+   * 테스트 전용 조정이다.
+   */
+  function tickFinely(world: World, totalSeconds: number): void {
+    const steps = Math.round(totalSeconds / 0.01);
+    for (let i = 0; i < steps; i += 1) world.tick(0.01);
+  }
+
+  it('추격 중인 몬스터가 자원 노드에 막히면 공격 없이 그 자리에 멈춘다', () => {
+    const world = createTestWorld();
+    world.addPlayer('p1', 0, 0);
+    startFirstWave(world);
+
+    const node = isolateResourceNode(world);
+    const [monster] = [...world.getMonsters().values()];
+    (monster as { type: string }).type = 'rusher'; // aggroRadius 120
+    // rusher(반경6)+노드(반경14)=20px가 실제 충돌 경계 — 15px 앞은 이미 그 안이라
+    // 축 슬라이딩으로도 한 발짝도 못 나간다(세 방향 후보 모두 이미 겹친 상태).
+    monster!.x = node!.x - 15;
+    monster!.y = node!.y;
+    monster!.facingX = 1;
+    monster!.facingY = 0;
+
+    const player = world.getPlayers().get('p1')!;
+    player.x = node!.x + 50; // 노드 너머(65px 떨어짐, 어그로 반경 120 안)
+    player.y = node!.y;
+
+    const monsterXBefore = monster!.x;
+    const nodeHpBefore = node!.hp;
+    const playerHpBefore = player.hp;
+
+    tickFinely(world, 1); // attackInterval을 넘기고도 남을 시간
+
+    expect(monster!.x).toBe(monsterXBefore); // 이동하지 않았다
+    expect(node!.hp).toBe(nodeHpBefore); // 공격하지도 않았다(파괴 불가)
+    expect(player.hp).toBe(playerHpBefore); // 타겟에도 못 미쳤으니 공격 못 함
+  });
+
+  it('추격 중인 몬스터가 콜로니에 막히면 공격 없이 그 자리에 멈춘다', () => {
+    const world = createTestWorld();
+    world.addPlayer('p1', 0, 0);
+    startFirstWave(world);
+
+    const [colony] = [...world.getColonies().values()];
+    const [monster] = [...world.getMonsters().values()];
+    (monster as { type: string }).type = 'rusher';
+    monster!.x = colony!.x - 15;
+    monster!.y = colony!.y;
+    monster!.facingX = 1;
+    monster!.facingY = 0;
+
+    const player = world.getPlayers().get('p1')!;
+    player.x = colony!.x + 50;
+    player.y = colony!.y;
+
+    const monsterXBefore = monster!.x;
+
+    tickFinely(world, 1);
+
+    expect(monster!.x).toBe(monsterXBefore);
+    expect(colony!.destroyed).toBe(false);
+  });
+
+  it('코어로 걸어가는 몬스터는 콜로니가 직선 경로를 막아도 그대로 뚫고 가지 않고 우회한다(Flow Field)', () => {
+    const world = createTestWorld();
+    startFirstWave(world);
+
+    const [colony] = [...world.getColonies().values()];
+    const [monster] = [...world.getMonsters().values()];
+
+    // 콜로니-코어 연장선 위, 콜로니보다 더 바깥쪽에 몬스터를 둔다 — 코어로 가는
+    // 직선이 정확히 콜로니를 통과하는 배치다.
+    const colonyDistance = Math.hypot(colony!.x, colony!.y);
+    const towardCore = { x: -colony!.x / colonyDistance, y: -colony!.y / colonyDistance };
+    monster!.x = colony!.x - towardCore.x * 60;
+    monster!.y = colony!.y - towardCore.y * 60;
+
+    // 접근하는 내내 콜로니 충돌 반경(COLONY_RADIUS=14px) 안으로는 한 번도 들어가지
+    // 않아야 "뚫지 않고 우회했다"고 확신할 수 있다 — 틱 한 번의 방향 벡터만 보면
+    // (건축물 우회 테스트처럼) 거리에 따라 편차가 미미해 흔들릴 수 있어서, 대신
+    // 실제 이동 궤적 전체에서 최소 거리를 추적한다.
+    let minDistanceToColony = Infinity;
+    for (let i = 0; i < 500; i += 1) {
+      world.tick(0.1);
+      const distance = Math.hypot(monster!.x - colony!.x, monster!.y - colony!.y);
+      if (distance < minDistanceToColony) minDistanceToColony = distance;
+    }
+
+    expect(minDistanceToColony).toBeGreaterThan(14);
+  });
+
+  it('코어 자신은 FlowField 목표 셀이라 차단 집합에서 제외된다 — 몬스터가 여전히 코어에 도달해 공격한다', () => {
+    const world = createTestWorld();
+    startFirstWave(world);
+
+    const [monster] = [...world.getMonsters().values()];
+    monster!.x = 0;
+    monster!.y = 0; // 코어 바로 위
+
+    const coreHpBefore = world.getCore().hp;
+    world.tick(1.5);
+
+    expect(world.getCore().hp).toBeLessThan(coreHpBefore);
+  });
+
+  it('반경이 큰 몬스터(탱커)도 자원 노드의 실제 충돌 반경 안으로 못 들어간다(docs/backend/39 반경 미포함 버그 수정)', () => {
+    const world = createTestWorld();
+    startFirstWave(world);
+
+    const node = isolateResourceNode(world);
+    const [monster] = [...world.getMonsters().values()];
+    // tanker hitRadius=9, 자원 노드 hitRadius=14 → 실제로 안 겹치려면 23px는 떨어져야
+    // 하는데, 고쳐지기 전엔 attackRange(20px)를 그대로 멈춤 기준으로 써서 3px가
+    // 부족한 채로 멈췄다 — 몸집이 작은 타입(HIT_RADIUS=6~9)에서는 안 드러나던 버그다.
+    (monster as { type: string }).type = 'tanker';
+    // 콜로니 우회 테스트(위)와 같은 배치: 몬스터-코어 직선이 노드를 정확히 지나가게
+    // 노드보다 바깥쪽에 둔다.
+    monster!.x = node!.x + 100;
+    monster!.y = node!.y;
+
+    let minDistanceToNode = Infinity;
+    for (let i = 0; i < 500; i += 1) {
+      world.tick(0.1);
+      const distance = Math.hypot(monster!.x - node!.x, monster!.y - node!.y);
+      if (distance < minDistanceToNode) minDistanceToNode = distance;
+    }
+
+    const combinedRadius = 9 + resourcesData[node!.type].hitRadius; // tanker(9) + 노드(14) = 23
+    expect(minDistanceToNode).toBeGreaterThan(combinedRadius);
+  });
+
+  it('추격 경로가 자원 노드를 대각선으로 스치면 얼어붙지 않고 우회해서 타겟에 도달한다(docs/backend/40)', () => {
+    // 몬스터-타겟(플레이어)이 정확히 같은 축(x 또는 y)에 있으면 축 슬라이딩만으로도
+    // 충분히 멈춰야 정상이지만(위 두 "그 자리에 멈춘다" 테스트), 실제 추격은 거의
+    // 항상 대각선이다 — 이 경우 X축 이동도 Y축 이동도 둘 다 다시 원 안으로 파고드는
+    // 상황이 생길 수 있는데(축 슬라이딩만으로는 원형 장애물을 못 돈다), 처음 이
+    // 버그를 고치려던 시도는 실제로 이 케이스에서 몬스터가 노드 경계에 영원히
+    // 멈춰버렸다(재현 후 접선 미끄러짐 폴백 추가로 해결).
+    const world = createTestWorld();
+    world.addPlayer('p1', 0, 0);
+    startFirstWave(world);
+
+    const node = isolateResourceNode(world); // (600, 0)
+    const [monster] = [...world.getMonsters().values()];
+    (monster as { type: string }).type = 'rusher'; // hitRadius 6, aggroRadius 120
+    monster!.x = node!.x - 30;
+    monster!.y = node!.y - 40;
+    monster!.facingX = 1;
+    monster!.facingY = 1;
+
+    const player = world.getPlayers().get('p1')!;
+    player.x = node!.x + 30; // 몬스터-플레이어 직선이 노드 중심을 스친다
+    player.y = node!.y + 40; // 몬스터로부터 거리 100 — 어그로 반경(120) 안
+
+    let minDistanceToNode = Infinity;
+    let reachedPlayer = false;
+    for (let i = 0; i < 300 && !reachedPlayer; i += 1) {
+      world.tick(0.01);
+      const distanceToNode = Math.hypot(monster!.x - node!.x, monster!.y - node!.y);
+      if (distanceToNode < minDistanceToNode) minDistanceToNode = distanceToNode;
+      if (Math.hypot(monster!.x - player.x, monster!.y - player.y) <= monstersData.rusher.attackRange) {
+        reachedPlayer = true;
+      }
+    }
+
+    const combinedRadius = 6 + resourcesData[node!.type].hitRadius; // rusher(6) + 노드(14) = 20
+    expect(minDistanceToNode).toBeGreaterThan(combinedRadius - 0.1); // 뚫지 않았다(부동소수 오차 여유)
+    expect(reachedPlayer).toBe(true); // 얼어붙지 않고 결국 우회해서 도달했다
+  });
+});
+
+describe('World — 콜로니 스폰 위치(docs/backend/40)', () => {
+  it('콜로니에서 스폰된 몬스터는 콜로니와 겹치지 않는 위치에서 태어나고, 곧바로 이동한다', () => {
+    // 예전엔 addMonster(type, colony.x, colony.y)로 콜로니 중심 그대로 스폰시켰다
+    // — 콜로니에 하드 충돌이 생긴 뒤로는(docs/backend/38), 스폰된 몬스터가 태어나자마자
+    // 이미 자기 자신을 낳은 콜로니와 겹친 상태라 findBlockingStaticObstacle류 검사가
+    // 항상 막아서 영원히 그 자리에 끼어 있었다.
+    const world = createTestWorld();
+    const [colony] = [...world.getColonies().values()];
+    (world.getColonies().get(colony!.id) as { spawnTimer: number }).spawnTimer = 0.001;
+
+    const monstersBefore = world.getMonsters().size;
+    world.tick(0.01); // 스폰 경계를 넘겨서 몬스터 하나가 태어난다
+    expect(world.getMonsters().size).toBe(monstersBefore + 1);
+
+    const monster = [...world.getMonsters().values()][0]!;
+    const monsterR = monstersData[monster.type].hitRadius;
+    const distanceToColony = Math.hypot(monster.x - colony!.x, monster.y - colony!.y);
+    expect(distanceToColony).toBeGreaterThan(COLONY_RADIUS + monsterR); // 겹치지 않는다
+
+    const spawnX = monster.x;
+    const spawnY = monster.y;
+    for (let i = 0; i < 50; i += 1) world.tick(0.1); // 5초
+
+    expect(monster.x !== spawnX || monster.y !== spawnY).toBe(true); // 끼어서 멈춰있지 않았다
+  });
+});
+
+describe('World — 고갈된 자원 노드는 아무것도 막지 않는다(docs/backend/39)', () => {
+  it('고갈된 자원 노드는 플레이어의 이동을 막지 않는다', () => {
+    const world = createTestWorld();
+    const node = isolateResourceNode(world);
+    node.hp = 0;
+    node.respawnTimer = resourcesData[node.type].respawnSeconds;
+    world.addPlayer('p1', node.x - 50, node.y);
+    world.setInput('p1', { seq: 1, moveX: 1, moveY: 0, aimAngle: 0 });
+
+    const player = world.getPlayers().get('p1')!;
+    for (let i = 0; i < 300; i += 1) world.tick(0.1);
+
+    expect(player.x).toBeGreaterThan(node.x); // 막히지 않고 뚫고 지나갔다
+  });
+
+  it('고갈된 자원 노드는 투사체를 막지 않는다', () => {
+    const world = createTestWorld();
+    const node = isolateResourceNode(world);
+    node.hp = 0;
+    node.respawnTimer = resourcesData[node.type].respawnSeconds;
+    world.addPlayer('shooter', node.x - 60, node.y); // aimAngle 기본 0 → +x 방향 조준
+
+    world.fireWeapon('shooter');
+    expect(world.getProjectiles().size).toBe(1);
+
+    for (let i = 0; i < 5; i += 1) world.tick(0.1); // 420px/s × 0.5s = 210px, 노드를 지나치기 충분
+
+    expect(world.getProjectiles().size).toBe(1); // 막혀서 소멸하지 않았다
+    const [projectile] = [...world.getProjectiles().values()];
+    expect(projectile!.x).toBeGreaterThan(node.x); // 이미 노드를 지나쳤다
+  });
+
+  it('고갈된 자원 노드는 몬스터의 이동도 막지 않는다', () => {
+    const world = createTestWorld();
+    world.addPlayer('p1', 0, 0);
+    startFirstWave(world);
+
+    const node = isolateResourceNode(world);
+    node.hp = 0;
+    node.respawnTimer = resourcesData[node.type].respawnSeconds;
+    const [monster] = [...world.getMonsters().values()];
+    (monster as { type: string }).type = 'rusher'; // aggroRadius 120
+    monster!.x = node.x - 15; // 살아있었다면 노드에 막혔을 위치
+    monster!.y = node.y;
+    monster!.facingX = 1;
+    monster!.facingY = 0;
+
+    const player = world.getPlayers().get('p1')!;
+    player.x = node.x + 50;
+    player.y = node.y;
+
+    const monsterXBefore = monster!.x;
+
+    world.tick(1); // attackInterval을 넘기고도 남을 시간
+
+    expect(monster!.x).not.toBe(monsterXBefore); // 막히지 않고 계속 이동했다
+  });
+});
+
+describe('World — 자원 노드 리스폰 재배치(docs/backend/39)', () => {
+  it('고갈→리스폰되면 원래 좌표가 아닌 같은 군집 안 새 위치로 옮겨간다', () => {
+    const world = createTestWorld();
+    const [node] = [...world.getResourceNodes().values()];
+    const originalX = node!.x;
+    const originalY = node!.y;
+    const clusterX = node!.clusterX;
+    const clusterY = node!.clusterY;
+
+    node!.hp = 0;
+    node!.respawnTimer = 0.05; // 다음 틱에 바로 리스폰되게 아주 짧게 잡는다
+
+    world.tick(0.1);
+
+    expect(node!.respawnTimer).toBe(0);
+    expect(node!.hp).toBe(resourcesData[node!.type].hp);
+    expect(node!.x !== originalX || node!.y !== originalY).toBe(true); // 원래 자리가 아니다
+    // 리스폰 위치는 항상 "노드가 속한 군집" 중심(clusterX/Y — 리스폰에도 안 변함) 기준
+    // 지터 반경 안이어야 한다.
+    const distanceFromClusterCenter = Math.hypot(node!.x - clusterX, node!.y - clusterY);
+    expect(distanceFromClusterCenter).toBeLessThanOrEqual(TEST_CLUSTER_JITTER_RADIUS);
+  });
+
+  it('리스폰 위치가 군집 중심에 서 있는 플레이어와 겹치지 않는다', () => {
+    const world = createTestWorld();
+    const [node] = [...world.getResourceNodes().values()];
+    const clusterX = node!.clusterX;
+    const clusterY = node!.clusterY;
+
+    world.addPlayer('p1', clusterX, clusterY); // 하필 군집 중심에 서 있다
+
+    node!.hp = 0;
+    node!.respawnTimer = 0.05;
+    world.tick(0.1);
+
+    const player = world.getPlayers().get('p1')!;
+    const nodeRadius = resourcesData[node!.type].hitRadius;
+    const distance = Math.hypot(node!.x - player.x, node!.y - player.y);
+    expect(distance).toBeGreaterThanOrEqual(HIT_RADIUS + nodeRadius);
+  });
+});
+
+describe('World — 자원 군집 스폰 최소거리(docs/backend/39)', () => {
+  it('모든 자원 노드가 코어(원점)에서 최소거리 이상 떨어져 있다', () => {
+    const world = createTestWorld();
+    // 군집 중심 자체는 항상 TEST_CLUSTER_MIN_DISTANCE 이상 떨어져 있지만, 노드 개별
+    // 좌표는 거기서 지터(최대 TEST_CLUSTER_JITTER_RADIUS)만큼 코어 쪽으로 더 붙을 수
+    // 있다 — 삼각부등식으로 보장되는 최소값(|중심|-|지터|)을 바닥값으로 검증한다.
+    const floor = TEST_CLUSTER_MIN_DISTANCE - TEST_CLUSTER_JITTER_RADIUS;
+
+    for (const node of world.getResourceNodes().values()) {
+      const distance = Math.hypot(node.x, node.y);
+      expect(distance).toBeGreaterThanOrEqual(floor);
+    }
   });
 });

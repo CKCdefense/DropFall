@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { TILE_SIZE, computeCameraZoom } from '@dropfall/shared';
+import { MAP_SIZE_TILES, TILE_SIZE, computeCameraZoom } from '@dropfall/shared';
 import type { GameConnection } from '../../net/GameConnection';
 import { CONNECTION_KEY, INPUT_CONTROLLER_KEY } from '../createGame';
 import { EntityRenderer } from '../render/EntityRenderer';
@@ -10,9 +10,18 @@ import { HUD_SCENE_KEY } from './HudScene';
 
 export const GAME_SCENE_KEY = 'Game';
 
-/** 임시 맵 크기. Tiled 맵이 들어오면 교체된다. */
-const WORLD_WIDTH = TILE_SIZE * 80;
-const WORLD_HEIGHT = TILE_SIZE * 80;
+/**
+ * 맵 크기. 반드시 shared의 MAP_SIZE_TILES(FlowField/지형/콜로니가 실제로 쓰는 맵
+ * 크기)와 같은 값을 써야 한다 — 예전엔 여기 독립적으로 `TILE_SIZE * 80`(1280px,
+ * 절반 640px)이라는 "임시" 값을 박아뒀는데, 실제 맵은 그보다 훨씬 큰
+ * `MAP_SIZE_TILES * TILE_SIZE`(2048px, 절반 1024px)였다. 카메라 bounds
+ * (setBounds)가 이 상수로 제한되다 보니, 맵 안에 있는(예: 900px 밖 콜로니)
+ * 엔티티인데도 카메라가 거기까지 스크롤을 못 해서 "렌더링 밖이라 갈 수 없다"는
+ * 버그가 있었다(docs/backend/35 이후 발견). 맵 크기를 새로 정의하지 말고 항상
+ * 이 상수를 그대로 쓸 것.
+ */
+const WORLD_WIDTH = TILE_SIZE * MAP_SIZE_TILES;
+const WORLD_HEIGHT = TILE_SIZE * MAP_SIZE_TILES;
 
 export class GameScene extends Phaser.Scene {
   private connection!: GameConnection;
