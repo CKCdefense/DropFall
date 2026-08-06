@@ -31,6 +31,20 @@ export const INPUT_CONTROLLER_KEY = 'inputController';
  * 픽셀아트 룩은 정수배 카메라 줌 + pixelArt/roundPixels로 유지된다.
  */
 export function createGame(parent: HTMLElement, connection: GameConnection): Phaser.Game {
+  /*
+   * **물리 픽셀 기준으로 렌더링한다.**
+   *
+   * Windows 배율(125%/150%)이 걸린 화면에서는 CSS 픽셀과 물리 픽셀이 어긋난다.
+   * 캔버스를 CSS 크기(RESIZE)로 만들면 게임 픽셀 1개가 물리 픽셀 2.5개 같은 소수
+   * 배로 그려지는데, 이때 브라우저가 어느 열을 3픽셀로 만들지는 캔버스의 서브픽셀
+   * 위상에 달려 있어 **스크롤할 때마다 뒤바뀐다** — 화면 전체가 자글자글 기어다니고,
+   * 포장 타일처럼 규칙적 패턴은 통째로 번쩍인다(측정: 배율 100%에선 프레임 간 픽셀
+   * 불일치 0%, 125%에선 반 픽셀 위상 어긋남 발생).
+   *
+   * 캔버스 버퍼를 물리 픽셀 크기로 잡고 CSS로 1/DPR 축소(zoom)하면, 카메라 줌이
+   * 물리 픽셀의 정수배가 되어 어떤 배율에서도 픽셀이 고정된다.
+   */
+  const dpr = Math.max(1, window.devicePixelRatio || 1);
   const game = new Phaser.Game({
     type: Phaser.AUTO,
     parent,
@@ -39,13 +53,30 @@ export function createGame(parent: HTMLElement, connection: GameConnection): Pha
     antialias: false,
     backgroundColor: '#14161d',
     scale: {
-      // 캔버스가 부모 크기를 그대로 따라간다. 확대/축소 없음.
-      mode: Phaser.Scale.RESIZE,
+      // RESIZE는 CSS 크기를 그대로 버퍼 크기로 쓴다 — DPR을 끼워 넣을 수 없어서
+      // NONE + zoom(1/dpr)으로 직접 잡고, 창 크기 변화는 아래에서 손으로 따라간다.
+      mode: Phaser.Scale.NONE,
       autoCenter: Phaser.Scale.NO_CENTER,
+      width: Math.round(parent.clientWidth * dpr) || 1,
+      height: Math.round(parent.clientHeight * dpr) || 1,
+      zoom: 1 / dpr,
     },
     // 배열의 첫 씬만 자동 시작된다. HUD는 GameScene이 launch로 띄운다.
     scene: [GameScene, HudScene],
   });
+
+  // NONE 모드는 창 크기를 따라가지 않는다 — 직접 듣는다. DPR도 매번 다시 읽는다
+  // (창을 다른 배율의 모니터로 옮기면 devicePixelRatio가 바뀐다).
+  const onResize = (): void => {
+    const nextDpr = Math.max(1, window.devicePixelRatio || 1);
+    game.scale.zoom = 1 / nextDpr;
+    game.scale.resize(
+      Math.round(parent.clientWidth * nextDpr) || 1,
+      Math.round(parent.clientHeight * nextDpr) || 1,
+    );
+  };
+  window.addEventListener('resize', onResize);
+  game.events.once(Phaser.Core.Events.DESTROY, () => window.removeEventListener('resize', onResize));
 
   game.registry.set(CONNECTION_KEY, connection);
 

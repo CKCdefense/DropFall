@@ -192,13 +192,15 @@ export const PAVEMENT_TILE_START = DECO_TILE_START + 16;
  * 건축 가능 반경 안 포장의 꼭짓점 판정. 지형 노이즈 대신 **원 안인지**만 본다 —
  * 코어 업그레이드로 반경이 변해도 같은 함수로 다시 그리면 된다.
  *
- * 지형과 같은 코너 마스크 방식이라 경계가 저절로 매끈한 호가 된다. 꼭짓점 좌표는
- * 월드 좌표(px)로 바꿔서 잰다 — 반경도 px 단위(getBuildRadius)라서다.
+ * 지형과 같은 코너 마스크 방식이라 모서리가 마스크 타일로 깔끔하게 꺾인다. 꼭짓점
+ * 좌표는 월드 좌표(px)로 바꿔서 잰다 — 반경도 px 단위(getBuildRadius)라서다.
  */
 function hasPavementAtVertex(vx: number, vy: number, radiusPx: number, mapOriginPx: number): boolean {
   const worldX = mapOriginPx + vx * 16;
   const worldY = mapOriginPx + vy * 16;
-  return worldX * worldX + worldY * worldY <= radiusPx * radiusPx;
+  // 구역은 정사각형(변의 절반 = radiusPx)이다 — 건축 판정(placeBuilding)과 같은
+  // 체비쇼프 거리를 써야 포장 경계가 곧 건축 가능 경계가 된다.
+  return Math.max(Math.abs(worldX), Math.abs(worldY)) <= radiusPx;
 }
 
 /**

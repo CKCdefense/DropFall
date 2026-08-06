@@ -974,8 +974,11 @@ export class World {
     if (!this.buildings.canPlace(cx, cy)) return;
 
     const { x, y } = cellCenterWorld(cx, cy);
-    // 코어 업그레이드로 건설 가능 반경이 늘어난다(docs/backend/38) — 반경 밖은 아직 못 짓는다.
-    if (Math.hypot(x, y) > this.getBuildRadius()) return;
+    // 코어 업그레이드로 건설 가능 구역이 늘어난다(docs/backend/38) — 구역 밖은 아직 못 짓는다.
+    // 구역은 원이 아니라 **정사각형**(변의 절반 = getBuildRadius)이다. 격자에 짓는
+    // 게임에서 원형 경계는 모서리 칸이 애매하게 잘리는데, 정사각형은 칸 단위로
+    // 딱 떨어진다.
+    if (Math.max(Math.abs(x), Math.abs(y)) > this.getBuildRadius()) return;
 
     // 코어 발자국과 겹치는 셀은 전부 금지다. 예전엔 코어가 한 칸 크기라 셀 하나만
     // 막으면 됐지만, 지금은 반경 40px — 스프라이트에 파묻히는 벽이 지어질 수 있다.
