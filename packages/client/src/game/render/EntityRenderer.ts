@@ -26,6 +26,7 @@ import {
   spritePrefix,
   walkAnimKey,
 } from './playerSprite';
+import { ACTION_PLANE_Y } from './plane';
 import {
   BULLET_ANIM,
   DEFAULT_WEAPON_ID,
@@ -49,7 +50,7 @@ import {
   type SwingState,
   type WeaponParts,
 } from './weaponFx';
-import { FONT_SMALL, SIZE_SMALL } from '../ui/theme';
+import { FONT_SMALL, SIZE_SMALL, applyTextShadow } from '../ui/theme';
 
 /**
  * 월드 안에 그리는 텍스트의 기준 크기(월드 단위). 실제 화면 크기는 여기에 카메라 줌이 곱해진다.
@@ -58,8 +59,11 @@ import { FONT_SMALL, SIZE_SMALL } from '../ui/theme';
 const LABEL_FONT_SIZE = SIZE_SMALL;
 
 /**
- * 몬스터 타입별 플레이스홀더 표현.
- * 아트가 들어오면 이 표만 스프라이트 키로 바꾸면 된다 — 렌더 로직은 그대로다.
+ * 몬스터 타입별 플레이스홀더 색.
+ *
+ * **크기는 여기 없다** — monsters.json의 hitRadius에서 가져온다. 플레이스홀더 단계에서는
+ * "보이는 덩치 = 맞는 범위"여야 판정이 어긋났는지 눈으로 바로 알 수 있다.
+ * 아트가 들어오면 이 표를 스프라이트 키로 바꾸면 된다.
  */
 const MONSTER_COLOR: Record<string, number> = {
   trash: 0xa4576a,
@@ -377,6 +381,8 @@ export class EntityRenderer {
       .setOrigin(0.5, 1);
     label.setName('label');
     label.setResolution(this.zoom);
+    // 닉네임도 지형 위에 그대로 얹힌다 — 풀·모래 무늬에 묻히지 않게 그림자를 준다.
+    applyTextShadow(label);
 
     // 컨테이너 원점(0,0)이 곧 서버 좌표(player.x/y)이므로, 반경만 플레이어 자신의
     // 충돌 반경(HIT_RADIUS)과 맞추면 스프라이트 origin/오프셋과 무관하게 정확한
@@ -510,10 +516,13 @@ export class EntityRenderer {
     const hitRadius = monstersData[monster.type]?.hitRadius ?? MONSTER_HIT_RADIUS_FALLBACK;
     const size = hitRadius * 2;
 
-    const body = this.scene.add.rectangle(0, 0, size, size, color);
+    // 총알과 같은 높이 평면(plane.ts)에 올린다 — 발밑(월드 좌표) 그대로 그리면 총알이
+    // 머리 위로 지나가는 것처럼 보인다. 판정은 항상 월드 좌표(컨테이너 자체 위치)로
+    // 이뤄지니 이 오프셋은 순수하게 보이는 위치만 바꾼다.
+    const body = this.scene.add.rectangle(0, ACTION_PLANE_Y, size, size, color);
     body.setStrokeStyle(1, 0x1a1c23);
 
-    const barTop = -size / 2 - 4;
+    const barTop = ACTION_PLANE_Y - size / 2 - 4;
     const barBack = this.scene.add
       .rectangle(-HP_BAR_WIDTH / 2, barTop, HP_BAR_WIDTH, HP_BAR_HEIGHT, 0x2b303c)
       .setOrigin(0, 0.5);
@@ -527,7 +536,10 @@ export class EntityRenderer {
     barBack.setVisible(false);
     bar.setVisible(false);
 
-    const collisionDebug = this.scene.add.circle(0, 0, hitRadius);
+    // 몸통과 같은 평면(ACTION_PLANE_Y)에 그린다 — 판정 자체는 항상 월드 좌표에서
+    // 이뤄지지만(컨테이너 위치가 곧 monster.x/y), 이 원은 "보이는 몸통 = 맞는 범위"를
+    // 눈으로 확인시키려는 디버그용이라 시각적으로 몸통과 정확히 겹쳐야 의미가 있다.
+    const collisionDebug = this.scene.add.circle(0, ACTION_PLANE_Y, hitRadius);
     collisionDebug.setStrokeStyle(1, MONSTER_COLLISION_DEBUG_COLOR, COLLISION_DEBUG_ALPHA);
     collisionDebug.setFillStyle(0, 0);
     collisionDebug.setName('collisionDebug');
@@ -623,14 +635,13 @@ export class EntityRenderer {
         this.projectiles.set(projectile.id, sprite);
       }
 
-      // 예전엔 총구 높이에 맞추려고 투사체를 y축으로 18px 띄워서 그렸는데(총구
-      // 이펙트와 같은 "가슴 높이" 평면) — 몬스터는 아무 오프셋 없이 실제 좌표에
-      // 그대로 그려지니, 화면에 보이는 총알 궤적이 실제 판정 위치보다 계속 위로
-      // 떠서 날아가는 꼴이 됐다("맞은 것처럼 안 보이는데 맞았다"/반대의 착시 제보로
-      // 발견). 총구에서 막 나가는 연출은 muzzle 이펙트(화면 위치가 고정된 섬광)가
-      // 이미 담당하므로, 날아가는 동안의 투사체는 판정과 똑같이 실제 좌표 그대로
-      // 그린다.
-      sprite.setPosition(Math.round(projectile.x), Math.round(projectile.y));
+      // 총구·몬스터 몸통·휘두르기 이펙트와 같은 "가슴 높이" 평면(ACTION_PLANE_Y)에
+      // 올린다. 예전엔 이 오프셋을 투사체에만 주고 몬스터는 실제 좌표 그대로 그려서
+      // 화면상 궤적이 판정 위치와 계속 어긋났었는데(backend/33), 지금은 몬스터
+      // 몸통도 같은 평면에 올리고(§createMonster) 조준각도 그 평면 기준으로
+      // 보정하므로(InputController.updateAim) 둘 다 같은 양만큼 뜬 채로 서로
+      // 상대적으로는 정확히 맞물린다.
+      sprite.setPosition(Math.round(projectile.x), Math.round(projectile.y) + ACTION_PLANE_Y);
     }
 
     this.removeMissing(this.projectiles, alive);

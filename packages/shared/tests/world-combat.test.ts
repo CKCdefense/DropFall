@@ -46,6 +46,40 @@ describe('World — 전투/웨이브 통합', () => {
     expect(monster!.hp).toBe(initialHp - 18); // axe damage = 18
   });
 
+  it('몬스터 타입마다 다른 히트박스 반경으로 판정한다', () => {
+    const world = new World();
+    world.addPlayer('p1', 0, 0);
+    startFirstWave(world);
+
+    const [monster] = [...world.getMonsters().values()];
+    // trash의 hitRadius는 6. 총알은 중심에서 6px 안으로 들어와야 맞는다.
+    monster!.x = 200;
+    monster!.y = 0;
+    const initialHp = monster!.hp;
+
+    world.fireWeapon('p1'); // 권총, +x 방향
+    for (let i = 0; i < 120 && world.getProjectiles().size > 0; i += 1) world.tick(1 / 60);
+
+    expect(monster!.hp).toBeLessThan(initialHp);
+  });
+
+  it('히트박스 반경 밖으로 스쳐 지나가면 맞지 않는다', () => {
+    const world = new World();
+    world.addPlayer('p1', 0, 0);
+    startFirstWave(world);
+
+    const [monster] = [...world.getMonsters().values()];
+    // 진행선(+x)에서 세로로 hitRadius(6)보다 멀리 떨어뜨린다
+    monster!.x = 200;
+    monster!.y = 12;
+    const initialHp = monster!.hp;
+
+    world.fireWeapon('p1');
+    for (let i = 0; i < 120 && world.getProjectiles().size > 0; i += 1) world.tick(1 / 60);
+
+    expect(monster!.hp).toBe(initialHp);
+  });
+
   it('사거리 밖 몬스터는 근접 공격이 닿지 않는다', () => {
     const world = new World();
     world.addPlayer('p1', 0, 0);

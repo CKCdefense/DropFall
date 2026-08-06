@@ -1,7 +1,7 @@
 {
   "trash": {
     "hp": 20,
-    "hitRadius": 5,
+    "hitRadius": 6,
     "damage": 5,
     "speed": 60,
     "attackRange": 20,
@@ -9,7 +9,7 @@
   },
   "rusher": {
     "hp": 15,
-    "hitRadius": 5,
+    "hitRadius": 6,
     "damage": 8,
     "speed": 140,
     "attackRange": 20,
@@ -18,7 +18,7 @@
   },
   "tanker": {
     "hp": 80,
-    "hitRadius": 8,
+    "hitRadius": 9,
     "damage": 10,
     "speed": 35,
     "attackRange": 20,
@@ -26,7 +26,7 @@
   },
   "boss": {
     "hp": 500,
-    "hitRadius": 12,
+    "hitRadius": 14,
     "damage": 25,
     "speed": 40,
     "attackRange": 20,

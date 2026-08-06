@@ -22,6 +22,7 @@ import {
   PANEL_STROKE,
   SIZE_BODY,
   SIZE_SMALL,
+  applyTextShadow,
   barColor,
 } from '../ui/theme';
 
@@ -82,6 +83,8 @@ export class HudScene extends Phaser.Scene {
   private helpText!: Phaser.GameObjects.Text;
   /** 로컬 모드에서만 존재한다 — connection.debugJumpToWave가 없으면 아예 안 만든다. */
   private debugJumpButton?: Phaser.GameObjects.Text;
+  /** 패널 배경 없이 지형 위에 바로 얹히는 글자들. 그림자를 넣어 대비를 준다. */
+  private looseTexts: Phaser.GameObjects.Text[] = [];
   /** 바 너비를 다시 계산할 때 필요해서 보관한다. */
   private uiScale = 1;
 
@@ -152,6 +155,10 @@ export class HudScene extends Phaser.Scene {
     }
 
     this.createCoreModals();
+
+    // 패널 밖에 떠 있는 글자는 지형 위에 그대로 얹혀서 대비가 필요하다.
+    // 패널 안 글자(코어, 퀵슬롯, 팀원)는 어두운 상자가 이미 받쳐주므로 놔둔다.
+    this.looseTexts = [this.resourceText, this.buildModeText, this.debugText, this.helpText];
 
     this.layout();
     this.scale.on(Phaser.Scale.Events.RESIZE, this.layout, this);
@@ -252,6 +259,8 @@ export class HudScene extends Phaser.Scene {
     this.buildModeText.setFontSize(SIZE_BODY * scale).setPosition(pad, height - 24 * scale);
     this.debugText.setFontSize(SIZE_SMALL * scale).setPosition(pad, height - 58 * scale);
     this.helpText.setFontSize(SIZE_BODY * scale).setPosition(width / 2, height - 4 * scale);
+
+    for (const text of this.looseTexts) applyTextShadow(text, scale);
 
     if (this.debugJumpButton) {
       this.debugJumpButton.setFontSize(SIZE_SMALL * scale);

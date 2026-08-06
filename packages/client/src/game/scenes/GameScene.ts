@@ -4,6 +4,7 @@ import type { GameConnection } from '../../net/GameConnection';
 import { CONNECTION_KEY, INPUT_CONTROLLER_KEY } from '../createGame';
 import { EntityRenderer } from '../render/EntityRenderer';
 import { queueGameAtlas } from '../render/playerSprite';
+import { TerrainLayer, hasTerrainTileset, queueTerrainTileset } from '../render/TerrainLayer';
 import { InputController } from '../input/InputController';
 import { HUD_SCENE_KEY } from './HudScene';
 
@@ -16,6 +17,7 @@ const WORLD_HEIGHT = TILE_SIZE * 80;
 export class GameScene extends Phaser.Scene {
   private connection!: GameConnection;
   private entityRenderer!: EntityRenderer;
+  private terrain?: TerrainLayer;
   private input_!: InputController;
   private isFollowing = false;
   private collisionDebugVisible = false;
@@ -31,6 +33,7 @@ export class GameScene extends Phaser.Scene {
   preload(): void {
     // 아틀라스가 아직 없어도 게임은 떠야 한다 — 실패하면 도형 플레이스홀더로 그린다.
     queueGameAtlas(this);
+    queueTerrainTileset(this);
   }
 
   create(): void {
@@ -40,7 +43,7 @@ export class GameScene extends Phaser.Scene {
     this.cameras.main.setBounds(-WORLD_WIDTH / 2, -WORLD_HEIGHT / 2, WORLD_WIDTH, WORLD_HEIGHT);
     this.cameras.main.roundPixels = true;
 
-    this.drawGrid();
+    this.drawGround();
     this.drawCore();
 
     this.entityRenderer = new EntityRenderer(this, this.connection.sessionId);
@@ -64,6 +67,7 @@ export class GameScene extends Phaser.Scene {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.scale.off(Phaser.Scale.Events.RESIZE, this.applyZoom, this);
       this.entityRenderer.destroy();
+      this.terrain?.destroy();
     });
   }
 
@@ -99,7 +103,21 @@ export class GameScene extends Phaser.Scene {
     this.entityRenderer?.setZoom(zoom);
   }
 
-  /** 좌표 감각을 잡기 위한 임시 격자. Tiled 맵으로 교체 예정. */
+  /**
+   * 바닥. 타일셋이 있으면 지형을 깔고, 없으면 좌표 감각용 격자로 대체한다.
+   *
+   * 지형은 방 코드를 시드로 삼아 각자 계산한다 — 서버가 128×128칸을 내려보낼 필요 없이
+   * 같은 방 사람들이 똑같은 지형을 본다.
+   */
+  private drawGround(): void {
+    if (hasTerrainTileset(this)) {
+      this.terrain = new TerrainLayer(this, this.connection.roomInfo.roomCode);
+      return;
+    }
+    this.drawGrid();
+  }
+
+  /** 좌표 감각을 잡기 위한 임시 격자. 타일셋이 없을 때만 쓴다. */
   private drawGrid(): void {
     const grid = this.add.grid(
       0,

@@ -31,6 +31,15 @@ function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
 }
 
+/**
+ * 몬스터의 원형 히트박스 반경(px). 타입마다 덩치가 다르므로 데이터에서 읽는다 —
+ * 예전에는 전부 고정값(HIT_RADIUS)이라, 작은 몬스터는 몸에서 한참 떨어진 곳에서 맞고
+ * 보스는 몸 안쪽까지 들어와야 맞았다.
+ */
+function monsterRadius(monster: MonsterEntity): number {
+  return monstersData[monster.type]?.hitRadius ?? HIT_RADIUS;
+}
+
 const FLOW_FIELD_GRID: FlowFieldGrid = {
   widthInTiles: MAP_SIZE_TILES,
   heightInTiles: MAP_SIZE_TILES,
@@ -1101,7 +1110,7 @@ export class World {
     let closestId: string | undefined;
     let closestAlong = Infinity;
     for (const [id, monster] of this.monsters) {
-      const hitRadius = monstersData[monster.type].hitRadius;
+      const hitRadius = monsterRadius(monster);
       const alongRaw = (monster.x - player.x) * dirX + (monster.y - player.y) * dirY;
       const along = Math.max(0, Math.min(gapLength, alongRaw));
       const closestX = player.x + dirX * along;
@@ -1120,7 +1129,7 @@ export class World {
 
   private applyMeleeHit(hit: MeleeHit): void {
     for (const [id, monster] of this.monsters) {
-      if (withinMeleeArc(hit, monster.x, monster.y, monstersData[monster.type].hitRadius)) {
+      if (withinMeleeArc(hit, monster.x, monster.y, monsterRadius(monster))) {
         this.damageMonster(id, monster.hp - hit.damage);
       }
     }
@@ -1140,15 +1149,7 @@ export class World {
 
   private projectileHitsMonster(projectileId: string, projectile: ProjectileEntity): boolean {
     for (const [monsterId, monster] of this.monsters) {
-      if (
-        circlesOverlap(
-          projectile.x,
-          projectile.y,
-          monster.x,
-          monster.y,
-          monstersData[monster.type].hitRadius,
-        )
-      ) {
+      if (circlesOverlap(projectile.x, projectile.y, monster.x, monster.y, monsterRadius(monster))) {
         this.damageMonster(monsterId, monster.hp - projectile.damage);
         this.projectiles.delete(projectileId);
         return true;
