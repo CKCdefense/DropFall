@@ -1,4 +1,4 @@
-import { fbm } from './noise';
+import { fbm, hashNoise } from './noise';
 
 /**
  * 바닥 지형.
@@ -74,7 +74,9 @@ export function hasTerrainAtVertex(
   const field = FIELDS[kind];
   if (!field) return false;
 
-  return fbm(vx * field.scale, vy * field.scale, seed + field.salt) > field.threshold;
+  // 옥타브 2 — 3으로 하면 고주파가 꼭짓점 on/off를 자주 뒤집어서 경계가 계단처럼
+  // 들쭉날쭉해진다. 낮출수록 해안선이 완만해진다(대신 세부 굴곡이 줄어든다).
+  return fbm(vx * field.scale, vy * field.scale, seed + field.salt, 2) > field.threshold;
 }
 
 /**
@@ -100,7 +102,9 @@ export function terrainCornerMask(
  * 좌표로 결정하므로 다시 계산해도 같은 무늬가 나온다.
  */
 export function fullTileLocal(cx: number, cy: number, seed: number): number {
-  const pick = Math.floor(fbm(cx * 0.7, cy * 0.7, seed + 991) * FULL_TILE_LOCALS.length);
+  // 부드러운 노이즈(fbm)로 고르면 이웃 칸이 같은 변형을 골라 무늬 반복이 눈에 띈다.
+  // 칸마다 독립적인 해시라야 옆 칸과 다른 변형이 섞인다.
+  const pick = Math.floor(hashNoise(cx, cy, seed + 991) * FULL_TILE_LOCALS.length);
   return FULL_TILE_LOCALS[Math.min(pick, FULL_TILE_LOCALS.length - 1)];
 }
 
@@ -123,4 +127,58 @@ export function terrainTileAt(
   }
 
   return terrainTileIndex(kind, mask);
+}
+
+// ---------------------------------------------------------------- 장식 타일
+
+/** 장식 타일이 시작되는 번호. 생성기(tiles_terrain.lua)의 배치와 짝을 맞춘 값이다. */
+export const DECO_TILE_START = TERRAIN_KINDS.length * TILES_PER_TERRAIN;
+/** 지형당 장식 변형 수 */
+export const DECO_PER_TERRAIN = 4;
+
+/**
+ * 지형별 장식 밀도(칸당 확률). 낮게 유지한다 — 장식은 양념이지 주인공이 아니고,
+ * 많아지면 몬스터·아이템 같은 진짜 정보가 묻힌다.
+ */
+const DECO_DENSITY: Record<TerrainKind, number> = {
+  grass: 0.05,
+  dirt: 0.055,
+  sand: 0.04,
+  stone: 0.05,
+};
+
+/**
+ * 이 칸을 완전히 덮은 최상위 지형. 경계 칸이면 null.
+ *
+ * 장식은 경계에 놓지 않는다 — 두 지형에 걸친 꽃은 어색하고, 경계는 이미 테두리
+ * 음영으로 시각적 정보가 많다.
+ */
+export function topFullTerrainAt(cx: number, cy: number, seed: number): TerrainKind | null {
+  let top: TerrainKind = BASE_TERRAIN;
+
+  for (const kind of OVERLAY_TERRAINS) {
+    const mask = terrainCornerMask(kind, cx, cy, seed);
+    if (mask === TERRAIN_MASK_COUNT - 1) top = kind;
+    else if (mask !== 0) return null;
+  }
+
+  return top;
+}
+
+/**
+ * 이 칸에 놓을 장식 타일 번호. 없으면 null.
+ * 지형과 마찬가지로 좌표+시드에서 결정된다 — 모든 플레이어가 같은 꽃을 본다.
+ */
+export function decorationTileAt(cx: number, cy: number, seed: number): number | null {
+  const top = topFullTerrainAt(cx, cy, seed);
+  if (!top) return null;
+
+  if (hashNoise(cx, cy, seed + 5077) >= DECO_DENSITY[top]) return null;
+
+  const variant = Math.floor(hashNoise(cx, cy, seed + 6011) * DECO_PER_TERRAIN);
+  return (
+    DECO_TILE_START +
+    TERRAIN_KINDS.indexOf(top) * DECO_PER_TERRAIN +
+    Math.min(variant, DECO_PER_TERRAIN - 1)
+  );
 }

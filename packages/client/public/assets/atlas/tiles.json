@@ -638,6 +638,134 @@
     "spriteSourceSize": { "x": 0, "y": 0, "w": 16, "h": 16 },
     "sourceSize": { "w": 16, "h": 16 },
     "duration": 100
+   },
+   "terrain_deco_0": {
+    "frame": { "x": 1, "y": 69, "w": 16, "h": 16 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 16, "h": 16 },
+    "sourceSize": { "w": 16, "h": 16 },
+    "duration": 100
+   },
+   "terrain_deco_1": {
+    "frame": { "x": 18, "y": 69, "w": 16, "h": 16 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 16, "h": 16 },
+    "sourceSize": { "w": 16, "h": 16 },
+    "duration": 100
+   },
+   "terrain_deco_2": {
+    "frame": { "x": 35, "y": 69, "w": 16, "h": 16 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 16, "h": 16 },
+    "sourceSize": { "w": 16, "h": 16 },
+    "duration": 100
+   },
+   "terrain_deco_3": {
+    "frame": { "x": 52, "y": 69, "w": 16, "h": 16 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 16, "h": 16 },
+    "sourceSize": { "w": 16, "h": 16 },
+    "duration": 100
+   },
+   "terrain_deco_4": {
+    "frame": { "x": 69, "y": 69, "w": 16, "h": 16 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 16, "h": 16 },
+    "sourceSize": { "w": 16, "h": 16 },
+    "duration": 100
+   },
+   "terrain_deco_5": {
+    "frame": { "x": 86, "y": 69, "w": 16, "h": 16 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 16, "h": 16 },
+    "sourceSize": { "w": 16, "h": 16 },
+    "duration": 100
+   },
+   "terrain_deco_6": {
+    "frame": { "x": 103, "y": 69, "w": 16, "h": 16 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 16, "h": 16 },
+    "sourceSize": { "w": 16, "h": 16 },
+    "duration": 100
+   },
+   "terrain_deco_7": {
+    "frame": { "x": 120, "y": 69, "w": 16, "h": 16 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 16, "h": 16 },
+    "sourceSize": { "w": 16, "h": 16 },
+    "duration": 100
+   },
+   "terrain_deco_8": {
+    "frame": { "x": 137, "y": 69, "w": 16, "h": 16 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 16, "h": 16 },
+    "sourceSize": { "w": 16, "h": 16 },
+    "duration": 100
+   },
+   "terrain_deco_9": {
+    "frame": { "x": 154, "y": 69, "w": 16, "h": 16 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 16, "h": 16 },
+    "sourceSize": { "w": 16, "h": 16 },
+    "duration": 100
+   },
+   "terrain_deco_10": {
+    "frame": { "x": 171, "y": 69, "w": 16, "h": 16 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 16, "h": 16 },
+    "sourceSize": { "w": 16, "h": 16 },
+    "duration": 100
+   },
+   "terrain_deco_11": {
+    "frame": { "x": 188, "y": 69, "w": 16, "h": 16 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 16, "h": 16 },
+    "sourceSize": { "w": 16, "h": 16 },
+    "duration": 100
+   },
+   "terrain_deco_12": {
+    "frame": { "x": 205, "y": 69, "w": 16, "h": 16 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 16, "h": 16 },
+    "sourceSize": { "w": 16, "h": 16 },
+    "duration": 100
+   },
+   "terrain_deco_13": {
+    "frame": { "x": 222, "y": 69, "w": 16, "h": 16 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 16, "h": 16 },
+    "sourceSize": { "w": 16, "h": 16 },
+    "duration": 100
+   },
+   "terrain_deco_14": {
+    "frame": { "x": 239, "y": 69, "w": 16, "h": 16 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 16, "h": 16 },
+    "sourceSize": { "w": 16, "h": 16 },
+    "duration": 100
+   },
+   "terrain_deco_15": {
+    "frame": { "x": 256, "y": 69, "w": 16, "h": 16 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 16, "h": 16 },
+    "sourceSize": { "w": 16, "h": 16 },
+    "duration": 100
    }
  },
  "meta": {
@@ -645,13 +773,14 @@
   "version": "1.3.18.1-x64",
   "image": "tiles.png",
   "format": "RGBA8888",
-  "size": { "w": 341, "h": 69 },
+  "size": { "w": 341, "h": 86 },
   "scale": "1",
   "frameTags": [
    { "name": "grass", "from": 0, "to": 19, "direction": "forward", "color": "#000000ff" },
    { "name": "dirt", "from": 20, "to": 39, "direction": "forward", "color": "#000000ff" },
    { "name": "sand", "from": 40, "to": 59, "direction": "forward", "color": "#000000ff" },
-   { "name": "stone", "from": 60, "to": 79, "direction": "forward", "color": "#000000ff" }
+   { "name": "stone", "from": 60, "to": 79, "direction": "forward", "color": "#000000ff" },
+   { "name": "deco", "from": 80, "to": 95, "direction": "forward", "color": "#000000ff" }
   ]
  }
 }

@@ -40,6 +40,10 @@
 --   프레임 번호 = 지형순번 * 20 + 로컬번호
 --
 -- 지형 순서: grass, dirt, sand, stone
+--
+-- 그 뒤에 **장식 타일**이 붙는다: 80번부터 지형별 4장씩 16장.
+--   장식 번호 = 80 + 지형순번 * 4 + 변형(0..3)
+-- 장식은 투명 바탕에 작은 소품 하나다 — 꽃/자갈/뼈/이끼 등. 지형 위에 겹쳐 깐다.
 -- 이 배치는 packages/shared/src/terrain/tileset.ts 와 짝을 맞춰야 한다. 한쪽만 바꾸면
 -- 엉뚱한 타일이 깔린다.
 
@@ -53,35 +57,40 @@ local FULL_VARIANTS = 4
 local TERRAINS = {
   {
     name = 'grass',
-    dark = Color{ r = 0x2C, g = 0x3E, b = 0x26 },
-    base = Color{ r = 0x3A, g = 0x52, b = 0x30 },
-    light = Color{ r = 0x48, g = 0x66, b = 0x3C },
-    speck = Color{ r = 0x56, g = 0x78, b = 0x4A },
+    dark = Color{ r = 0x27, g = 0x38, b = 0x22 },
+    baseAlt = Color{ r = 0x33, g = 0x49, b = 0x2B },
+    base = Color{ r = 0x3B, g = 0x54, b = 0x31 },
+    light = Color{ r = 0x4F, g = 0x6E, b = 0x40 },
+    speck = Color{ r = 0x63, g = 0x86, b = 0x50 },
   },
   {
     name = 'dirt',
-    dark = Color{ r = 0x3A, g = 0x2C, b = 0x21 },
-    base = Color{ r = 0x4E, g = 0x3B, b = 0x2C },
-    light = Color{ r = 0x62, g = 0x4B, b = 0x38 },
-    speck = Color{ r = 0x76, g = 0x5C, b = 0x46 },
+    dark = Color{ r = 0x33, g = 0x26, b = 0x1C },
+    baseAlt = Color{ r = 0x45, g = 0x34, b = 0x27 },
+    base = Color{ r = 0x50, g = 0x3D, b = 0x2D },
+    light = Color{ r = 0x68, g = 0x50, b = 0x3B },
+    speck = Color{ r = 0x80, g = 0x64, b = 0x4A },
   },
   {
     -- 사막. 유일하게 밝은 지형이라 넓게 깔면 눈에 띈다 — 노이즈 임계값을 높여
     -- 드문드문 나오게 해둔다(shared/terrain/terrain.ts).
     name = 'sand',
-    dark = Color{ r = 0x6B, g = 0x5C, b = 0x3C },
-    base = Color{ r = 0x85, g = 0x76, b = 0x4E },
-    light = Color{ r = 0x9E, g = 0x8C, b = 0x60 },
-    speck = Color{ r = 0xB5, g = 0xA2, b = 0x73 },
+    dark = Color{ r = 0x63, g = 0x54, b = 0x36 },
+    baseAlt = Color{ r = 0x7C, g = 0x6D, b = 0x47 },
+    base = Color{ r = 0x88, g = 0x78, b = 0x4F },
+    light = Color{ r = 0xA4, g = 0x92, b = 0x63 },
+    speck = Color{ r = 0xBD, g = 0xAA, b = 0x78 },
   },
   {
     name = 'stone',
-    dark = Color{ r = 0x3E, g = 0x43, b = 0x4C },
-    base = Color{ r = 0x4F, g = 0x55, b = 0x60 },
-    light = Color{ r = 0x61, g = 0x68, b = 0x74 },
-    speck = Color{ r = 0x73, g = 0x7B, b = 0x88 },
+    dark = Color{ r = 0x37, g = 0x3B, b = 0x44 },
+    baseAlt = Color{ r = 0x49, g = 0x4F, b = 0x59 },
+    base = Color{ r = 0x53, g = 0x59, b = 0x64 },
+    light = Color{ r = 0x68, g = 0x70, b = 0x7C },
+    speck = Color{ r = 0x7E, g = 0x87, b = 0x94 },
   },
 }
+
 
 -- 결과를 재현할 수 있게 고정 시드 LCG를 쓴다. 같은 시드 = 같은 타일.
 local seed = 1
@@ -91,17 +100,28 @@ local function rnd()
   return seed / 2147483648
 end
 
---- 4x4 Bayer 행렬. 경계를 계단식으로 흩어(디더링) 픽셀아트처럼 보이게 한다.
---- 타일 크기 16이 4의 배수라 타일을 이어 붙여도 패턴이 어긋나지 않는다.
-local BAYER = {
-  { 0, 8, 2, 10 },
-  { 12, 4, 14, 6 },
-  { 3, 11, 1, 9 },
-  { 15, 7, 13, 5 },
-}
+--- 타일 크기로 감기는 격자 노이즈. 4px 간격 격자점에 해시를 두고 픽셀마다 보간한다.
+--- 격자 주기(4칸 = 16px)가 타일 크기와 같아 이어 붙여도 끊기지 않는다.
+--- 바탕 얼룩(mottle)과 경계 워프가 salt만 다르게 해서 같이 쓴다.
+local function latticeHash(salt, gx, gy)
+  local h = ((gx % 4 + 1) * 73856093) ~ ((gy % 4 + 1) * 19349663) ~ (salt * 83492791)
+  return (h % 1000) / 1000
+end
 
-local function bayer(x, y)
-  return BAYER[(y % 4) + 1][(x % 4) + 1] / 16
+local function latticeNoise(salt, px, py)
+  local gx, gy = math.floor(px / 4), math.floor(py / 4)
+  local fx, fy = (px % 4) / 4, (py % 4) / 4
+  fx = fx * fx * (3 - 2 * fx)
+  fy = fy * fy * (3 - 2 * fy)
+
+  local a = latticeHash(salt, gx, gy)
+  local b = latticeHash(salt, gx + 1, gy)
+  local c = latticeHash(salt, gx, gy + 1)
+  local d = latticeHash(salt, gx + 1, gy + 1)
+
+  local top = a + (b - a) * fx
+  local bottom = c + (d - c) * fx
+  return top + (bottom - top) * fy
 end
 
 --- 네 꼭짓점 값(0/1)을 픽셀 위치로 이중선형 보간한다.
@@ -117,34 +137,52 @@ local function cornerField(mask, u, v)
   return top * (1 - v) + bottom * v
 end
 
---- 경계를 흩뜨리는 폭. 0이면 칼로 자른 듯한 직선, 크면 지저분해진다.
-local DITHER_WIDTH = 0.34
+--- 경계 곡선 워프의 진폭.
+--- 이중선형 필드의 등고선은 직선/45° 사각이라 경계가 기계적으로 보인다. 매끄러운
+--- 격자 노이즈를 필드에 더해 등고선을 구불구불하게 만든다 — 워프도 필드도 타일 경계에서
+--- 연속이므로 이어 붙여도 곡선이 끊기지 않는다. 0.5 미만이어야 꼭짓점의 안/밖 의미가
+--- 뒤집히지 않는다(꼭짓점에서 필드는 0 또는 1).
+local WARP_AMPLITUDE = 0.19
+local WARP_SALT = 7772
 
---- 이 픽셀이 지형 안쪽인지. 경계 근처에서만 디더링이 작동한다.
-local function isInside(mask, px, py)
-  -- 픽셀 중심으로 샘플링해야 좌우가 대칭이 된다.
+local function warpedField(mask, px, py)
   local u = (px + 0.5) / T
   local v = (py + 0.5) / T
-  local f = cornerField(mask, u, v)
-  return f > 0.5 + (bayer(px, py) - 0.5) * DITHER_WIDTH
+  return cornerField(mask, u, v) + (latticeNoise(WARP_SALT, px, py) - 0.5) * 2 * WARP_AMPLITUDE
+end
+
+--- 경계를 흩뜨리는 지터 폭. Bayer 디더는 규칙적인 격자 점무늬가 생겨서 해시 지터로
+--- 바꿨다 — 폭도 좁게 잡는다. 곡선 자체는 워프가 만들고, 지터는 가장자리 픽셀만 살짝 깬다.
+local DITHER_WIDTH = 0.12
+
+local function pixelJitter(px, py)
+  local h = ((px % T + 11) * 40503) ~ ((py % T + 5) * 104729)
+  return (h % 256) / 256
+end
+
+--- 이 픽셀이 지형 안쪽인지.
+local function isInside(mask, px, py)
+  return warpedField(mask, px, py) > 0.5 + (pixelJitter(px, py) - 0.5) * DITHER_WIDTH
 end
 
 --- 경계에서 얼마나 안쪽인지(0에 가까울수록 가장자리). 테두리 음영에 쓴다.
+--- isInside와 같은 워프된 필드를 봐야 어두운 테두리가 곡선을 따라간다.
 local function edgeness(mask, px, py)
-  local u = (px + 0.5) / T
-  local v = (py + 0.5) / T
-  return cornerField(mask, u, v) - 0.5
+  return warpedField(mask, px, py) - 0.5
 end
 
---- 지형별 표면 무늬 성격.
---- 색만 다르면 4종이 다 비슷해 보인다. 무늬의 "모양"이 달라야 한눈에 구분된다.
----   grass 세로 풀잎 · dirt 뭉친 흙덩이 · sand 가로 물결 · stone 각진 균열
-local TEXTURE = {
-  grass = { marks = 26, shape = 'blade' },
-  dirt = { marks = 22, shape = 'clump' },
-  sand = { marks = 20, shape = 'ripple' },
-  stone = { marks = 18, shape = 'crack' },
-}
+-- ============================================================================
+-- 표면 질감
+-- ============================================================================
+-- 처음 버전은 1px 점을 색만 바꿔 흩뿌렸는데 TV 노이즈처럼 보였다. 손그림 픽셀아트
+-- 타일이 쓰는 세 가지 기법을 넣는다:
+--
+--  1) 얼룩 바탕: 바탕을 단색이 아니라 4x4 블록 단위의 두 톤 얼룩으로 깐다.
+--     점 노이즈(고주파)가 아니라 덩어리(저주파)라 멀리서 봐도 지저분하지 않다.
+--  2) 음영 쌍: 모든 무늬가 밝은 픽셀 + 어두운 픽셀 쌍으로 그려진다. 광원이
+--     좌상단에 있다고 치고 밝음은 위, 어두움은 아래 — 이게 있어야 입체감이 난다.
+--  3) 테두리 림: 경계 타일의 윗변 안쪽에 밝은 한 줄. 어두운 외곽선만 있으면
+--     구멍처럼 보이고, 윗변에 빛을 받으면 "살짝 솟은 지형"으로 읽힌다.
 
 --- 타일 경계를 넘어가는 좌표를 반대편으로 감는다. 무늬가 타일 가장자리에서 잘리면
 --- 이어 붙였을 때 격자가 드러난다 — 감아주면 무늬가 경계를 넘어 이어진다.
@@ -156,48 +194,86 @@ local function putInside(grid, mask, x, y, color)
   if isInside(mask, x, y) then grid[y][x] = color end
 end
 
-local function drawMark(grid, mask, shape, x, y, color)
-  if shape == 'blade' then
-    -- 세로 2~3px. 풀이 서 있는 느낌.
-    for i = 0, 1 + math.floor(rnd() * 2) do putInside(grid, mask, x, y + i, color) end
-  elseif shape == 'ripple' then
-    -- 가로 2~4px. 바람에 쓸린 모래결.
-    for i = 0, 1 + math.floor(rnd() * 3) do putInside(grid, mask, x + i, y, color) end
-  elseif shape == 'crack' then
-    -- 짧은 대각선. 각진 암반.
-    local dx = rnd() < 0.5 and 1 or -1
-    for i = 0, 1 + math.floor(rnd() * 2) do putInside(grid, mask, x + i * dx, y + i, color) end
-  else
-    -- clump: 2x2에서 한 칸 빠진 덩어리. 흙이 뭉친 느낌.
-    putInside(grid, mask, x, y, color)
-    putInside(grid, mask, x + 1, y, color)
-    if rnd() < 0.6 then putInside(grid, mask, x, y + 1, color) end
+-- ---------------------------------------------------------------- 무늬(모티프)
+
+--- 풀포기: V자로 벌어진 밝은 잎 두 장 + 아래 뿌리 그림자.
+local function motifTuft(grid, mask, x, y, t)
+  putInside(grid, mask, x - 1, y - 1, t.light)
+  putInside(grid, mask, x + 1, y - 1, t.speck)
+  putInside(grid, mask, x, y, t.light)
+  putInside(grid, mask, x, y + 1, t.dark)
+end
+
+--- 자갈: 밝은 2x2 덩어리의 우하단을 어둡게 — 굴러다니는 돌멩이.
+local function motifPebble(grid, mask, x, y, t)
+  putInside(grid, mask, x, y, t.speck)
+  putInside(grid, mask, x + 1, y, t.light)
+  putInside(grid, mask, x, y + 1, t.light)
+  putInside(grid, mask, x + 1, y + 1, t.dark)
+end
+
+--- 모래결: 물결치는 밝은 선 + 바로 아래 그림자 선. 바람에 쓸린 사구 무늬.
+local function motifRipple(grid, mask, x, y, t)
+  local len = 4 + math.floor(rnd() * 4)
+  local yy = y
+  for i = 0, len do
+    if i > 0 and rnd() < 0.35 then yy = yy + (rnd() < 0.5 and -1 or 1) end
+    putInside(grid, mask, x + i, yy, t.light)
+    putInside(grid, mask, x + i, yy + 1, t.dark)
   end
 end
 
---- 표면을 칠한다. 균일한 바탕 위에 무늬를 흩뿌리는 방식이다.
---- 픽셀마다 무작위로 색을 고르면 TV 노이즈처럼 보여서 바탕이 시끄러워진다.
+--- 암반 균열: 어두운 꺾인 선 + 위쪽 모서리에 밝은 베벨. 갈라진 바위 면.
+local function motifCrack(grid, mask, x, y, t)
+  local xx, yy = x, y
+  local dx = rnd() < 0.5 and 1 or -1
+  local len = 3 + math.floor(rnd() * 3)
+  for i = 0, len do
+    putInside(grid, mask, xx, yy, t.dark)
+    putInside(grid, mask, xx, yy - 1, t.light)
+    xx = xx + dx
+    if rnd() < 0.4 then yy = yy + 1 end
+  end
+end
+
+--- 지형별 무늬 구성. 큰 무늬 소수 + 잔점 소수 — 개수를 늘리는 것보다 음영이 중요하다.
+local MOTIFS = {
+  grass = { fn = motifTuft, count = 7 },
+  dirt = { fn = motifPebble, count = 6 },
+  sand = { fn = motifRipple, count = 4 },
+  stone = { fn = motifCrack, count = 5 },
+}
+
+-- ---------------------------------------------------------------- 바탕/그리기
+
+--- 두 톤 얼룩 바탕.
+--- 4x4 블록을 그대로 칠하면 체스판이 되고, 픽셀 해시는 TV 노이즈가 된다. 그 사이 —
+--- 부드럽게 보간된 격자 노이즈(latticeNoise)를 문턱값으로 잘라 유기적 얼룩을 만든다.
+local function mottle(variant, px, py)
+  return latticeNoise(variant, px, py)
+end
+
 local function paintSurface(grid, terrain, mask, variant)
   for py = 0, T - 1 do
     for px = 0, T - 1 do
-      if isInside(mask, px, py) then grid[py][px] = terrain.base end
+      if isInside(mask, px, py) then
+        grid[py][px] = mottle(variant, px, py) < 0.45 and terrain.baseAlt or terrain.base
+      end
     end
   end
 
-  local texture = TEXTURE[terrain.name]
+  local motif = MOTIFS[terrain.name]
   srand(variant * 7919 + 31)
 
-  for i = 1, texture.marks do
+  for _ = 1, motif.count do
+    motif.fn(grid, mask, math.floor(rnd() * T), math.floor(rnd() * T), terrain)
+  end
+
+  -- 아주 드문 잔점. 무늬 사이 빈 곳이 너무 밋밋하지 않게만.
+  for _ = 1, 4 do
     local x = math.floor(rnd() * T)
     local y = math.floor(rnd() * T)
-    local r = rnd()
-    local color = terrain.light
-    if r < 0.18 then
-      color = terrain.speck
-    elseif r > 0.68 then
-      color = terrain.dark
-    end
-    drawMark(grid, mask, texture.shape, x, y, color)
+    putInside(grid, mask, x, y, rnd() < 0.5 and terrain.light or terrain.dark)
   end
 end
 
@@ -207,13 +283,22 @@ local function drawTile(image, terrain, mask, variant)
 
   paintSurface(grid, terrain, mask, variant)
 
-  -- 가장자리 한 줄은 어둡게 눌러 실루엣을 만든다. 안 그러면 아래 지형과 뭉개져서
-  -- 경계가 어디인지 안 보인다. 꽉 찬 타일(15)은 경계가 없으므로 건너뛴다.
   if mask ~= 15 then
+    -- 1) 가장자리 한 줄은 어둡게 눌러 실루엣을 만든다.
     for py = 0, T - 1 do
       for px = 0, T - 1 do
         if grid[py][px] ~= nil and edgeness(mask, px, py) < 0.08 then
           grid[py][px] = terrain.dark
+        end
+      end
+    end
+
+    -- 2) 윗변 림: 바로 위 픽셀이 바깥이면 빛을 받는 윗면이다 — 밝게 뒤집는다.
+    --    이게 있어야 경계 타일이 "구멍"이 아니라 "살짝 솟은 땅"으로 읽힌다.
+    for py = 0, T - 1 do
+      for px = 0, T - 1 do
+        if grid[py][px] ~= nil and not isInside(mask, px, py - 1) then
+          grid[py][px] = terrain.light
         end
       end
     end
@@ -226,12 +311,195 @@ local function drawTile(image, terrain, mask, variant)
   end
 end
 
+-- ---------------------------------------------------------------- 장식 타일
+-- 지형 위에 겹쳐 깔리는 작은 소품. 밝은 면(좌상단) + 그림자(우하단) 규칙은 무늬와 같다.
+-- 아래 그림자 한 줄이 "바닥에 놓여 있다"를 만든다 — 없으면 공중에 뜬 스티커처럼 보인다.
+
+local DECO_COLORS = {
+  petal = Color{ r = 0xC9, g = 0xCF, b = 0xB9 },
+  petalWarm = Color{ r = 0xC7, g = 0x8F, b = 0x6B },
+  pollen = Color{ r = 0xC9, g = 0xA2, b = 0x4A },
+  bone = Color{ r = 0xC4, g = 0xC0, b = 0xAE },
+  boneDark = Color{ r = 0x8F, g = 0x8C, b = 0x7C },
+  cactus = Color{ r = 0x4F, g = 0x6E, b = 0x40 },
+  cactusDark = Color{ r = 0x33, g = 0x49, b = 0x2B },
+  crystal = Color{ r = 0x8F, g = 0xA3, b = 0xC0 },
+  crystalLight = Color{ r = 0xC6, g = 0xD2, b = 0xE4 },
+}
+
+local function putD(grid, x, y, color)
+  if x >= 0 and x < T and y >= 0 and y < T then grid[y][x] = color end
+end
+
+--- 소품이 타일 정중앙에만 오면 배치가 격자로 읽힌다. 변형마다 다른 곳에 둔다.
+local function decoOrigin()
+  return 5 + math.floor(rnd() * 5), 5 + math.floor(rnd() * 5)
+end
+
+local DECO_DRAWERS = {
+  grass = {
+    -- 흰 꽃: 십자 꽃잎 + 노란 꽃술 + 아래 그림자
+    function(g, t)
+      local x, y = decoOrigin()
+      putD(g, x, y - 1, DECO_COLORS.petal)
+      putD(g, x - 1, y, DECO_COLORS.petal)
+      putD(g, x + 1, y, DECO_COLORS.petal)
+      putD(g, x, y + 1, DECO_COLORS.petal)
+      putD(g, x, y, DECO_COLORS.pollen)
+      putD(g, x, y + 2, t.dark)
+    end,
+    -- 주황 꽃 두 송이
+    function(g, t)
+      for _ = 1, 2 do
+        local x, y = decoOrigin()
+        putD(g, x, y, DECO_COLORS.petalWarm)
+        putD(g, x + 1, y, DECO_COLORS.petalWarm)
+        putD(g, x, y - 1, DECO_COLORS.petal)
+        putD(g, x, y + 1, t.dark)
+      end
+    end,
+    -- 큰 풀숲: 풀포기 세 개 뭉침
+    function(g, t)
+      local x, y = decoOrigin()
+      for i = -2, 2, 2 do
+        putD(g, x + i, y - 1, t.speck)
+        putD(g, x + i, y, t.light)
+        putD(g, x + i, y + 1, t.dark)
+      end
+    end,
+    -- 버섯: 갓 + 대 + 그림자
+    function(g, t)
+      local x, y = decoOrigin()
+      putD(g, x - 1, y, DECO_COLORS.petalWarm)
+      putD(g, x, y - 1, DECO_COLORS.petal)
+      putD(g, x, y, DECO_COLORS.petalWarm)
+      putD(g, x + 1, y, DECO_COLORS.petalWarm)
+      putD(g, x, y + 1, DECO_COLORS.bone)
+      putD(g, x, y + 2, t.dark)
+    end,
+  },
+  dirt = {
+    -- 자갈 무더기
+    function(g, t)
+      local x, y = decoOrigin()
+      for _ = 1, 3 do
+        local ox = x + math.floor(rnd() * 5) - 2
+        local oy = y + math.floor(rnd() * 4) - 2
+        putD(g, ox, oy, t.speck)
+        putD(g, ox + 1, oy + 1, t.dark)
+      end
+    end,
+    -- 나뭇가지: 대각선 + 윗면 하이라이트
+    function(g, t)
+      local x, y = decoOrigin()
+      for i = 0, 3 do
+        local dy = math.floor(i / 2)
+        putD(g, x + i, y + dy, t.dark)
+        putD(g, x + i, y + dy - 1, t.light)
+      end
+    end,
+    -- 마른 자국: 어두운 균열 얼룩
+    function(g, t)
+      local x, y = decoOrigin()
+      putD(g, x, y, t.dark)
+      putD(g, x + 1, y, t.dark)
+      putD(g, x + 2, y + 1, t.dark)
+      putD(g, x - 1, y + 1, t.baseAlt)
+    end,
+    -- 마른 풀 한 포기
+    function(g, t)
+      local x, y = decoOrigin()
+      putD(g, x - 1, y - 1, t.light)
+      putD(g, x + 1, y - 1, t.speck)
+      putD(g, x, y, t.light)
+      putD(g, x, y + 1, t.dark)
+    end,
+  },
+  sand = {
+    -- 작은 선인장: 몸통 + 팔, 왼쪽 밝고 오른쪽 어둡다
+    function(g, t)
+      local x, y = decoOrigin()
+      for i = -2, 1 do putD(g, x, y + i, DECO_COLORS.cactus) end
+      putD(g, x - 1, y - 1, DECO_COLORS.cactus)
+      putD(g, x - 1, y - 2, DECO_COLORS.cactus)
+      putD(g, x + 1, y, DECO_COLORS.cactusDark)
+      putD(g, x, y + 2, t.dark)
+    end,
+    -- 뼈: 사막의 클리셰. 가로 뼈대 + 관절 혹
+    function(g, t)
+      local x, y = decoOrigin()
+      for i = 0, 3 do putD(g, x + i, y, DECO_COLORS.bone) end
+      putD(g, x - 1, y - 1, DECO_COLORS.bone)
+      putD(g, x + 4, y + 1, DECO_COLORS.boneDark)
+      putD(g, x + 1, y + 1, t.dark)
+    end,
+    -- 돌 하나
+    function(g, t)
+      local x, y = decoOrigin()
+      putD(g, x, y - 1, t.speck)
+      putD(g, x - 1, y, t.speck)
+      putD(g, x, y, t.light)
+      putD(g, x + 1, y, t.baseAlt)
+      putD(g, x, y + 1, t.dark)
+      putD(g, x + 1, y + 1, t.dark)
+    end,
+    -- 마른 덤불: 가는 가지들
+    function(g, t)
+      local x, y = decoOrigin()
+      putD(g, x, y, t.dark)
+      putD(g, x - 1, y - 1, t.baseAlt)
+      putD(g, x + 1, y - 1, t.baseAlt)
+      putD(g, x - 2, y, t.baseAlt)
+      putD(g, x + 2, y - 2, t.baseAlt)
+    end,
+  },
+  stone = {
+    -- 바위 조각: 덩어리 하나
+    function(g, t)
+      local x, y = decoOrigin()
+      putD(g, x - 1, y - 1, t.speck)
+      putD(g, x, y - 1, t.light)
+      putD(g, x - 1, y, t.light)
+      putD(g, x, y, t.base)
+      putD(g, x + 1, y, t.baseAlt)
+      putD(g, x, y + 1, t.dark)
+      putD(g, x + 1, y + 1, t.dark)
+    end,
+    -- 수정: 게임 유일의 차가운 포인트 컬러
+    function(g, t)
+      local x, y = decoOrigin()
+      putD(g, x, y - 2, DECO_COLORS.crystalLight)
+      putD(g, x, y - 1, DECO_COLORS.crystal)
+      putD(g, x - 1, y, DECO_COLORS.crystal)
+      putD(g, x, y, DECO_COLORS.crystal)
+      putD(g, x + 1, y - 1, DECO_COLORS.crystalLight)
+      putD(g, x, y + 1, t.dark)
+    end,
+    -- 잔해: 흩어진 파편
+    function(g, t)
+      for _ = 1, 4 do
+        local x, y = decoOrigin()
+        putD(g, x, y, rnd() < 0.5 and t.light or t.dark)
+      end
+    end,
+    -- 이끼: 돌 틈의 초록 얼룩
+    function(g, t)
+      local x, y = decoOrigin()
+      putD(g, x, y, DECO_COLORS.cactus)
+      putD(g, x + 1, y, DECO_COLORS.cactusDark)
+      putD(g, x, y + 1, DECO_COLORS.cactusDark)
+      putD(g, x - 1, y, t.baseAlt)
+    end,
+  },
+}
+
 -- ---------------------------------------------------------------- 시트 생성
 
 local frameCount = #TERRAINS * TILES_PER_TERRAIN
+local DECO_COUNT = #TERRAINS * 4
 local sprite = Sprite(T, T, ColorMode.RGB)
 local layer = sprite.layers[1]
-for _ = 2, frameCount do sprite:newEmptyFrame() end
+for _ = 2, frameCount + DECO_COUNT do sprite:newEmptyFrame() end
 
 local frame = 1
 for _, terrain in ipairs(TERRAINS) do
@@ -256,5 +524,27 @@ for _, terrain in ipairs(TERRAINS) do
   tag.name = terrain.name
 end
 
+-- 장식 프레임(지형 순서대로 4장씩). shared/terrain의 DECO 상수와 짝을 맞춘다.
+local decoFirst = frame
+for _, terrain in ipairs(TERRAINS) do
+  local drawers = DECO_DRAWERS[terrain.name]
+  for variant = 1, 4 do
+    local image = Image(T, T, ColorMode.RGB)
+    local grid = {}
+    for y = 0, T - 1 do grid[y] = {} end
+    srand(frame * 3331 + variant * 17)
+    drawers[variant](grid, terrain)
+    for py = 0, T - 1 do
+      for px = 0, T - 1 do
+        if grid[py][px] ~= nil then image:drawPixel(px, py, grid[py][px]) end
+      end
+    end
+    sprite:newCel(layer, frame, image, Point(0, 0))
+    frame = frame + 1
+  end
+end
+local decoTag = sprite:newTag(decoFirst, frame - 1)
+decoTag.name = 'deco'
+
 sprite:saveAs(app.params['out'])
-print(string.format('saved: %s (%d타일, 지형 %d종)', app.params['out'], frameCount, #TERRAINS))
+print(string.format('saved: %s (지형 %d타일 + 장식 %d타일)', app.params['out'], frameCount, frame - decoFirst))
