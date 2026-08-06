@@ -31,6 +31,7 @@ interface RemotePlayerState {
   stone: number;
   slots: { itemId: string; count: number }[];
   selectedSlot: number;
+  channelProgress: number;
 }
 
 interface RemoteMonsterState {
@@ -66,6 +67,12 @@ interface RemoteBuildingState {
   maxHp: number;
 }
 
+interface RemoteColonyState {
+  x: number;
+  y: number;
+  destroyed: boolean;
+}
+
 interface RemoteGameState {
   roomCode: string;
   roomName: string;
@@ -76,6 +83,7 @@ interface RemoteGameState {
   coreMaxHp: number;
   coreSharedWood: number;
   coreSharedStone: number;
+  coreSharedEnergy: number;
   wavePhase: string;
   currentWave: number;
   phaseTimeRemaining: number;
@@ -95,6 +103,9 @@ interface RemoteGameState {
   };
   buildings: {
     forEach(callback: (value: RemoteBuildingState, key: string) => void): void;
+  };
+  colonies: {
+    forEach(callback: (value: RemoteColonyState, key: string) => void): void;
   };
 }
 
@@ -248,6 +259,7 @@ export class ColyseusConnection implements GameConnection {
           slot.itemId ? { itemId: slot.itemId, count: slot.count } : null,
         ),
         selectedSlot: player.selectedSlot,
+        channelProgress: player.channelProgress,
       });
     });
 
@@ -301,17 +313,24 @@ export class ColyseusConnection implements GameConnection {
       });
     });
 
+    const colonies: WorldSnapshot['colonies'] = [];
+    state?.colonies?.forEach((colony, id) => {
+      colonies.push({ id, x: colony.x, y: colony.y, destroyed: colony.destroyed });
+    });
+
     return {
       players,
       monsters,
       projectiles,
       resourceNodes,
       buildings,
+      colonies,
       status: {
         coreHp: state?.coreHp ?? 0,
         coreMaxHp: state?.coreMaxHp ?? 0,
         coreSharedWood: state?.coreSharedWood ?? 0,
         coreSharedStone: state?.coreSharedStone ?? 0,
+        coreSharedEnergy: state?.coreSharedEnergy ?? 0,
         wavePhase: state?.wavePhase ?? 'day',
         currentWave: state?.currentWave ?? 0,
         phaseTimeRemaining: state?.phaseTimeRemaining ?? 0,

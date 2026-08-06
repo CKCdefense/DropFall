@@ -65,7 +65,10 @@ type BuildMode = (typeof BUILD_MODES)[number];
  * (docs/frontend/02-lobby-room-protocol.md)
  */
 export class InputController {
-  private readonly keys: Record<'up' | 'down' | 'left' | 'right', Phaser.Input.Keyboard.Key>;
+  private readonly keys: Record<
+    'up' | 'down' | 'left' | 'right' | 'channel',
+    Phaser.Input.Keyboard.Key
+  >;
   private seq = 0;
   private fireTimer = 0;
   private elapsed = 0;
@@ -91,6 +94,11 @@ export class InputController {
       down: keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.S),
       left: keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A),
       right: keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D),
+      // 콜로니 채널링(파괴 작업, R — "설치"). moveX/moveY/aimAngle과 같은 "누르고
+      // 있는 동안" 모델이라 매 입력 전송마다 상태를 그대로 실어 보낸다(down/up
+      // 이벤트가 아니라 buildInput()에서 isDown을 읽는다) — 실제 진행/중단(이동·
+      // 피격 시)은 서버(World.tickChannels)가 권위 있게 판정한다.
+      channel: keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.R),
     };
 
     // 낮 넘기기 투표(만장일치). 서버가 중복 투표를 무시하므로 한 번만 보내면 된다.
@@ -233,6 +241,11 @@ export class InputController {
 
     // 서버(World#setInput)와 동일한 정규화 함수를 써서 대각선 속도가 어긋나지 않게 한다.
     const normalized = normalizeMoveVector(moveX, moveY);
-    return { seq: this.seq, ...normalized, aimAngle: this.aimAngle };
+    return {
+      seq: this.seq,
+      ...normalized,
+      aimAngle: this.aimAngle,
+      channeling: this.keys.channel.isDown,
+    };
   }
 }

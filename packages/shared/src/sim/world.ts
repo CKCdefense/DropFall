@@ -1,6 +1,7 @@
 import { MAP_ORIGIN, MAP_SIZE_TILES, TILE_SIZE, cellCenterWorld, worldToCell } from '../constants';
 import {
   buildingsData,
+  coloniesData,
   loadoutData,
   monstersData,
   resourcesData,
@@ -13,6 +14,7 @@ import {
 import type { PlayerInputMessage } from '../protocol/messages';
 import { FlowField, type FlowFieldGrid } from './ai/flowField';
 import { BuildingRegistry, type BuildingEntity } from './building';
+import { ColonyRegistry, colonyStageFor, type ColonyEntity } from './colony';
 import {
   HIT_RADIUS,
   WeaponCooldowns,
@@ -51,6 +53,8 @@ const FLOW_FIELD_GRID: FlowFieldGrid = {
 const CORE_RADIUS = TILE_SIZE;
 /** 코어 옆에서 자원을 입고(E)할 수 있는 반경(px). CORE_RADIUS보다 넉넉히 둬서 코어 바로 앞이 아니어도 상호작용할 수 있게 한다. */
 const CORE_INTERACT_RADIUS = CORE_RADIUS + 32;
+/** 콜로니 채널링(파괴 작업)을 시작할 수 있는 반경(px). CORE_INTERACT_RADIUS와 같은 값 — 둘 다 "구조물 바로 옆" 상호작용이다. */
+const COLONY_CHANNEL_RADIUS = CORE_INTERACT_RADIUS;
 /** 이 거리보다 가까운 몬스터끼리는 서로 밀어낸다 — 군집 분리(기술명세 §5.3). */
 const SEPARATION_RADIUS = HIT_RADIUS * 2.5;
 /** 분리력이 주 이동 방향을 완전히 덮어쓰지 않도록 두는 가중치. */
@@ -131,6 +135,13 @@ export interface PlayerEntity {
   stone: number;
   /** 퀵슬롯. 장착 무기도 여기서 나온다 — 클라이언트가 무기를 주장할 수 없다. */
   inventory: Inventory;
+  /** 지금 채널링(콜로니 파괴 작업) 중인 콜로니 id. 채널링 중이 아니면 undefined. */
+  channelingColonyId?: string;
+  /** 채널링 진행률(0~1). 이동/피격/사거리 이탈로 언제든 0으로 리셋될 수 있다. */
+  channelProgress: number;
+  /** 이번 틱에 몬스터에게 맞았는지. 매 틱 시작 시 초기화되고, damagePlayer()가 세팅한다.
+   * 채널링 "피격 시 중단" 판정에 쓴다 — tickChannels()가 tickMonsters() 이후에 읽는다. */
+  tookDamageThisTick: boolean;
 }
 
 export interface ResourceNodeEntity {
@@ -193,6 +204,13 @@ export interface CoreState {
    */
   sharedWood: number;
   sharedStone: number;
+  /**
+   * 콜로니 파괴로만 얻는 전용 자원. 나무/돌과 달리 "채집 후 입고" 단계가 없다 —
+   * 파괴 즉시 팀 전체 몫으로 귀속된다(누가 채널링했든 팀 보상). 코어 업그레이드/상점
+   * 구입 전용으로 쓸 예정(아직 그 소비처는 미구현 — CoreModal/UpgradeModal의
+   * "에너지" 플레이스홀더 행이 이 값을 보여줄 자리다).
+   */
+  sharedEnergy: number;
 }
 
 let nextMonsterId = 1;
@@ -213,6 +231,7 @@ export class World {
   private readonly waveManager = new WaveManager();
   private readonly buildings = new BuildingRegistry();
   private readonly resourceNodes = new Map<string, ResourceNodeEntity>();
+  private readonly colonies = new ColonyRegistry();
   private readonly rng: () => number;
   private readonly flowField = new FlowField(FLOW_FIELD_GRID, (cx, cy) =>
     this.buildings.isBlockedForMovement(cx, cy),
@@ -222,6 +241,7 @@ export class World {
     maxHp: wavesData.coreHp,
     sharedWood: 0,
     sharedStone: 0,
+    sharedEnergy: 0,
   };
   private elapsedSeconds = 0;
   /** 이번 낮 페이즈에 스킵 투표를 던진 플레이어 id 집합. 만장일치면 skipDay()를 부른다. */
@@ -247,6 +267,8 @@ export class World {
       wood: 0,
       stone: 0,
       inventory,
+      channelProgress: 0,
+      tookDamageThisTick: false,
     });
   }
 
@@ -267,7 +289,10 @@ export class World {
       !isFiniteNumber(input.seq) ||
       !isFiniteNumber(input.moveX) ||
       !isFiniteNumber(input.moveY) ||
-      !isFiniteNumber(input.aimAngle)
+      !isFiniteNumber(input.aimAngle) ||
+      // channeling은 옵셔널이다 — 없으면(구버전 호출부/테스트) false로 취급하고
+      // 입력 전체를 거절하지 않는다. 있는데 boolean이 아니면 거절한다.
+      (input.channeling !== undefined && typeof input.channeling !== 'boolean')
     ) {
       return;
     }
@@ -278,7 +303,13 @@ export class World {
     if (previous && input.seq <= previous.seq) return;
 
     const { moveX, moveY } = normalizeMoveVector(input.moveX, input.moveY);
-    this.inputs.set(id, { seq: input.seq, moveX, moveY, aimAngle: input.aimAngle });
+    this.inputs.set(id, {
+      seq: input.seq,
+      moveX,
+      moveY,
+      aimAngle: input.aimAngle,
+      channeling: input.channeling === true,
+    });
   }
 
   /**
@@ -317,6 +348,9 @@ export class World {
   fireWeapon(playerId: string): void {
     const player = this.players.get(playerId);
     if (!player) return;
+    // 채널링 중엔 공격할 수 없다 — "무방비 상태"를 실제로 강제한다(콜로니 채널링은
+    // 엄호가 필요한 협동 압박 요소로 설계됐다, docs/backend/35).
+    if (player.channelingColonyId) return;
 
     const weaponId = player.inventory.equippedWeaponId;
     // 무기가 아닌 슬롯(붕대 등)을 들고 있으면 공격이 성립하지 않는다.
@@ -479,6 +513,10 @@ export class World {
   tick(dtSeconds: number): void {
     this.elapsedSeconds += dtSeconds;
 
+    // 이번 틱의 피격 여부를 새로 센다 — damagePlayer()가 이번 틱 중 세팅하고,
+    // tickChannels()가 tickMonsters() 이후(=피격이 이미 반영된 뒤)에 읽는다.
+    for (const player of this.players.values()) player.tookDamageThisTick = false;
+
     for (const [id, player] of this.players) {
       const input = this.inputs.get(id);
       if (!input) continue;
@@ -502,6 +540,10 @@ export class World {
 
     this.tickMonsters(dtSeconds);
     this.tickResourceNodes(dtSeconds);
+    this.tickColonies(dtSeconds);
+    // tickMonsters() 다음에 불러야 한다 — 이번 틱의 피격(tookDamageThisTick)이
+    // 이미 반영된 뒤여야 "피격 시 채널 중단"이 정확히 판정된다.
+    this.tickChannels(dtSeconds);
 
     tickProjectiles(this.projectiles, dtSeconds);
     this.resolveProjectileHits();
@@ -532,6 +574,10 @@ export class World {
 
   getResourceNodes(): ReadonlyMap<string, ResourceNodeEntity> {
     return this.resourceNodes;
+  }
+
+  getColonies(): ReadonlyMap<string, ColonyEntity> {
+    return this.colonies.entries();
   }
 
   getWavePhase(): GamePhase {
@@ -672,6 +718,17 @@ export class World {
     return nearest;
   }
 
+  /**
+   * 플레이어에게 데미지를 적용하는 유일한 경로. hp를 깎는 것뿐 아니라
+   * `tookDamageThisTick`도 같이 세팅한다 — 콜로니 채널링의 "피격 시 중단"
+   * 판정(tickChannels)이 이 플래그를 읽는다. 몬스터가 플레이어를 때리는 모든
+   * 경로(추격 공격, 보스 돌진/광역)가 반드시 이 메서드를 거쳐야 한다.
+   */
+  private damagePlayer(player: PlayerEntity, amount: number): void {
+    player.hp = Math.max(0, player.hp - amount);
+    player.tookDamageThisTick = true;
+  }
+
   /** 웨이브를 클리어하고 새 낮이 시작될 때 다운된 플레이어를 전원 부활시킨다. */
   private revivePlayers(): void {
     for (const player of this.players.values()) {
@@ -699,6 +756,81 @@ export class World {
         node.respawnTimer = 0;
       }
     }
+  }
+
+  /**
+   * 살아있는 콜로니마다 스폰 타이머를 감소시키고, 0이 되면 몬스터를 하나 추가한다.
+   * `tickMonsters()`처럼 페이즈(낮/밤) 무관하게 매 틱 그냥 돈다 — 콜로니가 낮에도
+   * 몬스터를 내보내는 게 이 기능의 핵심이라, 애초에 페이즈로 막을 이유가 없다
+   * (몬스터 자체는 addMonster()로 추가되는 순간부터 tickMonsters()가 똑같이
+   * 다루므로, 낮/밤에 따라 AI가 달라지지 않는다).
+   *
+   * 스테이지(난이도 구간)는 현재 웨이브 진행도(WaveManager.currentWave) 기준으로
+   * 콜로니 전체가 공유한다 — "시간이 지날수록 강해진다"를 밤 웨이브와 같은 축으로
+   * 표현한다(§colonyStageFor).
+   */
+  private tickColonies(dtSeconds: number): void {
+    const stage = colonyStageFor(this.waveManager.currentWave);
+
+    for (const colony of this.colonies.values()) {
+      if (colony.destroyed) continue;
+
+      colony.spawnTimer -= dtSeconds;
+      if (colony.spawnTimer > 0) continue;
+
+      colony.spawnTimer = stage.spawnIntervalSeconds;
+      const type = stage.types[Math.floor(this.rng() * stage.types.length)] as MonsterType;
+      this.addMonster(type, colony.x, colony.y);
+    }
+  }
+
+  /**
+   * 콜로니 채널링(파괴 작업) 진행을 처리한다. `tickMonsters()` 이후에 불러야 한다
+   * — 이번 틱에 몬스터에게 맞았는지(`tookDamageThisTick`)가 이미 반영된 뒤여야
+   * "피격 시 중단"이 정확히 판정된다.
+   *
+   * 조건(이동 없음 + 피격 없음 + 파괴 안 된 콜로니 사거리 안 + 채널 키 유지)이
+   * 하나라도 깨지면 그 자리에서 진행률을 0으로 되돌린다 — 부분 진행을 이어서
+   * 채우는 게 아니라 매번 처음부터 다시 시작해야 한다(이게 "엄호"를 실제로
+   * 필요하게 만드는 핵심 규칙, docs/backend/35).
+   */
+  private tickChannels(dtSeconds: number): void {
+    for (const [playerId, player] of this.players) {
+      const input = this.inputs.get(playerId);
+      const wantsChannel = input?.channeling === true && input.moveX === 0 && input.moveY === 0;
+      const target = wantsChannel && player.hp > 0 ? this.findChannelableColony(player) : undefined;
+
+      if (!target || player.tookDamageThisTick) {
+        player.channelingColonyId = undefined;
+        player.channelProgress = 0;
+        continue;
+      }
+
+      // 채널 대상이 바뀌면(다른 콜로니로 옮겨감) 진행률을 새로 시작한다.
+      if (player.channelingColonyId !== target.id) {
+        player.channelingColonyId = target.id;
+        player.channelProgress = 0;
+      }
+
+      player.channelProgress += dtSeconds / coloniesData.channelSeconds;
+      if (player.channelProgress < 1) continue;
+
+      this.colonies.destroy(target.id);
+      this.core.sharedEnergy += coloniesData.essenceReward;
+      player.channelingColonyId = undefined;
+      player.channelProgress = 0;
+    }
+  }
+
+  /** 파괴되지 않은 콜로니 중 채널링 사거리(COLONY_CHANNEL_RADIUS) 안에 있는 것을 찾는다. */
+  private findChannelableColony(player: PlayerEntity): ColonyEntity | undefined {
+    for (const colony of this.colonies.values()) {
+      if (colony.destroyed) continue;
+      if (circlesOverlap(player.x, player.y, colony.x, colony.y, COLONY_CHANNEL_RADIUS)) {
+        return colony;
+      }
+    }
+    return undefined;
   }
 
   /**
@@ -746,7 +878,7 @@ export class World {
           this.attackBuilding(monster, blocker, data.damage, data.attackInterval);
         } else if (distance <= data.attackRange) {
           if (monster.attackCooldown <= 0) {
-            target.hp = Math.max(0, target.hp - data.damage);
+            this.damagePlayer(target, data.damage);
             monster.attackCooldown = data.attackInterval;
           }
         } else {
@@ -910,7 +1042,7 @@ export class World {
     for (const player of this.players.values()) {
       if (player.hp <= 0 || pattern.hitPlayerIds.has(player.id)) continue;
       if (circlesOverlap(monster.x, monster.y, player.x, player.y, hitRadius)) {
-        player.hp = Math.max(0, player.hp - charge.damage);
+        this.damagePlayer(player, charge.damage);
         pattern.hitPlayerIds.add(player.id);
       }
     }
@@ -934,7 +1066,7 @@ export class World {
     for (const player of this.players.values()) {
       if (player.hp <= 0) continue;
       if (circlesOverlap(pattern.x, pattern.y, player.x, player.y, hitRadius)) {
-        player.hp = Math.max(0, player.hp - slam.damage);
+        this.damagePlayer(player, slam.damage);
       }
     }
 

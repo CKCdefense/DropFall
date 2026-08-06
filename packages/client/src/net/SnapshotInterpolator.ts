@@ -1,6 +1,7 @@
 import { PATCH_RATE } from '@dropfall/shared';
 import type {
   BuildingView,
+  ColonyView,
   MonsterView,
   PlayerView,
   ProjectileView,
@@ -58,6 +59,7 @@ interface BufferedSnapshot {
   projectiles: ProjectileView[];
   resourceNodes: ResourceNodeView[];
   buildings: BuildingView[];
+  colonies: ColonyView[];
   status: WorldStatus;
 }
 
@@ -117,6 +119,7 @@ const EMPTY_STATUS: WorldStatus = {
   coreMaxHp: 0,
   coreSharedWood: 0,
   coreSharedStone: 0,
+  coreSharedEnergy: 0,
   wavePhase: 'day',
   currentWave: 0,
   phaseTimeRemaining: 0,
@@ -131,6 +134,7 @@ export class SnapshotInterpolator {
     projectiles: [],
     resourceNodes: [],
     buildings: [],
+    colonies: [],
     status: { ...EMPTY_STATUS },
   };
 
@@ -143,6 +147,7 @@ export class SnapshotInterpolator {
       projectiles: snapshot.projectiles.map((projectile) => ({ ...projectile })),
       resourceNodes: snapshot.resourceNodes.map((node) => ({ ...node })),
       buildings: snapshot.buildings.map((building) => ({ ...building })),
+      colonies: snapshot.colonies.map((colony) => ({ ...colony })),
       status: { ...snapshot.status },
     });
 
@@ -178,9 +183,10 @@ export class SnapshotInterpolator {
         overshootMs,
         this.output.projectiles,
       );
-      // 자원 노드/건축물은 위치가 고정이라 외삽할 속도가 없다 — 그냥 최신값을 그대로 쓴다.
+      // 자원 노드/건축물/콜로니는 위치가 고정이라 외삽할 속도가 없다 — 그냥 최신값을 그대로 쓴다.
       this.output.resourceNodes = last.resourceNodes;
       this.output.buildings = last.buildings;
+      this.output.colonies = last.colonies;
       return this.output;
     }
 
@@ -193,6 +199,7 @@ export class SnapshotInterpolator {
     blendList(from.projectiles, to.projectiles, t, this.output.projectiles);
     this.output.resourceNodes = to.resourceNodes;
     this.output.buildings = to.buildings;
+    this.output.colonies = to.colonies;
 
     // 조준각은 위치와 달리 최단 경로로 섞어야 한다.
     for (const player of this.output.players) {

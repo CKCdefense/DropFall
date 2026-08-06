@@ -43,7 +43,9 @@
 | [backend/30-work-report-boss-attack-patterns.md](backend/30-work-report-boss-attack-patterns.md) | 작업 보고서 — 보스 공격 패턴 추가(돌진 예고/광역 예고) |
 | [backend/31-work-report-hitbox-fix-and-resource-rework.md](backend/31-work-report-hitbox-fix-and-resource-rework.md) | 작업 보고서 — 몬스터 히트박스 버그 수정 + 자원채집 재설계(근접 타격 + 코어 입고) + 코어 모달 통합 |
 | [backend/32-work-report-muzzle-gap-miss-bug.md](backend/32-work-report-muzzle-gap-miss-bug.md) | 작업 보고서 — 근접 몬스터를 원거리 무기로 못 맞히는 버그(총구 간격 사각지대) 수정 + 몬스터 충돌 디버그 테두리 |
-| [backend/33-work-report-projectile-visual-offset-bug.md](backend/33-work-report-projectile-visual-offset-bug.md) | 작업 보고서 — 총알 궤적(그림)과 실제 피격 위치가 어긋나던 렌더링 오프셋 버그 수정 |
+| [backend/33-work-report-projectile-visual-offset-bug.md](backend/33-work-report-projectile-visual-offset-bug.md) | 작업 보고서 — 총알 궤적(그림)과 실제 피격 위치가 어긋나던 렌더링 오프셋 버그 수정 (이후 backend/34로 해법 대체됨) |
+| [backend/34-work-report-develop-merge-combat-accuracy.md](backend/34-work-report-develop-merge-combat-accuracy.md) | 작업 보고서 — client develop 병합(연사속도·히트박스·조준 정합성 FixedStep 수정 + 지형 시스템), 겹치는 수정사항 해결 과정 |
+| [backend/35-work-report-monster-colony.md](backend/35-work-report-monster-colony.md) | 작업 보고서 — 몬스터 콜로니(낮에도 스폰·채널링 파괴·엄호 협동) 도입, 몬스터 스폰 반경을 맵 가장자리로 조정 |
 
 ### 역할 C — 클라이언트/렌더/UI 작업 문서 ([frontend/](frontend/))
 

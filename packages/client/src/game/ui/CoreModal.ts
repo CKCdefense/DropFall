@@ -18,12 +18,16 @@ export class CoreModal extends Modal {
   onCraft: () => void = () => {};
   onWarehouse: () => void = () => {};
 
+  /** "에너지" 행 값 텍스트. 콜로니 파괴로만 얻는 전용 자원(docs/backend/35) —
+   * 여기 모달들 중 실제 데이터에 연결된 첫 필드다. */
+  private readonly energyValueText: Phaser.GameObjects.Text;
+
   constructor(scene: Phaser.Scene) {
     super(scene, { title: '코어', width: PANEL_WIDTH, height: PANEL_HEIGHT });
 
     this.addRow(0, '가격', '-');
     this.addRow(ROW_GAP, '자원', '0');
-    this.addRow(ROW_GAP * 2, '에너지', '0');
+    this.energyValueText = this.addRow(ROW_GAP * 2, '에너지', '0');
 
     const feedY = ROW_GAP * 3;
     this.addButton(0, feedY, this.contentWidth, BUTTON_HEIGHT, '주입', () => {
@@ -40,5 +44,10 @@ export class CoreModal extends Modal {
     this.addButton(col2X, gridY, colWidth, BUTTON_HEIGHT, '상점', () => this.onStore());
     this.addButton(0, row2Y, colWidth, BUTTON_HEIGHT, '제작', () => this.onCraft());
     this.addButton(col2X, row2Y, colWidth, BUTTON_HEIGHT, '창고', () => this.onWarehouse());
+  }
+
+  /** 코어 공유 에너지(coreSharedEnergy)를 반영한다. HudScene이 스냅샷마다 호출한다. */
+  setEnergy(value: number): void {
+    this.energyValueText.setText(String(value));
   }
 }

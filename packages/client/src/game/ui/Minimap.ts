@@ -4,10 +4,12 @@ import { PANEL_FILL, PANEL_STROKE } from './theme';
 
 const SIZE = 84;
 /**
- * 미니맵이 담는 월드 범위(코어 기준 ±px). 맵 전체(±1024)를 다 담으면 점이 뭉쳐서
- * 아무것도 안 보인다 — 자원 군집(최대 350)과 몬스터 스폰 반경(300)이 들어오는 정도로 자른다.
+ * 미니맵이 담는 월드 범위(코어 기준 ±px). 콜로니/스폰 반경(900, docs/backend/35)이
+ * 잘리지 않을 만큼만 잡는다 — 그보다 넓히면 화면 안쪽(자원 군집 등)이 중앙에 너무
+ * 뭉쳐 보인다. 예전엔 420이었는데(자원 군집 350 기준), 콜로니가 훨씬 먼 고정
+ * 랜드마크라 이 값 없이는 미니맵에 아예 안 잡혀서 방향을 찾을 수 없었다.
  */
-const WORLD_RANGE = 420;
+const WORLD_RANGE = 950;
 
 const CORE_COLOR = 0x7f8fa6;
 const SELF_COLOR = 0x6fd08c;
@@ -15,6 +17,8 @@ const ALLY_COLOR = 0xcfd6e4;
 const MONSTER_COLOR = 0xd9756b;
 const RESOURCE_COLOR = 0x5b8c4a;
 const BUILDING_COLOR = 0xb08a5c;
+const COLONY_COLOR = 0x7a3fb0;
+const COLONY_DESTROYED_COLOR = 0x4a3f52;
 
 /**
  * 우상단 미니맵(와이어프레임 우상단 사각형).
@@ -57,6 +61,16 @@ export class Minimap {
 
     this.plot(snapshot.resourceNodes, RESOURCE_COLOR, 1);
     this.plot(snapshot.buildings, BUILDING_COLOR, 1);
+    this.plot(
+      snapshot.colonies.filter((colony) => !colony.destroyed),
+      COLONY_COLOR,
+      2,
+    );
+    this.plot(
+      snapshot.colonies.filter((colony) => colony.destroyed),
+      COLONY_DESTROYED_COLOR,
+      2,
+    );
     this.plot(snapshot.monsters, MONSTER_COLOR, 1.5);
 
     // 플레이어는 마지막에 찍어야 몬스터 무리에 묻히지 않는다.

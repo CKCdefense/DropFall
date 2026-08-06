@@ -24,6 +24,8 @@ export interface PlayerView {
   /** 퀵슬롯. 길이는 항상 SLOT_COUNT이고 빈 칸은 null이다. */
   slots: (InventorySlot | null)[];
   selectedSlot: number;
+  /** 콜로니 채널링(파괴 작업) 진행률(0~1). 채널링 중이 아니면 0. */
+  channelProgress: number;
 }
 
 export interface MonsterView {
@@ -76,6 +78,14 @@ export interface BuildingView {
   maxHp: number;
 }
 
+export interface ColonyView {
+  id: string;
+  x: number;
+  y: number;
+  /** 채널링 1회 완료로 파괴됐는지. 파괴돼도 위치는 계속 내려온다(렌더러가 흐리게/제거를 결정). */
+  destroyed: boolean;
+}
+
 /** 위치가 없는 값들 — 보간 대상이 아니라 항상 최신값을 그대로 쓴다. */
 export interface WorldStatus {
   coreHp: number;
@@ -83,6 +93,8 @@ export interface WorldStatus {
   /** 코어에 입고된 팀 공유 자원. 건축 비용은 여기서 나간다(개인 wood/stone이 아니다). */
   coreSharedWood: number;
   coreSharedStone: number;
+  /** 콜로니 파괴로만 얻는 전용 자원. 코어 업그레이드/상점 구입 전용(아직 소비처 미구현). */
+  coreSharedEnergy: number;
   /** GamePhase: 'day' | 'night' | 'victory' | 'defeat' */
   wavePhase: string;
   currentWave: number;
@@ -98,6 +110,7 @@ export interface WorldSnapshot {
   projectiles: ProjectileView[];
   resourceNodes: ResourceNodeView[];
   buildings: BuildingView[];
+  colonies: ColonyView[];
   status: WorldStatus;
 }
 

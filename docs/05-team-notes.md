@@ -147,6 +147,33 @@ interface FireInputMessage {
   자동 시작되는 Scene에는 `start(key, data)`의 data가 전달되지 않는다 —
   공유 객체는 `game.registry`로 넘긴다.
 
+- **`setInterval(() => world.tick(1/60), 1000/60)`처럼 고정 dt로 틱하지 말 것.**
+  타이머가 불린 횟수만큼만 진행하므로, 프레임이 밀리거나 탭이 백그라운드로 가면
+  시뮬레이션 시간이 영구히 사라져 게임 전체가 슬로모션이 된다(실측 41% 속도까지
+  떨어진 적 있음). 서버/로컬 양쪽 다 `FixedStepAccumulator`(`shared/sim/fixedStep.ts`)로
+  실제 경과 시간을 누적해 고정 스텝 여러 번으로 나눠 돌린다 — 새 틱 루프를 만들 땐
+  이 패턴을 재사용할 것. 자세히: [backend/34](backend/34-work-report-develop-merge-combat-accuracy.md)
+
+- **몬스터·투사체·무기 이펙트는 "화면상 가슴 높이"에 그려지지만 판정은 항상 발밑
+  월드 좌표다.** 이 둘을 있는 그대로 겹쳐 그리면 총알이 몬스터 머리 위를 스치는
+  것처럼 보인다. `render/plane.ts`의 `ACTION_PLANE_Y` 하나로 오프셋을 통일했고,
+  조준각 계산(`InputController.updateAim`)도 이 평면 기준으로 커서 좌표를 보정한다 —
+  **새로 뭔가를 "전투 평면"에 그릴 땐 반드시 이 상수를 같이 써야** 어긋남이 재발하지
+  않는다. 자세히: [backend/34](backend/34-work-report-develop-merge-combat-accuracy.md)
+
+- **"누르고 있는 동안" 상태(홀드 키)는 `PlayerInputMessage`에 필드로 얹는다.**
+  moveX/moveY/aimAngle과 같은 자리다 — 매 입력 전송마다 지금 누르고 있는지를
+  그대로 실어 보내고, 서버가 그 값을 갖고 진행/중단을 권위 있게 판정한다. 콜로니
+  채널링의 `channeling` 필드가 그 예다. 별도 메시지 타입("keyDown"/"keyUp")을
+  만들지 않는 이유: 서버는 어차피 "마지막 입력을 새 입력이 올 때까지 매 틱
+  반복 적용"하는 모델이라, 이산 이벤트보다 연속 상태 필드가 이 모델과 훨씬 잘
+  맞는다. 자세히: [backend/35](backend/35-work-report-monster-colony.md)
+
+- **미니맵(`Minimap.ts`)의 `WORLD_RANGE`는 실제로 표시해야 할 가장 먼 엔티티보다
+  넉넉해야 한다.** 콜로니를 맵 가장자리(900px)에 배치했는데 미니맵 범위가
+  420px로 남아 있어서, 실제로 존재하는데도 미니맵엔 전혀 안 잡히는 버그가 있었다
+  — 새 엔티티를 멀리 배치할 때마다 이 값을 같이 확인할 것.
+
 ---
 
 ## 4. 역할별 파일 분담 ([04-roadmap.md](04-roadmap.md) 기준)

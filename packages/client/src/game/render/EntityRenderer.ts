@@ -10,6 +10,7 @@ import {
 } from '@dropfall/shared';
 import type {
   BuildingView,
+  ColonyView,
   MonsterView,
   PlayerView,
   ProjectileView,
@@ -98,6 +99,15 @@ const BUILDING_STYLE: Record<string, { color: number; size: number }> = {
 };
 const BUILDING_FALLBACK = { color: 0x6b6f78, size: 14 };
 
+/**
+ * 콜로니 플레이스홀더(docs/backend/35). 종류가 하나뿐이라 색상표가 필요 없다 —
+ * 건축물보다 눈에 띄게 크게 그려서 "이건 부술 수 있는 랜드마크"임을 시각적으로 구분한다.
+ */
+const COLONY_COLOR = 0x7a3fb0;
+const COLONY_SIZE = 28;
+/** 파괴된 콜로니는 지우지 않고 흐리게만 남긴다(엔티티 자체가 사라지지 않으므로, colony.ts 참고). */
+const COLONY_DESTROYED_ALPHA = 0.25;
+
 /** 이 거리보다 적게 움직였으면 정지로 본다(보간 지터로 걷기 애니메이션이 떨리는 것 방지) */
 const MOVE_EPSILON = 0.15;
 
@@ -160,6 +170,7 @@ export class EntityRenderer {
   private readonly projectiles = new Map<string, Phaser.GameObjects.Sprite | Phaser.GameObjects.Arc>();
   private readonly resourceNodes = new Map<string, Phaser.GameObjects.Container>();
   private readonly buildings = new Map<string, Phaser.GameObjects.Container>();
+  private readonly colonies = new Map<string, Phaser.GameObjects.Container>();
   /** 보스 공격 예고(텔레그래프) 표시. 몬스터 id별로 하나씩, 예고 중일 때만 존재한다. */
   private readonly telegraphs = new Map<string, Phaser.GameObjects.Graphics>();
   /** 이동 여부 판정용 직전 좌표 */
@@ -252,6 +263,7 @@ export class EntityRenderer {
     this.syncProjectiles(snapshot.projectiles);
     this.syncResourceNodes(snapshot.resourceNodes);
     this.syncBuildings(snapshot.buildings);
+    this.syncColonies(snapshot.colonies);
   }
 
   getSprite(sessionId: string): Phaser.GameObjects.Container | undefined {
@@ -277,7 +289,13 @@ export class EntityRenderer {
   }
 
   destroy(): void {
-    for (const map of [this.players, this.monsters, this.resourceNodes, this.buildings]) {
+    for (const map of [
+      this.players,
+      this.monsters,
+      this.resourceNodes,
+      this.buildings,
+      this.colonies,
+    ]) {
       for (const sprite of map.values()) sprite.destroy();
       map.clear();
     }
@@ -782,6 +800,35 @@ export class EntityRenderer {
     }
 
     return this.scene.add.container(building.x, building.y, children);
+  }
+
+  // ---------------------------------------------------------------- 콜로니
+
+  private syncColonies(views: ColonyView[]): void {
+    const alive = new Set<string>();
+
+    for (const colony of views) {
+      alive.add(colony.id);
+
+      let sprite = this.colonies.get(colony.id);
+      if (!sprite) {
+        sprite = this.createColony(colony);
+        this.colonies.set(colony.id, sprite);
+      }
+
+      sprite.setDepth(colony.y);
+      // 파괴돼도 엔티티는 안 사라진다(colony.ts) — 흐리게 표시해서 "여기 있었다"는
+      // 랜드마크는 남기되 더 이상 위협이 아님을 알린다.
+      sprite.setAlpha(colony.destroyed ? COLONY_DESTROYED_ALPHA : 1);
+    }
+
+    this.removeMissing(this.colonies, alive);
+  }
+
+  private createColony(colony: ColonyView): Phaser.GameObjects.Container {
+    const body = this.scene.add.rectangle(0, 0, COLONY_SIZE, COLONY_SIZE, COLONY_COLOR);
+    body.setStrokeStyle(2, 0x1a1c23);
+    return this.scene.add.container(colony.x, colony.y, [body]);
   }
 
   // ---------------------------------------------------------------- 공통

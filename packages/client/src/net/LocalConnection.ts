@@ -110,6 +110,7 @@ export class LocalConnection implements GameConnection {
         stone: player.stone,
         slots: inventory.slots,
         selectedSlot: inventory.selectedIndex,
+        channelProgress: player.channelProgress,
       });
     }
 
@@ -164,6 +165,11 @@ export class LocalConnection implements GameConnection {
       });
     }
 
+    const colonies: WorldSnapshot['colonies'] = [];
+    for (const [id, colony] of this.world.getColonies()) {
+      colonies.push({ id, x: colony.x, y: colony.y, destroyed: colony.destroyed });
+    }
+
     const core = this.world.getCore();
 
     return {
@@ -172,11 +178,13 @@ export class LocalConnection implements GameConnection {
       projectiles,
       resourceNodes,
       buildings,
+      colonies,
       status: {
         coreHp: core.hp,
         coreMaxHp: core.maxHp,
         coreSharedWood: core.sharedWood,
         coreSharedStone: core.sharedStone,
+        coreSharedEnergy: core.sharedEnergy,
         wavePhase: this.world.getWavePhase(),
         currentWave: this.world.getCurrentWave(),
         phaseTimeRemaining: this.world.getPhaseTimeRemaining(),

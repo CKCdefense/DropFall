@@ -7,6 +7,7 @@ import toolsJson from './tools.json';
 import buildingsJson from './buildings.json';
 import itemsJson from './items.json';
 import loadoutJson from './loadout.json';
+import coloniesJson from './colonies.json';
 
 export function loadData<T>(schema: z.ZodType<T>, json: unknown): T {
   return schema.parse(json);
@@ -223,3 +224,34 @@ const LoadoutDataSchema = z.object({
 export type LoadoutEntry = z.infer<typeof LoadoutEntrySchema>;
 
 export const loadoutData = loadData(LoadoutDataSchema, loadoutJson);
+
+// --- colonies.json ------------------------------------------------------------
+
+/**
+ * 콜로니 난이도 구간. `afterWave` 이하의 값들 중 현재 웨이브(`WaveManager.currentWave`)에
+ * 가장 가까운(가장 큰) 항목을 골라 쓴다 — 밤 웨이브(waves.json)가 이미 웨이브 진행도로
+ * 난이도 곡선을 그리는 것과 같은 축을 재사용해서, "시간이 지날수록 강해진다"를 게임 내
+ * 절대 시간이 아니라 웨이브 진행도로 표현한다.
+ */
+const ColonyStageSchema = z.object({
+  afterWave: z.number().int().nonnegative(),
+  spawnIntervalSeconds: z.number().positive(),
+  /** 이 구간에서 나올 수 있는 몬스터 타입(monsters.json 키). 스폰마다 하나를 무작위로 고른다. */
+  types: z.array(z.string()).min(1),
+});
+
+const ColoniesDataSchema = z.object({
+  /** 코어 중심으로 4방향(N/E/S/W) 고정 배치되는 반경(px). waves.json의 spawnRadius와
+   * 값을 맞춰서, 밤 웨이브 스폰 지점과 콜로니가 시각적으로 같은 "가장자리"에 서게 한다. */
+  spawnRadius: z.number().positive(),
+  /** 채널링(콜로니 파괴 작업)에 필요한 시간(초). */
+  channelSeconds: z.number().positive(),
+  /** 콜로니 파괴 1회당 팀 공유 창고(coreSharedEnergy)에 지급되는 양. */
+  essenceReward: z.number().int().positive(),
+  stages: z.array(ColonyStageSchema).min(1),
+});
+
+export type ColonyStage = z.infer<typeof ColonyStageSchema>;
+export type ColoniesData = z.infer<typeof ColoniesDataSchema>;
+
+export const coloniesData = loadData(ColoniesDataSchema, coloniesJson);

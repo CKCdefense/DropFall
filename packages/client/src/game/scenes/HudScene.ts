@@ -81,6 +81,8 @@ export class HudScene extends Phaser.Scene {
   private buildModeText!: Phaser.GameObjects.Text;
   private debugText!: Phaser.GameObjects.Text;
   private helpText!: Phaser.GameObjects.Text;
+  /** 콜로니 채널링(파괴 작업) 진행률 표시. 채널링 중이 아니면 빈 문자열로 숨긴다. */
+  private channelText!: Phaser.GameObjects.Text;
   /** 로컬 모드에서만 존재한다 — connection.debugJumpToWave가 없으면 아예 안 만든다. */
   private debugJumpButton?: Phaser.GameObjects.Text;
   /** 패널 배경 없이 지형 위에 바로 얹히는 글자들. 그림자를 넣어 대비를 준다. */
@@ -136,6 +138,9 @@ export class HudScene extends Phaser.Scene {
     this.buildModeText = this.add.text(0, 0, '건축모드: 꺼짐', DIM_STYLE);
     this.debugText = this.add.text(0, 0, '', SMALL_STYLE);
     this.helpText = this.add.text(0, 0, '', DIM_STYLE).setOrigin(0.5, 1);
+    this.channelText = this.add
+      .text(0, 0, '', { fontFamily: FONT, fontSize: `${SIZE_BODY}px`, color: ACCENT })
+      .setOrigin(0.5, 1);
 
     // 로컬 모드 전용 테스트 버튼 — 웨이브 5(보스 웨이브)로 바로 점프해서 밸런스를
     // 테스트한다(docs/backend/23). 실제 멀티플레이(ColyseusConnection)에는
@@ -158,7 +163,13 @@ export class HudScene extends Phaser.Scene {
 
     // 패널 밖에 떠 있는 글자는 지형 위에 그대로 얹혀서 대비가 필요하다.
     // 패널 안 글자(코어, 퀵슬롯, 팀원)는 어두운 상자가 이미 받쳐주므로 놔둔다.
-    this.looseTexts = [this.resourceText, this.buildModeText, this.debugText, this.helpText];
+    this.looseTexts = [
+      this.resourceText,
+      this.buildModeText,
+      this.debugText,
+      this.helpText,
+      this.channelText,
+    ];
 
     this.layout();
     this.scale.on(Phaser.Scale.Events.RESIZE, this.layout, this);
@@ -253,6 +264,9 @@ export class HudScene extends Phaser.Scene {
     this.selfBar
       .setSize(selfBarW, SELF_BAR_HEIGHT * scale)
       .setPosition(width / 2 - selfBarW / 2, selfBarY);
+    this.channelText
+      .setFontSize(SIZE_BODY * scale)
+      .setPosition(width / 2, selfBarY - 4 * scale);
 
     // --- 나머지
     this.resourceText.setFontSize(SIZE_BODY * scale).setPosition(pad, height - 40 * scale);
@@ -273,7 +287,13 @@ export class HudScene extends Phaser.Scene {
     const { status } = snapshot;
     const me = snapshot.players.find((player) => player.id === this.connection.sessionId);
 
-    this.updateCore(status.coreHp, status.coreMaxHp, status.coreSharedWood, status.coreSharedStone);
+    this.updateCore(
+      status.coreHp,
+      status.coreMaxHp,
+      status.coreSharedWood,
+      status.coreSharedStone,
+      status.coreSharedEnergy,
+    );
     this.waveDial.update(status);
     this.minimap.update(snapshot, this.connection.sessionId);
     this.party.update(
@@ -284,13 +304,20 @@ export class HudScene extends Phaser.Scene {
     this.updateTexts(snapshot, me);
   }
 
-  private updateCore(hp: number, maxHp: number, sharedWood: number, sharedStone: number): void {
+  private updateCore(
+    hp: number,
+    maxHp: number,
+    sharedWood: number,
+    sharedStone: number,
+    sharedEnergy: number,
+  ): void {
     const ratio = maxHp > 0 ? hp / maxHp : 1;
     this.coreBar.width = Math.max(0, this.coreBarBack.width * ratio);
     // 코어가 위험하면 색으로 먼저 알린다 — 숫자를 읽기 전에 눈에 들어와야 한다.
     this.coreBar.fillColor = barColor(ratio);
     this.coreLabel.setText(`CORE ${Math.ceil(hp)}`);
     this.sharedResourceText.setText(`공유 나무 ${sharedWood} · 돌 ${sharedStone}`);
+    this.coreModal.setEnergy(sharedEnergy);
   }
 
   private updateSelfBar(me: PlayerView | undefined): void {
@@ -309,6 +336,12 @@ export class HudScene extends Phaser.Scene {
     );
     this.resourceText.setText(me ? `휴대 나무 ${me.wood} · 돌 ${me.stone}` : '휴대 나무 0 · 돌 0');
 
+    // 채널링 중일 때만 보인다 — 진행률 0(채널링 아님)이면 빈 문자열로 완전히 숨긴다.
+    const channelProgress = me?.channelProgress ?? 0;
+    this.channelText.setText(
+      channelProgress > 0 ? `콜로니 파괴 중... ${Math.floor(channelProgress * 100)}%` : '',
+    );
+
     // InputController는 GameScene 소속이라 registry로만 접근한다 — 씬 시작 순서와
     // 무관하게 늦어도 다음 프레임엔 값이 채워져 있다(GameScene.create 참고).
     const inputController = this.registry.get(INPUT_CONTROLLER_KEY) as InputController | undefined;
@@ -319,7 +352,7 @@ export class HudScene extends Phaser.Scene {
     // 낮에만 스킵 안내를 띄운다 — 밤에는 쓸 수 없는 조작이라 보여줄 이유가 없다.
     const controlsHint =
       buildMode === 'off'
-        ? `WASD 이동 · 좌클릭 사용 · [1~${SLOT_COUNT}] 퀵슬롯 · [E] 코어 입고 · [F] 코어 메뉴 · [B] 건축모드`
+        ? `WASD 이동 · 좌클릭 사용 · [1~${SLOT_COUNT}] 퀵슬롯 · [E] 코어 입고 · [F] 코어 메뉴 · [B] 건축모드 · [R] 콜로니 파괴(엄호 필요)`
         : '좌클릭 설치 · 우클릭/[B] 취소 또는 다음 건축물';
     this.helpText.setText(
       status.wavePhase === 'day'

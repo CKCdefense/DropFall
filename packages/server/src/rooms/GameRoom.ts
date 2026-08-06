@@ -27,6 +27,7 @@ import {
 } from '@dropfall/shared';
 import {
   BuildingSchema,
+  ColonySchema,
   GameRoomState,
   MonsterSchema,
   PlayerSchema,
@@ -243,6 +244,7 @@ export class GameRoom extends Room {
       schema.hp = player.hp;
       schema.wood = player.wood;
       schema.stone = player.stone;
+      schema.channelProgress = player.channelProgress;
 
       // 슬롯은 매 틱 통째로 덮어쓴다. 4칸뿐이라 변경 감지를 따로 하는 것보다 싸고,
       // Colyseus가 실제로 바뀐 필드만 패치로 내보내므로 대역폭 낭비도 없다.
@@ -260,12 +262,14 @@ export class GameRoom extends Room {
     this.syncProjectiles();
     this.syncResourceNodes();
     this.syncBuildings();
+    this.syncColonies();
 
     const core = this.world.getCore();
     this.state.coreHp = core.hp;
     this.state.coreMaxHp = core.maxHp;
     this.state.coreSharedWood = core.sharedWood;
     this.state.coreSharedStone = core.sharedStone;
+    this.state.coreSharedEnergy = core.sharedEnergy;
     this.state.wavePhase = this.world.getWavePhase();
     this.state.currentWave = this.world.getCurrentWave();
     this.state.phaseTimeRemaining = this.world.getPhaseTimeRemaining();
@@ -373,6 +377,25 @@ export class GameRoom extends Room {
 
     for (const id of [...this.state.buildings.keys()]) {
       if (!aliveIds.has(id)) this.state.buildings.delete(id);
+    }
+  }
+
+  /**
+   * 콜로니는 건축물/자원 노드와 달리 4개 고정이고 절대 사라지지 않는다(파괴돼도
+   * `destroyed` 플래그만 켜진다, colony.ts 참고) — 그래서 몬스터처럼 "죽은 id는
+   * 지운다"는 diff 루프가 필요 없다. 위치(x/y)는 게임 내내 안 바뀌므로 최초 생성
+   * 시 한 번만 세팅하고, 매 틱은 `destroyed`만 갱신한다.
+   */
+  private syncColonies(): void {
+    for (const [id, colony] of this.world.getColonies()) {
+      let schema = this.state.colonies.get(id);
+      if (!schema) {
+        schema = new ColonySchema();
+        schema.x = colony.x;
+        schema.y = colony.y;
+        this.state.colonies.set(id, schema);
+      }
+      schema.destroyed = colony.destroyed;
     }
   }
 }

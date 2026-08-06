@@ -22,6 +22,8 @@ export class PlayerSchema extends Schema {
   @type('number') hp = 0;
   @type('number') wood = 0;
   @type('number') stone = 0;
+  /** 콜로니 채널링(파괴 작업) 진행률(0~1). 채널링 중이 아니면 0. */
+  @type('number') channelProgress = 0;
   @type([ItemSlotSchema]) slots = new ArraySchema<ItemSlotSchema>(
     ...Array.from({ length: SLOT_COUNT }, () => new ItemSlotSchema()),
   );
@@ -71,6 +73,12 @@ export class BuildingSchema extends Schema {
   @type('number') maxHp = 0;
 }
 
+export class ColonySchema extends Schema {
+  @type('number') x = 0;
+  @type('number') y = 0;
+  @type('boolean') destroyed = false;
+}
+
 export class GameRoomState extends Schema {
   /** 방 코드 = roomId. 클라이언트가 HUD에 띄워 친구에게 불러줄 수 있게 상태로도 내려준다. */
   @type('string') roomCode = '';
@@ -85,11 +93,14 @@ export class GameRoomState extends Schema {
   @type({ map: ProjectileSchema }) projectiles = new MapSchema<ProjectileSchema>();
   @type({ map: ResourceNodeSchema }) resourceNodes = new MapSchema<ResourceNodeSchema>();
   @type({ map: BuildingSchema }) buildings = new MapSchema<BuildingSchema>();
+  @type({ map: ColonySchema }) colonies = new MapSchema<ColonySchema>();
   @type('number') coreHp = 0;
   @type('number') coreMaxHp = 0;
   /** 팀 공유 자원 창고(코어에 입고된 양). 건축 비용이 여기서 나간다. */
   @type('number') coreSharedWood = 0;
   @type('number') coreSharedStone = 0;
+  /** 콜로니 파괴로만 얻는 전용 자원. 코어 업그레이드/상점 구입 전용(아직 소비처 미구현). */
+  @type('number') coreSharedEnergy = 0;
   /** 'day' | 'night' | 'victory' | 'defeat' (shared/sim의 GamePhase) */
   @type('string') wavePhase = 'day';
   @type('number') currentWave = 0;
