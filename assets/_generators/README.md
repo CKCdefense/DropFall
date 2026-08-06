@@ -21,6 +21,8 @@ ASE="C:/Program Files (x86)/Steam/steamapps/common/Aseprite/Aseprite.exe"
 "$ASE" -b --script-param out="$(pwd)/assets/sprites/fx/fx_collapse.aseprite"  --script assets/_generators/fx_collapse.lua
 "$ASE" -b --script-param out="$(pwd)/assets/sprites/fx/fx_explosion.aseprite" --script assets/_generators/fx_explosion.lua
 "$ASE" -b --script-param out="$(pwd)/assets/sprites/fx/fx_heal.aseprite"      --script assets/_generators/fx_heal.lua
+"$ASE" -b --script-param out="$(pwd)/assets/sprites/fx/fx_core.aseprite"      --script assets/_generators/fx_core.lua
+"$ASE" -b --script-param out="$(pwd)/assets/sprites/items/item_consumable.aseprite" --script assets/_generators/items_consumable.lua
 
 # 그 다음 아틀라스 리빌드
 pnpm build:atlas

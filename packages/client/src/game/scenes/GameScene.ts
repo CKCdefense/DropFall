@@ -58,7 +58,6 @@ export class GameScene extends Phaser.Scene {
     this.cameras.main.roundPixels = true;
 
     this.drawGround();
-    this.drawCore();
 
     this.entityRenderer = new EntityRenderer(this, this.connection.sessionId);
     this.input_ = new InputController(
@@ -155,12 +154,5 @@ export class GameScene extends Phaser.Scene {
       1,
     );
     grid.setDepth(-1000);
-  }
-
-  /** 중앙 코어 자리 표시. 실제 코어 로직은 아직 sim에 없다. */
-  private drawCore(): void {
-    const core = this.add.rectangle(0, 0, TILE_SIZE * 2, TILE_SIZE * 2, 0x3a4658);
-    core.setStrokeStyle(1, 0x7f8fa6);
-    core.setDepth(-900);
   }
 }

@@ -159,6 +159,47 @@ const RESOURCE_STAGES: Record<string, [number, string][]> = {
 const DROP_SIZE = 14;
 const DROP_BOB_PIXELS = 2;
 const DROP_BOB_PERIOD_MS = 1400;
+/**
+ * 코어. 원본 128x128을 충돌 반경(CORE_RADIUS=16, 지름 32px)보다 조금 크게 줄여
+ * "랜드마크"로 세운다 — 콜로니와 같은 판단이다. 접지선은 아래 받침대 한가운데라
+ * 캐릭터(발밑) 규칙보다 조금 위다.
+ */
+const CORE_FRAME = 'core__0';
+const CORE_SCALE = 0.42;
+const CORE_ORIGIN_Y = 0.86;
+/**
+ * 스프라이트 안 수정(가운데 청록 구슬)의 중심. 원본에서 밝은 픽셀 무게중심을 재서
+ * 넣었다 — 반짝임 이펙트가 이 자리에 정확히 얹혀야 "수정이 빛난다"로 보인다.
+ */
+const CORE_CRYSTAL = { x: 63, y: 26 };
+
+/** 수정 반짝임. 주기적으로 한 번씩 재생한다. */
+const CORE_GLINT_ANIM = 'fx_core_glint';
+const CORE_GLINT_PREFIX = 'fx_core_glint_';
+const CORE_GLINT_FRAMES = 12;
+const CORE_GLINT_RATE = 14;
+/**
+ * 수정(지름 21px쯤)보다 커야 한다. 작게 잡으면 광선이 이미 새하얀 구슬 안에 갇혀
+ * 아무것도 안 보인다 — 밖으로 뻗어 나와야 "반짝였다"로 읽힌다.
+ */
+const CORE_GLINT_SCALE = 1;
+/** 반짝임 사이 간격(ms). 너무 잦으면 배경 소음이 되고, 너무 뜸하면 못 본다. */
+const CORE_GLINT_MIN_GAP_MS = 3200;
+const CORE_GLINT_MAX_GAP_MS = 5200;
+
+/** 티어 상승 연출. 한 번 터지고 끝난다. */
+const CORE_UPGRADE_ANIM = 'fx_core_upgrade';
+const CORE_UPGRADE_PREFIX = 'fx_core_upgrade_';
+const CORE_UPGRADE_FRAMES = 14;
+/** 14프레임 × 14fps = 1초. 더 빠르면 고리가 퍼지는 걸 눈으로 못 쫓는다. */
+const CORE_UPGRADE_RATE = 14;
+const CORE_UPGRADE_SCALE = 0.8;
+
+/** 코어 플레이스홀더(아틀라스가 없을 때). 예전 GameScene이 그리던 그대로다. */
+const CORE_PLACEHOLDER_SIZE = TILE_SIZE * 2;
+const CORE_PLACEHOLDER_FILL = 0x3a4658;
+const CORE_PLACEHOLDER_STROKE = 0x7f8fa6;
+
 const COLONY_SIZE = 28;
 const COLONY_FRAME = 'colony_idle_0';
 /** 원본 125x128 → 코어(2타일)보다 조금 큰 랜드마크 크기로 줄인다. */
@@ -230,6 +271,13 @@ export class EntityRenderer {
   private dropBobElapsed = 0;
   private readonly buildings = new Map<string, Phaser.GameObjects.Container>();
   private readonly colonies = new Map<string, Phaser.GameObjects.Container>();
+  /** 코어(원점 고정). 스프라이트 + 반짝임 + 승급 이펙트를 한 컨테이너에 담는다. */
+  private core?: Phaser.GameObjects.Container;
+  /** 다음 반짝임까지 남은 시간(ms). */
+  private glintTimer = CORE_GLINT_MIN_GAP_MS;
+  /** 직전 스냅샷의 코어 티어. 늘어난 순간에만 승급 이펙트를 터뜨린다. */
+  private lastCoreTier: number | null = null;
+
   /** 보스 공격 예고(텔레그래프) 표시. 몬스터 id별로 하나씩, 예고 중일 때만 존재한다. */
   private readonly telegraphs = new Map<string, Phaser.GameObjects.Graphics>();
   /** 이동 여부 판정용 직전 좌표 */
@@ -267,6 +315,7 @@ export class EntityRenderer {
     this.hasBullet = hasBulletFx(scene);
     if (this.hasMuzzle) registerMuzzleAnimation(scene);
     this.registerGatherAnimations();
+    this.registerCoreAnimations();
     if (this.hasSwing) registerSwingAnimation(scene);
     if (this.hasBullet) registerBulletAnimation(scene);
   }
@@ -274,6 +323,7 @@ export class EntityRenderer {
   /** 매 프레임 호출. 휘두르기처럼 스냅샷과 무관하게 시간이 흐르는 연출을 진행시킨다. */
   advance(deltaMs: number): void {
     this.dropBobElapsed += deltaMs;
+    this.tickCoreGlint(deltaMs);
 
     for (const [id, swing] of this.swings) {
       swing.elapsedMs += deltaMs;
@@ -321,6 +371,7 @@ export class EntityRenderer {
   }
 
   sync(snapshot: WorldSnapshot): void {
+    this.syncCore(snapshot.status.coreTier);
     this.syncPlayers(snapshot.players);
     this.syncMonsters(snapshot.monsters);
     this.syncTelegraphs(snapshot.monsters);
@@ -805,6 +856,120 @@ export class EntityRenderer {
       if (!alive.has(id)) this.lastNodeHp.delete(id);
     }
     this.removeMissing(this.resourceNodes, alive);
+  }
+
+  /**
+   * 코어. 맵 원점에 고정된 하나뿐인 물체라 다른 엔티티처럼 id로 관리하지 않는다.
+   *
+   * 예전엔 GameScene이 사각형 하나를 배경(depth -900)에 깔아뒀다. 스프라이트가
+   * 생기면서 **깊이 정렬 대상**이 됐다 — 코어 앞에 선 플레이어는 코어보다 앞에
+   * 그려져야 한다. 다른 물체와 같은 규칙(y 좌표 = depth)을 쓴다.
+   */
+  private syncCore(coreTier: number): void {
+    if (!this.core) this.core = this.createCore();
+
+    // 티어가 **늘어난** 순간에만 터뜨린다. 처음 받은 값은 기준점으로만 쓴다 —
+    // 접속하자마자 이미 3티어인 방에 들어가도 이펙트가 터지면 안 된다.
+    if (this.lastCoreTier !== null && coreTier > this.lastCoreTier) this.playCoreUpgrade();
+    this.lastCoreTier = coreTier;
+  }
+
+  /** 반짝임 타이머. 매 프레임 호출된다(sync가 아니라 update 쪽 흐름). */
+  private tickCoreGlint(deltaMs: number): void {
+    const glint = this.core?.getByName('glint');
+    if (!(glint instanceof Phaser.GameObjects.Sprite)) return;
+
+    this.glintTimer -= deltaMs;
+    if (this.glintTimer > 0 || glint.anims.isPlaying) return;
+
+    // 간격을 매번 조금씩 다르게 준다 — 정확히 일정하면 기계처럼 보인다.
+    this.glintTimer =
+      CORE_GLINT_MIN_GAP_MS + Math.random() * (CORE_GLINT_MAX_GAP_MS - CORE_GLINT_MIN_GAP_MS);
+    glint.setVisible(true);
+    glint.play(CORE_GLINT_ANIM);
+  }
+
+  private playCoreUpgrade(): void {
+    const burst = this.core?.getByName('upgrade');
+    if (!(burst instanceof Phaser.GameObjects.Sprite)) return;
+    burst.setVisible(true);
+    burst.play(CORE_UPGRADE_ANIM);
+  }
+
+  private createCore(): Phaser.GameObjects.Container {
+    const hasSprite =
+      this.scene.textures.exists(GAME_ATLAS) && this.scene.textures.get(GAME_ATLAS).has(CORE_FRAME);
+
+    const body: Phaser.GameObjects.GameObject = hasSprite
+      ? this.scene.add
+          .sprite(0, 0, GAME_ATLAS, CORE_FRAME)
+          .setOrigin(0.5, CORE_ORIGIN_Y)
+          .setScale(CORE_SCALE)
+          .setName('body')
+      : this.scene.add
+          .rectangle(0, 0, CORE_PLACEHOLDER_SIZE, CORE_PLACEHOLDER_SIZE, CORE_PLACEHOLDER_FILL)
+          .setStrokeStyle(1, CORE_PLACEHOLDER_STROKE)
+          .setName('body');
+
+    const parts: Phaser.GameObjects.GameObject[] = [body];
+
+    // 이펙트는 수정 자리에 얹는다. 스프라이트 안 좌표를 컨테이너 좌표로 옮기려면
+    // 원점(0.5, CORE_ORIGIN_Y)만큼 빼고 배율을 곱하면 된다.
+    if (hasSprite) {
+      const crystalX = (CORE_CRYSTAL.x - 128 * 0.5) * CORE_SCALE;
+      const crystalY = (CORE_CRYSTAL.y - 128 * CORE_ORIGIN_Y) * CORE_SCALE;
+
+      if (this.scene.anims.exists(CORE_GLINT_ANIM)) {
+        parts.push(
+          this.scene.add
+            .sprite(crystalX, crystalY, GAME_ATLAS, `${CORE_GLINT_PREFIX}0`)
+            .setScale(CORE_GLINT_SCALE)
+            .setVisible(false)
+            .setName('glint'),
+        );
+      }
+      if (this.scene.anims.exists(CORE_UPGRADE_ANIM)) {
+        parts.push(
+          this.scene.add
+            .sprite(crystalX, crystalY, GAME_ATLAS, `${CORE_UPGRADE_PREFIX}0`)
+            .setScale(CORE_UPGRADE_SCALE)
+            .setVisible(false)
+            .setName('upgrade'),
+        );
+      }
+    }
+
+    const container = this.scene.add.container(0, 0, parts);
+    // 다른 물체와 같은 깊이 규칙. 코어는 원점에 있으므로 y=0이다.
+    container.setDepth(0);
+
+    // 이펙트는 한 번 재생하고 숨는다 — 마지막 프레임이 남아 있으면 잔상이 된다.
+    for (const name of ['glint', 'upgrade']) {
+      const fx = container.getByName(name);
+      if (fx instanceof Phaser.GameObjects.Sprite) {
+        fx.on(Phaser.Animations.Events.ANIMATION_COMPLETE, () => fx.setVisible(false));
+      }
+    }
+    return container;
+  }
+
+  private registerCoreAnimations(): void {
+    if (!this.scene.textures.exists(GAME_ATLAS)) return;
+    const texture = this.scene.textures.get(GAME_ATLAS);
+
+    for (const [key, prefix, frames, frameRate] of [
+      [CORE_GLINT_ANIM, CORE_GLINT_PREFIX, CORE_GLINT_FRAMES, CORE_GLINT_RATE],
+      [CORE_UPGRADE_ANIM, CORE_UPGRADE_PREFIX, CORE_UPGRADE_FRAMES, CORE_UPGRADE_RATE],
+    ] as const) {
+      if (this.scene.anims.exists(key)) continue;
+      if (!texture.has(`${prefix}0`)) continue;
+      this.scene.anims.create({
+        key,
+        frames: this.scene.anims.generateFrameNames(GAME_ATLAS, { prefix, start: 0, end: frames - 1 }),
+        frameRate,
+        repeat: 0,
+      });
+    }
   }
 
   private registerGatherAnimations(): void {
