@@ -13,7 +13,7 @@
     "smoke:dev": "tsx src/dev/dev-command-smoke-test.ts",
     "smoke:fog": "tsx src/dev/fog-smoke-test.ts",
     "smoke:persona": "tsx src/dev/persona-smoke-test.ts",
-    "test": "vitest run tests/gameRoomState.test.ts",
+    "test": "vitest run tests/gameRoomState.test.ts tests/corePersonaClient.test.ts tests/companionTools.test.ts",
     "test:integration": "vitest run tests/persona-integration.test.ts"
   },
   "dependencies": {
