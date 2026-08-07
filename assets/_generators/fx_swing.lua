@@ -2,22 +2,34 @@
 --
 -- 좌표 규약: **캔버스 중심(32,32)이 플레이어 위치**다. 호(arc)는 +x 방향으로 뻗고,
 -- 렌더러가 조준각만큼 통째로 회전시킨다. 즉 이 그림은 "오른쪽을 향해 휘두른 순간"이다.
--- 반경 18~30px 구간에 그리는데, 이건 서버 판정 범위(range 24 + 히트박스 10)와 겹치게
+-- 반경 18~30px 구간에 그리는데, 이건 서버 판정 범위(range + 히트박스)와 겹치게
 -- 맞춘 값이다 — 이펙트가 닿아 보이는 곳이 실제로 맞는 곳이어야 한다.
 --
--- 애니메이션 원리: 칼자국은 "선"이 아니라 **잔상**이다. 선행 날(leading edge)이 각도를
--- 쓸고 지나가고 후행 꼬리(trailing edge)가 뒤늦게 따라붙으면서, 짧은 초승달이 길게
--- 늘어났다가 다시 짧아지며 사라진다. 프레임마다 (시작각, 끝각)만 바꾸면 이 느낌이 난다.
--- 동시에 반경을 조금씩 키워서 바깥으로 퍼지게 한다.
+-- ============================================================================
+-- 디자인 방향 — 미니멀 픽셀 슬래시
+-- ============================================================================
+-- 첫 버전은 4색 띠를 두껍게(배 11px) 겹쳐 쌓고 날 끝에 원반 섬광을 얹었는데,
+-- 픽셀아트라기보다 에어브러시처럼 뭉툭했다. 요즘 픽셀 액션(Dead Cells·Katana Zero
+-- 계열)의 베기 문법으로 다시 그린다:
+--
+--  1) **얇고 또렷하게.** 본체는 배에서 3~4px, 양끝은 1px 바늘로 좁아지는 초승달
+--     하나다. 색은 3개(흰 심 + 하늘색 + 어두운 강청)뿐이고 그라데이션 층을 쌓지
+--     않는다 — 하드 엣지가 곧 픽셀 감성이다.
+--  2) **에코 선.** 본체 안쪽에 1px짜리 짧은 호를 한 줄 따라 붙인다. 잔상 두 겹이
+--     "빠르게 지나갔다"를 말해 주는 고전 기법이다.
+--  3) **파편 소멸.** 끝날 때 통째로 사라지지 않고 호가 대시(짧은 조각)로 부서졌다가
+--     낱알 픽셀로 흩어진다. 마지막에 날 끝 자리에 작은 + 스파클 하나 — 딱 거기까지.
+--
+-- 애니메이션 원리는 그대로다: 선행 날(to)이 각도를 쓸고 나가고 꼬리(from)가 뒤늦게
+-- 따라붙는다. 프레임마다 (시작각, 끝각)만 바꾸면 늘어났다 줄어드는 잔상이 된다.
 
 local S = 64
 local CX, CY = 32, 32
 
--- 불(총구 화염)과 달리 금속 베기는 차갑게 간다. 밤 배경에서 주황 계열끼리 뭉치지 않도록.
-local CORE = Color{ r = 255, g = 255, b = 255 }
-local BRIGHT = Color{ r = 214, g = 236, b = 255 }
-local MID = Color{ r = 138, g = 182, b = 228 }
-local EDGE = Color{ r = 74, g = 104, b = 156 }
+-- 금속 베기는 차갑게. 3색 — 층을 더 쌓지 않는다.
+local CORE = Color{ r = 0xF4, g = 0xF9, b = 0xFF }  -- 흰 심
+local SKY  = Color{ r = 0xA9, g = 0xDC, b = 0xF2 }  -- 하늘색 본체
+local DIM  = Color{ r = 0x55, g = 0x74, b = 0x9E }  -- 꺼져가는 강청
 
 --- 휘두르는 총 각도(라디안). 서버의 부채꼴 판정 각도와 같은 값이어야 한다.
 local SPAN = math.rad(100)
@@ -34,89 +46,109 @@ local function put(g, x, y, color)
   g[y][x] = color
 end
 
-local function disc(g, cx, cy, r, color)
-  for dy = -r - 1, r + 1 do
-    for dx = -r - 1, r + 1 do
-      if dx * dx + dy * dy <= r * r then put(g, cx + dx, cy + dy, color) end
-    end
-  end
+--- 결정론 해시(0~1). 파편을 흩을 때 쓴다 — 프레임을 다시 뽑아도 같은 그림.
+local function hash01(a, b)
+  local h = (a * 374761393 + b * 668265263) % 2147483647
+  h = (h ~ (h >> 13)) * 1274126177 % 2147483647
+  return (h % 1000) / 1000
 end
 
---- 비율(0~1)을 실제 각도로. 0이 휘두르기 시작, 1이 끝.
 local function angleAt(frac)
   return -SPAN / 2 + SPAN * frac
 end
 
---- 초승달 모양 띠. 양 끝으로 갈수록 얇아져서 뿔이 생긴다 — 이게 "베인 자국"의 핵심이다.
---- thinStart를 켜면 시작쪽(꼬리)만 얇아지고 끝쪽(날)은 두껍게 남아 진행 방향이 읽힌다.
-local function crescent(g, a0, a1, radius, halfThick, color, thinStart)
+--- 초승달 띠 하나. 양끝이 sin 테이퍼로 1px 바늘까지 좁아진다.
+--- 두께 계단을 정수로 끊어(hard step) 픽셀 느낌을 유지한다.
+local function crescent(g, a0, a1, radius, maxHalf, color)
   if a1 <= a0 then return end
-  local steps = math.max(8, math.ceil((a1 - a0) * radius * 2))
+  local steps = math.max(10, math.ceil((a1 - a0) * radius * 2.2))
 
   for i = 0, steps do
     local t = i / steps
     local angle = a0 + (a1 - a0) * t
-    -- sin 프로파일은 양끝이 0이라 뿔이 자연스럽다. thinStart는 뒤쪽만 깎는다.
-    local taper = thinStart and math.sin(math.pi * t * 0.5) or math.sin(math.pi * t)
-    local thickness = halfThick * taper
-    if thickness > 0 then
-      local dr = -thickness
-      while dr <= thickness do
-        put(g, CX + math.cos(angle) * (radius + dr), CY + math.sin(angle) * (radius + dr), color)
-        dr = dr + 0.5
-      end
+    local half = math.floor(maxHalf * math.sin(math.pi * t) + 0.5)
+    for dr = -half, half do
+      put(g, CX + math.cos(angle) * (radius + dr), CY + math.sin(angle) * (radius + dr), color)
     end
   end
+end
+
+--- 호를 따라 놓이는 짧은 대시 조각들. 소멸 프레임에서 본체를 대신한다.
+local function dashes(g, a0, a1, radius, count, seed, color)
+  for i = 0, count - 1 do
+    local t = (i + 0.5) / count
+    local jitter = (hash01(seed, i) - 0.5) * 0.06
+    local a = a0 + (a1 - a0) * t + jitter
+    local len = 2 + math.floor(hash01(seed + 7, i) * 3) -- 2~4px
+    -- 접선 방향으로 짧게 긋는다 — 흐름이 남는다.
+    for k = 0, len - 1 do
+      local aa = a + (k / radius)
+      put(g, CX + math.cos(aa) * radius, CY + math.sin(aa) * radius, color)
+    end
+  end
+end
+
+--- 낱알 픽셀. 호 근처에 흩뿌린다(바깥쪽으로 살짝 밀려나며 사라지는 느낌).
+local function specks(g, a0, a1, radius, count, seed, color)
+  for i = 0, count - 1 do
+    local a = a0 + (a1 - a0) * hash01(seed, i)
+    local r = radius + 1 + math.floor(hash01(seed + 3, i) * 3)
+    put(g, CX + math.cos(a) * r, CY + math.sin(a) * r, color)
+  end
+end
+
+--- 3px 십자 스파클. 베기 마무리의 점정 — 하나면 충분하다.
+local function sparkle(g, x, y, color)
+  put(g, x, y, CORE)
+  put(g, x + 1, y, color)
+  put(g, x - 1, y, color)
+  put(g, x, y + 1, color)
+  put(g, x, y - 1, color)
 end
 
 -- 프레임별 파라미터.
 --   from/to : 꼬리·날의 각도 비율. 날(to)이 먼저 달려나가고 꼬리(from)가 늦게 따라온다.
 --   radius  : 중심에서 띠까지 거리. 갈수록 커져 바깥으로 퍼진다.
---   thick   : 띠 두께(반). 중간 프레임이 가장 굵다.
---   tier    : 1=흐릿함 2=보통 3=가장 밝음. 색 층 개수를 정한다.
+--   half    : 본체 최대 반두께(정수 계단). 2면 배가 4~5px — 이 이상은 뭉툭해진다.
+--   stage   : 'in'(진입) 'hot'(절정) 'cool'(식음) 'break'(파편) 'gone'(잔재)
 local FRAMES = {
-  { from = 0.00, to = 0.18, radius = 18, thick = 2.0, tier = 1 },
-  { from = 0.00, to = 0.46, radius = 20, thick = 3.5, tier = 2 },
-  { from = 0.04, to = 0.72, radius = 22, thick = 5.0, tier = 3 },
-  { from = 0.12, to = 0.92, radius = 24, thick = 5.5, tier = 3 },
-  { from = 0.28, to = 1.00, radius = 26, thick = 5.0, tier = 3 },
-  { from = 0.50, to = 1.00, radius = 28, thick = 3.5, tier = 2 },
-  { from = 0.70, to = 1.00, radius = 29, thick = 2.0, tier = 1 },
-  { from = 0.86, to = 1.00, radius = 30, thick = 1.2, tier = 1 },
+  { from = 0.00, to = 0.22, radius = 20, half = 1, stage = 'in' },
+  { from = 0.00, to = 0.52, radius = 22, half = 2, stage = 'hot' },
+  { from = 0.06, to = 0.80, radius = 24, half = 2, stage = 'hot' },
+  { from = 0.18, to = 1.00, radius = 25, half = 2, stage = 'hot' },
+  { from = 0.40, to = 1.00, radius = 26, half = 1, stage = 'cool' },
+  { from = 0.60, to = 1.00, radius = 27, half = 1, stage = 'cool' },
+  { from = 0.62, to = 1.00, radius = 28, half = 0, stage = 'break' },
+  { from = 0.70, to = 1.00, radius = 29, half = 0, stage = 'gone' },
 }
 
 local function swing(g, index)
   local f = FRAMES[index]
   local a0, a1 = angleAt(f.from), angleAt(f.to)
 
-  -- 바깥에서 안쪽으로 겹쳐 칠한다. 넓고 어두운 색 위에 좁고 밝은 색이 올라가면서
-  -- 별도의 안티에일리어싱 없이 가장자리 그라데이션이 생긴다.
-  crescent(g, a0, a1, f.radius, f.thick, EDGE, true)
-  crescent(g, a0, a1, f.radius, f.thick * 0.72, MID, true)
-  if f.tier >= 2 then
-    crescent(g, a0, a1, f.radius, f.thick * 0.42, BRIGHT, true)
-  end
-  if f.tier >= 3 then
-    crescent(g, a0, a1, f.radius, f.thick * 0.18, CORE, true)
-  end
-
-  -- 선행 날 끝의 섬광. 진행 방향을 눈에 띄게 해준다.
-  if f.tier >= 2 then
-    local tipX, tipY = CX + math.cos(a1) * f.radius, CY + math.sin(a1) * f.radius
-    if f.tier >= 3 then
-      disc(g, tipX, tipY, 3, BRIGHT)
-      disc(g, tipX, tipY, 2, CORE)
-    else
-      disc(g, tipX, tipY, 2, BRIGHT)
-    end
-  end
-
-  -- 마지막 두 프레임은 띠를 조각내 흩어지게 한다. 통째로 사라지면 뚝 끊긴 느낌이 난다.
-  if index >= 7 then
-    for i = 0, 4 do
-      local a = a0 + (a1 - a0) * (i / 4)
-      put(g, CX + math.cos(a) * (f.radius + 2), CY + math.sin(a) * (f.radius + 2), EDGE)
-    end
+  if f.stage == 'in' then
+    -- 진입: 하늘색 슬리버 한 줄. 예고는 조용할수록 타격이 산다.
+    crescent(g, a0, a1, f.radius, f.half, SKY)
+  elseif f.stage == 'hot' then
+    -- 절정: 하늘색 본체 + 안쪽 흰 심. 층은 이 둘뿐이다.
+    crescent(g, a0, a1, f.radius, f.half, SKY)
+    crescent(g, a0 + (a1 - a0) * 0.18, a1, f.radius, math.max(1, f.half - 1), CORE)
+    -- 에코 선: 안쪽 반경에 1px 잔상 호. 본체보다 짧고 반 박자 뒤처진다.
+    crescent(g, a0, a0 + (a1 - a0) * 0.55, f.radius - 5, 0, DIM)
+  elseif f.stage == 'cool' then
+    -- 식음: 흰 심이 빠지고 하늘색 → 끝만 흰 점.
+    crescent(g, a0, a1, f.radius, f.half, SKY)
+    put(g, CX + math.cos(a1) * f.radius, CY + math.sin(a1) * f.radius, CORE)
+    crescent(g, a0, a0 + (a1 - a0) * 0.4, f.radius - 5, 0, DIM)
+  elseif f.stage == 'break' then
+    -- 파편: 본체가 대시로 부서진다. 스파클 하나로 마무리 예고.
+    dashes(g, a0, a1, f.radius, 5, index * 31, SKY)
+    specks(g, a0, a1, f.radius, 3, index * 57, DIM)
+    sparkle(g, CX + math.cos(a1) * (f.radius + 1), CY + math.sin(a1) * (f.radius + 1), SKY)
+  else
+    -- 잔재: 낱알 몇 개만. 여운은 짧게.
+    dashes(g, a0, a1, f.radius, 3, index * 31, DIM)
+    specks(g, a0, a1, f.radius, 3, index * 57, DIM)
   end
 end
 
