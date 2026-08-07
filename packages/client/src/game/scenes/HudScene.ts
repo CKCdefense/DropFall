@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import type { InventorySlot } from '@dropfall/shared';
 import {
+  companionData,
   isWithinCoreInteract,
   MAX_CLIENTS_PER_ROOM,
   PICKUP_RADIUS,
@@ -11,12 +12,14 @@ import {
 } from '@dropfall/shared';
 import type { GameConnection, PlayerView, WorldSnapshot } from '../../net/GameConnection';
 import {
+  CHAT_LOG_KEY,
   CONNECTION_KEY,
   CORE_INTERACT_KEY,
   HUD_BLOCK_KEY,
   INPUT_CONTROLLER_KEY,
 } from '../createGame';
 import type { InputController } from '../input/InputController';
+import { ChatBox } from '../ui/ChatBox';
 import { CoreModal } from '../ui/CoreModal';
 import { WarehouseModal } from '../ui/WarehouseModal';
 import { SlotDrag } from '../ui/SlotDrag';
@@ -128,6 +131,8 @@ export class HudScene extends Phaser.Scene {
   private nearCore = false;
   /** 주울 수 있는 드롭이 발밑에 있는지. 코어 앞에서 E가 무엇을 할지 가른다. */
   private dropInReach = false;
+  /** 티모시 상호작용 반경(companionData.interactRange) 안에 있는지. */
+  private nearCompanion = false;
   private upgradeModal!: UpgradeModal;
   private storeModal!: StoreModal;
   private craftModal!: CraftModal;
@@ -137,6 +142,7 @@ export class HudScene extends Phaser.Scene {
    */
   private devConsole?: DevConsole;
   private devItemModal?: DevItemModal;
+  private chatBox!: ChatBox;
 
   constructor() {
     super(HUD_SCENE_KEY);
@@ -206,6 +212,7 @@ export class HudScene extends Phaser.Scene {
     }
 
     this.createCoreModals();
+    this.createChat();
     if (isDevBuild()) this.createDevTools();
 
     // 패널 밖에 떠 있는 글자는 지형 위에 그대로 얹혀서 대비가 필요하다.
@@ -299,8 +306,9 @@ export class HudScene extends Phaser.Scene {
     // 게임 입력이 모달을 뚫고 나가지 않게 한다 — 차단막이 없으니 좌표로 직접 판정한다.
     this.registry.set(HUD_BLOCK_KEY, (x: number, y: number) => {
       if (this.slotDrag.isDragging()) return true;
-      // 콘솔에 타이핑하는 동안 클릭이 공격으로 새면 안 된다.
+      // 콘솔/채팅에 타이핑하는 동안 클릭이 공격으로 새면 안 된다.
       if (this.devConsole?.isOpen()) return true;
+      if (this.chatBox.isOpen()) return true;
       return this.openModals().some((modal) => modal.containsPoint(x, y));
     });
 
@@ -316,7 +324,12 @@ export class HudScene extends Phaser.Scene {
         return true;
       }
       if (this.dropInReach) return false; // 줍기에 양보한다
-      if (!this.nearCore) return false;
+      if (!this.nearCore) {
+        if (!this.nearCompanion) return false;
+        // 코어 근처가 아니고 티모시 옆이면 대사 트리거. 사거리 판정은 서버가 다시 한다.
+        this.connection.companionInteract();
+        return true;
+      }
 
       this.coreModal.open();
       // 코어 AI 페르소나 트리거. 서버가 쿨다운을 판단하므로 여기선 그냥 알리기만
@@ -341,6 +354,18 @@ export class HudScene extends Phaser.Scene {
       duration: 600,
       delay: 5000,
     });
+  }
+
+  /**
+   * 플레이어 채팅(Enter로 입력, 하단 로그 패널은 항상 떠 있음). 말풍선은 GameScene의
+   * EntityRenderer가 그리므로, 로그 append 함수만 registry로 열어준다
+   * (GameScene이 connection.onChatMessage를 구독해 말풍선과 이 로그 둘 다 채운다).
+   */
+  private createChat(): void {
+    this.chatBox = new ChatBox(this, this.connection);
+    this.registry.set(CHAT_LOG_KEY, (nickname: string, text: string, variant?: 'player' | 'companion') =>
+      this.chatBox.appendLine(nickname, text, variant),
+    );
   }
 
   /**
@@ -505,6 +530,10 @@ export class HudScene extends Phaser.Scene {
       ? snapshot.droppedItems.some(
           (drop) => Math.hypot(drop.x - me.x, drop.y - me.y) <= PICKUP_RADIUS,
         )
+      : false;
+    this.nearCompanion = me
+      ? Math.hypot(snapshot.companion.x - me.x, snapshot.companion.y - me.y) <=
+        companionData.interactRange
       : false;
     if (this.warehouseModal.isOpen()) this.warehouseModal.setSlots(status.coreStorage);
   }

@@ -1,5 +1,7 @@
 import { Client, Room, ServerError, matchMaker } from 'colyseus';
 import {
+  CHAT_MESSAGE,
+  COMPANION_COMMENTARY_MESSAGE,
   CORE_COMMENTARY_MESSAGE,
   LOBBY_ERROR_MESSAGE,
   LobbyMessage,
@@ -11,16 +13,23 @@ import {
   StartRejectReason,
   TICK_RATE,
   World,
+  buildCompanionPersonaPrompt,
   buildPersonaPrompt,
   describeBossTelegraph,
   generateRoomCode,
   isJobId,
   monstersData,
+  parseCompanionMention,
+  pickCompanionFallbackLine,
   pickFallbackLine,
+  sanitizeChatText,
   sanitizeNickname,
   sanitizePassword,
   sanitizeRoomName,
   type BuildInputMessage,
+  type ChatMessage,
+  type CompanionCommentaryMessage,
+  type CompanionPersonaEvent,
   type CoreCommentaryMessage,
   type CreateRoomOptions,
   type DemolishInputMessage,
@@ -38,7 +47,8 @@ import {
   type SelectJobMessage,
   type SetReadyMessage,
 } from '@dropfall/shared';
-import { activePersonaProvider, generateCoreCommentary } from '../persona/corePersonaClient';
+import { activePersonaProvider, generateCoreCommentary, generateWithTools } from '../persona/corePersonaClient';
+import { COMPANION_TOOLS, executeCompanionTool } from '../persona/companionTools';
 import {
   BuildingSchema,
   ColonySchema,
@@ -148,6 +158,27 @@ export class GameRoom extends Room {
       // 성공 여부(쿨다운 통과)는 World가 판단한다 — 여기선 그냥 요청만 넘긴다.
       // 이벤트가 쌓였으면 다음 틱의 drainPersonaEvents() 폴링에서 자동으로 처리된다.
       this.world.requestCoreInteraction();
+    },
+    companionInteract: (client: Client) => {
+      if (this.state.phase !== RoomPhase.PLAYING) return;
+      // 사거리 판정(성공 여부)은 World가 한다 — 여기선 요청만 넘긴다.
+      this.world.requestCompanionInteraction(client.sessionId);
+    },
+    // 대기실에서도 협의(직업 배분 등)가 필요하니 페이즈 무관하게 항상 받는다.
+    chat: (client: Client, payload: { text?: unknown }) => {
+      const text = sanitizeChatText(payload?.text);
+      if (!text) return;
+      const nickname = this.state.players.get(client.sessionId)?.nickname ?? '';
+      this.broadcast(CHAT_MESSAGE, {
+        playerId: client.sessionId,
+        nickname,
+        text,
+      } satisfies ChatMessage);
+
+      // "@티모시 ..."로 시작하면 그 뒤 내용을 티모시에게 직접 건다(쿨다운 통과 시에만
+      // 응답 이벤트가 쌓이고, 다음 틱의 drainCompanionPersonaEvents() 폴링에서 처리된다).
+      const question = parseCompanionMention(text);
+      if (question) this.world.sendCompanionMessage(client.sessionId, question);
     },
     placeBuilding: (client: Client, payload: BuildInputMessage) => {
       if (this.state.phase !== RoomPhase.PLAYING) return;
@@ -366,11 +397,7 @@ export class GameRoom extends Room {
     // splice를 거부한다(빈 배열에 6개를 넣는 첫 동기화에서 방이 통째로 죽었다).
     // 길이를 먼저 맞추고 칸별로 대입한다.
     if (!sameStrings(this.state.shopStock, core.shopStock)) {
-      while (this.state.shopStock.length > core.shopStock.length) this.state.shopStock.pop();
-      core.shopStock.forEach((itemId, index) => {
-        if (index < this.state.shopStock.length) this.state.shopStock[index] = itemId;
-        else this.state.shopStock.push(itemId);
-      });
+      replaceArrayContents(this.state.shopStock, core.shopStock);
     }
     this.state.coreTier = core.tier;
     this.state.coreBuildRadius = this.world.getBuildRadius();
@@ -386,6 +413,9 @@ export class GameRoom extends Room {
     for (const event of this.world.drainPersonaEvents()) {
       void this.handlePersonaEvent(event);
     }
+    for (const event of this.world.drainCompanionPersonaEvents()) {
+      void this.handleCompanionPersonaEvent(event);
+    }
   }
 
   /**
@@ -397,6 +427,37 @@ export class GameRoom extends Room {
     const { system, user } = buildPersonaPrompt(event);
     const text = (await generateCoreCommentary(activePersonaProvider(), system, user)) ?? pickFallbackLine(event.traits);
     this.broadcast(CORE_COMMENTARY_MESSAGE, { text } satisfies CoreCommentaryMessage);
+  }
+
+  /**
+   * 티모시 대사 하나를 생성해 방 전체에 broadcast한다. 코어 페르소나와 같은 LLM 파이프라인을
+   * 재사용하지만, 프롬프트/트레잇이 방 전체가 아니라 이 이벤트의 대상 플레이어(event.playerId)
+   * 개인 것이다.
+   *
+   * "@티모시 ..." 채팅(playerMessage)만 도구 사용(에이전트 루프)을 켠다 — 실제 질문에
+   * 답하려면 창고/웨이브 상태 같은 진짜 게임 값을 조회할 수 있어야 자연스럽다. 그 외
+   * 트리거(코어 납품/다운/부활 등)는 짧은 반응 대사라 도구가 필요 없어 기존처럼 단발
+   * 호출로 남긴다. 응답을 받으면(성공/실패 무관 최종 텍스트) World의 대화 기록에도
+   * 남겨서, 다음 "@티모시 ..." 프롬프트가 이어지는 맥락을 갖게 한다.
+   */
+  private async handleCompanionPersonaEvent(event: CompanionPersonaEvent): Promise<void> {
+    const { system, messages } = buildCompanionPersonaPrompt(event);
+    const provider = activePersonaProvider();
+
+    const text =
+      event.kind === 'playerMessage'
+        ? await generateWithTools(provider, system, messages, COMPANION_TOOLS, (name) =>
+            executeCompanionTool(this.world, name),
+          )
+        : await generateCoreCommentary(provider, system, messages);
+    const finalText = text ?? pickCompanionFallbackLine(event.traits);
+
+    if (event.kind === 'playerMessage') this.world.recordCompanionReply(event.playerId, finalText);
+
+    this.broadcast(COMPANION_COMMENTARY_MESSAGE, {
+      text: finalText,
+      playerId: event.playerId,
+    } satisfies CompanionCommentaryMessage);
   }
 
   /** 몬스터는 스폰/처치로 매 틱 등장·소멸하므로, world와 schema를 매번 대조해 맞춘다. */
@@ -576,4 +637,20 @@ function sameStrings(a: ArrayLike<string>, b: readonly string[]): boolean {
     if (a[i] !== b[i]) return false;
   }
   return true;
+}
+
+/**
+ * ArraySchema(Colyseus) 전체를 새 값으로 교체한다. **splice(0, len, ...새값)는 쓰면
+ * 안 된다** — ArraySchema#splice는 insertCount가 deleteCount보다 크면 예외를 던진다.
+ * 빈 배열(길이 0) 위에 원소를 채우는 경우(예: 게임 시작 직후 첫 상점 진열)가 정확히
+ * 이 조건이라, 그 패턴은 매 틱 반복적으로 터져서 결국 방이 응답을 멈춘다(실제로 겪음 —
+ * tests/gameRoomState.test.ts에 회귀 테스트 있음). clear() 후 push()는 개수 제약이
+ * 없어 늘어나든 줄어들든 항상 안전하다.
+ */
+export function replaceArrayContents<T>(
+  target: { clear(): void; push(...items: T[]): number },
+  values: readonly T[],
+): void {
+  target.clear();
+  target.push(...values);
 }

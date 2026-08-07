@@ -7,13 +7,20 @@
 # 이 스크립트인지 워크플로/시크릿 설정인지 구분하기 쉬워진다.
 set -euo pipefail
 
+# SSH로 비대화형 실행될 때는 ~/.bashrc가 안 읽혀서 PATH에 pnpm이 안 잡힌다
+# (get.pnpm.io standalone 설치 위치). 로그인 계정마다 값이 같지 않을 수 있어
+# 두 후보 경로를 모두 넣어 둔다.
+#
+# corepack은 이 서버(Node 22.22.1 + Ubuntu apt corepack 0.24.0 조합)에서
+# ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING으로 아예 못 쓴다 — corepack을 거치지
+# 않는 standalone pnpm(get.pnpm.io/install.sh)으로 대체했다(docs/07-deployment.md).
+export PATH="$HOME/.local/share/pnpm:$HOME/.local/share/pnpm/bin:$PATH"
+
 cd /srv/dropfall
 
 git fetch origin
 git reset --hard origin/main
 
-# packageManager 필드(package.json: pnpm@11.18.0)를 Corepack이 그대로 읽는다.
-corepack enable
 pnpm install --frozen-lockfile
 
 # @dropfall/shared는 별도 빌드 산출물이 없는 순수 TS 소스라 tsup이 직접
