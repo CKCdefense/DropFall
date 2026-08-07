@@ -7,6 +7,7 @@
     "speed": 60,
     "attackRange": 20,
     "attackInterval": 1,
+    "attackWindupSeconds": 0.36,
     "aggroRadius": 110,
     "itemDrops": [
       {
@@ -31,6 +32,7 @@
     "speed": 130,
     "attackRange": 20,
     "attackInterval": 0.8,
+    "attackWindupSeconds": 0.36,
     "aggroRadius": 240,
     "itemDrops": [
       {
@@ -55,6 +57,7 @@
     "speed": 60,
     "attackRange": 20,
     "attackInterval": 1,
+    "attackWindupSeconds": 0.29,
     "aggroRadius": 36,
     "itemDrops": [
       {
@@ -79,6 +82,7 @@
     "speed": 70,
     "attackRange": 24,
     "attackInterval": 1.2,
+    "attackWindupSeconds": 0.43,
     "aggroRadius": 130,
     "itemDrops": [
       {
@@ -103,6 +107,7 @@
     "speed": 28,
     "attackRange": 20,
     "attackInterval": 1.5,
+    "attackWindupSeconds": 0.21,
     "aggroRadius": 120,
     "itemDrops": [
       {
@@ -127,6 +132,7 @@
     "speed": 75,
     "attackRange": 24,
     "attackInterval": 1.2,
+    "attackWindupSeconds": 0.43,
     "aggroRadius": 180,
     "energyDrop": {
       "min": 1,
@@ -155,6 +161,7 @@
     "speed": 45,
     "attackRange": 43,
     "attackInterval": 2.6,
+    "attackWindupSeconds": 0.67,
     "aggroRadius": 560,
     "crushesObstacles": true,
     "meleeAttacks": [
@@ -228,6 +235,7 @@
     "speed": 50,
     "attackRange": 38,
     "attackInterval": 2.4,
+    "attackWindupSeconds": 0.56,
     "aggroRadius": 580,
     "crushesObstacles": true,
     "meleeAttacks": [
@@ -307,6 +315,7 @@
     "speed": 32,
     "attackRange": 57,
     "attackInterval": 3.0,
+    "attackWindupSeconds": 0.67,
     "aggroRadius": 620,
     "crushesObstacles": true,
     "meleeAttacks": [
@@ -387,6 +396,7 @@
     "speed": 55,
     "attackRange": 54,
     "attackInterval": 2.2,
+    "attackWindupSeconds": 0.67,
     "aggroRadius": 660,
     "crushesObstacles": true,
     "meleeAttacks": [

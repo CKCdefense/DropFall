@@ -717,7 +717,9 @@ describe('World — 건축물과 몬스터 상호작용', () => {
     const yBefore = monster!.y;
     const hpBefore = building!.hp;
 
-    world.tick(1); // attackInterval(1초)을 넘기도록
+    // 예고를 지나 정산까지 — 공격이 "시도 → 예고 → 판정" 3단계라 한 번의 큰 틱으로는
+    // 시도만 되고 끝난다(실제 서버는 60Hz라 무관하다).
+    for (let i = 0; i < 100; i += 1) world.tick(0.02);
 
     expect(building!.hp).toBeLessThan(hpBefore);
     // 이동하지 않고 제자리에서 공격했어야 한다.
@@ -743,8 +745,8 @@ describe('World — 건축물과 몬스터 상호작용', () => {
     const { cx, cy } = worldToCell(monster!.x, monster!.y + 10);
     world.placeBuilding('builder', 'fence', cx, cy); // fence hp=50, blood damage=7 → 8번이면 파괴
 
-    for (let i = 0; i < 20 && world.getBuildings().size > 0; i += 1) {
-      world.tick(1);
+    for (let i = 0; i < 1200 && world.getBuildings().size > 0; i += 1) {
+      world.tick(0.02); // 공격마다 예고를 거치므로 실제 틱에 가깝게 굴린다
     }
 
     expect(world.getBuildings().size).toBe(0);
@@ -777,7 +779,7 @@ describe('World — 건축물과 몬스터 상호작용', () => {
     const hpBefore = building!.hp;
     const xBefore = monster!.x;
 
-    world.tick(1);
+    for (let i = 0; i < 100; i += 1) world.tick(0.02); // 예고 → 정산
 
     expect(building!.hp).toBeLessThan(hpBefore);
     expect(monster!.x).toBe(xBefore); // 플레이어를 향해 이동하지 않고 벽을 공격했다
@@ -1185,7 +1187,7 @@ describe('World — 자원 노드/콜로니가 몬스터 이동을 막는다(doc
     monster!.y = 0; // 코어 바로 위
 
     const coreHpBefore = world.getCore().hp;
-    world.tick(1.5);
+    for (let i = 0; i < 120; i += 1) world.tick(0.02); // 예고를 지나 정산까지
 
     expect(world.getCore().hp).toBeLessThan(coreHpBefore);
   });

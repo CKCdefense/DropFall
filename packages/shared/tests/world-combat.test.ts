@@ -89,6 +89,17 @@ function pinAt(monster: { x: number; y: number }, x: number, y: number): void {
   monster.y = y;
 }
 
+
+/**
+ * 큰 dt 한 번으로는 공격이 정산되지 않는다 — 이제 모든 공격이 "시도 → 예고 → 판정"
+ * 3단계라, 시도한 틱과 정산되는 틱이 다르다(실제 서버는 60Hz라 무관하다).
+ * 테스트는 실제 틱레이트에 가깝게 잘게 굴린다.
+ */
+function tickSeconds(world: World, seconds: number, step = 0.02): void {
+  const steps = Math.max(1, Math.round(seconds / step));
+  for (let i = 0; i < steps; i += 1) world.tick(step);
+}
+
 describe('World — 전투/웨이브 통합', () => {
   it('day로 시작해서 dayDuration이 지나면 night(1웨이브)로 전환된다', () => {
     const world = new World();
@@ -309,7 +320,7 @@ describe('World — 전투/웨이브 통합', () => {
     monster!.y = 0; // 코어 바로 위 — attackRange + CORE_RADIUS 안
 
     const initialHp = world.getCore().hp;
-    world.tick(1.5); // attackInterval(1초 또는 그 이상)이 지나도록
+    tickSeconds(world, 1.5); // 예고 + attackInterval이 지나도록
 
     expect(world.getCore().hp).toBeLessThan(initialHp);
   });
@@ -324,7 +335,7 @@ describe('World — 전투/웨이브 통합', () => {
 
     // 코어 HP를 0 근처로 만들어 다음 공격 한 방으로 패배하게 한다
     (world.getCore() as { hp: number }).hp = 1;
-    world.tick(1.5);
+    tickSeconds(world, 1.5);
 
     expect(world.getWavePhase()).toBe('defeat');
   });
@@ -380,7 +391,7 @@ describe('World — 전원 다운 = 즉시 패배', () => {
     monster!.y = 0;
 
     const coreHpBefore = world.getCore().hp;
-    world.tick(2); // attackInterval을 넘기도록
+    tickSeconds(world, 2); // 예고 + attackInterval을 넘기도록
 
     // 다운된 플레이어를 어그로 대상으로 잡았다면 코어는 공격받지 않았을 것이다(continue로 스킵).
     // 코어 HP가 깎였다는 건 몬스터가 다운된 플레이어를 무시하고 코어 쪽 로직을 탔다는 뜻이다.
@@ -878,7 +889,7 @@ describe('World — 어그로 규칙(공격 1회 → 재탐색)', () => {
     monster.attackCooldown = 0;
 
     const coreBefore = world.getCore().hp;
-    world.tick(1.5);
+    tickSeconds(world, 1.5);
     expect(world.getCore().hp).toBeLessThan(coreBefore); // 아무도 없으니 코어를 친다
 
     // 이제 플레이어가 시야 안에 들어오면 코어 대신 사람을 노린다.
@@ -889,5 +900,86 @@ describe('World — 어그로 규칙(공격 1회 → 재탐색)', () => {
     world.tick(0.05);
 
     expect(monster.targetPlayerId).toBe('far');
+  });
+});
+
+describe('World — 모든 공격은 시도 → 예고 → 판정 → 정산', () => {
+  /**
+   * 예전에는 사거리에 들어온 순간 곧바로 피해가 들어갔다(보스 평타 포함). 예고가
+   * 없으니 피할 방법이 아예 없었고, 그림도 맞은 뒤에야 재생됐다.
+   */
+  it('사거리에 들어와도 곧바로 맞지 않는다 — 예고 시간이 지나야 정산된다', () => {
+    const world = new World();
+    world.addPlayer('p1', 0, 0);
+    startFirstWave(world);
+    clearResourceNodes(world);
+
+    const monster = isolateMonster(world, 'demon');
+    const player = world.getPlayers().get('p1')!;
+    monster.x = 10; // 사거리(20) 안
+    monster.y = 0;
+    (monster as unknown as { facingX: number; facingY: number }).facingX = -1;
+    (monster as unknown as { facingX: number; facingY: number }).facingY = 0;
+
+    const windup = monstersData.demon.attackWindupSeconds;
+    // 예고가 끝나기 직전까지는 한 대도 안 맞아야 한다.
+    tickSeconds(world, windup * 0.6, 0.01);
+    expect(player.hp).toBe(100);
+
+    // 예고를 넘기면 그때 정산된다.
+    tickSeconds(world, windup, 0.01);
+    expect(player.hp).toBe(100 - monstersData.demon.damage);
+  });
+
+  it('예고 중에 사거리 밖으로 빠지면 헛친다', () => {
+    const world = new World();
+    world.addPlayer('p1', 0, 0);
+    startFirstWave(world);
+    clearResourceNodes(world);
+
+    const monster = isolateMonster(world, 'demon');
+    const player = world.getPlayers().get('p1')!;
+    monster.x = 10;
+    monster.y = 0;
+    (monster as unknown as { facingX: number; facingY: number }).facingX = -1;
+    (monster as unknown as { facingX: number; facingY: number }).facingY = 0;
+
+    // 공격을 시도하게 만든다.
+    for (let i = 0; i < 20 && monster.pattern.kind !== 'basicSwing'; i += 1) world.tick(0.01);
+    expect(monster.pattern.kind).toBe('basicSwing');
+
+    // 예고 중에 멀리 도망친다 — 정산 시점에 사거리 밖이면 안 맞아야 한다.
+    player.x = 600;
+    player.y = 600;
+    tickSeconds(world, monstersData.demon.attackWindupSeconds * 2, 0.01);
+
+    expect(player.hp).toBe(100);
+  });
+
+  it('보스 평타도 같은 규칙을 탄다 — 검술 쿨다운 중이라고 즉사 피해가 나오지 않는다', () => {
+    const world = new World();
+    world.addPlayer('dev', 3000, 3000);
+    world.runDevCommand('dev', 'spawn boss_demon 1');
+    const boss = [...world.getMonsters().values()].find((m) => m.type === 'boss_demon')!;
+    boss.x = 400;
+    boss.y = 0;
+    boss.facingX = -1;
+    boss.facingY = 0;
+    // 검술을 전부 잠가서 평타 경로만 남긴다.
+    boss.meleeCooldowns.forEach((_, i) => {
+      boss.meleeCooldowns[i] = 999;
+    });
+    boss.specialAttackCooldown = 999;
+
+    world.addPlayer('p1', boss.x - 40, boss.y); // 평타 사거리 안
+    const player = world.getPlayers().get('p1')!;
+
+    // 시도는 하되 예고가 끝나기 전에는 피해가 없어야 한다.
+    for (let i = 0; i < 40 && boss.pattern.kind !== 'basicSwing'; i += 1) world.tick(0.01);
+    expect(boss.pattern.kind).toBe('basicSwing');
+    expect(player.hp).toBe(100);
+
+    tickSeconds(world, monstersData.boss_demon.attackWindupSeconds * 1.5, 0.01);
+    expect(player.hp).toBe(100 - monstersData.boss_demon.damage);
   });
 });
