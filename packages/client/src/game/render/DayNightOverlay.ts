@@ -1,7 +1,6 @@
 import Phaser from 'phaser';
 import { wavesData } from '@dropfall/shared';
 import type { WorldSnapshot } from '../../net/GameConnection';
-import { CORE_CRYSTAL_WORLD } from './EntityRenderer';
 
 /**
  * 낮–밤 하늘 연출.
@@ -14,6 +13,10 @@ import { CORE_CRYSTAL_WORLD } from './EntityRenderer';
  *   광원 안은 원래 밝기 그대로다.
  * - 마스크(BitmapMask)를 쓰지 않는 이유: 곱셈 블렌드와 조합하면 이 렌더러에서
  *   마스크가 균일하게 새어 나와 광원이 사라졌다(실측).
+ *
+ * 광원의 중심은 수정구가 아니라 **월드 원점(=건축 구역 중심)**이다. 원이 정사각형에
+ * 내접하려면 중심이 같아야 하고, 코어 앵커를 받침대 중심으로 옮긴 뒤로는 원점이 곧
+ * 코어의 시각적 중심이라 수정구와도 몇 십 px밖에 안 떨어져 있다.
  *
  * **어둠막은 화면이 아니라 월드에 붙어 있다.** 화면 고정(scrollFactor 0) 막에 코어의
  * "화면 좌표"를 계산해 구멍을 지우는 방식은 그 좌표가 카메라 상태에 의존한다 —
@@ -161,11 +164,7 @@ export class DayNightOverlay {
       const radius = Math.max(MIN_LIGHT_RADIUS, status.coreBuildRadius);
       this.lightBrush.setAlpha(this.current.light);
       this.lightBrush.setDisplaySize(radius * 2, radius * 2);
-      this.veil.erase(
-        this.lightBrush,
-        CORE_CRYSTAL_WORLD.x - this.veil.x,
-        CORE_CRYSTAL_WORLD.y - this.veil.y,
-      );
+      this.veil.erase(this.lightBrush, 0 - this.veil.x, 0 - this.veil.y);
     }
   }
 

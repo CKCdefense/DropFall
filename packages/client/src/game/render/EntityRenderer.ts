@@ -167,7 +167,13 @@ const CORE_FRAME = 'core__0';
 const CORE_SPRITE_SIZE = 128;
 /** 원래 0.42였고, 랜드마크로 잘 보이도록 2배로 키웠다. */
 const CORE_SCALE = 0.84;
-const CORE_ORIGIN_Y = 0.86;
+/**
+ * 앵커(=월드 원점)를 받침대의 시각적 중심에 둔다. 처음엔 캐릭터처럼 발밑(0.86)에
+ * 뒀는데, 그러면 받침대 중심이 원점보다 ~19px 위에 그려져서 원점 대칭인 건축
+ * 구역·광원과 코어가 서로 어긋나 보였다. 이 값을 바꾸면 coreShape.ts의 발자국도
+ * 같이 다시 재야 한다.
+ */
+const CORE_ORIGIN_Y = 0.68;
 /**
  * 스프라이트 안 수정(가운데 청록 구슬)의 중심과 크기. 원본에서 밝은 픽셀 범위를 재서
  * 넣었다 — 반짝임이 이 자리에 정확히 얹혀야 "수정이 빛난다"로 보이고, 밝기 맥동은
@@ -175,14 +181,7 @@ const CORE_ORIGIN_Y = 0.86;
  */
 const CORE_CRYSTAL = { x: 63, y: 26 };
 
-/**
- * 수정 중심의 **월드 좌표**. 밤 조명(DayNightOverlay)이 광원을 여기에 얹는다 —
- * 좌표 셋(CORE_CRYSTAL/SCALE/ORIGIN_Y)을 그쪽에 또 적으면 코어를 옮길 때 어긋난다.
- */
-export const CORE_CRYSTAL_WORLD = {
-  x: (CORE_CRYSTAL.x - CORE_SPRITE_SIZE * 0.5) * CORE_SCALE,
-  y: (CORE_CRYSTAL.y - CORE_SPRITE_SIZE * CORE_ORIGIN_Y) * CORE_SCALE,
-};
+
 const CORE_CRYSTAL_CROP = { x: 33, y: 0, width: 62, height: 58 };
 
 /**
