@@ -74,11 +74,16 @@ const LABEL_FONT_SIZE = SIZE_SMALL;
  * 아트가 들어오면 이 표를 스프라이트 키로 바꾸면 된다.
  */
 const MONSTER_COLOR: Record<string, number> = {
-  trash: 0xa4576a,
-  rusher: 0xd07a4a,
-  tanker: 0x8c5ba8,
-  ranged: 0x5f9ea0,
-  boss: 0xd94f4f,
+  demon: 0xa4576a,
+  hellhound: 0xd07a4a,
+  blood: 0x7e2b3c,
+  eyeball: 0xc9c26b,
+  lava_slime: 0xd96f32,
+  minotaur: 0x8c5ba8,
+  boss_demon: 0xd94f4f,
+  boss_knight: 0x4a4f6b,
+  boss_golem: 0xb0622f,
+  boss_dark_knight: 0x2e2b3f,
 };
 const MONSTER_COLOR_FALLBACK = 0xa4576a;
 /**
@@ -1320,16 +1325,30 @@ export class EntityRenderer {
       }
 
       sprite.setDepth(colony.y);
-      // 파괴돼도 엔티티는 안 사라진다(colony.ts) — 예전엔 흐리게 남겨 랜드마크로
-      // 계속 보여줬지만, 더 이상 위협도 아니고 하드 충돌도 없앴으니(docs/backend/43)
-      // 화면에서도 아예 숨긴다.
-      sprite.setVisible(!colony.destroyed);
+      // 정화돼도 구조물은 남는다(colony.ts) — 빈 껍데기는 흐리게, 단계가 오를수록
+      // 크게 그려서 위협도를 한눈에 보이게 한다. 저장분은 위에 숫자로 띄운다.
+      sprite.setAlpha(colony.purified ? 0.4 : 1);
+      sprite.setScale(1 + (colony.stage - 1) * 0.18);
+      const label = sprite.getByName('stored') as Phaser.GameObjects.Text | null;
+      label?.setText(colony.purified ? '' : `${colony.stored}`);
     }
 
     this.removeMissing(this.colonies, alive);
   }
 
   private createColony(colony: ColonyView): Phaser.GameObjects.Container {
+    // 저장된 몬스터 수. "얼마나 키워졌나/얼마나 남았나"가 정화 판단의 핵심 정보라
+    // 월드에 바로 띄운다 — 두 생성 경로(스프라이트/도형)가 같은 이름표를 공유한다.
+    const stored = this.scene.add
+      .text(0, -COLONY_SIZE - 4, '', {
+        fontFamily: FONT_SMALL,
+        fontSize: `${SIZE_SMALL}px`,
+        color: '#d9b8f2',
+      })
+      .setOrigin(0.5, 1)
+      .setName('stored');
+    applyTextShadow(stored);
+
     // 스프라이트가 있으면 쓴다. 원본이 125x128이라 타일 격자에 맞게 줄이고, 접지선을
     // 캐릭터와 같은 규칙(발밑)으로 둔다.
     if (this.scene.textures.exists(GAME_ATLAS) && this.scene.textures.get(GAME_ATLAS).has(COLONY_FRAME)) {
@@ -1338,12 +1357,12 @@ export class EntityRenderer {
         .setOrigin(0.5, PLAYER_ORIGIN_Y)
         .setScale(COLONY_SCALE)
         .setName('body');
-      return this.scene.add.container(colony.x, colony.y, [sprite]);
+      return this.scene.add.container(colony.x, colony.y, [sprite, stored]);
     }
 
     const body = this.scene.add.rectangle(0, 0, COLONY_SIZE, COLONY_SIZE, COLONY_COLOR);
     body.setStrokeStyle(2, 0x1a1c23);
-    return this.scene.add.container(colony.x, colony.y, [body]);
+    return this.scene.add.container(colony.x, colony.y, [body, stored]);
   }
 
   // ---------------------------------------------------------------- 티모시(AI 동반자)

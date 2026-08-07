@@ -32,8 +32,6 @@ export class PlayerSchema extends Schema {
   @type('number') stone = 0;
   /** 몬스터가 떨구는 부품(drop_normal) 휴대량. 나무/돌과 동일하게 창고로 옮겨야 팀 몫이 된다. */
   @type('number') parts = 0;
-  /** 콜로니 채널링(파괴 작업) 진행률(0~1). 채널링 중이 아니면 0. */
-  @type('number') channelProgress = 0;
   @type([ItemSlotSchema]) slots = new ArraySchema<ItemSlotSchema>(
     ...Array.from({ length: SLOT_COUNT }, () => new ItemSlotSchema()),
   );
@@ -86,7 +84,12 @@ export class BuildingSchema extends Schema {
 export class ColonySchema extends Schema {
   @type('number') x = 0;
   @type('number') y = 0;
-  @type('boolean') destroyed = false;
+  /** 성장 단계(1~3). 클라이언트가 크기/색으로 위협도를 보여준다. */
+  @type('number') stage = 1;
+  /** 아직 콜로니 안에 저장된 몬스터 수. 0이고 purified면 빈 껍데기다. */
+  @type('number') stored = 0;
+  /** 정화된 빈 껍데기 상태(다음 낮에 재보급). */
+  @type('boolean') purified = false;
 }
 
 /**

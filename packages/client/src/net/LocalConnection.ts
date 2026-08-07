@@ -178,7 +178,6 @@ export class LocalConnection implements GameConnection {
         parts: player.inventory.countOf('drop_normal'),
         slots: inventory.slots,
         selectedSlot: inventory.selectedIndex,
-        channelProgress: player.channelProgress,
       });
     }
 
@@ -240,7 +239,14 @@ export class LocalConnection implements GameConnection {
 
     const colonies: WorldSnapshot['colonies'] = [];
     for (const [id, colony] of this.world.getColonies()) {
-      colonies.push({ id, x: colony.x, y: colony.y, destroyed: colony.destroyed });
+      colonies.push({
+        id,
+        x: colony.x,
+        y: colony.y,
+        stage: colony.stage,
+        stored: colony.stored,
+        purified: colony.purified,
+      });
     }
 
     const core = this.world.getCore();

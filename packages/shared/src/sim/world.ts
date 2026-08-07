@@ -25,7 +25,13 @@ import {
 import type { PlayerInputMessage } from '../protocol/messages';
 import { FlowField, type FlowFieldGrid } from './ai/flowField';
 import { BuildingRegistry, type BuildingEntity } from './building';
-import { COLONY_RADIUS, ColonyRegistry, colonyStageFor, type ColonyEntity } from './colony';
+import {
+  COLONY_RADIUS,
+  ColonyRegistry,
+  colonyStageData,
+  maxColonyStage,
+  type ColonyEntity,
+} from './colony';
 import { createCompanion, type CompanionEntity } from './companion';
 import {
   applyPersonaEvent,
@@ -103,8 +109,8 @@ export const BARE_HANDS_WEAPON_ID = 'fist';
 /** 개발 커맨드로 몬스터를 부를 때 코어에서 띄우는 거리(px). 바로 옆에 붙여 놓으면 코어가 즉사한다. */
 const DEV_SPAWN_RADIUS = 160;
 
-/** 콜로니 채널링(파괴 작업)을 시작할 수 있는 반경(px). "구조물 바로 옆" 상호작용 거리다. */
-const COLONY_CHANNEL_RADIUS = 72;
+/** 수호대가 콜로니 곁으로 "도착했다"고 보는 여유 거리(px). 충돌 반경 바로 바깥이다. */
+const GUARD_HOME_ARRIVE_MARGIN = 10;
 /** 이 거리보다 가까운 몬스터끼리는 서로 밀어낸다 — 군집 분리(기술명세 §5.3). */
 const SEPARATION_RADIUS = HIT_RADIUS * 2.5;
 /** 분리력이 주 이동 방향을 완전히 덮어쓰지 않도록 두는 가중치. */
@@ -202,12 +208,7 @@ export interface PlayerEntity {
 
   /** 퀵슬롯. 장착 무기도 여기서 나온다 — 클라이언트가 무기를 주장할 수 없다. */
   inventory: Inventory;
-  /** 지금 채널링(콜로니 파괴 작업) 중인 콜로니 id. 채널링 중이 아니면 undefined. */
-  channelingColonyId?: string;
-  /** 채널링 진행률(0~1). 이동/피격/사거리 이탈로 언제든 0으로 리셋될 수 있다. */
-  channelProgress: number;
-  /** 이번 틱에 몬스터에게 맞았는지. 매 틱 시작 시 초기화되고, damagePlayer()가 세팅한다.
-   * 채널링 "피격 시 중단" 판정에 쓴다 — tickChannels()가 tickMonsters() 이후에 읽는다. */
+  /** 이번 틱에 몬스터에게 맞았는지. 매 틱 시작 시 초기화되고, damagePlayer()가 세팅한다. */
   tookDamageThisTick: boolean;
 }
 
@@ -294,6 +295,14 @@ export interface MonsterEntity {
    * 2026-08-07-ai-companion-timothy-design.md).
    */
   companionAttackCooldown: number;
+  /**
+   * 콜로니 수호대라면 소속 콜로니 id. 있으면 코어 침공 AI 대신 수호 AI를 탄다 —
+   * 리시 반경 안의 플레이어만 공격하고, 아무도 없으면 콜로니로 귀환해 저장 상태로
+   * 복귀한다(stored 복원). 웨이브/침공 복제 몬스터는 undefined다.
+   */
+  homeColonyId?: string;
+  /** 수호대 전용: 콜로니 곁에 도착한 뒤 저장 상태로 복귀하기까지 누적된 대기(초). */
+  guardReturnTimer: number;
 }
 
 export interface CoreState {
@@ -365,6 +374,13 @@ export class World {
   private readonly droppedItems = new Map<string, DroppedItemEntity>();
   private readonly colonies = new ColonyRegistry();
   /**
+   * 이번 밤의 콜로니 침공 복제분 대기열. 밤 시작에 buildNightContingents()가 만들고
+   * tickContingents()가 콜로니 방향에서 무리 단위로 내보낸다. 다음 밤 시작에 통째로
+   * 교체된다.
+   */
+  private readonly contingents: { x: number; y: number; queue: MonsterType[]; timer: number }[] =
+    [];
+  /**
    * AI 동반자("티모시"). 방(팀)당 1마리라 players/monsters처럼 Map으로 관리하지 않는다
    * (docs/superpowers/specs/2026-08-07-ai-companion-timothy-design.md). 코어는 항상
    * 원점(0,0)이라 스폰 위치도 생성자에서 바로 정할 수 있다 — startColonies처럼 인원수를
@@ -372,12 +388,9 @@ export class World {
    */
   private companion: CompanionEntity = createCompanion(0, 0);
   /**
-   * 파괴되지 않은 콜로니가 차지한 그리드 셀("cx,cy" 키) 집합. 콜로니는 위치가
-   * 절대 안 바뀌지만(colony.ts), **존재 여부(파괴됐는지)는 바뀐다** — 파괴된
-   * 콜로니는 더 이상 막지 않는다(docs/backend/43, 예전엔 폐허로 계속 막았지만
-   * 뒤집었다). 그래서 생성 시점에 한 번만 캐싱하지 않고, 콜로니가 새로 배치될
-   * 때(`startColonies`)와 파괴될 때(`tickChannels`) `rebuildColonyObstacleCells()`로
-   * 통째로 다시 계산한다 — 자원 노드의 `resourceObstacleCells`와 같은 패턴이다.
+   * 콜로니가 차지한 그리드 셀("cx,cy" 키) 집합. 콜로니는 위치가 절대 안 바뀌고,
+   * 정화돼도 구조물은 남으므로(재설계 후 "파괴" 개념이 없다) 배치 시점
+   * (`startColonies`)에 한 번만 계산하면 판이 끝날 때까지 그대로다.
    * FlowField의 `isBlocked` 콜백이 여기 기록된 셀도 같이 막힌 것으로 본다.
    *
    * 코어 자신의 셀은 절대 여기 넣지 않는다 — FlowField의 목표(target) 셀이 막히면
@@ -459,14 +472,12 @@ export class World {
   }
 
   /**
-   * 파괴되지 않은 콜로니의 현재 위치를 기준으로 차단 셀 집합을 통째로 다시
-   * 계산한다. 콜로니가 새로 배치되거나(`startColonies`) 파괴될 때(`tickChannels`)
-   * 호출해야 한다 — `rebuildResourceObstacleCells()`와 같은 패턴이다.
+   * 콜로니의 위치를 기준으로 차단 셀 집합을 계산한다. 배치(`startColonies`) 때 한 번이면
+   * 된다 — 재설계 후 콜로니는 파괴되지 않아 존재 여부가 변하지 않는다.
    */
   private rebuildColonyObstacleCells(): void {
     this.colonyObstacleCells.clear();
     for (const colony of this.colonies.values()) {
-      if (colony.destroyed) continue; // 파괴되면 더 이상 막지 않는다(docs/backend/43)
       const { cx, cy } = worldToCell(colony.x, colony.y);
       this.colonyObstacleCells.add(`${cx},${cy}`);
     }
@@ -498,7 +509,6 @@ export class World {
       lastProcessedSeq: 0,
       hp: wavesData.playerHp,
       inventory,
-      channelProgress: 0,
       tookDamageThisTick: false,
     });
   }
@@ -521,10 +531,7 @@ export class World {
       !isFiniteNumber(input.seq) ||
       !isFiniteNumber(input.moveX) ||
       !isFiniteNumber(input.moveY) ||
-      !isFiniteNumber(input.aimAngle) ||
-      // channeling은 옵셔널이다 — 없으면(구버전 호출부/테스트) false로 취급하고
-      // 입력 전체를 거절하지 않는다. 있는데 boolean이 아니면 거절한다.
-      (input.channeling !== undefined && typeof input.channeling !== 'boolean')
+      !isFiniteNumber(input.aimAngle)
     ) {
       return;
     }
@@ -540,7 +547,6 @@ export class World {
       moveX,
       moveY,
       aimAngle: input.aimAngle,
-      channeling: input.channeling === true,
     });
   }
 
@@ -600,9 +606,6 @@ export class World {
   fireWeapon(playerId: string): void {
     const player = this.players.get(playerId);
     if (!player) return;
-    // 채널링 중엔 공격할 수 없다 — "무방비 상태"를 실제로 강제한다(콜로니 채널링은
-    // 엄호가 필요한 협동 압박 요소로 설계됐다, docs/backend/35).
-    if (player.channelingColonyId) return;
 
     // 무기를 안 들었으면 맨손이다. 붕대 같은 소모품을 들고 있을 때는 좌클릭이
     // "사용"이라 여기까지 오지 않는다(클라이언트가 useSlot으로 보낸다).
@@ -1108,6 +1111,8 @@ export class World {
     this.skipVotes.clear();
     // 하루가 지나면 상점 물건이 통째로 바뀐다. 오늘 못 산 전설은 오늘로 끝이다.
     this.rollShopStock();
+    // 정화된 콜로니는 재보급, 살아남은 콜로니는 성장(§settleColoniesOnDayBegan).
+    this.settleColoniesOnDayBegan();
   }
 
   /**
@@ -1172,11 +1177,11 @@ export class World {
 
       jumpToWave: (waveNumber) => {
         const moved = this.waveManager.debugJumpToWave(waveNumber);
-        if (moved) this.monsters.clear();
+        if (moved) this.clearAllMonsters();
         return moved;
       },
       forceDay: () => {
-        this.monsters.clear();
+        this.clearAllMonsters();
         // 스폰 큐까지 비워야 낮에 몬스터가 계속 튀어나오지 않는다. 낮에 딸린 일은
         // 정상 진행과 같은 함수로 처리한다.
         if (this.waveManager.debugEndNight() && this.waveManager.currentPhase === 'day') {
@@ -1192,7 +1197,7 @@ export class World {
           this.addMonster(type, Math.cos(angle) * radius, Math.sin(angle) * radius);
         }
       },
-      clearMonsters: () => this.monsters.clear(),
+      clearMonsters: () => this.clearAllMonsters(),
 
       healPlayer: (playerId) => {
         const player = this.players.get(playerId);
@@ -1224,13 +1229,19 @@ export class World {
     const previousPhase = this.waveManager.currentPhase;
     this.waveManager.tick(
       dtSeconds,
-      () => this.monsters.size,
+      // 아직 스폰 대기 중인 콜로니 침공 복제분도 "살아있는" 것으로 계산해야 한다 —
+      // 본대가 먼저 전멸해도 복제분이 다 나올 때까지 밤이(보스가) 오지 않게.
+      () => this.monsters.size + this.pendingContingentCount(),
       (type, x, y) => this.addMonster(type, x, y),
     );
     // 밤이 끝나고 새 낮이 시작되는 시점(웨이브 클리어) — 다운된 플레이어를 부활시키고
     // 지난 낮의 스킵 투표를 초기화한다(docs/backend/11 §4.1).
     if (previousPhase !== 'day' && this.waveManager.currentPhase === 'day') {
       this.onDayBegan();
+    }
+    // 낮이 끝나고 밤이 시작되는 시점 — 콜로니 저장분이 복제되어 침공에 합류한다.
+    if (previousPhase === 'day' && this.waveManager.currentPhase === 'night') {
+      this.buildNightContingents();
     }
     // 밤이 끝난 시점(다음 낮이든 최종 승리든) — 코어 AI 페르소나가 그 웨이브를 코멘트한다.
     if (
@@ -1247,12 +1258,10 @@ export class World {
     this.tickCompanionDamage(dtSeconds);
     this.tickCompanion(dtSeconds);
     this.tickResourceNodes(dtSeconds);
-    // tickMonsters() 다음에 불러야 한다 — 이번 틱의 피격(tookDamageThisTick)이
-    // 이미 반영된 뒤여야 "피격 시 채널 중단"이 정확히 판정된다.
-    this.tickChannels(dtSeconds);
-    // tickChannels() 다음에 불러야 한다 — 이번 틱에 새로 채널링이 시작된 콜로니도
-    // 한 틱 지연 없이 바로 스폰이 멈춰야 한다(§tickColonies의 채널링 중 스폰 정지).
-    this.tickColonies(dtSeconds);
+    // tickMonsters() 다음에 불러야 한다 — 이번 틱에 죽은 수호대가 guardIds에서
+    // 이미 빠진 뒤여야 정화 판정이 한 틱 늦지 않는다.
+    this.tickColonyGuards(dtSeconds);
+    this.tickContingents(dtSeconds);
 
     tickProjectiles(this.projectiles, dtSeconds);
     this.resolveProjectileHits();
@@ -1448,7 +1457,8 @@ export class World {
     node.y = position.y;
   }
 
-  private addMonster(type: MonsterType, x: number, y: number): void {
+  /** 몬스터를 추가하고 id를 돌려준다 — 수호대 소환처럼 스폰 직후 추가 설정이 필요한 곳용. */
+  private addMonster(type: MonsterType, x: number, y: number): string {
     const data = monstersData[type];
     const id = `monster_${nextMonsterId++}`;
     // 스폰 직후엔 코어를 향해 걷기 시작하니, 초기 시야 방향도 코어 쪽으로 잡아둔다.
@@ -1469,7 +1479,9 @@ export class World {
       specialAttackCooldown: data.chargeAttack || data.slamAttack ? BOSS_FIRST_PATTERN_DELAY : 0,
       stuckSeconds: 0,
       companionAttackCooldown: 0,
+      guardReturnTimer: 0,
     });
+    return id;
   }
 
   /**
@@ -1557,46 +1569,239 @@ export class World {
   }
 
   /**
-   * 살아있는 콜로니마다 스폰 타이머를 감소시키고, 0이 되면 몬스터를 하나 추가한다.
-   * `tickMonsters()`처럼 페이즈(낮/밤) 무관하게 매 틱 그냥 돈다 — 콜로니가 낮에도
-   * 몬스터를 내보내는 게 이 기능의 핵심이라, 애초에 페이즈로 막을 이유가 없다
-   * (몬스터 자체는 addMonster()로 추가되는 순간부터 tickMonsters()가 똑같이
-   * 다루므로, 낮/밤에 따라 AI가 달라지지 않는다).
+   * 콜로니 수호대 소환/정화 판정. `tickMonsters()` 이후에 불러야 한다 — 이번 틱에
+   * 죽은 수호대가 guardIds에서 이미 빠진 뒤여야 정화가 한 틱 늦지 않는다.
    *
-   * 스테이지(난이도 구간)는 현재 웨이브 진행도(WaveManager.currentWave) 기준으로
-   * 콜로니 전체가 공유한다 — "시간이 지날수록 강해진다"를 밤 웨이브와 같은 축으로
-   * 표현한다(§colonyStageFor).
+   * 소환 규칙: 살아있는 플레이어가 트리거 반경 안에 있으면 저장분에서 한 마리씩
+   * 꺼내 소환하고, 동시 수호대 수(guardConcurrent)를 유지하도록 보충한다. 저장분
+   * 전체가 한꺼번에 쏟아지지 않게 하는 건 압박 유지와 "입구 낚시" 방지를 겸한다 —
+   * 대신 순차 보충이라 플레이어가 하나씩 끊어 먹는 것도 자연히 가능하다(설계 의도).
    *
-   * **채널링 중인 콜로니는 스폰이 완전히 멈춘다.** 누군가 파괴 작업 중인 콜로니가
-   * 그 와중에도 계속 몬스터를 뱉으면 엄호하는 인원이 오히려 더 불리해지기만 하고,
-   * "채널링 = 그 콜로니를 무력화하기 시작했다"는 의미도 흐려진다. 스폰 타이머
-   * 자체를 얼려서(감소시키지 않음) 멈추는 이유: 그냥 스폰만 건너뛰고 타이머는
-   * 계속 줄이면, 채널링이 중간에 끊겼을 때 밀린 스폰이 한꺼번에(또는 다음 틱에
-   * 바로) 터져나오는 부자연스러운 결과가 된다.
+   * 페이즈(낮/밤) 무관하게 돈다 — 밤에도 콜로니에 접근하면 수호대가 나온다.
    */
-  private tickColonies(dtSeconds: number): void {
-    const stage = colonyStageFor(this.waveManager.currentWave);
-
+  private tickColonyGuards(dtSeconds: number): void {
     for (const colony of this.colonies.values()) {
-      if (colony.destroyed) continue;
-      if (this.isColonyBeingChanneled(colony.id)) continue;
+      if (colony.purified) continue;
 
-      colony.spawnTimer -= dtSeconds;
-      if (colony.spawnTimer > 0) continue;
+      // 정화: 저장분도 수호대도 남지 않은 순간, 이 콜로니는 비워졌다.
+      if (colony.stored <= 0 && colony.guardIds.size === 0) {
+        this.purifyColony(colony);
+        continue;
+      }
 
-      colony.spawnTimer = stage.spawnIntervalSeconds;
+      const triggered = this.anyAlivePlayerWithin(colony.x, colony.y, coloniesData.triggerRadius);
+      if (!triggered) {
+        // 아무도 없으면 보충 타이머를 초기값으로 되돌린다 — 다음 접근 때 곧바로
+        // 첫 수호대가 나오게(경계에서 들락거리며 타이머만 갉는 것 방지).
+        colony.guardRespawnTimer = 0;
+        continue;
+      }
+
+      if (colony.stored <= 0 || colony.guardIds.size >= coloniesData.guardConcurrent) continue;
+
+      colony.guardRespawnTimer -= dtSeconds;
+      if (colony.guardRespawnTimer > 0) continue;
+      colony.guardRespawnTimer = coloniesData.guardRespawnSeconds;
+
+      const stage = colonyStageData(colony.stage);
       const type = stage.types[Math.floor(this.rng() * stage.types.length)] as MonsterType;
 
-      // 콜로니 중심 좌표 그대로 스폰시키면(예전 방식) 콜로니 자신의 하드 충돌
-      // 반경(docs/backend/38) 안에서 태어나는 셈이라, moveMonster의 장애물 회피가
-      // "이미 겹친 상태"를 벗어날 방법이 없어 그 자리에 영구히 끼어버린다
-      // (docs/backend/40). 콜로니 경계 바로 바깥, 무작위 각도의 지점에 스폰시켜서
-      // 처음부터 안 겹치게 한다.
+      // 콜로니 중심 좌표 그대로 스폰시키면 콜로니 자신의 하드 충돌 반경(docs/backend/38)
+      // 안에서 태어나 영구히 끼어버린다(docs/backend/40). 경계 바로 바깥에 스폰한다.
       const spawnMonsterR = monstersData[type]?.hitRadius ?? HIT_RADIUS;
       const angle = this.rng() * Math.PI * 2;
       const offset = COLONY_RADIUS + spawnMonsterR + 2; // 여유 2px — 겹침 없이 확실히 밖
-      this.addMonster(type, colony.x + Math.cos(angle) * offset, colony.y + Math.sin(angle) * offset);
+      const guardId = this.addMonster(
+        type,
+        colony.x + Math.cos(angle) * offset,
+        colony.y + Math.sin(angle) * offset,
+      );
+      const guard = this.monsters.get(guardId);
+      if (guard) {
+        guard.homeColonyId = colony.id;
+        colony.stored -= 1;
+        colony.guardIds.add(guardId);
+      }
     }
+  }
+
+  /**
+   * 수호대 한 마리의 틱. 일반 몬스터와 달리 **콜로니 중심** 기준으로 판단한다 —
+   * 자기 위치 기준이면 추격 중에 리시가 몬스터를 따라 이동해 무한 추격이 된다.
+   *
+   * 1) 리시 반경(콜로니 기준) 안에 살아있는 플레이어가 있으면 가장 가까운 쪽을 요격.
+   * 2) 없으면 콜로니 곁으로 귀환. 도착 후 returnDespawnSeconds가 지나면 저장 상태로
+   *    복귀한다 — 엔티티가 사라지고 콜로니 stored가 복원된다("자연스럽게 돌아가
+   *    수호하다가 저장 상태로").
+   */
+  private tickGuard(monster: MonsterEntity, data: MonsterData, dtSeconds: number): void {
+    const colony = this.colonies.get(monster.homeColonyId!);
+    if (!colony) {
+      // 방어적 처리 — 소속 콜로니가 없으면(있을 수 없는 상태) 일반 몬스터로 강등한다.
+      monster.homeColonyId = undefined;
+      return;
+    }
+
+    // 요격 대상: 리시 반경(콜로니 기준) 안에서 수호대 자신과 가장 가까운 생존자.
+    let target: PlayerEntity | undefined;
+    let bestDistance = Infinity;
+    for (const player of this.players.values()) {
+      if (player.hp <= 0) continue;
+      if (Math.hypot(player.x - colony.x, player.y - colony.y) > coloniesData.leashRadius) continue;
+      const distance = Math.hypot(player.x - monster.x, player.y - monster.y);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        target = player;
+      }
+    }
+
+    if (target) {
+      monster.guardReturnTimer = 0;
+      if (bestDistance > 0) {
+        monster.facingX = (target.x - monster.x) / bestDistance;
+        monster.facingY = (target.y - monster.y) / bestDistance;
+      }
+
+      // 벽으로 길을 막았으면 침공 몬스터와 같은 규칙으로 그 벽부터 부순다.
+      const blocker = this.findBlockingBuildingInRange(monster, data.attackRange);
+      if (blocker) {
+        this.attackBuilding(monster, blocker, data.damage, data.attackInterval);
+      } else if (bestDistance <= data.attackRange) {
+        if (monster.attackCooldown <= 0) {
+          this.damagePlayer(target, data.damage);
+          monster.attackCooldown = data.attackInterval;
+        }
+      } else {
+        this.moveMonster(monster, monster.facingX, monster.facingY, data.speed, dtSeconds);
+      }
+      return;
+    }
+
+    // 귀환: 콜로니 충돌 반경 바로 바깥까지 다가간 뒤 잠시 서성이다 저장 상태로.
+    const homeDistance = Math.hypot(colony.x - monster.x, colony.y - monster.y);
+    const arriveDistance = COLONY_RADIUS + monsterRadius(monster) + GUARD_HOME_ARRIVE_MARGIN;
+    if (homeDistance > arriveDistance) {
+      monster.guardReturnTimer = 0;
+      monster.facingX = (colony.x - monster.x) / homeDistance;
+      monster.facingY = (colony.y - monster.y) / homeDistance;
+      this.moveMonster(monster, monster.facingX, monster.facingY, data.speed, dtSeconds);
+      return;
+    }
+
+    monster.guardReturnTimer += dtSeconds;
+    if (monster.guardReturnTimer < coloniesData.returnDespawnSeconds) return;
+
+    this.monsters.delete(monster.id);
+    colony.guardIds.delete(monster.id);
+    // 단계 재보급(settleColoniesOnDayBegan)이 사이에 끼어도 저장분이 상한을 넘지 않게 조인다.
+    colony.stored = Math.min(colony.stored + 1, colonyStageData(colony.stage).stored);
+  }
+
+  /**
+   * 개발 커맨드 전용: 몬스터를 전부 치우면서 콜로니 수호대 장부와 침공 대기열도 함께
+   * 비운다 — 장부에 유령 id가 남으면 동시 수호대 상한이 영구히 차서 소환이 멈춘다.
+   */
+  private clearAllMonsters(): void {
+    this.monsters.clear();
+    this.contingents.length = 0;
+    for (const colony of this.colonies.values()) colony.guardIds.clear();
+  }
+
+  /** 정화 처리: 단계 보상 지급 후 1단계 빈 껍데기로. 다음 낮에 재보급된다(onDayBegan). */
+  private purifyColony(colony: ColonyEntity): void {
+    this.core.sharedEnergy += colonyStageData(colony.stage).purifyEnergy;
+    colony.stage = 1;
+    colony.stored = 0;
+    colony.purified = true;
+    this.enqueuePersonaEvent('colonyDestroyed');
+  }
+
+  /** 살아있는 플레이어 중 (x,y)에서 radius 안에 있는 사람이 하나라도 있는가. */
+  private anyAlivePlayerWithin(x: number, y: number, radius: number): boolean {
+    for (const player of this.players.values()) {
+      if (player.hp <= 0) continue;
+      if (circlesOverlap(player.x, player.y, x, y, radius)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * 밤 시작에 콜로니 저장분의 일부를 **복제**해 침공 대기열로 만든다. 저장분 자체는
+   * 줄지 않는다 — 줄면 "밤에는 콜로니가 비어 정화가 공짜"라는 허점이 생긴다.
+   * 대기열은 tickContingents()가 웨이브와 같은 무리 리듬으로 콜로니 방향에서
+   * 내보낸다("콜로니가 있는 방향에서 몰려온다").
+   */
+  private buildNightContingents(): void {
+    this.contingents.length = 0;
+    for (const colony of this.colonies.values()) {
+      if (colony.purified || colony.stored <= 0) continue;
+      const count = Math.floor(colony.stored * coloniesData.waveContributionRatio);
+      if (count <= 0) continue;
+
+      const stage = colonyStageData(colony.stage);
+      const queue: MonsterType[] = [];
+      for (let i = 0; i < count; i += 1) {
+        queue.push(stage.types[Math.floor(this.rng() * stage.types.length)] as MonsterType);
+      }
+      this.contingents.push({ x: colony.x, y: colony.y, queue, timer: 0 });
+    }
+  }
+
+  /**
+   * 새 낮이 시작될 때의 콜로니 정산. 정화된 빈 껍데기는 1단계 저장분으로 재보급되고
+   * (정화 즉시 재보급하면 그 자리에서 무한 보상 파밍이 된다 — 하루에 한 번만),
+   * 살아남은(정화 안 된) 콜로니는 한 단계 성장한다(저장분 대략 2배, 최대 3단계).
+   */
+  private settleColoniesOnDayBegan(): void {
+    for (const colony of this.colonies.values()) {
+      if (colony.purified) {
+        colony.purified = false;
+        colony.stored = colonyStageData(colony.stage).stored;
+      } else {
+        colony.stage = Math.min(colony.stage + 1, maxColonyStage());
+        colony.stored = colonyStageData(colony.stage).stored;
+      }
+      colony.guardRespawnTimer = 0;
+    }
+  }
+
+  /**
+   * 침공 복제분을 무리 단위로 내보낸다. 무리 크기/간격은 현재 웨이브 항목을 그대로
+   * 따라가 본대와 같은 리듬으로 밀려온다. 밤이 아니면(승리/패배 포함) 대기열만
+   * 남고 소진되지 않는데, 어차피 다음 밤 시작에 새로 만들어 덮으므로 문제없다.
+   */
+  private tickContingents(dtSeconds: number): void {
+    if (this.waveManager.currentPhase !== 'night') return;
+    const entry = wavesData.waves[this.waveManager.currentWave - 1];
+    const groupSize = entry?.groupSize ?? 4;
+    const interval = entry?.groupIntervalSeconds ?? 12;
+
+    for (const contingent of this.contingents) {
+      if (contingent.queue.length === 0) continue;
+      contingent.timer -= dtSeconds;
+      if (contingent.timer > 0) continue;
+      contingent.timer = interval;
+
+      for (let i = 0; i < groupSize; i += 1) {
+        const type = contingent.queue.shift();
+        if (!type) break;
+        const spawnMonsterR = monstersData[type]?.hitRadius ?? HIT_RADIUS;
+        const angle = this.rng() * Math.PI * 2;
+        const offset = COLONY_RADIUS + spawnMonsterR + 2;
+        this.addMonster(
+          type,
+          contingent.x + Math.cos(angle) * offset,
+          contingent.y + Math.sin(angle) * offset,
+        );
+      }
+    }
+  }
+
+  /** 아직 스폰 대기 중인 침공 복제분 총 마릿수. 밤 종료 판정에 산 몬스터처럼 계산된다. */
+  private pendingContingentCount(): number {
+    let total = 0;
+    for (const contingent of this.contingents) total += contingent.queue.length;
+    return total;
   }
 
   /** 살아있는(hp>0) 자원 노드 중 (x,y)에서 가장 가까운 것. 없으면 undefined. */
@@ -1755,68 +1960,6 @@ export class World {
     if (this.companion.hp <= 0) this.companion.state = 'downed';
   }
 
-  /** 이번 틱 기준으로 이 콜로니를 채널링 중인 플레이어가 있는지. */
-  private isColonyBeingChanneled(colonyId: string): boolean {
-    for (const player of this.players.values()) {
-      if (player.channelingColonyId === colonyId) return true;
-    }
-    return false;
-  }
-
-  /**
-   * 콜로니 채널링(파괴 작업) 진행을 처리한다. `tickMonsters()` 이후에 불러야 한다
-   * — 이번 틱에 몬스터에게 맞았는지(`tookDamageThisTick`)가 이미 반영된 뒤여야
-   * "피격 시 중단"이 정확히 판정된다.
-   *
-   * 조건(이동 없음 + 피격 없음 + 파괴 안 된 콜로니 사거리 안 + 채널 키 유지)이
-   * 하나라도 깨지면 그 자리에서 진행률을 0으로 되돌린다 — 부분 진행을 이어서
-   * 채우는 게 아니라 매번 처음부터 다시 시작해야 한다(이게 "엄호"를 실제로
-   * 필요하게 만드는 핵심 규칙, docs/backend/35).
-   */
-  private tickChannels(dtSeconds: number): void {
-    for (const [playerId, player] of this.players) {
-      const input = this.inputs.get(playerId);
-      const wantsChannel = input?.channeling === true && input.moveX === 0 && input.moveY === 0;
-      const target = wantsChannel && player.hp > 0 ? this.findChannelableColony(player) : undefined;
-
-      if (!target || player.tookDamageThisTick) {
-        player.channelingColonyId = undefined;
-        player.channelProgress = 0;
-        continue;
-      }
-
-      // 채널 대상이 바뀌면(다른 콜로니로 옮겨감) 진행률을 새로 시작한다.
-      if (player.channelingColonyId !== target.id) {
-        player.channelingColonyId = target.id;
-        player.channelProgress = 0;
-      }
-
-      player.channelProgress += dtSeconds / coloniesData.channelSeconds;
-      if (player.channelProgress < 1) continue;
-
-      this.colonies.destroy(target.id);
-      // 파괴된 콜로니는 더 이상 막지 않는다(docs/backend/43) — 셀 캐시부터
-      // FlowField까지 다시 계산해야 그 즉시 반영된다(자원 노드 고갈 처리와 동일 패턴).
-      this.rebuildColonyObstacleCells();
-      this.recomputeFlowField();
-      this.core.sharedEnergy += coloniesData.essenceReward;
-      this.enqueuePersonaEvent('colonyDestroyed');
-      player.channelingColonyId = undefined;
-      player.channelProgress = 0;
-    }
-  }
-
-  /** 파괴되지 않은 콜로니 중 채널링 사거리(COLONY_CHANNEL_RADIUS) 안에 있는 것을 찾는다. */
-  private findChannelableColony(player: PlayerEntity): ColonyEntity | undefined {
-    for (const colony of this.colonies.values()) {
-      if (colony.destroyed) continue;
-      if (circlesOverlap(player.x, player.y, colony.x, colony.y, COLONY_CHANNEL_RADIUS)) {
-        return colony;
-      }
-    }
-    return undefined;
-  }
-
   /**
    * 몬스터 행동: 어그로 반경 + 시야각(120도) 안에 플레이어가 있으면 직접 추격(돌진형/보스),
    * 아니면 Flow Field를 따라 코어로 향한다(잡몹/탱커형). 사거리 안에 들어오면 이동을
@@ -1844,6 +1987,13 @@ export class World {
       // 돌진 중이거나) 아래 일반 추격/이동 로직은 건너뛴다. chargeAttack/slamAttack이
       // 없는 타입(잡몹 등)은 매 틱 이 검사 하나만 거치고 바로 false를 반환한다.
       if (this.tickBossPattern(monster, data, dtSeconds)) continue;
+
+      // 콜로니 수호대는 코어 침공 AI를 아예 타지 않는다 — 리시 안 플레이어 요격,
+      // 없으면 귀환 후 저장 복귀가 전부다.
+      if (monster.homeColonyId) {
+        this.tickGuard(monster, data, dtSeconds);
+        continue;
+      }
 
       const target = data.aggroRadius
         ? this.resolveAggroTarget(monster, data.aggroRadius)
@@ -2108,7 +2258,6 @@ export class World {
       if (circlesOverlap(x, y, node.x, node.y, radius)) return true;
     }
     for (const colony of this.colonies.values()) {
-      if (colony.destroyed) continue; // 파괴된 콜로니는 더 이상 막지 않는다(docs/backend/43)
       if (circlesOverlap(x, y, colony.x, colony.y, PLAYER_COLONY_COLLISION_RADIUS)) return true;
     }
     // 코어는 원이 아니라 8각 발자국이다(coreShape.ts) — 스프라이트 윤곽 그대로 막는다.
@@ -2134,7 +2283,6 @@ export class World {
       }
     }
     for (const colony of this.colonies.values()) {
-      if (colony.destroyed) continue; // 파괴된 콜로니는 더 이상 막지 않는다(docs/backend/43)
       if (circlesOverlap(x, y, colony.x, colony.y, monsterR + COLONY_RADIUS)) return true;
     }
     return false;
@@ -2165,7 +2313,6 @@ export class World {
       }
     }
     for (const colony of this.colonies.values()) {
-      if (colony.destroyed) continue; // 파괴된 콜로니는 더 이상 막지 않는다(docs/backend/43)
       const gap = Math.hypot(colony.x - x, colony.y - y) - (monsterR + COLONY_RADIUS);
       if (gap < nearestGap) {
         nearestGap = gap;
@@ -2513,7 +2660,6 @@ export class World {
       }
     }
     for (const colony of this.colonies.values()) {
-      if (colony.destroyed) continue; // 파괴된 콜로니는 투사체도 그냥 통과한다(docs/backend/43)
       if (circlesOverlap(projectile.x, projectile.y, colony.x, colony.y, COLONY_RADIUS)) {
         this.projectiles.delete(projectileId);
         return;
@@ -2533,7 +2679,12 @@ export class World {
     if (remainingHp <= 0) {
       const monster = this.monsters.get(id);
       this.monsters.delete(id);
-      if (monster) this.grantMonsterDrop(monster);
+      if (monster) {
+        // 수호대였다면 소속 콜로니 장부에서 지운다 — 저장분은 복원되지 않는다
+        // (죽은 몬스터는 영구히 줄어드는 게 정화로 가는 길이다).
+        if (monster.homeColonyId) this.colonies.get(monster.homeColonyId)?.guardIds.delete(id);
+        this.grantMonsterDrop(monster);
+      }
       return;
     }
     const monster = this.monsters.get(id);
@@ -2555,9 +2706,11 @@ export class World {
   private grantMonsterDrop(monster: MonsterEntity): void {
     const data = monstersData[monster.type];
 
+    // 에너지와 바닥 드랍은 배타가 아니다 — 보스/엘리트는 팀 에너지도 주고 부품도
+    // 떨군다(예전엔 에너지가 있으면 드랍을 건너뛰었는데, 보스 레이드를 잡았는데
+    // 바닥에 아무것도 안 떨어지는 건 보상 체감이 밋밋했다).
     if (data.energyDrop) {
       this.core.sharedEnergy += this.rollDropRange(data.energyDrop);
-      return;
     }
 
     // 드랍 테이블은 항목마다 독립 판정이다 — 한 마리가 부품과 희귀부품을 함께 줄 수 있다.

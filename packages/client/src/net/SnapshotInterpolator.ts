@@ -111,7 +111,7 @@ function blendList<T extends Positioned>(from: T[], to: T[], t: number, out: T[]
 /**
  * (x,y)가 살아있는(hp>0) 자원 노드나 콜로니와 겹치는지 검사한다. 서버의
  * `isBlockedForPlayer`/`isBlockedForMonster`(world.ts)와 같은 규칙이다 — 콜로니는
- * 파괴돼도 폐허가 계속 막으므로 `destroyed` 여부를 보지 않는다. 외삽이 이 판정을
+ * 정화돼도 구조물이 계속 막으므로 상태와 무관하게 검사한다. 외삽이 이 판정을
  * 몰라서 장애물을 뚫고 그려지는 문제를 막는 데 쓴다(§extrapolateList, docs/backend/42).
  */
 function wouldOverlapObstacle(

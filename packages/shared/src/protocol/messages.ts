@@ -3,13 +3,6 @@ export interface PlayerInputMessage {
   moveX: number;
   moveY: number;
   aimAngle: number;
-  /**
-   * 콜로니 채널링(파괴 작업) 키를 누르고 있는지. moveX/moveY/aimAngle과 같은
-   * "누르고 있는 동안" 모델이라 여기 실어 매 틱 재전송한다 — 별도 메시지 타입을
-   * 만들지 않는다. 옵셔널인 이유: 이 필드가 생기기 전의 기존 테스트/호출부가
-   * 굳이 다 고치지 않아도 되게(누락 시 World.setInput이 false로 취급한다).
-   */
-  channeling?: boolean;
 }
 
 /**

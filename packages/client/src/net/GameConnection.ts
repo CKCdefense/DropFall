@@ -33,8 +33,6 @@ export interface PlayerView {
   /** 퀵슬롯. 길이는 항상 SLOT_COUNT이고 빈 칸은 null이다. */
   slots: (InventorySlot | null)[];
   selectedSlot: number;
-  /** 콜로니 채널링(파괴 작업) 진행률(0~1). 채널링 중이 아니면 0. */
-  channelProgress: number;
 }
 
 export interface MonsterView {
@@ -100,8 +98,12 @@ export interface ColonyView {
   id: string;
   x: number;
   y: number;
-  /** 채널링 1회 완료로 파괴됐는지. 파괴돼도 위치는 계속 내려온다(렌더러가 흐리게/제거를 결정). */
-  destroyed: boolean;
+  /** 성장 단계(1~3). 클수록 위협적 — 렌더러가 크기/색으로 표현한다. */
+  stage: number;
+  /** 아직 안에 저장된 몬스터 수. 수호대를 잡을수록 줄고, 0 + 수호대 전멸이면 정화된다. */
+  stored: number;
+  /** 정화된 빈 껍데기(다음 낮에 재보급). 위협이 없는 상태라 흐리게 그린다. */
+  purified: boolean;
 }
 
 /**

@@ -320,7 +320,6 @@ export class GameRoom extends Room {
       schema.wood = player.inventory.countOf('wood');
       schema.stone = player.inventory.countOf('stone');
       schema.parts = player.inventory.countOf('drop_normal');
-      schema.channelProgress = player.channelProgress;
 
       // 슬롯은 매 틱 통째로 덮어쓴다. 4칸뿐이라 변경 감지를 따로 하는 것보다 싸고,
       // Colyseus가 실제로 바뀐 필드만 패치로 내보내므로 대역폭 낭비도 없다.
@@ -504,10 +503,10 @@ export class GameRoom extends Room {
   }
 
   /**
-   * 콜로니는 건축물/자원 노드와 달리 4개 고정이고 절대 사라지지 않는다(파괴돼도
-   * `destroyed` 플래그만 켜진다, colony.ts 참고) — 그래서 몬스터처럼 "죽은 id는
+   * 콜로니는 건축물/자원 노드와 달리 최대 4개 고정이고 절대 사라지지 않는다
+   * (정화돼도 빈 껍데기로 남는다, colony.ts 참고) — 그래서 몬스터처럼 "죽은 id는
    * 지운다"는 diff 루프가 필요 없다. 위치(x/y)는 게임 내내 안 바뀌므로 최초 생성
-   * 시 한 번만 세팅하고, 매 틱은 `destroyed`만 갱신한다.
+   * 시 한 번만 세팅하고, 매 틱은 진행 상태(stage/stored/purified)만 갱신한다.
    */
   private syncDroppedItems(): void {
     const drops = this.world.getDroppedItems();
@@ -549,7 +548,9 @@ export class GameRoom extends Room {
         schema.y = colony.y;
         this.state.colonies.set(id, schema);
       }
-      schema.destroyed = colony.destroyed;
+      schema.stage = colony.stage;
+      schema.stored = colony.stored;
+      schema.purified = colony.purified;
     }
   }
 
