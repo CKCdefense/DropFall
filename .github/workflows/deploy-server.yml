@@ -53,7 +53,11 @@ jobs:
       - name: SSH로 배포 스크립트 실행
         run: |
           install -m 600 /dev/null deploy_key
-          printf '%s\n' "$DEPLOY_SSH_KEY" > deploy_key
+          # DEPLOY_SSH_KEY는 base64로 인코딩된 값을 받는다 — 원본 PEM을 그대로
+          # 시크릿에 붙여넣으면 사람이 복사/붙여넣기하는 과정에서 줄바꿈이
+          # 깨지기 쉽고(실제로 "error in libcrypto"로 배포가 한 번 실패했다),
+          # base64는 한 줄이라 그럴 여지가 없다.
+          echo "$DEPLOY_SSH_KEY" | base64 -d > deploy_key
           ssh -o StrictHostKeyChecking=accept-new -i deploy_key \
             "$DEPLOY_SSH_USER@$TS_SERVER_HOST" \
             'bash /srv/dropfall/scripts/deploy-server.sh'
