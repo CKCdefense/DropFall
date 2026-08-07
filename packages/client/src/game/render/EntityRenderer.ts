@@ -172,6 +172,18 @@ const GATHER_FX: Record<string, { anim: string; prefix: string; offsetY: number 
 const GATHER_FX_FRAMES = 5;
 const GATHER_FX_RATE = 16;
 
+/**
+ * 플레이어 피격 이펙트(fx_hurt.lua). 6프레임을 18fps로 — 0.33초짜리 짧은 임팩트라
+ * 연타로 맞아도 겹치지 않고 끊어져 보인다. 가슴 높이(ACTION_PLANE_Y)에 얹는다.
+ */
+const HURT_FX_ANIM = 'fx_hurt_hit';
+const HURT_FX_PREFIX = 'fx_hurt_hit_';
+const HURT_FX_FRAMES = 6;
+const HURT_FX_RATE = 18;
+/** 내가 맞았을 때 카메라를 흔드는 시간(ms)과 세기. 팀원 피격에는 흔들지 않는다. */
+const HURT_SHAKE_MS = 90;
+const HURT_SHAKE_INTENSITY = 0.004;
+
 /** 타격 흔들림 — 미세하고 빠르게. 크면 우스꽝스럽고 느리면 얻어맞는 느낌이 안 난다. */
 const SHAKE_PIXELS = 1.5;
 const SHAKE_DURATION_MS = 45;
@@ -503,6 +515,12 @@ export class EntityRenderer {
         this.players.set(player.id, sprite);
       }
 
+      // 피격은 몬스터와 같은 방식으로 **체력이 줄었는지**로 안다 — 서버에 필드를
+      // 새로 만들지 않아도 되고, 누가 때렸든(몬스터 평타·보스 검술·돌진) 똑같이 반응한다.
+      const lastHp = sprite.getData('hp') as number | undefined;
+      if (lastHp !== undefined && player.hp < lastHp) this.playPlayerHurt(sprite, player);
+      sprite.setData('hp', player.hp);
+
       // 정수 스냅 — roundPixels와 함께 서브픽셀 흔들림을 막는다.
       sprite.setPosition(Math.round(player.x), Math.round(player.y));
       // 탑다운 깊이 정렬: 아래에 있을수록 앞에 그린다.
@@ -536,6 +554,32 @@ export class EntityRenderer {
       }
     }
     this.removeMissing(this.players, alive);
+  }
+
+  /**
+   * 플레이어 피격 연출 — 몬스터 피격(§flashSprite)과 같은 문법에 두 가지를 더한다.
+   *
+   *  1) 흰색 플래시: 실루엣 통째로. 어떤 직업 스프라이트든 똑같이 확실하게 읽힌다.
+   *  2) 피격 스파크(fx_hurt): 가슴 높이에서 붉은 파편이 터진다 — 플래시가 "맞았다"면
+   *     스파크는 "여기를 맞았다"다.
+   *  3) 카메라 흔들림: **내가** 맞았을 때만. 팀원이 맞을 때마다 흔들면 난전에서
+   *     화면이 멀미가 된다.
+   */
+  private playPlayerHurt(container: Phaser.GameObjects.Container, player: PlayerView): void {
+    const body = container.getByName('body');
+    if (body instanceof Phaser.GameObjects.Sprite) this.flashSprite(body);
+
+    if (this.scene.anims.exists(HURT_FX_ANIM)) {
+      const burst = this.scene.add
+        .sprite(container.x, container.y + ACTION_PLANE_Y, GAME_ATLAS, `${HURT_FX_PREFIX}0`)
+        .setDepth(container.y + 1);
+      burst.play(HURT_FX_ANIM);
+      burst.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => burst.destroy());
+    }
+
+    if (player.id === this.ownSessionId) {
+      this.scene.cameras.main.shake(HURT_SHAKE_MS, HURT_SHAKE_INTENSITY);
+    }
   }
 
   private createPlayer(player: PlayerView): Phaser.GameObjects.Container {
@@ -1232,6 +1276,23 @@ export class EntityRenderer {
 
   private registerGatherAnimations(): void {
     if (!this.scene.textures.exists(GAME_ATLAS)) return;
+
+    if (
+      !this.scene.anims.exists(HURT_FX_ANIM) &&
+      this.scene.textures.get(GAME_ATLAS).has(`${HURT_FX_PREFIX}0`)
+    ) {
+      this.scene.anims.create({
+        key: HURT_FX_ANIM,
+        frames: this.scene.anims.generateFrameNames(GAME_ATLAS, {
+          prefix: HURT_FX_PREFIX,
+          start: 0,
+          end: HURT_FX_FRAMES - 1,
+        }),
+        frameRate: HURT_FX_RATE,
+        repeat: 0,
+      });
+    }
+
     for (const fx of Object.values(GATHER_FX)) {
       if (this.scene.anims.exists(fx.anim)) continue;
       if (!this.scene.textures.get(GAME_ATLAS).has(`${fx.prefix}0`)) continue;
