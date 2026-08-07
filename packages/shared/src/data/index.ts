@@ -460,7 +460,14 @@ const CompanionDataSchema = z.object({
   /** UI/로그에 표시할 이름. 나중에 바꿀 수 있게 데이터로 뺐다. */
   name: z.string().min(1),
   moveSpeed: z.number().positive(),
-  /** 이 거리 안에 들어오면 이동을 멈추고 채집을 시작한다. */
+  /**
+   * 이 거리 안에 들어오면 이동을 멈추고 채집을 시작한다. **자원 노드의 이동 충돌 반경
+   * (HIT_RADIUS + resourcesData[type].hitRadius, 지금 값 기준 24px)보다 확실히 커야
+   * 한다** — 티모시는 플레이어와 같은 `isBlockedForPlayer` 판정으로 움직여서 그
+   * 반경 안으로는 물리적으로 못 들어간다. harvestRange를 그 값과 같거나 작게 두면
+   * "도착 판정 거리"가 "못 들어가는 거리"와 겹쳐 영원히 도착하지 못하고 traveling만
+   * 반복하는 버그가 난다(실제로 겪음 — 24로 뒀다가 32로 올려서 고침).
+   */
   harvestRange: z.number().positive(),
   /** 채집 한 번(harvestIntervalSeconds마다)에 노드 hp를 깎는 양. */
   harvestDamage: z.number().positive(),

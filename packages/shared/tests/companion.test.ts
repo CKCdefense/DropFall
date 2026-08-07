@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { World } from '../src/sim/world';
 import { companionData, resourcesData } from '../src/data';
+import { HIT_RADIUS } from '../src/sim/combat';
 import type { CompanionEntity } from '../src/sim/companion';
 
 /** 매번 같은 시퀀스를 내는 결정론적 rng — colony.test.ts/wave.test.ts와 동일 패턴. */
@@ -34,6 +35,15 @@ function nearestNodeTo(world: World, x: number, y: number) {
   }
   return nearest;
 }
+
+describe('companionData — 데이터 불변식', () => {
+  it('harvestRange는 자원 노드의 이동 충돌 반경보다 커야 한다(실제로 겪은 버그: 같거나 작으면 이동 판정에 막혀 영원히 도착 못 하고 traveling만 반복한다)', () => {
+    for (const type of Object.keys(resourcesData) as (keyof typeof resourcesData)[]) {
+      const blockRadius = HIT_RADIUS + resourcesData[type].hitRadius;
+      expect(companionData.harvestRange).toBeGreaterThan(blockRadius);
+    }
+  });
+});
 
 describe('World — 티모시(AI 동반자) 생성/탐색', () => {
   it('처음엔 seeking 상태이고, 틱하면 가장 가까운 노드를 찾아 traveling으로 전환한다', () => {
