@@ -104,6 +104,25 @@ export interface ColonyView {
   destroyed: boolean;
 }
 
+/**
+ * AI 동반자("티모시"). 방(팀)당 1마리라 배열이 아니라 단일 객체다 — `id`는 보간기의
+ * `Positioned` 인터페이스(id로 짝을 찾음)를 그대로 재사용하려고 고정값 하나만 둔다.
+ */
+export interface CompanionView {
+  id: 'companion';
+  x: number;
+  y: number;
+  /** 렌더러가 보고 걷는 방향을 정한다(플레이어의 aimAngle과 같은 역할, 조준 대신 이동 방향). */
+  facingX: number;
+  facingY: number;
+  /** CompanionState('seeking'|'traveling'|'harvesting'|'returning'|'depositing'|'downed') */
+  state: string;
+  carriedWood: number;
+  carriedStone: number;
+  hp: number;
+  maxHp: number;
+}
+
 /** 위치가 없는 값들 — 보간 대상이 아니라 항상 최신값을 그대로 쓴다. */
 export interface WorldStatus {
   coreHp: number;
@@ -146,6 +165,7 @@ export interface WorldSnapshot {
   droppedItems: DroppedItemView[];
   buildings: BuildingView[];
   colonies: ColonyView[];
+  companion: CompanionView;
   status: WorldStatus;
 }
 

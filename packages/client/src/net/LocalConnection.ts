@@ -244,6 +244,19 @@ export class LocalConnection implements GameConnection {
     }
 
     const core = this.world.getCore();
+    const timothy = this.world.getCompanion();
+    const companion: WorldSnapshot['companion'] = {
+      id: 'companion',
+      x: timothy.x,
+      y: timothy.y,
+      facingX: timothy.facingX,
+      facingY: timothy.facingY,
+      state: timothy.state,
+      carriedWood: timothy.carriedWood,
+      carriedStone: timothy.carriedStone,
+      hp: timothy.hp,
+      maxHp: timothy.maxHp,
+    };
 
     return {
       players,
@@ -253,6 +266,7 @@ export class LocalConnection implements GameConnection {
       droppedItems,
       buildings,
       colonies,
+      companion,
       status: {
         coreHp: core.hp,
         coreMaxHp: core.maxHp,

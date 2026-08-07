@@ -123,6 +123,17 @@ interface RemoteGameState {
   colonies: {
     forEach(callback: (value: RemoteColonyState, key: string) => void): void;
   };
+  companion: {
+    x: number;
+    y: number;
+    facingX: number;
+    facingY: number;
+    state: string;
+    carriedWood: number;
+    carriedStone: number;
+    hp: number;
+    maxHp: number;
+  };
 }
 
 type GameRoom = Room<unknown, RemoteGameState>;
@@ -384,6 +395,19 @@ export class ColyseusConnection implements GameConnection {
       colonies.push({ id, x: colony.x, y: colony.y, destroyed: colony.destroyed });
     });
 
+    const companion: WorldSnapshot['companion'] = {
+      id: 'companion',
+      x: state?.companion?.x ?? 0,
+      y: state?.companion?.y ?? 0,
+      facingX: state?.companion?.facingX ?? 0,
+      facingY: state?.companion?.facingY ?? 1,
+      state: state?.companion?.state ?? 'seeking',
+      carriedWood: state?.companion?.carriedWood ?? 0,
+      carriedStone: state?.companion?.carriedStone ?? 0,
+      hp: state?.companion?.hp ?? 0,
+      maxHp: state?.companion?.maxHp ?? 0,
+    };
+
     return {
       players,
       monsters,
@@ -392,6 +416,7 @@ export class ColyseusConnection implements GameConnection {
       droppedItems,
       buildings,
       colonies,
+      companion,
       status: {
         coreHp: state?.coreHp ?? 0,
         coreMaxHp: state?.coreMaxHp ?? 0,
