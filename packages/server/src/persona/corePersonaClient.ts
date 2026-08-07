@@ -14,10 +14,46 @@
 export type PersonaProvider = 'direct' | 'hchat';
 
 const REQUEST_TIMEOUT_MS = 5000;
+/** 도구 호출 왕복 상한. 모델이 도구를 계속 요청하는 무한루프를 막는 안전장치다. */
+const MAX_TOOL_ITERATIONS = 4;
 
-interface AnthropicMessage {
+/** 순수 텍스트 대화 한 마디. 외부(GameRoom 등)는 이 모양만 알면 된다. */
+export interface AnthropicMessage {
   role: 'user' | 'assistant';
   content: string;
+}
+
+/** Anthropic 도구 정의(JSON Schema). https://docs.anthropic.com/ko/docs/tool-use */
+export interface ToolDefinition {
+  name: string;
+  description: string;
+  input_schema: Record<string, unknown>;
+}
+
+/** 도구 실행기. 실제 게임 상태 조회는 호출부(GameRoom)가 World를 들고 구현한다. */
+export type ToolExecutor = (name: string, input: unknown) => unknown | Promise<unknown>;
+
+/** 응답 content 블록. 도구 루프에서는 text/tool_use가, 우리가 되돌려보내는 메시지에는
+ * tool_result가 섞여 들어간다 — 셋 다 이 하나의 유니온으로 표현한다. */
+interface ContentBlock {
+  type: 'text' | 'tool_use' | 'tool_result';
+  text?: string;
+  id?: string;
+  name?: string;
+  input?: unknown;
+  tool_use_id?: string;
+  content?: string;
+}
+
+/** 도구 루프 내부에서만 쓰는, content가 블록 배열일 수도 있는 확장 메시지 타입. */
+interface LooseMessage {
+  role: 'user' | 'assistant';
+  content: string | ContentBlock[];
+}
+
+interface AnthropicResponse {
+  content?: ContentBlock[];
+  stop_reason?: string;
 }
 
 interface RequestSpec {
@@ -78,48 +114,131 @@ export function activePersonaProvider(): PersonaProvider {
   return 'direct';
 }
 
-/**
- * 코어 대사 한 줄을 생성한다. 성공하면 텍스트, 실패(키 미설정/네트워크 오류/타임아웃/
- * 비-2xx/빈 응답)하면 `null`.
- */
-export async function generateCoreCommentary(
-  provider: PersonaProvider,
-  system: string,
-  userPrompt: string,
-): Promise<string | null> {
-  const spec = provider === 'hchat' ? hchatRequestSpec() : directRequestSpec();
-  if (!spec) return null;
+/** provider별 요청 스펙. 키가 없으면 null(호출부가 폴백으로 대체). */
+function requestSpecFor(provider: PersonaProvider): RequestSpec | null {
+  return provider === 'hchat' ? hchatRequestSpec() : directRequestSpec();
+}
 
-  const messages: AnthropicMessage[] = [{ role: 'user', content: userPrompt }];
+/** 한 번의 fetch. 실패(네트워크/타임아웃/비-2xx)하면 null. */
+async function callOnce(
+  spec: RequestSpec,
+  provider: PersonaProvider,
+  body: Record<string, unknown>,
+): Promise<AnthropicResponse | null> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-
   try {
     const response = await fetch(spec.url, {
       method: 'POST',
       headers: spec.headers,
       signal: controller.signal,
-      body: JSON.stringify({
-        model: modelFor(provider),
-        max_tokens: 200,
-        stream: false,
-        system,
-        messages,
-      }),
+      body: JSON.stringify(body),
     });
-
     if (!response.ok) {
       console.error(`[corePersona] ${provider} 호출 실패: HTTP ${response.status}`);
       return null;
     }
-
-    const data = (await response.json()) as { content?: { type: string; text?: string }[] };
-    const text = data.content?.find((block) => block.type === 'text')?.text?.trim();
-    return text && text.length > 0 ? text : null;
+    return (await response.json()) as AnthropicResponse;
   } catch (err) {
     console.error(`[corePersona] ${provider} 호출 오류:`, err);
     return null;
   } finally {
     clearTimeout(timeout);
   }
+}
+
+/**
+ * 코어/티모시 대사 한 줄을 생성한다. 성공하면 텍스트, 실패(키 미설정/네트워크 오류/
+ * 타임아웃/비-2xx/빈 응답)하면 `null`. `userPromptOrMessages`는 한 마디짜리 문자열
+ * (기존 대부분의 트리거)이거나 여러 턴짜리 배열(대화 맥락이 있는 경우)이다.
+ */
+export async function generateCoreCommentary(
+  provider: PersonaProvider,
+  system: string,
+  userPromptOrMessages: string | AnthropicMessage[],
+): Promise<string | null> {
+  const spec = requestSpecFor(provider);
+  if (!spec) return null;
+
+  const messages: AnthropicMessage[] =
+    typeof userPromptOrMessages === 'string'
+      ? [{ role: 'user', content: userPromptOrMessages }]
+      : userPromptOrMessages;
+
+  const data = await callOnce(spec, provider, {
+    model: modelFor(provider),
+    max_tokens: 200,
+    stream: false,
+    system,
+    messages,
+  });
+  if (!data) return null;
+
+  const text = data.content?.find((block) => block.type === 'text')?.text?.trim();
+  return text && text.length > 0 ? text : null;
+}
+
+/**
+ * 도구 호출(tool use)을 포함한 에이전트 루프. 모델이 답하기 전에 실제 게임 상태를
+ * 조회하고 싶어하면(`stop_reason === 'tool_use'`) 요청받은 도구를 `executeTool`로
+ * 실행하고 그 결과를 `tool_result`로 돌려보낸 뒤 다시 묻는다 — 모델이 텍스트로
+ * 답할 때까지, 또는 `MAX_TOOL_ITERATIONS`에 닿을 때까지 반복한다.
+ *
+ * 도구가 필요 없는 질문(예: "밥 먹었냐")이면 모델이 첫 응답에서 바로 텍스트로 답하므로
+ * 이 경우 `generateCoreCommentary`와 왕복 횟수가 같다 — 도구 목록을 준다고 항상 더
+ * 느려지는 건 아니다.
+ */
+export async function generateWithTools(
+  provider: PersonaProvider,
+  system: string,
+  initialMessages: AnthropicMessage[],
+  tools: ToolDefinition[],
+  executeTool: ToolExecutor,
+): Promise<string | null> {
+  const spec = requestSpecFor(provider);
+  if (!spec) return null;
+
+  const messages: LooseMessage[] = [...initialMessages];
+
+  for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration += 1) {
+    const data = await callOnce(spec, provider, {
+      model: modelFor(provider),
+      max_tokens: 300,
+      stream: false,
+      system,
+      messages,
+      tools,
+    });
+    if (!data) return null;
+
+    const blocks = data.content ?? [];
+    const toolUseBlocks = blocks.filter((block) => block.type === 'tool_use');
+
+    if (data.stop_reason !== 'tool_use' || toolUseBlocks.length === 0) {
+      const text = blocks.find((block) => block.type === 'text')?.text?.trim();
+      return text && text.length > 0 ? text : null;
+    }
+
+    // 모델의 tool_use 턴을 그대로 이어붙이고, 도구를 실제로 실행한 결과를
+    // tool_result로 돌려준다 — Anthropic 도구 사용 프로토콜의 왕복 형식이다.
+    messages.push({ role: 'assistant', content: blocks });
+    const resultBlocks: ContentBlock[] = [];
+    for (const block of toolUseBlocks) {
+      let result: unknown;
+      try {
+        result = await executeTool(block.name ?? '', block.input);
+      } catch (err) {
+        result = { error: String(err) };
+      }
+      resultBlocks.push({
+        type: 'tool_result',
+        tool_use_id: block.id,
+        content: JSON.stringify(result),
+      });
+    }
+    messages.push({ role: 'user', content: resultBlocks });
+  }
+
+  console.error(`[corePersona] ${provider} 도구 호출 루프가 ${MAX_TOOL_ITERATIONS}회를 넘었다`);
+  return null;
 }

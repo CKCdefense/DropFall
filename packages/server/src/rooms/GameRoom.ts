@@ -47,7 +47,8 @@ import {
   type SelectJobMessage,
   type SetReadyMessage,
 } from '@dropfall/shared';
-import { activePersonaProvider, generateCoreCommentary } from '../persona/corePersonaClient';
+import { activePersonaProvider, generateCoreCommentary, generateWithTools } from '../persona/corePersonaClient';
+import { COMPANION_TOOLS, executeCompanionTool } from '../persona/companionTools';
 import {
   BuildingSchema,
   ColonySchema,
@@ -421,14 +422,29 @@ export class GameRoom extends Room {
    * 티모시 대사 하나를 생성해 방 전체에 broadcast한다. 코어 페르소나와 같은 LLM 파이프라인을
    * 재사용하지만, 프롬프트/트레잇이 방 전체가 아니라 이 이벤트의 대상 플레이어(event.playerId)
    * 개인 것이다.
+   *
+   * "@티모시 ..." 채팅(playerMessage)만 도구 사용(에이전트 루프)을 켠다 — 실제 질문에
+   * 답하려면 창고/웨이브 상태 같은 진짜 게임 값을 조회할 수 있어야 자연스럽다. 그 외
+   * 트리거(코어 납품/다운/부활 등)는 짧은 반응 대사라 도구가 필요 없어 기존처럼 단발
+   * 호출로 남긴다. 응답을 받으면(성공/실패 무관 최종 텍스트) World의 대화 기록에도
+   * 남겨서, 다음 "@티모시 ..." 프롬프트가 이어지는 맥락을 갖게 한다.
    */
   private async handleCompanionPersonaEvent(event: CompanionPersonaEvent): Promise<void> {
-    const { system, user } = buildCompanionPersonaPrompt(event);
+    const { system, messages } = buildCompanionPersonaPrompt(event);
+    const provider = activePersonaProvider();
+
     const text =
-      (await generateCoreCommentary(activePersonaProvider(), system, user)) ??
-      pickCompanionFallbackLine(event.traits);
+      event.kind === 'playerMessage'
+        ? await generateWithTools(provider, system, messages, COMPANION_TOOLS, (name) =>
+            executeCompanionTool(this.world, name),
+          )
+        : await generateCoreCommentary(provider, system, messages);
+    const finalText = text ?? pickCompanionFallbackLine(event.traits);
+
+    if (event.kind === 'playerMessage') this.world.recordCompanionReply(event.playerId, finalText);
+
     this.broadcast(COMPANION_COMMENTARY_MESSAGE, {
-      text,
+      text: finalText,
       playerId: event.playerId,
     } satisfies CompanionCommentaryMessage);
   }
