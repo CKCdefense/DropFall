@@ -121,7 +121,7 @@
  * 작은 크기로 따로 잡는다.
  */
 .confirm-modal {
-  width: min(360px, 88vw);
+  width: min(460px, 90vw);
   aspect-ratio: auto;
   align-items: center;
   text-align: center;

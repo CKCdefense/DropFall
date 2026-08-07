@@ -48,7 +48,15 @@ export function showQuitConfirm(container: HTMLElement, onConfirm: () => void): 
     onConfirm();
   });
 
-  const cancelButton = el('button', { class: 'btn btn-ghost', type: 'button' }, ['취소']);
+  // "나가기"와 시각적으로 완전히 같은 버튼으로 만든다 — 둘 다 같은 클래스/에셋
+  // 속성을 쓰면(라벨만 다름) 색이 어긋날 여지가 없다. 예전엔 옅게 두는
+  // ghost 스타일을 썼는데, 두 선택지가 항상 똑같이 눈에 띄어야 한다는
+  // 피드백으로 바꿨다.
+  const cancelButton = el(
+    'button',
+    { class: 'btn btn-primary', type: 'button', ...assetAttr('button') },
+    ['취소'],
+  );
   cancelButton.addEventListener('click', close);
 
   // 로비 모달(방 목록 등)용 9-slice 에셋(title_modal.png)은 760px 큰 박스 기준으로

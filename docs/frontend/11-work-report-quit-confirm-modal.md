@@ -52,6 +52,23 @@ pnpm --filter @dropfall/client build
 pnpm lint
 ```
 
+### 2.5 후속 — `.btn-ghost` 명시도 버그, 그리고 두 버튼을 아예 똑같이
+
+배포 이미지 이중 경로 버그([frontend/12](12-work-report-css-asset-double-path.md))를
+고치면서 `title_modal.png`이 실제로 로드되기 시작하자, "취소" 버튼
+(`.btn-ghost`)이 두꺼운 테두리+아웃라인+인셋 그림자가 겹친 이상한
+박스로 보이는 게 스크린샷으로 확인됐다. 원인은 플레이스홀더 규칙
+(`.btn:not([data-asset])`, 명시도 0,2,0)이 `.btn-ghost`의 얇은 테두리
+의도(명시도 0,1,0)를 명시도로 눌러버린 것 — `.btn-ghost:not([data-asset])`로
+명시도를 맞춰 얇은 테두리/색을 되찾았다(components.css, 앱 전체
+`.btn-ghost` 사용처에 공통 적용되는 일반 수정).
+
+이후 "두 선택지가 항상 똑같이 눈에 띄어야 한다"는 피드백으로, 아예
+`cancelButton`도 `confirmButton`과 같은 `btn btn-primary` +
+`assetAttr('button')` 조합으로 바꿨다 — 색을 수동으로 맞추는 대신 같은
+클래스를 쓰게 해서 어긋날 여지를 없앴다. 확인창 폭도 360px → 460px로
+넓혔다(문구가 답답해 보인다는 피드백).
+
 ## 4. 다음 작업
 
 - 없음. 필요해지면 다른 파괴적 동작(예: 게임 리셋류)에도 같은
