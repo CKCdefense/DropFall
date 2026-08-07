@@ -1,8 +1,9 @@
 import Phaser from 'phaser';
 import {
+  EXPLORED_BYTE_COUNT,
   MAP_SIZE_TILES,
-  TILE_SIZE,
   MINIMAP_TERRAIN_COLOR,
+  TILE_SIZE,
   hashString,
   minimapTerrainAt,
 } from '@dropfall/shared';
@@ -33,6 +34,12 @@ const COLONY_DESTROYED_COLOR = 0x4a3f52;
 const TERRAIN_ALPHA = 0.9;
 
 /**
+ * 아직 안 가본 곳을 덮는 색. 완전한 검정 대신 패널 바탕에 가까운 짙은 색이라
+ * "지도가 비었다"가 아니라 "아직 안 밝혔다"로 읽힌다.
+ */
+const FOG_COLOR = { r: 0x0d, g: 0x10, b: 0x16, a: 0xf2 };
+
+/**
  * 우상단 미니맵(와이어프레임 우상단 사각형).
  *
  * **지형은 한 번만 굽고, 엔티티만 매 프레임 다시 그린다.**
@@ -44,6 +51,11 @@ const TERRAIN_ALPHA = 0.9;
 export class Minimap {
   private readonly frame: Phaser.GameObjects.Rectangle;
   private readonly terrain: Phaser.GameObjects.Image | null;
+  /** 안 가본 곳을 덮는 마스크. 지형 위, 엔티티 점 아래에 깔린다. */
+  private readonly fog: Phaser.GameObjects.Image | null;
+  private readonly fogTexture: Phaser.Textures.CanvasTexture | null;
+  /** 마지막으로 화면에 반영한 안개 바이트. 바뀐 바이트만 다시 칠하려고 들고 있는다. */
+  private readonly fogApplied = new Uint8Array(EXPLORED_BYTE_COUNT);
   private readonly dots: Phaser.GameObjects.Graphics;
   private left = 0;
   private top = 0;
@@ -60,7 +72,11 @@ export class Minimap {
       ? scene.add.image(0, 0, key).setOrigin(0, 0).setAlpha(TERRAIN_ALPHA)
       : null;
 
-    // 테두리·지형 다음에 만들어야 점이 그 위에 그려진다.
+    // 지형 위에 안개를 얹는다. 처음엔 전부 미탐색이라 지도가 통째로 덮여 있다.
+    this.fogTexture = createFogTexture(scene);
+    this.fog = this.fogTexture ? scene.add.image(0, 0, this.fogTexture.key).setOrigin(0, 0) : null;
+
+    // 테두리·지형·안개 다음에 만들어야 점이 그 위에 그려진다.
     this.dots = scene.add.graphics();
   }
 
@@ -72,9 +88,11 @@ export class Minimap {
     this.frame.setSize(this.size, this.size).setPosition(this.left, this.top);
     // 테두리 안쪽에 딱 맞춘다 — 1px 선 위로 지형이 덮으면 경계가 흐려진다.
     this.terrain?.setDisplaySize(this.size - 2, this.size - 2).setPosition(this.left + 1, this.top + 1);
+    this.fog?.setDisplaySize(this.size - 2, this.size - 2).setPosition(this.left + 1, this.top + 1);
   }
 
   update(snapshot: WorldSnapshot, ownSessionId: string): void {
+    this.applyFog(snapshot.explored);
     this.dots.clear();
 
     // 코어는 월드 원점이자 미니맵 중앙이다.
@@ -104,6 +122,35 @@ export class Minimap {
     }
   }
 
+  /**
+   * 탐색 안개를 반영한다. **바뀐 바이트만** 지우고, 하나라도 바뀌었을 때만 텍스처를
+   * GPU로 올린다 — 매 프레임 refresh하면 64KB 업로드가 계속 남는다.
+   */
+  private applyFog(explored: ArrayLike<number>): void {
+    if (!this.fogTexture) return;
+
+    const ctx = this.fogTexture.getContext();
+    let changed = false;
+
+    for (let at = 0; at < EXPLORED_BYTE_COUNT; at += 1) {
+      const next = explored[at] ?? 0;
+      if (next === this.fogApplied[at]) continue;
+
+      // 이 바이트가 담당하는 8칸 중 새로 밝혀진 칸만 지운다.
+      const revealed = next & ~this.fogApplied[at]!;
+      this.fogApplied[at] = next;
+      changed = true;
+
+      for (let bit = 0; bit < 8; bit += 1) {
+        if ((revealed & (1 << bit)) === 0) continue;
+        const cell = at * 8 + bit;
+        ctx.clearRect(cell % MAP_SIZE_TILES, Math.floor(cell / MAP_SIZE_TILES), 1, 1);
+      }
+    }
+
+    if (changed) this.fogTexture.refresh();
+  }
+
   /** 월드 좌표를 미니맵 안으로 옮겨 점을 찍는다. 범위를 벗어난 것은 그리지 않는다. */
   private plot(entities: { x: number; y: number }[], color: number, radius: number): void {
     this.dots.fillStyle(color, 1);
@@ -125,6 +172,27 @@ export class Minimap {
  * 텍스처가 아니라 Graphics로 칸마다 사각형을 그리면 16384번의 드로우가 남는데,
  * 이미지 한 장이면 GPU가 한 번에 처리한다.
  */
+/**
+ * 안개 마스크 텍스처(타일 한 칸 = 1픽셀). 전부 덮인 상태로 시작하고, 밝혀진 칸을
+ * `clearRect`로 뚫는다 — 밤 조명에서 쓴 것과 같은 "덮고 지우기" 방식이다.
+ *
+ * 미니맵마다 새로 만든다(키에 인스턴스 번호를 붙인다) — 지형과 달리 진행 상태라
+ * 씬을 다시 시작하면 초기화돼야 한다.
+ */
+let fogTextureSeq = 0;
+function createFogTexture(scene: Phaser.Scene): Phaser.Textures.CanvasTexture | null {
+  fogTextureSeq += 1;
+  const key = `minimap-fog-${fogTextureSeq}`;
+  const texture = scene.textures.createCanvas(key, MAP_SIZE_TILES, MAP_SIZE_TILES);
+  if (!texture) return null;
+
+  const ctx = texture.getContext();
+  ctx.fillStyle = `rgba(${FOG_COLOR.r}, ${FOG_COLOR.g}, ${FOG_COLOR.b}, ${FOG_COLOR.a / 255})`;
+  ctx.fillRect(0, 0, MAP_SIZE_TILES, MAP_SIZE_TILES);
+  texture.refresh();
+  return texture;
+}
+
 function bakeTerrainTexture(scene: Phaser.Scene, seedSource: string): string | null {
   const seed = hashString(seedSource);
   const key = `minimap-terrain-${seed}`;

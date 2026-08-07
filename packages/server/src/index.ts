@@ -1,9 +1,17 @@
+import { Encoder } from '@colyseus/schema';
 import { defineRoom, defineServer, matchMaker } from 'colyseus';
 import { WebSocketTransport } from '@colyseus/ws-transport';
 import { playground } from '@colyseus/playground';
 import type { NextFunction, Request, Response } from 'express';
 import type { RoomListItem } from '@dropfall/shared';
 import { GameRoom } from './rooms/GameRoom';
+
+/**
+ * 스키마 인코딩 버퍼. 기본값(8KB)은 탐색 안개(칸당 1비트 × 128×128 = 2KB)가 처음
+ * 합류자에게 통째로 나갈 때 넘친다 — 그 순간 방이 죽는다. 안개 2KB + 기존 상태에
+ * 여유를 더해 32KB로 올린다(프로세스당 한 번 잡는 버퍼라 메모리 부담은 없다).
+ */
+Encoder.BUFFER_SIZE = 32 * 1024;
 
 const port = Number(process.env.PORT) || 2567;
 const isProduction = process.env.NODE_ENV === 'production';

@@ -8,6 +8,7 @@ import type {
   RoomPhase,
 } from '@dropfall/shared';
 import {
+  EXPLORED_BYTE_COUNT,
   LOBBY_ERROR_MESSAGE,
   LobbyMessage,
   RoomErrorCode,
@@ -15,6 +16,9 @@ import {
   normalizeRoomCode,
 } from '@dropfall/shared';
 import { SERVER_HTTP_URL } from './config';
+
+/** 서버 상태가 오기 전에 쓸 빈 안개 — 전부 미탐색. */
+const EMPTY_EXPLORED = new Uint8Array(EXPLORED_BYTE_COUNT);
 import type { GameConnection, LobbyView, RoomInfo, WorldSnapshot } from './GameConnection';
 import { SnapshotInterpolator } from './SnapshotInterpolator';
 
@@ -89,6 +93,7 @@ interface RemoteGameState {
   coreSharedEnergy: number;
   coreMoney: number;
   shopStock: ArrayLike<string>;
+  explored: ArrayLike<number>;
   coreTier: number;
   coreBuildRadius: number;
   craftingUnlocked: boolean;
@@ -383,6 +388,7 @@ export class ColyseusConnection implements GameConnection {
       droppedItems,
       buildings,
       colonies,
+      explored: state?.explored ?? EMPTY_EXPLORED,
       status: {
         coreHp: state?.coreHp ?? 0,
         coreMaxHp: state?.coreMaxHp ?? 0,

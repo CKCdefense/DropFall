@@ -340,9 +340,24 @@ export class GameRoom extends Room {
     this.state.coreParts = core.storage.countOf('drop_normal');
     this.state.coreSharedEnergy = core.sharedEnergy;
     this.state.coreMoney = core.money;
+    // 탐색 안개: 바뀐 바이트만 건드린다. 통째로 대입하면 Colyseus가 2048개 전부를
+    // "바뀜"으로 보고 매 틱 2KB를 내보낸다.
+    const explored = this.world.getExplored();
+    for (let i = 0; i < explored.length; i += 1) {
+      if (this.state.explored[i] !== explored[i]) this.state.explored[i] = explored[i]!;
+    }
+
     // 진열은 하루에 한 번만 바뀐다 — 매 틱 덮어쓰지 않고 달라졌을 때만 갈아 끼운다.
+    //
+    // splice로 통째로 교체하면 안 된다: ArraySchema는 "지우는 것보다 많이 끼워넣는"
+    // splice를 거부한다(빈 배열에 6개를 넣는 첫 동기화에서 방이 통째로 죽었다).
+    // 길이를 먼저 맞추고 칸별로 대입한다.
     if (!sameStrings(this.state.shopStock, core.shopStock)) {
-      this.state.shopStock.splice(0, this.state.shopStock.length, ...core.shopStock);
+      while (this.state.shopStock.length > core.shopStock.length) this.state.shopStock.pop();
+      core.shopStock.forEach((itemId, index) => {
+        if (index < this.state.shopStock.length) this.state.shopStock[index] = itemId;
+        else this.state.shopStock.push(itemId);
+      });
     }
     this.state.coreTier = core.tier;
     this.state.coreBuildRadius = this.world.getBuildRadius();

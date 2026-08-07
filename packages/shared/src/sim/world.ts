@@ -37,6 +37,7 @@ import {
 import { Inventory } from './inventory';
 import { CoreStorage, STORAGE_SLOT_COUNT } from './storage';
 import { coreDistance, isWithinCoreInteract } from './coreShape';
+import { ExploredMap } from './explored';
 import { normalizeMoveVector, stepPosition } from './movement';
 import { WaveManager, type GamePhase } from './wave';
 import { runDevCommand, type DevCommandResult, type DevWorldAccess } from './devCommands';
@@ -382,6 +383,13 @@ export class World {
   private elapsedSeconds = 0;
   /** 이번 낮 페이즈에 스킵 투표를 던진 플레이어 id 집합. 만장일치면 skipDay()를 부른다. */
   private skipVotes = new Set<string>();
+  /** 팀이 밝힌 지역(explored.ts). 누가 봤든 전원이 공유한다. */
+  private readonly explored = new ExploredMap();
+  /**
+   * 플레이어별로 마지막에 시야를 갱신한 칸. 같은 칸에 서 있는 동안은 다시 계산하지
+   * 않는다 — 원형 시야 한 번이 ~450칸이라 매 틱 돌리면 낭비다.
+   */
+  private readonly lastRevealCell = new Map<string, number>();
 
   constructor(options: WorldOptions = {}) {
     this.rng = options.rng ?? Math.random;
@@ -465,6 +473,7 @@ export class World {
   }
 
   removePlayer(id: string): void {
+    this.lastRevealCell.delete(id);
     this.players.delete(id);
     this.inputs.delete(id);
     this.cooldowns.removePlayer(id);
@@ -1033,6 +1042,31 @@ export class World {
   }
 
   /**
+   * 살아 있는 플레이어 주변을 밝힌다. **칸이 바뀐 사람만** 계산한다 — 제자리에 선
+   * 동안 같은 원을 매 틱 다시 칠할 이유가 없다.
+   */
+  private revealAroundPlayers(): void {
+    for (const player of this.players.values()) {
+      if (player.hp <= 0) continue;
+
+      const { cx, cy } = worldToCell(player.x, player.y);
+      const cell = cy * MAP_SIZE_TILES + cx;
+      if (this.lastRevealCell.get(player.id) === cell) continue;
+
+      this.lastRevealCell.set(player.id, cell);
+      this.explored.revealAround(player.x, player.y);
+    }
+  }
+
+  /**
+   * 팀이 밝힌 지역의 비트맵(칸당 1비트, 2KB). 서버는 이걸 스키마에 복사해 내려보내고
+   * 로컬 모드는 그대로 읽는다 — 복사본이 아니라 내부 버퍼다(읽기 전용으로 쓸 것).
+   */
+  getExplored(): Uint8Array {
+    return this.explored.raw;
+  }
+
+  /**
    * 새 낮이 시작될 때 한 번 일어나는 일들. 정상 진행(웨이브 클리어)과 개발 커맨드가
    * **같은 함수**를 쓴다 — 둘이 갈라지면 "커맨드로 넘긴 낮"에서만 상점이 안 바뀌는
    * 식의 차이가 생긴다.
@@ -1153,6 +1187,8 @@ export class World {
     if (previousPhase !== 'day' && this.waveManager.currentPhase === 'day') {
       this.onDayBegan();
     }
+
+    this.revealAroundPlayers();
 
     this.tickMonsters(dtSeconds);
     this.tickResourceNodes(dtSeconds);

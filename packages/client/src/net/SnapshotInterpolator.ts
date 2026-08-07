@@ -1,5 +1,6 @@
 import {
   COLONY_RADIUS,
+  EXPLORED_BYTE_COUNT,
   HIT_RADIUS,
   PATCH_RATE,
   circlesOverlap,
@@ -71,6 +72,8 @@ interface BufferedSnapshot {
   buildings: BuildingView[];
   colonies: ColonyView[];
   status: WorldStatus;
+  /** 안개는 보간 대상이 아니라 그대로 실어 나른다 — 2KB라 복사하지 않고 참조만 든다. */
+  explored: ArrayLike<number>;
 }
 
 function lerp(a: number, b: number, t: number): number {
@@ -163,6 +166,9 @@ function extrapolateList<T extends Positioned>(
   }
 }
 
+/** 서버 상태가 오기 전(첫 프레임)에 쓸 빈 안개 — 전부 미탐색. */
+const EMPTY_EXPLORED = new Uint8Array(EXPLORED_BYTE_COUNT);
+
 const EMPTY_STATUS: WorldStatus = {
   coreHp: 0,
   coreMaxHp: 0,
@@ -193,6 +199,7 @@ export class SnapshotInterpolator {
   droppedItems: [],
     buildings: [],
     colonies: [],
+    explored: EMPTY_EXPLORED,
     status: { ...EMPTY_STATUS },
   };
 
@@ -208,6 +215,7 @@ export class SnapshotInterpolator {
       buildings: snapshot.buildings.map((building) => ({ ...building })),
       colonies: snapshot.colonies.map((colony) => ({ ...colony })),
       status: { ...snapshot.status },
+      explored: snapshot.explored,
     });
 
     const cutoff = now - MAX_BUFFER_AGE_MS;
@@ -223,6 +231,8 @@ export class SnapshotInterpolator {
 
     // 코어 HP·웨이브 같은 비위치 값은 보간하지 않는다 — 항상 최신값이 맞다.
     Object.assign(this.output.status, last.status);
+    // 안개는 보간할 값이 아니다 — 위치처럼 섞으면 의미가 없고, 항상 최신 상태를 쓴다.
+    this.output.explored = last.explored;
 
     const renderTime = now - INTERP_DELAY_MS;
 
@@ -265,6 +275,7 @@ export class SnapshotInterpolator {
       this.output.droppedItems = last.droppedItems;
       this.output.buildings = last.buildings;
       this.output.colonies = last.colonies;
+      this.output.explored = last.explored;
       return this.output;
     }
 
@@ -279,6 +290,7 @@ export class SnapshotInterpolator {
     this.output.droppedItems = to.droppedItems;
     this.output.buildings = to.buildings;
     this.output.colonies = to.colonies;
+    this.output.explored = to.explored;
 
     // 조준각은 위치와 달리 최단 경로로 섞어야 한다.
     for (const player of this.output.players) {

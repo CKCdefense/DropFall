@@ -234,6 +234,7 @@ export class LocalConnection implements GameConnection {
       droppedItems,
       buildings,
       colonies,
+      explored: this.world.getExplored(),
       status: {
         coreHp: core.hp,
         coreMaxHp: core.maxHp,

@@ -1,5 +1,5 @@
 import { ArraySchema, MapSchema, Schema, type } from '@colyseus/schema';
-import { RoomPhase, SLOT_COUNT, STORAGE_SLOT_COUNT } from '@dropfall/shared';
+import { EXPLORED_BYTE_COUNT, RoomPhase, SLOT_COUNT, STORAGE_SLOT_COUNT } from '@dropfall/shared';
 
 /**
  * 퀵슬롯 한 칸. 빈 칸은 배열에서 빼지 않고 itemId를 ''로 둔다 —
@@ -117,6 +117,14 @@ export class GameRoomState extends Schema {
   @type('number') coreMoney = 0;
   /** 오늘의 상점 진열(아이템 id). 낮이 될 때마다 통째로 바뀐다. */
   @type(['string']) shopStock = new ArraySchema<string>();
+  /**
+   * 팀이 밝힌 지역(칸당 1비트, 128×128 = 2KB). Colyseus가 **바뀐 바이트만** 델타로
+   * 보내주므로 별도 메시지가 필요 없다 — 새로 합류한 사람은 전체를 한 번 받고,
+   * 그 뒤로는 걸어다니며 바뀌는 몇 바이트만 흐른다.
+   */
+  @type(['uint8']) explored = new ArraySchema<number>(
+    ...Array.from({ length: EXPLORED_BYTE_COUNT }, () => 0),
+  );
   /** 구매한 코어 업그레이드 단계(0부터, 미구매 상태). */
   @type('number') coreTier = 0;
   /** 코어 원점 기준 건설 가능 반경(px) — 업그레이드로 늘어난다. */
