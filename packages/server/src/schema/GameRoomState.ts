@@ -89,6 +89,24 @@ export class ColonySchema extends Schema {
   @type('boolean') destroyed = false;
 }
 
+/**
+ * AI 동반자("티모시"). 방(팀)당 1마리라 콜로니처럼 맵이 아니라 단일 필드로 둔다
+ * (docs/superpowers/specs/2026-08-07-ai-companion-timothy-design.md).
+ */
+export class CompanionSchema extends Schema {
+  @type('number') x = 0;
+  @type('number') y = 0;
+  /** 렌더러가 걷는 방향(스프라이트 방향)을 정하는 데 쓴다 — 플레이어의 aimAngle과 같은 역할. */
+  @type('number') facingX = 0;
+  @type('number') facingY = 1;
+  /** CompanionState('seeking'|'traveling'|'harvesting'|'returning'|'depositing'|'downed') */
+  @type('string') state = 'seeking';
+  @type('number') carriedWood = 0;
+  @type('number') carriedStone = 0;
+  @type('number') hp = 0;
+  @type('number') maxHp = 0;
+}
+
 export class GameRoomState extends Schema {
   /** 방 코드 = roomId. 클라이언트가 HUD에 띄워 친구에게 불러줄 수 있게 상태로도 내려준다. */
   @type('string') roomCode = '';
@@ -104,6 +122,7 @@ export class GameRoomState extends Schema {
   @type({ map: ResourceNodeSchema }) resourceNodes = new MapSchema<ResourceNodeSchema>();
   @type({ map: BuildingSchema }) buildings = new MapSchema<BuildingSchema>();
   @type({ map: ColonySchema }) colonies = new MapSchema<ColonySchema>();
+  @type(CompanionSchema) companion = new CompanionSchema();
   @type('number') coreHp = 0;
   @type('number') coreMaxHp = 0;
   /** 팀 공유 자원 창고(코어에 입고된 양). 건축 비용이 여기서 나간다. */

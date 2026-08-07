@@ -11,6 +11,8 @@ import craftingJson from './crafting.json';
 import shopJson from './shop.json';
 import coloniesJson from './colonies.json';
 import coreUpgradesJson from './coreUpgrades.json';
+import corePersonaJson from './corePersona.json';
+import companionJson from './companion.json';
 
 export function loadData<T>(schema: z.ZodType<T>, json: unknown): T {
   return schema.parse(json);
@@ -407,3 +409,76 @@ const ShopDataSchema = z.object({
 export type ItemRarity = NonNullable<ItemData['rarity']>;
 
 export const shopData = loadData(ShopDataSchema, shopJson);
+
+// --- corePersona.json ------------------------------------------------------------
+
+/** 이벤트 하나가 트레잇 3개에 주는 델타. */
+const PersonaTraitDeltaSchema = z.object({
+  trust: z.number(),
+  efficiency: z.number(),
+  recklessness: z.number(),
+});
+
+/**
+ * 코어 AI 페르소나 설정. 플레이어 행동에서 누적한 트레잇(trust/efficiency/recklessness)으로
+ * 코어의 "성격"을 표현하고, LLM 호출이 실패했을 때 대신 내보낼 대사도 여기 있다.
+ */
+const CorePersonaDataSchema = z.object({
+  /** 트레잇 값의 하한/상한. 이벤트가 계속 쌓여도 무한정 커지지 않게 막는다. */
+  traitMin: z.number(),
+  traitMax: z.number(),
+  /** 코어 상호작용(모달 열기) 트리거 사이 최소 간격(초). 연타로 대사가 도배되지 않게 한다. */
+  coreInteractionCooldownSeconds: z.number().positive(),
+  /** 이벤트 종류별 트레잇 델타. */
+  eventWeights: z.object({
+    waveEnd: PersonaTraitDeltaSchema,
+    colonyDestroyed: PersonaTraitDeltaSchema,
+    coreInteract: PersonaTraitDeltaSchema,
+  }),
+  /** moodBucketFor가 warm/cold를 가르는 기준값(trust - recklessness). */
+  moodThreshold: z.number().positive(),
+  /** LLM 호출 실패/타임아웃 시 무드 버킷별로 대신 뽑는 대사. */
+  fallbackLines: z.object({
+    warm: z.array(z.string()).min(1),
+    cold: z.array(z.string()).min(1),
+    neutral: z.array(z.string()).min(1),
+  }),
+});
+
+export type PersonaTraitDelta = z.infer<typeof PersonaTraitDeltaSchema>;
+export type CorePersonaData = z.infer<typeof CorePersonaDataSchema>;
+
+export const corePersonaData = loadData(CorePersonaDataSchema, corePersonaJson);
+
+// --- companion.json ------------------------------------------------------------
+
+/**
+ * AI 동반자("티모시") 설정. 방(팀)당 1마리, 자원 채집/운반만 한다
+ * (docs/superpowers/specs/2026-08-07-ai-companion-timothy-design.md).
+ */
+const CompanionDataSchema = z.object({
+  /** UI/로그에 표시할 이름. 나중에 바꿀 수 있게 데이터로 뺐다. */
+  name: z.string().min(1),
+  moveSpeed: z.number().positive(),
+  /**
+   * 이 거리 안에 들어오면 이동을 멈추고 채집을 시작한다. **자원 노드의 이동 충돌 반경
+   * (HIT_RADIUS + resourcesData[type].hitRadius, 지금 값 기준 24px)보다 확실히 커야
+   * 한다** — 티모시는 플레이어와 같은 `isBlockedForPlayer` 판정으로 움직여서 그
+   * 반경 안으로는 물리적으로 못 들어간다. harvestRange를 그 값과 같거나 작게 두면
+   * "도착 판정 거리"가 "못 들어가는 거리"와 겹쳐 영원히 도착하지 못하고 traveling만
+   * 반복하는 버그가 난다(실제로 겪음 — 24로 뒀다가 32로 올려서 고침).
+   */
+  harvestRange: z.number().positive(),
+  /** 채집 한 번(harvestIntervalSeconds마다)에 노드 hp를 깎는 양. */
+  harvestDamage: z.number().positive(),
+  harvestIntervalSeconds: z.number().positive(),
+  /** carriedWood + carriedStone이 이 값 이상이면 코어로 돌아간다. */
+  capacity: z.number().int().positive(),
+  maxHp: z.number().positive(),
+  /** 코어 기준 스폰 위치(px). */
+  spawnOffset: z.object({ x: z.number(), y: z.number() }),
+});
+
+export type CompanionData = z.infer<typeof CompanionDataSchema>;
+
+export const companionData = loadData(CompanionDataSchema, companionJson);

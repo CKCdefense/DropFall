@@ -1,0 +1,28 @@
+{
+  "traitMin": -10,
+  "traitMax": 10,
+  "coreInteractionCooldownSeconds": 12,
+  "eventWeights": {
+    "waveEnd": { "trust": 1, "efficiency": 0, "recklessness": 0 },
+    "colonyDestroyed": { "trust": 0, "efficiency": 1, "recklessness": 1 },
+    "coreInteract": { "trust": 0.2, "efficiency": 0, "recklessness": 0 }
+  },
+  "moodThreshold": 3,
+  "fallbackLines": {
+    "warm": [
+      "오늘도 다들 고생했다. 다음 파도도 이렇게 버텨보자.",
+      "이 정도 협동이면… 구조선이 진짜 올지도 모르겠군.",
+      "너희를 믿어도 되겠다는 확신이 든다."
+    ],
+    "cold": [
+      "또 나 혼자 버티라는 건가.",
+      "에너지도 안 채워주고 뭘 기대하는 거지.",
+      "이러다 정말 끝나겠군."
+    ],
+    "neutral": [
+      "오늘 밤도 지나갔다. 다음을 준비해라.",
+      "특별한 건 없다. 계속해라.",
+      "기록 중이다. 계속 진행하지."
+    ]
+  }
+}

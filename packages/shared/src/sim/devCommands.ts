@@ -42,6 +42,9 @@ export interface DevWorldAccess {
   setCoreHp(amount: number): void;
   rerollShop(): void;
 
+  /** 쿨다운/자연 트리거를 무시하고 코어 AI 페르소나 대사를 즉시 하나 큐에 넣는다(데모/QA용). */
+  forceCoreVoice(): void;
+
   hasPlayer(playerId: string): boolean;
 }
 
@@ -208,6 +211,15 @@ const COMMANDS: Record<string, CommandSpec> = {
     run(access) {
       access.forceDay();
       return ok('낮으로 되돌렸다');
+    },
+  },
+
+  voice: {
+    usage: 'voice',
+    summary: '쿨다운 무시하고 코어 AI 대사를 즉시 하나 요청한다(데모/QA용).',
+    run(access) {
+      access.forceCoreVoice();
+      return ok('코어에게 말을 걸었다');
     },
   },
 

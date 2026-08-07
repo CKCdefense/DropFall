@@ -5,6 +5,7 @@ import {
   World,
   describeBossTelegraph,
   monstersData,
+  pickFallbackLine,
   type JobId,
   type SlotContainer,
   type PlayerInputMessage,
@@ -31,6 +32,13 @@ export class LocalConnection implements GameConnection {
 
   private readonly world = new World();
   private devResultCallback?: (result: { ok: boolean; message: string }) => void;
+  /**
+   * 코어 AI 대사 콜백. **실제 LLM 호출은 절대 하지 않는다** — 오프라인 모드는 서버가
+   * 없어서 API 키를 클라이언트 번들에 넣어야 하는데, 그건 보안상 금지다(§corePersona
+   * 플랜 리스크). 대신 shared의 폴백 대사를 그대로 써서 "눌렀을 때 반응은 한다"는
+   * 로컬 개발 편의성만 챙긴다.
+   */
+  private coreCommentaryCallback?: (text: string) => void;
   /** world.tick()도 서버와 동일하게 TICK_RATE라 같은 보간이 필요하다(SnapshotInterpolator 참고). */
   private readonly interpolator = new SnapshotInterpolator();
   private readonly nickname: string;
@@ -57,6 +65,9 @@ export class LocalConnection implements GameConnection {
       const steps = this.stepper.consume(elapsedSeconds);
       for (let i = 0; i < steps; i += 1) this.world.tick(this.stepper.step);
       if (steps > 0) this.interpolator.push(this.readRawSnapshot());
+      for (const event of this.world.drainPersonaEvents()) {
+        this.coreCommentaryCallback?.(pickFallbackLine(event.traits));
+      }
     }, 1000 / TICK_RATE);
   }
 
@@ -110,6 +121,14 @@ export class LocalConnection implements GameConnection {
 
   upgradeCore(): void {
     this.world.upgradeCore(LOCAL_SESSION_ID);
+  }
+
+  coreInteract(): void {
+    this.world.requestCoreInteraction();
+  }
+
+  onCoreCommentary(callback: (text: string) => void): void {
+    this.coreCommentaryCallback = callback;
   }
 
   placeBuilding(buildingType: string, cx: number, cy: number): void {
@@ -225,6 +244,19 @@ export class LocalConnection implements GameConnection {
     }
 
     const core = this.world.getCore();
+    const timothy = this.world.getCompanion();
+    const companion: WorldSnapshot['companion'] = {
+      id: 'companion',
+      x: timothy.x,
+      y: timothy.y,
+      facingX: timothy.facingX,
+      facingY: timothy.facingY,
+      state: timothy.state,
+      carriedWood: timothy.carriedWood,
+      carriedStone: timothy.carriedStone,
+      hp: timothy.hp,
+      maxHp: timothy.maxHp,
+    };
 
     return {
       players,
@@ -234,6 +266,7 @@ export class LocalConnection implements GameConnection {
       droppedItems,
       buildings,
       colonies,
+      companion,
       status: {
         coreHp: core.hp,
         coreMaxHp: core.maxHp,

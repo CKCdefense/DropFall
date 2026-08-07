@@ -1,8 +1,9 @@
 import Phaser from 'phaser';
 import { Modal } from './Modal';
+import { ACCENT, FONT_SMALL, SIZE_SMALL } from './theme';
 
 const PANEL_WIDTH = 220;
-const PANEL_HEIGHT = 200;
+const PANEL_HEIGHT = 240;
 const ROW_GAP = 18;
 const BUTTON_HEIGHT = 26;
 const GRID_GAP = 8;
@@ -21,6 +22,8 @@ export class CoreModal extends Modal {
   /** "에너지" 행 값 텍스트. 콜로니 파괴로만 얻는 전용 자원(docs/backend/35) —
    * 여기 모달들 중 실제 데이터에 연결된 첫 필드다. */
   private readonly energyValueText: Phaser.GameObjects.Text;
+  /** 코어 AI 페르소나 대사. 아직 아무 일도 없었으면 빈 문자열(조용한 게 자연스럽다). */
+  private readonly commentaryText: Phaser.GameObjects.Text;
 
   constructor(scene: Phaser.Scene) {
     super(scene, { title: '코어', width: PANEL_WIDTH, height: PANEL_HEIGHT });
@@ -44,10 +47,26 @@ export class CoreModal extends Modal {
     this.addButton(col2X, gridY, colWidth, BUTTON_HEIGHT, '상점', () => this.onStore());
     this.addButton(0, row2Y, colWidth, BUTTON_HEIGHT, '제작', () => this.onCraft());
     this.addButton(col2X, row2Y, colWidth, BUTTON_HEIGHT, '창고', () => this.onWarehouse());
+
+    const commentaryY = row2Y + BUTTON_HEIGHT + GRID_GAP;
+    this.commentaryText = scene.add
+      .text(0, commentaryY, '', {
+        fontFamily: FONT_SMALL,
+        fontSize: `${SIZE_SMALL}px`,
+        color: ACCENT,
+        wordWrap: { width: this.contentWidth },
+      })
+      .setOrigin(0, 0);
+    this.addContent(this.commentaryText);
   }
 
   /** 코어 공유 에너지(coreSharedEnergy)를 반영한다. HudScene이 스냅샷마다 호출한다. */
   setEnergy(value: number): void {
     this.energyValueText.setText(String(value));
+  }
+
+  /** 코어 AI 페르소나의 새 대사를 반영한다. HudScene이 onCoreCommentary 콜백에서 호출한다. */
+  setCommentary(text: string): void {
+    this.commentaryText.setText(`"${text}"`);
   }
 }
