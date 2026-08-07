@@ -8,6 +8,8 @@ import type {
   RoomPhase,
 } from '@dropfall/shared';
 import {
+  CHAT_MESSAGE,
+  COMPANION_COMMENTARY_MESSAGE,
   CORE_COMMENTARY_MESSAGE,
   LOBBY_ERROR_MESSAGE,
   LobbyMessage,
@@ -295,6 +297,26 @@ export class ColyseusConnection implements GameConnection {
 
   onCoreCommentary(callback: (text: string) => void): void {
     this.room.onMessage(CORE_COMMENTARY_MESSAGE, (message: { text: string }) => callback(message.text));
+  }
+
+  companionInteract(): void {
+    this.room.send('companionInteract', {});
+  }
+
+  onCompanionCommentary(callback: (text: string, playerId: string) => void): void {
+    this.room.onMessage(COMPANION_COMMENTARY_MESSAGE, (message: { text: string; playerId: string }) =>
+      callback(message.text, message.playerId),
+    );
+  }
+
+  sendChat(text: string): void {
+    this.room.send('chat', { text });
+  }
+
+  onChatMessage(
+    callback: (message: { playerId: string; nickname: string; text: string }) => void,
+  ): void {
+    this.room.onMessage(CHAT_MESSAGE, callback);
   }
 
   placeBuilding(buildingType: string, cx: number, cy: number): void {

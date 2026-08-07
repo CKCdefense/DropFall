@@ -5,7 +5,10 @@ import {
   World,
   describeBossTelegraph,
   monstersData,
+  parseCompanionMention,
+  pickCompanionFallbackLine,
   pickFallbackLine,
+  sanitizeChatText,
   type JobId,
   type SlotContainer,
   type PlayerInputMessage,
@@ -39,6 +42,10 @@ export class LocalConnection implements GameConnection {
    * 로컬 개발 편의성만 챙긴다.
    */
   private coreCommentaryCallback?: (text: string) => void;
+  /** 티모시 대사 콜백. 코어와 마찬가지로 실제 LLM 호출 없이 폴백 대사만 돌려준다. */
+  private companionCommentaryCallback?: (text: string, playerId: string) => void;
+  /** 혼자라 대화 상대는 없지만, UI가 그대로 동작하도록 보낸 즉시 자기 자신에게 되돌려준다. */
+  private chatCallback?: (message: { playerId: string; nickname: string; text: string }) => void;
   /** world.tick()도 서버와 동일하게 TICK_RATE라 같은 보간이 필요하다(SnapshotInterpolator 참고). */
   private readonly interpolator = new SnapshotInterpolator();
   private readonly nickname: string;
@@ -67,6 +74,9 @@ export class LocalConnection implements GameConnection {
       if (steps > 0) this.interpolator.push(this.readRawSnapshot());
       for (const event of this.world.drainPersonaEvents()) {
         this.coreCommentaryCallback?.(pickFallbackLine(event.traits));
+      }
+      for (const event of this.world.drainCompanionPersonaEvents()) {
+        this.companionCommentaryCallback?.(pickCompanionFallbackLine(event.traits), event.playerId);
       }
     }, 1000 / TICK_RATE);
   }
@@ -129,6 +139,29 @@ export class LocalConnection implements GameConnection {
 
   onCoreCommentary(callback: (text: string) => void): void {
     this.coreCommentaryCallback = callback;
+  }
+
+  companionInteract(): void {
+    this.world.requestCompanionInteraction(LOCAL_SESSION_ID);
+  }
+
+  onCompanionCommentary(callback: (text: string, playerId: string) => void): void {
+    this.companionCommentaryCallback = callback;
+  }
+
+  sendChat(text: string): void {
+    const clean = sanitizeChatText(text);
+    if (!clean) return;
+    this.chatCallback?.({ playerId: LOCAL_SESSION_ID, nickname: this.nickname, text: clean });
+
+    const question = parseCompanionMention(clean);
+    if (question) this.world.sendCompanionMessage(LOCAL_SESSION_ID, question);
+  }
+
+  onChatMessage(
+    callback: (message: { playerId: string; nickname: string; text: string }) => void,
+  ): void {
+    this.chatCallback = callback;
   }
 
   placeBuilding(buildingType: string, cx: number, cy: number): void {
