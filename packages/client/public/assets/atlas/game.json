@@ -503,7 +503,7 @@
     "sourceSize": { "w": 32, "h": 32 },
     "duration": 100
    },
-   "item_drop_normal_idle_0": {
+   "item_drop_normal__0": {
     "frame": { "x": 652, "y": 669, "w": 32, "h": 32 },
     "rotated": false,
     "trimmed": false,
@@ -559,7 +559,7 @@
     "sourceSize": { "w": 32, "h": 32 },
     "duration": 100
    },
-   "item_usable__4": {
+   "item_usable_adrenaline_0": {
     "frame": { "x": 331, "y": 675, "w": 32, "h": 32 },
     "rotated": false,
     "trimmed": false,
@@ -567,32 +567,48 @@
     "sourceSize": { "w": 32, "h": 32 },
     "duration": 100
    },
-   "item_usable__5": {
-    "frame": { "x": 298, "y": 675, "w": 32, "h": 32 },
+   "item_usable_chocolate_0": {
+    "frame": { "x": 364, "y": 675, "w": 32, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
     "sourceSize": { "w": 32, "h": 32 },
     "duration": 100
    },
-   "item_usable__6": {
-    "frame": { "x": 298, "y": 675, "w": 32, "h": 32 },
+   "item_usable_donut_0": {
+    "frame": { "x": 397, "y": 675, "w": 32, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
     "sourceSize": { "w": 32, "h": 32 },
     "duration": 100
    },
-   "item_usable__7": {
-    "frame": { "x": 298, "y": 675, "w": 32, "h": 32 },
+   "item_usable_apple_juice_0": {
+    "frame": { "x": 100, "y": 683, "w": 32, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
     "sourceSize": { "w": 32, "h": 32 },
     "duration": 100
    },
-   "item_usable__8": {
-    "frame": { "x": 298, "y": 675, "w": 32, "h": 32 },
+   "item_usable_lasagna_0": {
+    "frame": { "x": 133, "y": 683, "w": 32, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
+    "sourceSize": { "w": 32, "h": 32 },
+    "duration": 100
+   },
+   "item_usable_nuggets_0": {
+    "frame": { "x": 685, "y": 686, "w": 32, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
+    "sourceSize": { "w": 32, "h": 32 },
+    "duration": 100
+   },
+   "item_usable_carrot_cake_0": {
+    "frame": { "x": 718, "y": 686, "w": 32, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
@@ -608,7 +624,7 @@
     "duration": 100
    },
    "pickax_stone_axe_0": {
-    "frame": { "x": 364, "y": 675, "w": 32, "h": 32 },
+    "frame": { "x": 1, "y": 691, "w": 32, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
@@ -616,7 +632,7 @@
     "duration": 100
    },
    "pickax_iron_axe_0": {
-    "frame": { "x": 397, "y": 675, "w": 32, "h": 32 },
+    "frame": { "x": 34, "y": 691, "w": 32, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
@@ -624,7 +640,7 @@
     "duration": 100
    },
    "pickax_steel_axe_0": {
-    "frame": { "x": 100, "y": 683, "w": 32, "h": 32 },
+    "frame": { "x": 67, "y": 691, "w": 32, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
@@ -679,8 +695,56 @@
     "sourceSize": { "w": 128, "h": 64 },
     "duration": 100
    },
+   "fence_wood_wall_front_0": {
+    "frame": { "x": 430, "y": 700, "w": 32, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
+    "sourceSize": { "w": 32, "h": 32 },
+    "duration": 100
+   },
+   "fence_wood_wall_side_0": {
+    "frame": { "x": 463, "y": 700, "w": 32, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
+    "sourceSize": { "w": 32, "h": 32 },
+    "duration": 100
+   },
+   "fence_wood_fence_front_0": {
+    "frame": { "x": 496, "y": 700, "w": 32, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
+    "sourceSize": { "w": 32, "h": 32 },
+    "duration": 100
+   },
+   "fence_wood_fence_side_0": {
+    "frame": { "x": 529, "y": 700, "w": 32, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
+    "sourceSize": { "w": 32, "h": 32 },
+    "duration": 100
+   },
+   "fence_stone_wall_front_0": {
+    "frame": { "x": 562, "y": 700, "w": 32, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
+    "sourceSize": { "w": 32, "h": 32 },
+    "duration": 100
+   },
+   "fence_stone_wall_side_0": {
+    "frame": { "x": 529, "y": 700, "w": 32, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
+    "sourceSize": { "w": 32, "h": 32 },
+    "duration": 100
+   },
    "stone_wall_front_0": {
-    "frame": { "x": 133, "y": 683, "w": 32, "h": 32 },
+    "frame": { "x": 595, "y": 700, "w": 32, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
@@ -688,7 +752,7 @@
     "duration": 100
    },
    "stone_wall_side_0": {
-    "frame": { "x": 685, "y": 686, "w": 32, "h": 32 },
+    "frame": { "x": 628, "y": 702, "w": 32, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
@@ -696,7 +760,7 @@
     "duration": 100
    },
    "stone_fence_front_0": {
-    "frame": { "x": 718, "y": 686, "w": 32, "h": 32 },
+    "frame": { "x": 496, "y": 700, "w": 32, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
@@ -704,7 +768,7 @@
     "duration": 100
    },
    "stone_fence_side_0": {
-    "frame": { "x": 1, "y": 691, "w": 32, "h": 32 },
+    "frame": { "x": 166, "y": 708, "w": 32, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
@@ -712,7 +776,7 @@
     "duration": 100
    },
    "wood_wall_front_0": {
-    "frame": { "x": 133, "y": 683, "w": 32, "h": 32 },
+    "frame": { "x": 430, "y": 700, "w": 32, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
@@ -720,7 +784,7 @@
     "duration": 100
    },
    "wood_wall_side_0": {
-    "frame": { "x": 685, "y": 686, "w": 32, "h": 32 },
+    "frame": { "x": 628, "y": 702, "w": 32, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
@@ -728,7 +792,7 @@
     "duration": 100
    },
    "wood_fence_front_0": {
-    "frame": { "x": 718, "y": 686, "w": 32, "h": 32 },
+    "frame": { "x": 496, "y": 700, "w": 32, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
@@ -736,7 +800,7 @@
     "duration": 100
    },
    "wood_fence_side_0": {
-    "frame": { "x": 1, "y": 691, "w": 32, "h": 32 },
+    "frame": { "x": 166, "y": 708, "w": 32, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
@@ -760,7 +824,7 @@
     "duration": 100
    },
    "stone_full_0": {
-    "frame": { "x": 34, "y": 691, "w": 32, "h": 32 },
+    "frame": { "x": 199, "y": 708, "w": 32, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
@@ -768,7 +832,7 @@
     "duration": 100
    },
    "stone_cracked_0": {
-    "frame": { "x": 67, "y": 691, "w": 32, "h": 32 },
+    "frame": { "x": 232, "y": 708, "w": 32, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
@@ -776,7 +840,7 @@
     "duration": 100
    },
    "stone_broken_0": {
-    "frame": { "x": 430, "y": 700, "w": 32, "h": 32 },
+    "frame": { "x": 265, "y": 708, "w": 32, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
@@ -1399,31 +1463,55 @@
     "sourceSize": { "w": 40, "h": 40 },
     "duration": 100
    },
+   "fx_hurt_hit_0": {
+    "frame": { "x": 680, "y": 260, "w": 24, "h": 24 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 24 },
+    "sourceSize": { "w": 24, "h": 24 },
+    "duration": 100
+   },
+   "fx_hurt_hit_1": {
+    "frame": { "x": 554, "y": 454, "w": 24, "h": 24 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 24 },
+    "sourceSize": { "w": 24, "h": 24 },
+    "duration": 100
+   },
+   "fx_hurt_hit_2": {
+    "frame": { "x": 490, "y": 519, "w": 24, "h": 24 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 24 },
+    "sourceSize": { "w": 24, "h": 24 },
+    "duration": 100
+   },
+   "fx_hurt_hit_3": {
+    "frame": { "x": 454, "y": 609, "w": 24, "h": 24 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 24 },
+    "sourceSize": { "w": 24, "h": 24 },
+    "duration": 100
+   },
+   "fx_hurt_hit_4": {
+    "frame": { "x": 298, "y": 708, "w": 24, "h": 24 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 24 },
+    "sourceSize": { "w": 24, "h": 24 },
+    "duration": 100
+   },
+   "fx_hurt_hit_5": {
+    "frame": { "x": 323, "y": 708, "w": 24, "h": 24 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 24 },
+    "sourceSize": { "w": 24, "h": 24 },
+    "duration": 100
+   },
    "fx_shot_muzzle_0": {
-    "frame": { "x": 680, "y": 260, "w": 16, "h": 16 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 16, "h": 16 },
-    "sourceSize": { "w": 16, "h": 16 },
-    "duration": 100
-   },
-   "fx_shot_muzzle_1": {
-    "frame": { "x": 554, "y": 454, "w": 16, "h": 16 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 16, "h": 16 },
-    "sourceSize": { "w": 16, "h": 16 },
-    "duration": 100
-   },
-   "fx_shot_muzzle_2": {
-    "frame": { "x": 490, "y": 519, "w": 16, "h": 16 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 16, "h": 16 },
-    "sourceSize": { "w": 16, "h": 16 },
-    "duration": 100
-   },
-   "fx_shot_muzzle_3": {
     "frame": { "x": 714, "y": 603, "w": 16, "h": 16 },
     "rotated": false,
     "trimmed": false,
@@ -1431,15 +1519,7 @@
     "sourceSize": { "w": 16, "h": 16 },
     "duration": 100
    },
-   "fx_shot_hit_0": {
-    "frame": { "x": 454, "y": 609, "w": 16, "h": 16 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 16, "h": 16 },
-    "sourceSize": { "w": 16, "h": 16 },
-    "duration": 100
-   },
-   "fx_shot_hit_1": {
+   "fx_shot_muzzle_1": {
     "frame": { "x": 747, "y": 620, "w": 16, "h": 16 },
     "rotated": false,
     "trimmed": false,
@@ -1447,7 +1527,7 @@
     "sourceSize": { "w": 16, "h": 16 },
     "duration": 100
    },
-   "fx_shot_hit_2": {
+   "fx_shot_muzzle_2": {
     "frame": { "x": 100, "y": 625, "w": 16, "h": 16 },
     "rotated": false,
     "trimmed": false,
@@ -1455,8 +1535,40 @@
     "sourceSize": { "w": 16, "h": 16 },
     "duration": 100
    },
-   "fx_shot_hit_3": {
+   "fx_shot_muzzle_3": {
     "frame": { "x": 685, "y": 636, "w": 16, "h": 16 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 16, "h": 16 },
+    "sourceSize": { "w": 16, "h": 16 },
+    "duration": 100
+   },
+   "fx_shot_hit_0": {
+    "frame": { "x": 751, "y": 637, "w": 16, "h": 16 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 16, "h": 16 },
+    "sourceSize": { "w": 16, "h": 16 },
+    "duration": 100
+   },
+   "fx_shot_hit_1": {
+    "frame": { "x": 166, "y": 650, "w": 16, "h": 16 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 16, "h": 16 },
+    "sourceSize": { "w": 16, "h": 16 },
+    "duration": 100
+   },
+   "fx_shot_hit_2": {
+    "frame": { "x": 751, "y": 654, "w": 16, "h": 16 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 16, "h": 16 },
+    "sourceSize": { "w": 16, "h": 16 },
+    "duration": 100
+   },
+   "fx_shot_hit_3": {
+    "frame": { "x": 751, "y": 671, "w": 16, "h": 16 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 16, "h": 16 },
@@ -1533,7 +1645,7 @@
   "version": "1.3.18.1-x64",
   "image": "game.png",
   "format": "RGBA8888",
-  "size": { "w": 770, "h": 733 },
+  "size": { "w": 770, "h": 741 },
   "scale": "1",
   "frameTags": [
    { "name": "front", "from": 0, "to": 3, "direction": "forward", "color": "#000000ff" },
@@ -1563,11 +1675,17 @@
    { "name": "energy_cell", "from": 5, "to": 5, "direction": "forward", "color": "#000000ff" },
    { "name": "idle", "from": 0, "to": 0, "direction": "forward", "color": "#000000ff" },
    { "name": "idle", "from": 0, "to": 0, "direction": "forward", "color": "#000000ff" },
-   { "name": "idle", "from": 0, "to": 0, "direction": "forward", "color": "#000000ff" },
    { "name": "bandage", "from": 0, "to": 0, "direction": "forward", "color": "#000000ff" },
    { "name": "painkiller", "from": 1, "to": 1, "direction": "forward", "color": "#000000ff" },
    { "name": "pills", "from": 2, "to": 2, "direction": "forward", "color": "#000000ff" },
    { "name": "AID", "from": 3, "to": 3, "direction": "forward", "color": "#000000ff" },
+   { "name": "adrenaline", "from": 4, "to": 4, "direction": "forward", "color": "#000000ff" },
+   { "name": "chocolate", "from": 5, "to": 5, "direction": "forward", "color": "#000000ff" },
+   { "name": "donut", "from": 6, "to": 6, "direction": "forward", "color": "#000000ff" },
+   { "name": "apple_juice", "from": 7, "to": 7, "direction": "forward", "color": "#000000ff" },
+   { "name": "lasagna", "from": 8, "to": 8, "direction": "forward", "color": "#000000ff" },
+   { "name": "nuggets", "from": 9, "to": 9, "direction": "forward", "color": "#000000ff" },
+   { "name": "carrot_cake", "from": 10, "to": 10, "direction": "forward", "color": "#000000ff" },
    { "name": "idle", "from": 0, "to": 0, "direction": "forward", "color": "#000000ff" },
    { "name": "stone_axe", "from": 0, "to": 0, "direction": "forward", "color": "#000000ff" },
    { "name": "iron_axe", "from": 1, "to": 1, "direction": "forward", "color": "#000000ff" },
@@ -1578,6 +1696,12 @@
    { "name": "shotgun", "from": 3, "to": 3, "direction": "forward", "color": "#000000ff" },
    { "name": "minigun", "from": 4, "to": 4, "direction": "forward", "color": "#000000ff" },
    { "name": "beamsword", "from": 5, "to": 5, "direction": "forward", "color": "#000000ff" },
+   { "name": "wood_wall_front", "from": 0, "to": 0, "direction": "forward", "color": "#000000ff" },
+   { "name": "wood_wall_side", "from": 1, "to": 1, "direction": "forward", "color": "#000000ff" },
+   { "name": "wood_fence_front", "from": 2, "to": 2, "direction": "forward", "color": "#000000ff" },
+   { "name": "wood_fence_side", "from": 3, "to": 3, "direction": "forward", "color": "#000000ff" },
+   { "name": "stone_wall_front", "from": 4, "to": 4, "direction": "forward", "color": "#000000ff" },
+   { "name": "stone_wall_side", "from": 5, "to": 5, "direction": "forward", "color": "#000000ff" },
    { "name": "wall_front", "from": 0, "to": 0, "direction": "forward", "color": "#000000ff" },
    { "name": "wall_side", "from": 1, "to": 1, "direction": "forward", "color": "#000000ff" },
    { "name": "fence_front", "from": 2, "to": 2, "direction": "forward", "color": "#000000ff" },
@@ -1600,6 +1724,7 @@
    { "name": "leaf", "from": 0, "to": 4, "direction": "forward", "color": "#000000ff" },
    { "name": "shard", "from": 5, "to": 9, "direction": "forward", "color": "#000000ff" },
    { "name": "heal", "from": 0, "to": 9, "direction": "forward", "color": "#000000ff" },
+   { "name": "hit", "from": 0, "to": 5, "direction": "forward", "color": "#000000ff" },
    { "name": "muzzle", "from": 0, "to": 3, "direction": "forward", "color": "#000000ff" },
    { "name": "hit", "from": 4, "to": 7, "direction": "forward", "color": "#000000ff" },
    { "name": "arc", "from": 0, "to": 7, "direction": "forward", "color": "#000000ff" }
