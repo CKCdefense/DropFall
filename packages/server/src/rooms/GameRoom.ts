@@ -530,11 +530,17 @@ export class GameRoom extends Room {
       if (!schema) {
         schema = new ResourceNodeSchema();
         schema.type = node.type;
-        schema.x = node.x;
-        schema.y = node.y;
         schema.maxHp = node.maxHp;
         this.state.resourceNodes.set(id, schema);
       }
+      // x/y는 최초 생성 때만 넣으면 안 된다 — 고갈된 노드가 리스폰될 때 같은 id로
+      // 군집 안 새 위치로 옮겨 다니는데(relocateRespawnedNode, world.ts), 여기서
+      // 매번 다시 안 넣으면 클라이언트는 옛 좌표에 그대로 렌더링하면서 실제 채집
+      // 판정(서버 권위, world.ts의 살아있는 node.x/y 기준)은 새 위치에서 일어나
+      // "렌더는 엉뚱한 곳, 진짜 캘 수 있는 자리는 안 보임" 상태가 된다. projectiles/
+      // monsters 동기화(위)는 원래도 매번 x/y를 갱신했다 — 여기만 예외였다.
+      schema.x = node.x;
+      schema.y = node.y;
       schema.hp = node.hp;
     }
 
