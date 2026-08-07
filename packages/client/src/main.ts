@@ -11,6 +11,7 @@ import type { GameConnection } from './net/GameConnection';
 import { IS_LOCAL_MODE, readAutoEntry } from './net/config';
 import { createRoom, joinRoomByCode } from './net/ColyseusConnection';
 import { LocalConnection } from './net/LocalConnection';
+import { showQuitConfirm } from './ui/confirmQuit';
 
 function requireElement(selector: string): HTMLElement {
   const node = document.querySelector<HTMLElement>(selector);
@@ -18,6 +19,7 @@ function requireElement(selector: string): HTMLElement {
   return node;
 }
 
+const appRoot = requireElement('#app');
 const uiRoot = requireElement('#ui-root');
 const gameRoot = requireElement('#game-root');
 
@@ -65,9 +67,13 @@ function leaveRoom(message = ''): void {
   lobby.reset(message);
 }
 
-// ESC로 언제든 로비로 돌아온다. 시연 중 막히는 상황을 만들지 않기 위한 안전장치다.
+// ESC로 언제든 로비로 돌아올 수 있다(시연 중 막히는 상황을 만들지 않기 위한
+// 안전장치) — 다만 실수로 누른 ESC 한 번에 진행 중이던 판을 통째로 잃지 않도록,
+// 바로 나가는 대신 확인창을 한 번 거친다.
 window.addEventListener('keydown', (event) => {
-  if (event.key === 'Escape' && connection) leaveRoom();
+  if (event.key === 'Escape' && connection) {
+    showQuitConfirm(appRoot, () => leaveRoom());
+  }
 });
 
 async function bootstrap(): Promise<void> {
