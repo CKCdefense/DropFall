@@ -51,7 +51,13 @@ export function showQuitConfirm(container: HTMLElement, onConfirm: () => void): 
   const cancelButton = el('button', { class: 'btn btn-ghost', type: 'button' }, ['취소']);
   cancelButton.addEventListener('click', close);
 
-  const modal = el('div', { class: 'modal confirm-modal', ...assetAttr('modal') }, [
+  // 로비 모달(방 목록 등)용 9-slice 에셋(title_modal.png)은 760px 큰 박스 기준으로
+  // 만들어져서, 이 작은(360px) 확인창에 그대로 적용하면 배율이 안 맞아 배경 채움
+  // 색과 [data-asset] 전용 어두운 글자색(#1b1f27)이 서로 안 맞물려 문구가 안 보이는
+  // 문제가 있었다(실제 스크린샷으로 확인됨). assetAttr()를 안 넣어서 항상
+  // `.modal:not([data-asset])` 플레이스홀더 스타일(어두운 패널 + 얇은 테두리, 기본
+  // 글자색)로 고정한다 — 크기가 작고 문구 하나뿐이라 에셋 없이도 안 어색하다.
+  const modal = el('div', { class: 'modal confirm-modal' }, [
     el('p', { class: 'confirm-message' }, ['정말 나가시겠습니까?']),
     el('div', { class: 'modal-actions' }, [confirmButton, cancelButton]),
   ]);
