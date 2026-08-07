@@ -62,6 +62,7 @@ import { CoreStorage, STORAGE_SLOT_COUNT } from './storage';
 import { coreDistance, isWithinCoreInteract } from './coreShape';
 import { ExploredMap } from './explored';
 import { normalizeMoveVector, stepPosition } from './movement';
+import { SpatialGrid } from './spatialGrid';
 import { WaveManager, type GamePhase } from './wave';
 import { runDevCommand, type DevCommandResult, type DevWorldAccess } from './devCommands';
 
@@ -129,6 +130,21 @@ const ATTACK_ANIM_SECONDS = 0.4;
 const GUARD_HOME_ARRIVE_MARGIN = 10;
 /** 이 거리보다 가까운 몬스터끼리는 서로 밀어낸다 — 군집 분리(기술명세 §5.3). */
 const SEPARATION_RADIUS = HIT_RADIUS * 2.5;
+/**
+ * 몬스터 공간 분할 격자(SpatialGrid)의 칸 크기(px). `SEPARATION_RADIUS`(=25px)나
+ * 흔한 투사체 히트 판정 반경보다 넉넉히 크게 잡아서, 질의 반경이 한두 칸 안에서
+ * 끝나게 한다(너무 작으면 질의마다 훑는 칸 수가 늘어 이득이 줄어든다).
+ */
+const MONSTER_GRID_CELL_SIZE = 64;
+/**
+ * 몬스터 타입별 히트박스 반경(`monsterRadius`)의 최댓값. 그리드 질의 반경에 이 값을
+ * 더해야, 큰(보스급) 몬스터가 질의 중심에서 격자 반경만큼 떨어져 있어도(중심은
+ * 범위 밖이지만 몸이 걸치는 경우) 후보에서 빠뜨리지 않는다.
+ */
+const MAX_MONSTER_HIT_RADIUS = Math.max(
+  HIT_RADIUS,
+  ...Object.values(monstersData).map((data) => data.hitRadius ?? HIT_RADIUS),
+);
 /** 분리력이 주 이동 방향을 완전히 덮어쓰지 않도록 두는 가중치. */
 const SEPARATION_WEIGHT = 0.6;
 /** 한 번 잡은 어그로 타겟은 아그로 반경의 이 배수를 벗어나기 전까진 유지한다(타겟 떨림 방지). */
@@ -406,6 +422,13 @@ export class World {
   private players = new Map<string, PlayerEntity>();
   private inputs = new Map<string, PlayerInputMessage>();
   private monsters = new Map<string, MonsterEntity>();
+  /**
+   * `monsters`와 항상 같은 내용을 담고 있어야 하는 공간 분할 인덱스(docs/backend/45).
+   * 몬스터가 추가/제거/이동될 때마다(addMonster/damageMonster/moveMonster, monsters를
+   * clear()하는 디버그 커맨드들) 같이 갱신한다 — 매 틱 통째로 다시 만들지 않고 계속
+   * 살아있는 상태로 들고 가는 이유는 SpatialGrid 클래스 주석 참고.
+   */
+  private readonly monsterGrid = new SpatialGrid(MONSTER_GRID_CELL_SIZE);
   private projectiles = new Map<string, ProjectileEntity>();
   private readonly cooldowns = new WeaponCooldowns();
   private readonly waveManager = new WaveManager();
@@ -671,6 +694,13 @@ export class World {
   fireWeapon(playerId: string): void {
     const player = this.players.get(playerId);
     if (!player) return;
+    // fireWeapon()은 tick()과 무관하게 아무 때나(발사 요청이 오는 즉시) 불릴 수 있다.
+    // monsterGrid는 moveMonster()를 거칠 때만 점진적으로 갱신되는데, 몬스터 좌표가
+    // moveMonster를 거치지 않고 직접 바뀌는 경로(테스트의 직접 대입, 향후 추가될
+    // 수 있는 순간이동류 효과 등)가 있으면 그 사이 그리드가 낡을 수 있다 — 발사
+    // 판정(근접/총구 간격) 직전에 한 번 다시 채워서 항상 정확한 상태로 쓴다. 몬스터
+    // 수만큼(O(M))이라 비싸지 않다.
+    this.rebuildMonsterGrid();
 
     // 무기를 안 들었으면 맨손이다. 붕대 같은 소모품을 들고 있을 때는 좌클릭이
     // "사용"이라 여기까지 오지 않는다(클라이언트가 useSlot으로 보낸다).
@@ -1142,6 +1172,7 @@ export class World {
   debugJumpToWave(waveNumber: number): void {
     if (this.waveManager.debugJumpToWave(waveNumber)) {
       this.monsters.clear();
+      this.monsterGrid.clear();
     }
   }
 
@@ -1702,6 +1733,7 @@ export class World {
       attackAnim: 0,
       meleeCooldowns: (data.meleeAttacks ?? []).map(() => 0),
     });
+    this.monsterGrid.insert(id, x, y);
     return id;
   }
 
@@ -1925,6 +1957,7 @@ export class World {
    */
   private clearAllMonsters(): void {
     this.monsters.clear();
+    this.monsterGrid.clear();
     this.contingents.length = 0;
     for (const colony of this.colonies.values()) colony.guardIds.clear();
   }
@@ -2216,6 +2249,14 @@ export class World {
    * 자체는 추가 비용이 거의 없다(대입 두 번).
    */
   private tickMonsters(dtSeconds: number): void {
+    // 이번 틱 시작 시점 기준으로 그리드를 다시 채운다 — moveMonster를 안 거치고
+    // 몬스터 좌표가 바뀔 수 있는 경로(테스트의 직접 대입 등, fireWeapon과 같은 이유)를
+    // 대비한 안전망이다. 이후 이 루프 안에서 moveMonster가 호출될 때마다 증분
+    // 갱신되므로(try/finally), 이 틱 안에서는 항상 "지금까지 처리된 몬스터는 최신
+    // 위치, 아직 처리 안 된 몬스터는 이번 틱 시작 위치"를 정확히 반영한다 — 기존
+    // (그리드 도입 전) computeSeparation이 살아있는 this.monsters를 그대로 순회하며
+    // 갖던 것과 같은 순서 의존적 동작이다.
+    this.rebuildMonsterGrid();
     for (const monster of this.monsters.values()) {
       const data = monstersData[monster.type];
       monster.attackCooldown = Math.max(0, monster.attackCooldown - dtSeconds);
@@ -2756,12 +2797,29 @@ export class World {
   }
 
   /** 근처 몬스터가 겹치지 않도록 밀어내는 벡터(군집 분리, 기술명세 §5.3)를 계산한다. */
+  /**
+   * monsterGrid를 `this.monsters`의 현재 좌표로 통째로 다시 채운다. 몬스터 수만큼(O(M))
+   * 이라 싸다 — moveMonster()를 거치지 않고 좌표가 바뀔 수 있는 지점(틱 시작 시점,
+   * fireWeapon 진입 시점) 앞에서 호출해 그리드가 항상 최신 상태에서 출발하게 한다.
+   */
+  private rebuildMonsterGrid(): void {
+    this.monsterGrid.clear();
+    for (const monster of this.monsters.values()) {
+      this.monsterGrid.insert(monster.id, monster.x, monster.y);
+    }
+  }
+
   private computeSeparation(monster: MonsterEntity): { x: number; y: number } {
     let x = 0;
     let y = 0;
 
-    for (const other of this.monsters.values()) {
-      if (other.id === monster.id) continue;
+    // 전체 몬스터를 다 보는 대신, SEPARATION_RADIUS가 걸치는 격자 칸의 후보만 본다
+    // (docs/backend/45) — 판정 자체(거리 < SEPARATION_RADIUS)는 그대로라 결과는 같다.
+    const candidateIds = this.monsterGrid.queryRadius(monster.x, monster.y, SEPARATION_RADIUS);
+    for (const otherId of candidateIds) {
+      if (otherId === monster.id) continue;
+      const other = this.monsters.get(otherId);
+      if (!other) continue; // 그리드 갱신과 monsters 삭제 사이 타이밍 상 이론상만 존재하는 방어선
       const dx = monster.x - other.x;
       const dy = monster.y - other.y;
       const distance = Math.hypot(dx, dy);
@@ -2804,6 +2862,24 @@ export class World {
    * 잘 통한다.
    */
   private moveMonster(
+    monster: MonsterEntity,
+    dirX: number,
+    dirY: number,
+    speed: number,
+    dtSeconds: number,
+  ): void {
+    // 아래 본문 안의 여러 return 지점(자유 이동/축 슬라이딩/접선 미끄러짐/탈출 점프)
+    // 중 어느 쪽으로 끝나든 monster.x/y가 바뀔 수 있다 — try/finally로 감싸서
+    // "몬스터 위치가 바뀌면 그리드도 같이 바뀐다"를 한 곳에서 보장한다(개별 return마다
+    // 그리드 갱신 호출을 넣으면 새 return이 추가될 때 빠뜨리기 쉽다).
+    try {
+      this.moveMonsterInner(monster, dirX, dirY, speed, dtSeconds);
+    } finally {
+      this.monsterGrid.updateEntry(monster.id, monster.x, monster.y);
+    }
+  }
+
+  private moveMonsterInner(
     monster: MonsterEntity,
     dirX: number,
     dirY: number,
@@ -2957,7 +3033,19 @@ export class World {
 
     let closestId: string | undefined;
     let closestAlong = Infinity;
-    for (const [id, monster] of this.monsters) {
+    // 전체 몬스터 대신 격자 후보만 본다(docs/backend/45). 세그먼트(플레이어→총구) 위의
+    // 어느 점이든 플레이어로부터 gapLength 이내이므로, 플레이어 중심 반경
+    // gapLength + 몬스터 최대 히트박스로 질의하면 세그먼트 전체를 안전하게 덮는다.
+    // 이 함수는 "가장 가까운" 후보를 직접 비교해서 고르므로(첫 매치 반환이 아님)
+    // 후보 순서와 무관하게 결과가 같다.
+    const candidateIds = this.monsterGrid.queryRadius(
+      player.x,
+      player.y,
+      gapLength + MAX_MONSTER_HIT_RADIUS,
+    );
+    for (const id of candidateIds) {
+      const monster = this.monsters.get(id);
+      if (!monster) continue;
       const hitRadius = monsterRadius(monster);
       const alongRaw = (monster.x - player.x) * dirX + (monster.y - player.y) * dirY;
       const along = Math.max(0, Math.min(gapLength, alongRaw));
@@ -2976,7 +3064,18 @@ export class World {
   }
 
   private applyMeleeHit(hit: MeleeHit): void {
-    for (const [id, monster] of this.monsters) {
+    // 전체 몬스터 대신 격자 후보만 본다(docs/backend/45) — 부채꼴의 최대 반경(range)에
+    // 몬스터 최대 히트박스를 더해 후보를 안전하게 잡는다. 이 함수는 부채꼴 안의
+    // 몬스터 전부에게 피해를 주므로(첫 매치에서 멈추지 않음) 후보 순서는 결과에
+    // 영향을 주지 않는다.
+    const candidateIds = this.monsterGrid.queryRadius(
+      hit.originX,
+      hit.originY,
+      hit.range + MAX_MONSTER_HIT_RADIUS,
+    );
+    for (const id of candidateIds) {
+      const monster = this.monsters.get(id);
+      if (!monster) continue;
       if (withinMeleeArc(hit, monster.x, monster.y, monsterRadius(monster))) {
         this.damageMonster(id, monster.hp - hit.damage);
       }
@@ -2999,7 +3098,17 @@ export class World {
   }
 
   private projectileHitsMonster(projectileId: string, projectile: ProjectileEntity): boolean {
-    for (const [monsterId, monster] of this.monsters) {
+    // 전체 몬스터 대신 격자 후보만 본다(docs/backend/45) — 후보 반경에 몬스터 최대
+    // 히트박스를 더해야, 큰(보스급) 몬스터의 중심이 격자 반경 밖이어도 몸이 걸치는
+    // 경우를 놓치지 않는다.
+    const candidateIds = this.monsterGrid.queryRadius(
+      projectile.x,
+      projectile.y,
+      MAX_MONSTER_HIT_RADIUS,
+    );
+    for (const monsterId of candidateIds) {
+      const monster = this.monsters.get(monsterId);
+      if (!monster) continue;
       if (circlesOverlap(projectile.x, projectile.y, monster.x, monster.y, monsterRadius(monster))) {
         this.damageMonster(monsterId, monster.hp - projectile.damage);
         this.projectiles.delete(projectileId);
@@ -3044,6 +3153,7 @@ export class World {
     if (remainingHp <= 0) {
       const monster = this.monsters.get(id);
       this.monsters.delete(id);
+      this.monsterGrid.remove(id);
       if (monster) {
         // 수호대였다면 소속 콜로니 장부에서 지운다 — 저장분은 복원되지 않는다
         // (죽은 몬스터는 영구히 줄어드는 게 정화로 가는 길이다).
