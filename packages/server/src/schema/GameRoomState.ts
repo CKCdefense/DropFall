@@ -44,6 +44,17 @@ export class MonsterSchema extends Schema {
   @type('number') y = 0;
   @type('number') hp = 0;
   @type('number') maxHp = 0;
+  /**
+   * 지금 공격 모션 중인가. 클라이언트가 켜지는 순간에 공격 애니메이션을 재생한다.
+   * 좌표처럼 매 틱 바뀌는 값이 아니라 공격당 두 번만 뒤집혀서 패치 비용이 거의 없다.
+   */
+  @type('boolean') attacking = false;
+  /**
+   * 왼쪽을 보고 있는가(스프라이트 좌우 반전용). 방향 벡터를 그대로 보내면 매 틱
+   * 바뀌는 실수 두 개가 몬스터 수만큼 실려 나가는데, 그림에 실제로 쓰는 정보는
+   * 부호 하나뿐이다. 제자리 공격 중에도 정확한 방향이 필요해서 서버가 알려준다.
+   */
+  @type('boolean') facingLeft = false;
   /** 보스 전용 공격 예고(텔레그래프). 진행 중이 아니면 빈 문자열('' | 'charge' | 'slam'). */
   @type('string') telegraphKind = '';
   @type('number') telegraphX = 0;

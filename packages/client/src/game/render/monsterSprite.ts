@@ -71,11 +71,16 @@ export const MONSTER_ORIGIN_Y = 0.6;
  */
 export const MONSTER_SCALE = 1;
 
-/** 팩의 태그 이름(대문자 시작)을 우리가 쓰는 상태 이름에 붙인 것. */
-const TAG = { idle: 'Idle', walk: 'Walk', death: 'Death' } as const;
+/**
+ * 팩의 태그 이름(대문자 시작)을 우리가 쓰는 상태 이름에 붙인 것.
+ *
+ * 공격은 팩마다 Attack01~03이 있는데 첫 번째만 쓴다 — 서버가 구분하는 건 "공격했다"
+ * 하나뿐이라, 어느 변형을 쓸지 고를 근거가 없다. 나중에 패턴이 갈리면 그때 늘린다.
+ */
+const TAG = { idle: 'Idle', walk: 'Walk', attack: 'Attack01', death: 'Death' } as const;
 export type MonsterAnim = keyof typeof TAG;
 
-const FRAME_RATE: Record<MonsterAnim, number> = { idle: 6, walk: 10, death: 12 };
+const FRAME_RATE: Record<MonsterAnim, number> = { idle: 6, walk: 10, attack: 14, death: 12 };
 
 /** 아틀라스 로드를 예약한다. 파일이 없으면(에셋 미보유) 조용히 넘어간다. */
 export function queueMonsterAtlas(scene: Phaser.Scene): void {
@@ -142,8 +147,9 @@ export function registerMonsterAnimations(scene: Phaser.Scene): void {
         key,
         frames: frames.map((frame) => ({ key: MONSTER_ATLAS, frame })),
         frameRate: FRAME_RATE[anim],
-        // 죽음은 한 번만 재생하고 마지막 장에서 멈춘다 — 시체가 잠깐 남는다.
-        repeat: anim === 'death' ? 0 : -1,
+        // 죽음·공격은 한 번만 재생한다. 죽음은 마지막 장에서 멈춰 시체가 남고,
+        // 공격은 끝나는 즉시 렌더러가 이동/대기 상태로 되돌린다.
+        repeat: anim === 'death' || anim === 'attack' ? 0 : -1,
       });
     }
   }

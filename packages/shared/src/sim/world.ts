@@ -109,6 +109,14 @@ export const BARE_HANDS_WEAPON_ID = 'fist';
 /** 개발 커맨드로 몬스터를 부를 때 코어에서 띄우는 거리(px). 바로 옆에 붙여 놓으면 코어가 즉사한다. */
 const DEV_SPAWN_RADIUS = 160;
 
+/**
+ * 공격 모션을 켜 두는 시간(초). 클라이언트는 이 값이 켜지는 **순간**(false→true)에
+ * 공격 애니메이션을 한 번 재생한다 — 그래서 정확한 길이가 아니라 "네트워크로 그 전이가
+ * 확실히 전달될 만큼"만 되면 된다. 20Hz 패치 기준 0.4초면 여덟 번쯤 실려 나간다.
+ * 가장 짧은 공격 주기(0.8초)보다 짧아야 연속 공격이 한 번으로 뭉치지 않는다.
+ */
+const ATTACK_ANIM_SECONDS = 0.4;
+
 /** 수호대가 콜로니 곁으로 "도착했다"고 보는 여유 거리(px). 충돌 반경 바로 바깥이다. */
 const GUARD_HOME_ARRIVE_MARGIN = 10;
 /** 이 거리보다 가까운 몬스터끼리는 서로 밀어낸다 — 군집 분리(기술명세 §5.3). */
@@ -303,6 +311,12 @@ export interface MonsterEntity {
   homeColonyId?: string;
   /** 수호대 전용: 콜로니 곁에 도착한 뒤 저장 상태로 복귀하기까지 누적된 대기(초). */
   guardReturnTimer: number;
+  /**
+   * 공격 모션이 남은 시간(초). 실제로 피해를 넣은 순간 ATTACK_ANIM_SECONDS로 채워지고
+   * 매 틱 줄어든다. 전투 판정에는 전혀 쓰지 않는다 — 클라이언트가 공격 애니메이션을
+   * 재생할 시점을 알려주기 위해서만 존재한다(그림 없이는 알 방법이 없다).
+   */
+  attackAnimTimer: number;
 }
 
 export interface CoreState {
@@ -1480,6 +1494,7 @@ export class World {
       stuckSeconds: 0,
       companionAttackCooldown: 0,
       guardReturnTimer: 0,
+      attackAnimTimer: 0,
     });
     return id;
   }
@@ -1670,6 +1685,7 @@ export class World {
         if (monster.attackCooldown <= 0) {
           this.damagePlayer(target, data.damage);
           monster.attackCooldown = data.attackInterval;
+          this.markAttack(monster);
         }
       } else {
         this.moveMonster(monster, monster.facingX, monster.facingY, data.speed, dtSeconds);
@@ -1705,6 +1721,11 @@ export class World {
     this.monsters.clear();
     this.contingents.length = 0;
     for (const colony of this.colonies.values()) colony.guardIds.clear();
+  }
+
+  /** 공격 모션을 켠다. 피해가 실제로 들어간 자리마다 부른다(빗나간 시도에는 안 켠다). */
+  private markAttack(monster: MonsterEntity): void {
+    monster.attackAnimTimer = ATTACK_ANIM_SECONDS;
   }
 
   /** 정화 처리: 단계 보상 지급 후 1단계 빈 껍데기로. 다음 낮에 재보급된다(onDayBegan). */
@@ -1952,6 +1973,7 @@ export class World {
       if (monster.companionAttackCooldown > 0) continue;
       this.damageCompanion(data.damage);
       monster.companionAttackCooldown = data.attackInterval;
+      this.markAttack(monster);
     }
   }
 
@@ -1982,6 +2004,7 @@ export class World {
     for (const monster of this.monsters.values()) {
       const data = monstersData[monster.type];
       monster.attackCooldown = Math.max(0, monster.attackCooldown - dtSeconds);
+      monster.attackAnimTimer = Math.max(0, monster.attackAnimTimer - dtSeconds);
 
       // 보스 특수 패턴이 이번 틱의 이동/공격을 전부 처리했으면(예고 중이라 멈춰 있거나
       // 돌진 중이거나) 아래 일반 추격/이동 로직은 건너뛴다. chargeAttack/slamAttack이
@@ -2014,6 +2037,7 @@ export class World {
           if (monster.attackCooldown <= 0) {
             this.damagePlayer(target, data.damage);
             monster.attackCooldown = data.attackInterval;
+            this.markAttack(monster);
           }
         } else {
           // 자원 노드/콜로니가 경로를 막아도 moveMonster가 축 슬라이딩으로 알아서
@@ -2041,6 +2065,7 @@ export class World {
         if (monster.attackCooldown <= 0) {
           this.core.hp = Math.max(0, this.core.hp - data.damage);
           monster.attackCooldown = data.attackInterval;
+          this.markAttack(monster);
         }
         continue;
       }
@@ -2367,6 +2392,7 @@ export class World {
 
     building.hp = Math.max(0, building.hp - damage);
     monster.attackCooldown = attackInterval;
+    this.markAttack(monster);
 
     if (building.hp <= 0) {
       this.buildings.remove(building.id);

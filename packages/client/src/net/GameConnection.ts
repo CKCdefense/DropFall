@@ -43,6 +43,10 @@ export interface MonsterView {
   y: number;
   hp: number;
   maxHp: number;
+  /** 지금 공격 모션 중인가. 켜지는 순간에 공격 애니메이션을 한 번 재생한다. */
+  attacking: boolean;
+  /** 왼쪽을 보고 있는가(스프라이트 좌우 반전). 제자리 공격 중에도 방향이 정확해야 해서 서버가 정한다. */
+  facingLeft: boolean;
   /** 보스 전용 공격 예고(텔레그래프). 진행 중이 아니면 빈 문자열. */
   telegraphKind: '' | 'charge' | 'slam';
   telegraphX: number;

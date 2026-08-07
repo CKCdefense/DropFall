@@ -688,7 +688,7 @@ export class EntityRenderer {
 
       const nextX = Math.round(monster.x);
       const nextY = Math.round(monster.y);
-      this.updateMonsterAnim(sprite, monster.type, nextX - sprite.x);
+      this.updateMonsterAnim(sprite, monster, nextX - sprite.x);
       sprite.setPosition(nextX, nextY);
       sprite.setDepth(monster.y);
 
@@ -714,20 +714,39 @@ export class EntityRenderer {
   }
 
   /**
-   * 걷기/대기 전환과 좌우 반전. 서버가 몬스터의 시야 방향을 따로 내려보내지 않아서
-   * **화면상 이동량으로 판단한다** — 방향 필드를 스냅샷에 추가하면 몬스터 수만큼
-   * 매 패치에 실려 나가는데, 사실상 부호 하나만 쓰는 정보라 그만한 값을 못 한다.
-   * 멈춰 있을 때는 마지막 방향을 유지한다(제자리 공격 중에 홱 돌아보지 않게).
+   * 공격/걷기/대기 전환과 좌우 반전.
+   *
+   * **공격은 서버가 알려준다**(`attacking`) — 클라이언트는 몬스터가 무엇을 때리는지
+   * 모르므로 위치만 보고는 추측할 수 없다. 다만 그 값을 매 프레임 그대로 따르지 않고
+   * **켜지는 순간(false→true)에 한 번 재생**한다: 서버 플래그는 패치 주기에 맞춰
+   * 여러 프레임 동안 켜져 있어서, 그대로 따르면 같은 모션이 매 프레임 처음부터 다시
+   * 시작해 첫 장에서 덜덜 떨린다.
+   *
+   * 방향도 서버 값을 쓴다. 이동량으로 추정하면 제자리에서 공격하는 동안(=방향이 가장
+   * 중요한 순간) 마지막 이동 방향에 얼어붙어, 플레이어가 돌아 들어가면 등을 보고
+   * 때리게 된다.
    */
   private updateMonsterAnim(
     container: Phaser.GameObjects.Container,
-    type: string,
+    monster: MonsterView,
     deltaX: number,
   ): void {
     const body = container.getByName('body');
     if (!(body instanceof Phaser.GameObjects.Sprite)) return;
 
-    if (deltaX !== 0) body.setFlipX(deltaX < 0);
+    body.setFlipX(monster.facingLeft);
+
+    const attackKey = monsterAnimKey(monster.type, 'attack');
+    const wasAttacking = (container.getData('attacking') as boolean | undefined) ?? false;
+    container.setData('attacking', monster.attacking);
+
+    if (monster.attacking && !wasAttacking && this.scene.anims.exists(attackKey)) {
+      body.play(attackKey, true);
+      return;
+    }
+    // 공격 모션은 끝까지 재생하고 나서 이동/대기로 돌아간다(반복 없는 애니메이션이라
+    // 끝나면 isPlaying이 false가 된다).
+    if (body.anims.currentAnim?.key === attackKey && body.anims.isPlaying) return;
 
     // 픽셀 단위로 반올림된 좌표라, 아주 느린 몬스터는 프레임에 따라 delta가 0이 된다 —
     // 그때마다 걷기가 끊기지 않도록 정지 판정에 약간의 유예를 둔다.
@@ -735,8 +754,8 @@ export class EntityRenderer {
     const stillFrames = (container.getData('still') as number | undefined) ?? 0;
     container.setData('still', moving ? 0 : stillFrames + 1);
 
-    const key = monsterAnimKey(type, moving || stillFrames < 6 ? 'walk' : 'idle');
-    if (body.anims.currentAnim?.key !== key) body.play(key, true);
+    const key = monsterAnimKey(monster.type, moving || stillFrames < 6 ? 'walk' : 'idle');
+    if (body.anims.currentAnim?.key !== key || !body.anims.isPlaying) body.play(key, true);
   }
 
   /**

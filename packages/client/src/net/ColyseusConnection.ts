@@ -46,6 +46,8 @@ interface RemoteMonsterState {
   y: number;
   hp: number;
   maxHp: number;
+  attacking: boolean;
+  facingLeft: boolean;
   telegraphKind: string;
   telegraphX: number;
   telegraphY: number;
@@ -349,6 +351,8 @@ export class ColyseusConnection implements GameConnection {
         y: monster.y,
         hp: monster.hp,
         maxHp: monster.maxHp,
+        attacking: monster.attacking,
+        facingLeft: monster.facingLeft,
         telegraphKind: (monster.telegraphKind || '') as '' | 'charge' | 'slam',
         telegraphX: monster.telegraphX,
         telegraphY: monster.telegraphY,

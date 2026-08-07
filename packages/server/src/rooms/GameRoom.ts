@@ -409,6 +409,8 @@ export class GameRoom extends Room {
         schema = new MonsterSchema();
         schema.type = monster.type;
         schema.maxHp = monster.maxHp;
+      schema.attacking = monster.attackAnimTimer > 0;
+      schema.facingLeft = monster.facingX < 0;
         this.state.monsters.set(id, schema);
       }
       schema.x = monster.x;
