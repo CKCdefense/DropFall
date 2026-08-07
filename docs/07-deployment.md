@@ -20,9 +20,11 @@
 서버에 Node 20+, git, Tailscale이 이미 설치·연결돼 있다고 가정한다.
 
 > **계정 구성**: 원래는 서비스 실행용(`dropfall`)과 CI 배포용(`deploy`)
-> 계정을 분리하는 걸 권장했지만, 팀/서버 규모상 **로그인 계정 하나
-> (`dosl196122`)로 통일**했다 — 서비스도 이 계정으로 돌고, CI도 이 계정으로
-> SSH 접속한다. 아래 계정명은 실제 서버 계정으로 그대로 대입한 것이다.
+> 계정을 분리하는 걸 권장했지만, 팀/서버 규모상 **로그인 계정 하나로
+> 통일**했다 — 서비스도 이 계정으로 돌고, CI도 이 계정으로 SSH 접속한다.
+> 아래 `<서버-계정명>`은 실제 서버 로그인 계정으로 바꿔서 쓴다(계정명
+> 자체가 민감 정보는 아니지만, public 저장소라 굳이 실명을 문서에 남기지
+> 않는다).
 
 ```bash
 # 1) /srv/dropfall을 내 계정 소유로 만들고 저장소를 받는다
@@ -37,7 +39,7 @@ pnpm --filter @dropfall/server build
 
 # 2) 배포 스크립트로 재시작할 권한만 얻는다(전체 sudo 아님)
 #    sudo visudo 로 아래 한 줄만 추가(계정명은 실제 로그인 계정으로):
-#    dosl196122 ALL=(root) NOPASSWD: /usr/bin/systemctl restart dropfall-server
+#    <서버-계정명> ALL=(root) NOPASSWD: /usr/bin/systemctl restart dropfall-server
 
 # 3) systemd 서비스 등록 (deploy/dropfall-server.service, 이 리포에 커밋돼 있음)
 sudo cp deploy/dropfall-server.service /etc/systemd/system/
@@ -97,8 +99,8 @@ CI 전용 키페어를 새로 만든다(로컬 계정 키를 재사용하지 않
 
 ```bash
 ssh-keygen -t ed25519 -f dropfall_deploy_key -N ""
-# 공개키 → 서버의 배포 계정(예: dosl196122)에 등록
-ssh-copy-id -i dropfall_deploy_key.pub dosl196122@<서버-tailscale-ip>
+# 공개키 → 서버의 배포 계정에 등록
+ssh-copy-id -i dropfall_deploy_key.pub <서버-계정명>@<서버-tailscale-ip>
 # 개인키(dropfall_deploy_key) 내용을 GitHub 시크릿 DEPLOY_SSH_KEY에 붙여넣고,
 # 로컬 사본은 지운다.
 ```
@@ -115,7 +117,7 @@ ssh-copy-id -i dropfall_deploy_key.pub dosl196122@<서버-tailscale-ip>
 | Secret | `TS_OAUTH_CLIENT_ID` | Tailscale OAuth client id | CI가 tailnet에 조인 |
 | Secret | `TS_OAUTH_CLIENT_SECRET` | Tailscale OAuth client secret | 〃 |
 | Secret | `DEPLOY_SSH_KEY` | §4에서 만든 개인키 전체 내용 | 서버 SSH 접속 |
-| Variable | `DEPLOY_SSH_USER` | `dosl196122`(서버 로그인 계정) | SSH 접속 계정 |
+| Variable | `DEPLOY_SSH_USER` | 서버 로그인 계정명 | SSH 접속 계정 |
 | Variable | `TS_SERVER_HOST` | 서버의 Tailscale IP/MagicDNS 이름 | SSH 접속 대상 |
 | Variable | `VITE_SERVER_URL` | `wss://game.<도메인>` | 클라이언트 빌드에 굽는 서버 주소 |
 

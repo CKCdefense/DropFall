@@ -24,8 +24,8 @@ EnvironmentFile=-/srv/dropfall/packages/server/.env
 Restart=always
 RestartSec=3
 # 팀/서버 규모상 계정을 따로 안 나누고 로그인 계정 하나로 서비스도 돌리고
-# CI 배포 SSH도 받는다(docs/07-deployment.md) — 실제 서버 계정명으로 바꿀 것.
-User=dosl196122
+# CI 배포 SSH도 받는다(docs/07-deployment.md) — 아래 값을 실제 서버 계정명으로 바꿀 것.
+User=<서버-계정명>
 
 [Install]
 WantedBy=multi-user.target
