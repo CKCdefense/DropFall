@@ -12,6 +12,7 @@
     "smoke:lobby": "tsx src/dev/lobby-smoke-test.ts",
     "smoke:dev": "tsx src/dev/dev-command-smoke-test.ts",
     "smoke:persona": "tsx src/dev/persona-smoke-test.ts",
+    "test": "vitest run tests/gameRoomState.test.ts",
     "test:integration": "vitest run tests/persona-integration.test.ts"
   },
   "dependencies": {

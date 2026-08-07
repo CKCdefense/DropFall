@@ -384,13 +384,8 @@ export class GameRoom extends Room {
     this.state.coreSharedEnergy = core.sharedEnergy;
     this.state.coreMoney = core.money;
     // 진열은 하루에 한 번만 바뀐다 — 매 틱 덮어쓰지 않고 달라졌을 때만 갈아 끼운다.
-    // splice(0, len, ...새값)은 쓸 수 없다 — ArraySchema#splice는 insertCount가
-    // deleteCount보다 크면 던진다(예: 첫 낮 진열이 빈 배열 위에 N개를 채우는 경우,
-    // 매 틱 반복적으로 터져서 결국 방이 응답을 멈추고 클라이언트 연결이 끊겼다).
-    // clear() 후 push()는 개수 제약이 없어 항상 안전하다.
     if (!sameStrings(this.state.shopStock, core.shopStock)) {
-      this.state.shopStock.clear();
-      this.state.shopStock.push(...core.shopStock);
+      replaceArrayContents(this.state.shopStock, core.shopStock);
     }
     this.state.coreTier = core.tier;
     this.state.coreBuildRadius = this.world.getBuildRadius();
@@ -615,4 +610,20 @@ function sameStrings(a: ArrayLike<string>, b: readonly string[]): boolean {
     if (a[i] !== b[i]) return false;
   }
   return true;
+}
+
+/**
+ * ArraySchema(Colyseus) 전체를 새 값으로 교체한다. **splice(0, len, ...새값)는 쓰면
+ * 안 된다** — ArraySchema#splice는 insertCount가 deleteCount보다 크면 예외를 던진다.
+ * 빈 배열(길이 0) 위에 원소를 채우는 경우(예: 게임 시작 직후 첫 상점 진열)가 정확히
+ * 이 조건이라, 그 패턴은 매 틱 반복적으로 터져서 결국 방이 응답을 멈춘다(실제로 겪음 —
+ * tests/gameRoomState.test.ts에 회귀 테스트 있음). clear() 후 push()는 개수 제약이
+ * 없어 늘어나든 줄어들든 항상 안전하다.
+ */
+export function replaceArrayContents<T>(
+  target: { clear(): void; push(...items: T[]): number },
+  values: readonly T[],
+): void {
+  target.clear();
+  target.push(...values);
 }
