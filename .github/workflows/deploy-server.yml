@@ -1,0 +1,61 @@
+name: Deploy game server
+
+# main에 머지(=push)되면 자동 배포. Actions 탭에서 수동 재실행도 가능하다.
+#
+# CI는 서버로 빌드 산출물을 옮기지 않는다 — Tailscale로 서버에 SSH 접속해서
+# 서버 자신이 git pull + 빌드하는 배포 스크립트(scripts/deploy-server.sh)를
+# 실행시키기만 한다. 빌드 환경(Node/pnpm)이 항상 서버 자신과 일치하고, 아티팩트
+# 전송 로직이 따로 필요 없다(docs/07-deployment.md).
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-server
+  cancel-in-progress: false # 배포 도중 다음 배포가 끼어들어 서버를 반쯤 갱신된 채로 두지 않는다
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          # pnpm 11(package.json의 packageManager)이 Node 22.13+를 요구한다 —
+          # engines.node(>=20)만 보고 20으로 뒀다가 CI에서 ERR_UNKNOWN_BUILTIN_MODULE
+          # (node:sqlite)로 실패한 적이 있다. 실제 서버/로컬 개발 환경도 이미 Node 22다.
+          node-version: '22'
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @dropfall/shared test
+      - run: pnpm --filter @dropfall/server typecheck
+      - run: pnpm lint
+
+  deploy:
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      # 러너를 Tailscale 네트워크에 임시로 조인시킨다 — 서버가 포트포워딩 없이
+      # tailnet 안에서만 SSH를 열어 둘 수 있게 해 준다. OAuth client는 Tailscale
+      # 관리자 콘솔에서 발급하고(태그 예: tag:ci), 그 태그가 배포 서버에 SSH로
+      # 닿도록 ACL을 미리 맞춰 둬야 한다(docs/07-deployment.md).
+      - uses: tailscale/github-action@v3
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-client-secret: ${{ secrets.TS_OAUTH_CLIENT_SECRET }}
+          tags: tag:ci
+
+      - name: SSH로 배포 스크립트 실행
+        run: |
+          install -m 600 /dev/null deploy_key
+          printf '%s\n' "$DEPLOY_SSH_KEY" > deploy_key
+          ssh -o StrictHostKeyChecking=accept-new -i deploy_key \
+            "$DEPLOY_SSH_USER@$TS_SERVER_HOST" \
+            'bash /srv/dropfall/scripts/deploy-server.sh'
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_SSH_USER: ${{ vars.DEPLOY_SSH_USER }}
+          TS_SERVER_HOST: ${{ vars.TS_SERVER_HOST }}

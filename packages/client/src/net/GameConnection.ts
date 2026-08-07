@@ -167,6 +167,11 @@ export interface WorldSnapshot {
   colonies: ColonyView[];
   companion: CompanionView;
   status: WorldStatus;
+  /**
+   * 팀이 밝힌 지역(칸당 1비트, explored.ts). 미니맵 안개가 이걸 그대로 마스크로 쓴다.
+   * 보간 대상이 아니라 항상 최신값이다.
+   */
+  explored: ArrayLike<number>;
 }
 
 export interface RoomInfo {

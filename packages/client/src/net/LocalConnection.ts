@@ -300,6 +300,7 @@ export class LocalConnection implements GameConnection {
       buildings,
       colonies,
       companion,
+      explored: this.world.getExplored(),
       status: {
         coreHp: core.hp,
         coreMaxHp: core.maxHp,

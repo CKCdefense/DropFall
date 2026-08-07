@@ -11,6 +11,7 @@ import {
   CHAT_MESSAGE,
   COMPANION_COMMENTARY_MESSAGE,
   CORE_COMMENTARY_MESSAGE,
+  EXPLORED_BYTE_COUNT,
   LOBBY_ERROR_MESSAGE,
   LobbyMessage,
   RoomErrorCode,
@@ -20,6 +21,9 @@ import {
 import { SERVER_HTTP_URL } from './config';
 import type { GameConnection, LobbyView, RoomInfo, WorldSnapshot } from './GameConnection';
 import { SnapshotInterpolator } from './SnapshotInterpolator';
+
+/** 서버 상태가 오기 전에 쓸 빈 안개 — 전부 미탐색. */
+const EMPTY_EXPLORED = new Uint8Array(EXPLORED_BYTE_COUNT);
 
 /** 서버 Schema를 클라이언트 관점에서 본 모양. 서버의 GameRoomState와 1:1로 맞춘다. */
 interface RemotePlayerState {
@@ -92,6 +96,7 @@ interface RemoteGameState {
   coreSharedEnergy: number;
   coreMoney: number;
   shopStock: ArrayLike<string>;
+  explored: ArrayLike<number>;
   coreTier: number;
   coreBuildRadius: number;
   craftingUnlocked: boolean;
@@ -439,6 +444,7 @@ export class ColyseusConnection implements GameConnection {
       buildings,
       colonies,
       companion,
+      explored: state?.explored ?? EMPTY_EXPLORED,
       status: {
         coreHp: state?.coreHp ?? 0,
         coreMaxHp: state?.coreMaxHp ?? 0,
