@@ -3,15 +3,21 @@
   "atlases": [
     {
       "name": "game",
-      "$comment": "인게임 월드 스프라이트. 캐릭터/몬스터/아이템/건축물/오브젝트/이펙트",
+      "$comment": "인게임 월드 스프라이트. 캐릭터/아이템/건축물/오브젝트/이펙트 (몬스터는 monsters 아틀라스로 분리)",
       "sources": [
         "sprites/characters",
-        "sprites/monsters",
         "sprites/items",
         "sprites/buildings",
         "sprites/objects",
         "sprites/props",
         "sprites/fx"
+      ]
+    },
+    {
+      "name": "monsters",
+      "$comment": "몬스터. 재업로드 금지 라이센스 에셋을 쓰므로 원본도 이 아틀라스 산출물도 커밋하지 않는다 (sprites/monsters/README.md)",
+      "sources": [
+        "sprites/monsters"
       ]
     },
     {

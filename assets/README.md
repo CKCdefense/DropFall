@@ -12,12 +12,16 @@ assets/                    원본 (.aseprite, .tmx, .wav …)  ← 여기서 작
 packages/client/public/assets/   빌드 산출물 (.png, .json)  ← 게임이 읽음 (커밋함)
 ```
 
+> **예외: 몬스터.** 재업로드 금지 라이센스 에셋이라 원본도 산출물도 커밋하지 않는다.
+> 그래서 `monsters` 아틀라스만 따로 뽑는다 — 자세히는
+> [sprites/monsters/README.md](sprites/monsters/README.md).
+
 ## 디렉터리
 
 | 경로 | 내용 | 최종 형태 |
 |---|---|---|
 | `sprites/characters/` | 플레이어, 직업별 스프라이트 | `game` 아틀라스 |
-| `sprites/monsters/` | 몬스터 | `game` 아틀라스 |
+| `sprites/monsters/` | 몬스터 — **커밋 금지 라이센스 에셋** (`sprites/monsters/README.md`) | `monsters` 아틀라스 (**커밋 안 함**) |
 | `sprites/items/` | 무기, 소모품, 자원 드랍 | `game` 아틀라스 |
 | `sprites/buildings/` | 벽, 울타리, 문, 포탑, 코어 | `game` 아틀라스 |
 | `sprites/props/` | 나무, 바위 등 필드 오브젝트 | `game` 아틀라스 |

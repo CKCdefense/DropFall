@@ -17,6 +17,16 @@ Thumbs.db
 .vscode/*
 !.vscode/extensions.json
 
+# 라이센스 에셋 — 재업로드 금지 조항이 있어 공개 저장소에 올릴 수 없다.
+# **"수정본 포함" 금지**라서 Lua로 색만 바꾼 변형본도 여기 해당한다.
+# 원본뿐 아니라 픽셀이 그대로 박히는 아틀라스 산출물까지 막아야 한다.
+# 팀원 공유 방법은 assets/sprites/monsters/README.md 참고.
+assets/sprites/monsters/**
+!assets/sprites/monsters/.gitkeep
+!assets/sprites/monsters/README.md
+packages/client/public/assets/atlas/monsters.png
+packages/client/public/assets/atlas/monsters.json
+
 # 폰트 데스크톱 포맷. 웹 빌드는 woff2만 쓴다(assets/fonts/README.md 참고).
 # 갈무리 배포본 전체는 100MB가 넘어서 저장소에 넣으면 클론이 감당이 안 된다.
 assets/fonts/*.ttf
