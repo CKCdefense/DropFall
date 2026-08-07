@@ -181,7 +181,6 @@ export class InputController {
     this.keys.down.reset();
     this.keys.left.reset();
     this.keys.right.reset();
-    this.keys.channel.reset();
     this.fireTimer = 0;
     this.seq += 1;
     this.connection.sendInput(this.buildInput());

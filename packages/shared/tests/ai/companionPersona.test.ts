@@ -333,7 +333,7 @@ describe('World — 티모시 대사 트리거', () => {
   it('티모시가 몬스터에게 맞아 다운되면 가장 가까운 플레이어를 향해 companionDowned가 쌓인다', () => {
     const world = createTestWorld();
     world.addPlayer('p1', 0, 0);
-    world.runDevCommand('p1', 'spawn trash 1');
+    world.runDevCommand('p1', 'spawn demon 1');
     const [monster] = [...world.getMonsters().values()];
     const companion = mutableCompanion(world);
     companion.x = monster.x;
