@@ -14,7 +14,7 @@
 | 스프라이트 | **Aseprite** | `.aseprite` → PNG 아틀라스 + JSON |
 | 테스트 | Vitest | `shared/sim` 유닛 테스트 중심 |
 | 린트/포맷 | ESLint + Prettier | pre-commit 훅 |
-| 배포 | 클라: GitHub Pages + 홈서버 / 서버: 홈서버 | Cloudflare Tunnel로 `wss://` 노출 (§9) |
+| 배포 | 클라: GitHub Pages + 홈서버 / 서버: 홈서버 | Tailscale Funnel로 `wss://` 노출 (§9) |
 
 ### 1.1 선정 근거
 
@@ -323,16 +323,16 @@ this.cameras.main.setZoom(computeCameraZoom(this.scale.width, this.scale.height)
        ┌──────────────────┴──────────────────┐
        │                                     │
   [ 클라이언트 ]                        [ 게임 서버 ]
-  https://<id>.github.io/DropFall/     wss://game.<도메인>
+  https://<id>.github.io/DropFall/     wss://<서버-tailnet-hostname>
   https://dropfall.<도메인>              └ Colyseus (홈서버 :2567)
-   (둘 다 동일 빌드 산출물)                  Cloudflare Tunnel 경유
+   (둘 다 동일 빌드 산출물)                  Tailscale Funnel 경유
 ```
 
 | 대상 | 위치 | 비고 |
 |---|---|---|
 | 클라이언트 (주) | **GitHub Pages** | 공모전 제출 링크. `main` 머지 시 Actions 자동 배포 |
 | 클라이언트 (부) | **홈서버** (Caddy 정적 서빙) | 자체 도메인 접속용. Pages 장애 시 대체 |
-| 게임 서버 | **홈서버** (Colyseus) | Cloudflare Tunnel로 `wss://` 노출 |
+| 게임 서버 | **홈서버** (Colyseus) | Tailscale Funnel로 `wss://` 노출 |
 | 에셋 | 클라 번들에 포함 | 별도 CDN 불필요 |
 
 > **왜 클라이언트만 이중화하는가**: 정적 파일은 어디에 올려도 같은 산출물이라 이중화 비용이 0이다.
@@ -351,25 +351,33 @@ GitHub Pages는 항상 HTTPS로 서빙된다. **HTTPS 페이지에서 `ws://`(�
 
 → 홈서버는 **도메인 + 유효한 TLS 인증서 + `wss://`** 가 반드시 필요하다.
 
-### 9.3 홈서버 노출: Cloudflare Tunnel
+### 9.3 홈서버 노출: Tailscale Funnel
 
-포트포워딩 대신 **Cloudflare Tunnel**을 쓴다. 홈서버가 바깥으로 나가는 연결을 유지하는 방식이라
-CGNAT·유동 IP·ISP의 80/443 차단·공유기 설정·홈 IP 노출 문제가 전부 사라지고 TLS도 자동이다.
+원래 계획은 Cloudflare Tunnel이었지만, 실제 배포 중 **우리가 DNS를 소유한 루트
+도메인이 없으면 Cloudflare Tunnel의 공개 호스트네임 라우팅 자체가 안 된다**는
+걸 확인했다(Cloudflare는 무료 서브도메인 서비스(`kro.kr` 등, Public Suffix
+List에 올라간 공유 도메인)를 "당신 소유의 루트 도메인"으로 인정하지 않는다
+— `github.io`/`blogspot.com`과 같은 취급). 도메인을 새로 사지 않기로 하면서
+**Tailscale Funnel**로 바꿨다 — 어차피 CI 배포 접속용으로 홈서버가 이미
+Tailscale에 연결돼 있어서(§9.5) 추가 인프라 없이 그대로 쓸 수 있다.
 
-```yaml
-# ~/.cloudflared/config.yml
-tunnel: dropfall
-credentials-file: /home/<user>/.cloudflared/<tunnel-id>.json
-ingress:
-  - hostname: game.<도메인>          # 게임 서버 (WebSocket + 매치메이킹 HTTP)
-    service: http://localhost:2567
-  - hostname: dropfall.<도메인>      # 클라이언트 정적 서빙
-    service: http://localhost:8080
-  - service: http_status:404
+```bash
+# tailnet 전체 설정(한 번만): 관리자 콘솔 → DNS → HTTPS Certificates 켜기
+# https://login.tailscale.com/admin/dns
+
+# 홈서버에서: 로컬 포트를 공개 인터넷에 노출(계정 첫 사용 시 승인 링크가 한 번 뜬다)
+sudo tailscale funnel 2567
+# → https://<머신명>.<tailnet-이름>.ts.net 로 공개 접속 가능 (TLS 자동 발급/갱신)
 ```
 
-> **주의**: Cloudflare는 유휴 WebSocket을 약 100초에 끊는다. Colyseus 기본 ping/pong 하트비트로
-> 커버되지만, **로비에서 장시간 대기하는 시나리오는 반드시 실측 테스트**한다.
+`tailscale funnel` 설정은 tailscaled 자체에 저장되므로 재부팅해도 그대로
+유지된다(별도 systemd 유닛 불필요). 호스트네임은 머신명 + tailnet 이름으로
+고정되고 재시작해도 안 바뀐다 — Cloudflare Quick Tunnel(매 실행마다 무작위
+호스트네임 발급)과 달리 `Restart=always` 기반 자동 복구 설계와 궁합이 맞다.
+
+> **주의**: 유휴 WebSocket 타임아웃 여부는 Cloudflare만큼 명확히 문서화돼
+> 있지 않다 — Colyseus 기본 ping/pong 하트비트는 그대로 유효하지만,
+> **로비에서 장시간 대기하는 시나리오는 반드시 실측 테스트**한다(§9.7).
 
 ### 9.4 클라이언트 빌드 — 두 경로 동시 지원
 
@@ -399,7 +407,7 @@ export const SERVER_URL = params.get('server') ?? import.meta.env.VITE_SERVER_UR
 
 ```
 # packages/client/.env.production
-VITE_SERVER_URL=wss://game.<도메인>
+VITE_SERVER_URL=wss://<서버-tailnet-hostname>
 ```
 
 ### 9.5 배포 파이프라인
@@ -423,7 +431,8 @@ VITE_SERVER_URL=wss://game.<도메인>
 
 **홈서버 프로세스 관리** — 백업 서버가 없으므로 자동 복구가 유일한 방어선이다.
 
-- Colyseus, `cloudflared`, 정적 서버를 전부 **systemd 서비스**로 등록
+- Colyseus, 정적 서버를 **systemd 서비스**로 등록(`tailscale funnel`은 tailscaled
+  자체에 설정이 저장돼 별도 서비스 등록이 필요 없다 — §9.3)
 - `Restart=always`, `RestartSec=3`, `WantedBy=multi-user.target` (부팅 시 자동 기동)
 - 재부팅 테스트를 **실제로 한 번 해본다**. 안 해보면 시연 당일에 안 올라온다
 
@@ -436,8 +445,8 @@ VITE_SERVER_URL=wss://game.<도메인>
 
 - [ ] 팀 외부 네트워크(모바일 핫스팟 등)에서 Pages URL 접속 → 홈서버 연결 성공
 - [ ] 홈서버 도메인 URL로도 동일하게 동작
-- [ ] 3인 동시 접속 20분 이상 유지 (Cloudflare WebSocket 타임아웃 실측)
-- [ ] 홈서버 **재부팅 후** Colyseus + cloudflared 자동 기동 확인
+- [ ] 3인 동시 접속 20분 이상 유지 (WebSocket 유휴 타임아웃 실측)
+- [ ] 홈서버 **재부팅 후** Colyseus 자동 기동 + `tailscale funnel status`로 Funnel 유지 확인
 - [ ] 로비 장시간 대기 → 연결 유지 확인
 - [ ] 브라우저 콘솔에 mixed content / 404 에셋 경고 없음
 
