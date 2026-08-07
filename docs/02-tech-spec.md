@@ -7,7 +7,7 @@
 | 언어 | **TypeScript** (strict) | 클라·서버 전역 |
 | 렌더링 | **Phaser 3** | 픽셀아트, 타일맵, 입력, 카메라 내장 |
 | 멀티플레이 | **Colyseus** (Node + WebSocket) | 룸 관리 + 상태 동기화 |
-| 런타임 | Node 20 LTS | |
+| 런타임 | Node 22.13+ | pnpm 11(`package.json`의 `packageManager`)이 요구하는 최소 버전. 초기엔 20 LTS로 시작했지만 pnpm 버전을 올리며 같이 올라갔다 |
 | 빌드 | **Vite**(클라) / **tsup**(서버) | 서버를 tsc로 빌드하면 확장자 없는 ESM import로 실행이 깨진다 (§9.5) |
 | 패키지 | **pnpm workspace** | 모노레포 |
 | 맵 에디터 | **Tiled** | `.tmj` (JSON) 익스포트 |

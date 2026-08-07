@@ -17,7 +17,8 @@
 
 ## 1. 서버 최초 설정 (한 번만)
 
-서버에 Node 20+, git, Tailscale이 이미 설치·연결돼 있다고 가정한다.
+서버에 Node 22.13+(pnpm 11이 요구하는 최소 버전, `package.json`의
+`engines.node` 참고), git, Tailscale이 이미 설치·연결돼 있다고 가정한다.
 
 > **계정 구성**: 원래는 서비스 실행용(`dropfall`)과 CI 배포용(`deploy`)
 > 계정을 분리하는 걸 권장했지만, 팀/서버 규모상 **로그인 계정 하나로
