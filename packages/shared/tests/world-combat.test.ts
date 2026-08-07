@@ -89,6 +89,17 @@ function pinAt(monster: { x: number; y: number }, x: number, y: number): void {
   monster.y = y;
 }
 
+
+/**
+ * 큰 dt 한 번으로는 공격이 정산되지 않는다 — 이제 모든 공격이 "시도 → 예고 → 판정"
+ * 3단계라, 시도한 틱과 정산되는 틱이 다르다(실제 서버는 60Hz라 무관하다).
+ * 테스트는 실제 틱레이트에 가깝게 잘게 굴린다.
+ */
+function tickSeconds(world: World, seconds: number, step = 0.02): void {
+  const steps = Math.max(1, Math.round(seconds / step));
+  for (let i = 0; i < steps; i += 1) world.tick(step);
+}
+
 describe('World — 전투/웨이브 통합', () => {
   it('day로 시작해서 dayDuration이 지나면 night(1웨이브)로 전환된다', () => {
     const world = new World();
@@ -309,7 +320,7 @@ describe('World — 전투/웨이브 통합', () => {
     monster!.y = 0; // 코어 바로 위 — attackRange + CORE_RADIUS 안
 
     const initialHp = world.getCore().hp;
-    world.tick(1.5); // attackInterval(1초 또는 그 이상)이 지나도록
+    tickSeconds(world, 1.5); // 예고 + attackInterval이 지나도록
 
     expect(world.getCore().hp).toBeLessThan(initialHp);
   });
@@ -324,7 +335,7 @@ describe('World — 전투/웨이브 통합', () => {
 
     // 코어 HP를 0 근처로 만들어 다음 공격 한 방으로 패배하게 한다
     (world.getCore() as { hp: number }).hp = 1;
-    world.tick(1.5);
+    tickSeconds(world, 1.5);
 
     expect(world.getWavePhase()).toBe('defeat');
   });
@@ -380,7 +391,7 @@ describe('World — 전원 다운 = 즉시 패배', () => {
     monster!.y = 0;
 
     const coreHpBefore = world.getCore().hp;
-    world.tick(2); // attackInterval을 넘기도록
+    tickSeconds(world, 2); // 예고 + attackInterval을 넘기도록
 
     // 다운된 플레이어를 어그로 대상으로 잡았다면 코어는 공격받지 않았을 것이다(continue로 스킵).
     // 코어 HP가 깎였다는 건 몬스터가 다운된 플레이어를 무시하고 코어 쪽 로직을 탔다는 뜻이다.
@@ -515,7 +526,9 @@ describe('World — 어그로 타겟 히스테리시스', () => {
 
     const [monster] = [...world.getMonsters().values()];
     (monster as { type: string }).type = 'hellhound'; // aggroRadius 240
-    monster!.x = 10;
+    // **공격 사거리(20) 밖**에 둔다 — 한 대 때리면 타겟을 놓고 다시 고르는 규칙이라
+    // (§clearAggroAfterAttack), 붙여 두면 leash가 아니라 그 규칙을 보게 된다.
+    monster!.x = 100;
     monster!.y = 0;
     monster!.facingX = -1; // 플레이어('near', 원점) 쪽을 바라보게 시야각 안에 둔다
     monster!.facingY = 0;
@@ -523,8 +536,8 @@ describe('World — 어그로 타겟 히스테리시스', () => {
     world.tick(0.05); // 타겟 획득
     expect(monster!.targetPlayerId).toBe('near');
 
-    // 아그로 반경(120) 밖이지만 leash(120*1.5=180) 안으로 플레이어를 이동시킨다.
-    world.getPlayers().get('near')!.x = 150;
+    // 아그로 반경(240) 밖이지만 leash(240*1.5=360) 안으로 플레이어를 이동시킨다.
+    world.getPlayers().get('near')!.x = monster!.x + 300;
     world.tick(0.05);
 
     expect(monster!.targetPlayerId).toBe('near');
@@ -538,7 +551,7 @@ describe('World — 어그로 타겟 히스테리시스', () => {
 
     const [monster] = [...world.getMonsters().values()];
     (monster as { type: string }).type = 'hellhound';
-    monster!.x = 10;
+    monster!.x = 100; // 공격 사거리 밖 = 추격 상태
     monster!.y = 0;
     monster!.facingX = -1; // 플레이어('near', 원점) 쪽을 바라보게 시야각 안에 둔다
     monster!.facingY = 0;
@@ -546,8 +559,8 @@ describe('World — 어그로 타겟 히스테리시스', () => {
     world.tick(0.05);
     expect(monster!.targetPlayerId).toBe('near');
 
-    // leash(180)보다 멀리 이동 — 더 이상 근처에 다른 플레이어도 없으므로 타겟이 사라져야 한다.
-    world.getPlayers().get('near')!.x = 1000;
+    // leash(360)보다 멀리 이동 — 더 이상 근처에 다른 플레이어도 없으므로 타겟이 사라져야 한다.
+    world.getPlayers().get('near')!.x = 2000;
     world.tick(0.05);
 
     expect(monster!.targetPlayerId).toBeUndefined();
@@ -555,9 +568,9 @@ describe('World — 어그로 타겟 히스테리시스', () => {
 
   it('타겟이 다운되면(hp 0) 다른 대상으로 넘어간다', () => {
     const world = new World();
-    world.addPlayer('down', 0, 0);
+    world.addPlayer('down', 60, 0);
     equipDefaultKit(world, 'down');
-    world.addPlayer('alive', 20, 0);
+    world.addPlayer('alive', 120, 0);
     equipDefaultKit(world, 'alive');
     startFirstWave(world);
 
@@ -565,8 +578,7 @@ describe('World — 어그로 타겟 히스테리시스', () => {
     (monster as { type: string }).type = 'hellhound';
     monster!.x = 0;
     monster!.y = 0;
-    // 'down'은 몬스터와 완전히 같은 좌표라 시야각 검사가 자동으로 건너뛰어지지만,
-    // 'alive'(x=20)를 나중에 잡으려면 그쪽을 바라보고 있어야 한다.
+    // 둘 다 공격 사거리(20) 밖에 둔다 — 때리는 순간 타겟을 놓는 규칙과 섞이지 않게.
     monster!.facingX = 1;
     monster!.facingY = 0;
 
@@ -625,7 +637,7 @@ describe('World — 어그로 시야각(120도)', () => {
 
     const [monster] = [...world.getMonsters().values()];
     (monster as { type: string }).type = 'hellhound';
-    monster!.x = 10;
+    monster!.x = 100; // 공격 사거리 밖 = 추격 상태
     monster!.y = 0;
     monster!.facingX = -1;
     monster!.facingY = 0;
@@ -635,7 +647,7 @@ describe('World — 어그로 시야각(120도)', () => {
 
     // 추격하다 타겟을 지나쳐(등 뒤로 두고) 반대편으로 이동한 상황을 흉내낸다 —
     // 시야각은 "처음 발견"에만 걸리고 추격 유지에는 걸리지 않아야 하므로 타겟을 유지해야 한다.
-    monster!.x = -5;
+    monster!.x = -60;
     monster!.facingX = -1; // 계속 -x로 나아가는 중이라 'near'(0,0)는 이제 등 뒤(+x쪽)다
     world.tick(0.05);
 
@@ -822,5 +834,152 @@ describe('World — 몬스터 처치 보상(부품/에너지)', () => {
       for (let i = 0; i < 60 && world.getProjectiles().size > 0; i += 1) world.tick(1 / 60);
     }).not.toThrow();
     expect(world.getMonsters().has(monster!.id)).toBe(false); // 판정 자체는 그대로 적용된다
+  });
+});
+
+describe('World — 어그로 규칙(공격 1회 → 재탐색)', () => {
+  /**
+   * 규칙: 시야 안 가장 가까운 플레이어를 잡고 → 사거리에서 한 번 때리고 → 다시 고른다.
+   * 시야 안에 아무도 없을 때만 코어로 향한다. 멀티/싱글 공통이다.
+   */
+  it('한 대 때리면 타겟을 놓고, 그 사이 더 가까워진 사람으로 갈아탄다', () => {
+    // 시야각(전방 120도) 안에 둘 다 세운다 — 등 뒤는 애초에 "시야 내"가 아니라
+    // 후보가 되지 않는다(그게 규칙이다).
+    const world = new World();
+    world.addPlayer('near', 15, 0);
+    world.addPlayer('far', 60, 0);
+    startFirstWave(world);
+    clearResourceNodes(world);
+
+    const monster = isolateMonster(world, 'hellhound');
+    monster.x = 0;
+    monster.y = 0;
+    (monster as unknown as { facingX: number; facingY: number }).facingX = 1;
+    (monster as unknown as { facingX: number; facingY: number }).facingY = 0;
+
+    // 가까운 쪽을 잡고 사거리(20) 안이라 때린다.
+    const nearPlayer = world.getPlayers().get('near')!;
+    for (let i = 0; i < 200 && nearPlayer.hp === 100; i += 1) {
+      world.tick(0.05);
+      monster.x = 0;
+      monster.y = 0;
+    }
+    expect(nearPlayer.hp).toBeLessThan(100);
+    // 때린 직후에는 타겟을 놓은 상태여야 한다.
+    expect(monster.targetPlayerId).toBeUndefined();
+
+    // 이제 거리를 뒤집는다 — 재탐색이 돌면 'far'가 새 타겟이 된다.
+    nearPlayer.x = 200;
+    world.getPlayers().get('far')!.x = 30;
+    world.tick(0.05);
+
+    expect(monster.targetPlayerId).toBe('far');
+  });
+
+  it('시야 안에 플레이어가 없을 때만 코어를 때린다', () => {
+    const world = new World();
+    world.addPlayer('far', 2000, 2000); // 아그로 밖
+    startFirstWave(world);
+    clearResourceNodes(world);
+
+    const monster = isolateMonster(world, 'hellhound');
+    // 코어 발자국 바로 앞(공격 사거리 안)에 세운다.
+    monster.x = 70;
+    monster.y = 0;
+    monster.attackCooldown = 0;
+
+    const coreBefore = world.getCore().hp;
+    tickSeconds(world, 1.5);
+    expect(world.getCore().hp).toBeLessThan(coreBefore); // 아무도 없으니 코어를 친다
+
+    // 이제 플레이어가 시야 안에 들어오면 코어 대신 사람을 노린다.
+    world.getPlayers().get('far')!.x = monster.x - 40;
+    world.getPlayers().get('far')!.y = 0;
+    monster.facingX = -1;
+    monster.facingY = 0;
+    world.tick(0.05);
+
+    expect(monster.targetPlayerId).toBe('far');
+  });
+});
+
+describe('World — 모든 공격은 시도 → 예고 → 판정 → 정산', () => {
+  /**
+   * 예전에는 사거리에 들어온 순간 곧바로 피해가 들어갔다(보스 평타 포함). 예고가
+   * 없으니 피할 방법이 아예 없었고, 그림도 맞은 뒤에야 재생됐다.
+   */
+  it('사거리에 들어와도 곧바로 맞지 않는다 — 예고 시간이 지나야 정산된다', () => {
+    const world = new World();
+    world.addPlayer('p1', 0, 0);
+    startFirstWave(world);
+    clearResourceNodes(world);
+
+    const monster = isolateMonster(world, 'demon');
+    const player = world.getPlayers().get('p1')!;
+    monster.x = 10; // 사거리(20) 안
+    monster.y = 0;
+    (monster as unknown as { facingX: number; facingY: number }).facingX = -1;
+    (monster as unknown as { facingX: number; facingY: number }).facingY = 0;
+
+    const windup = monstersData.demon.attackWindupSeconds;
+    // 예고가 끝나기 직전까지는 한 대도 안 맞아야 한다.
+    tickSeconds(world, windup * 0.6, 0.01);
+    expect(player.hp).toBe(100);
+
+    // 예고를 넘기면 그때 정산된다.
+    tickSeconds(world, windup, 0.01);
+    expect(player.hp).toBe(100 - monstersData.demon.damage);
+  });
+
+  it('예고 중에 사거리 밖으로 빠지면 헛친다', () => {
+    const world = new World();
+    world.addPlayer('p1', 0, 0);
+    startFirstWave(world);
+    clearResourceNodes(world);
+
+    const monster = isolateMonster(world, 'demon');
+    const player = world.getPlayers().get('p1')!;
+    monster.x = 10;
+    monster.y = 0;
+    (monster as unknown as { facingX: number; facingY: number }).facingX = -1;
+    (monster as unknown as { facingX: number; facingY: number }).facingY = 0;
+
+    // 공격을 시도하게 만든다.
+    for (let i = 0; i < 20 && monster.pattern.kind !== 'basicSwing'; i += 1) world.tick(0.01);
+    expect(monster.pattern.kind).toBe('basicSwing');
+
+    // 예고 중에 멀리 도망친다 — 정산 시점에 사거리 밖이면 안 맞아야 한다.
+    player.x = 600;
+    player.y = 600;
+    tickSeconds(world, monstersData.demon.attackWindupSeconds * 2, 0.01);
+
+    expect(player.hp).toBe(100);
+  });
+
+  it('보스 평타도 같은 규칙을 탄다 — 검술 쿨다운 중이라고 즉사 피해가 나오지 않는다', () => {
+    const world = new World();
+    world.addPlayer('dev', 3000, 3000);
+    world.runDevCommand('dev', 'spawn boss_demon 1');
+    const boss = [...world.getMonsters().values()].find((m) => m.type === 'boss_demon')!;
+    boss.x = 400;
+    boss.y = 0;
+    boss.facingX = -1;
+    boss.facingY = 0;
+    // 검술을 전부 잠가서 평타 경로만 남긴다.
+    boss.meleeCooldowns.forEach((_, i) => {
+      boss.meleeCooldowns[i] = 999;
+    });
+    boss.specialAttackCooldown = 999;
+
+    world.addPlayer('p1', boss.x - 40, boss.y); // 평타 사거리 안
+    const player = world.getPlayers().get('p1')!;
+
+    // 시도는 하되 예고가 끝나기 전에는 피해가 없어야 한다.
+    for (let i = 0; i < 40 && boss.pattern.kind !== 'basicSwing'; i += 1) world.tick(0.01);
+    expect(boss.pattern.kind).toBe('basicSwing');
+    expect(player.hp).toBe(100);
+
+    tickSeconds(world, monstersData.boss_demon.attackWindupSeconds * 1.5, 0.01);
+    expect(player.hp).toBe(100 - monstersData.boss_demon.damage);
   });
 });

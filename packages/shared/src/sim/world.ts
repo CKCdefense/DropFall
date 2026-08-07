@@ -279,19 +279,16 @@ export interface DroppedItemEntity {
 
 /**
  * 보스 전용 특수 공격 패턴(돌진/광역)의 상태 머신. 일반 몹은 항상 `{ kind: 'idle' }`로
- * 고정이다 — `chargeAttack`/`slamAttack` 데이터가 없는 타입은 `tickBossPattern`이
+ * 고정이다 — `meleeAttacks` 데이터가 없는 타입은 `tickBossPattern`이
  * 첫 검사에서 바로 false를 반환하므로 이 상태를 실제로 오갈 일이 없다.
  *
- * idle → (chargeTelegraph → charging | slamTelegraph) → idle 순으로만 전이한다.
+ * idle → meleeSwing → meleeRecover → idle 순으로만 전이한다.
  * 예고(Telegraph) 상태의 값(방향/지점)은 예고 "시작 시점"에 한 번 고정된다 — 그래야
  * 화면에 미리 보여준 위험 범위와 실제로 피해가 들어가는 범위가 정확히 일치한다(타겟이
  * 예고 도중 움직여도 범위가 따라가면 "본 대로 피했는데 맞는" 상황이 생긴다).
  */
 export type BossPatternState =
   | { kind: 'idle' }
-  | { kind: 'chargeTelegraph'; timer: number; total: number; dirX: number; dirY: number }
-  | { kind: 'charging'; timer: number; dirX: number; dirY: number; hitPlayerIds: Set<string> }
-  | { kind: 'slamTelegraph'; timer: number; total: number; x: number; y: number }
   /**
    * 근접 검술 진행 중. 바닥 표시 없이 **동작 자체가 예고**라(무기를 치켜드는 프레임),
    * 클라이언트가 어느 동작을 재생할지 알 수 있게 `index`(meleeAttacks 배열 위치)를
@@ -307,9 +304,28 @@ export type BossPatternState =
       nextHit: number;
       dirX: number;
       dirY: number;
+      /** 돌진(dash)이 있는 기술에서 이미 쓸고 지나간 대상. 한 번의 돌진에 한 사람이
+       * 여러 번 맞지 않게 한다(매 틱 판정하면 가만히 선 사람이 수십 번 맞는다). */
+      dashHitIds: Set<string>;
     }
   /** 판정 후 경직. 이 동안은 이동도 다음 공격도 없다 — 플레이어가 반격할 틈이다. */
-  | { kind: 'meleeRecover'; timer: number };
+  | { kind: 'meleeRecover'; timer: number }
+  /**
+   * 평타 예고. **모든 몬스터가 쓴다**(잡몹·보스 공통).
+   *
+   * 예전에는 사거리에 들어온 순간 곧바로 피해를 줬다 — 예고가 없으니 피할 방법이
+   * 아예 없었고, 그림도 맞은 뒤에야 재생됐다. 이제 공격을 "시도"하면 이 상태로
+   * 들어가 멈춰 서서 휘두르고, `timer`가 0이 되는 순간 **사거리를 다시 재서** 정산한다.
+   * 그 사이 빠져나간 대상은 헛친다.
+   */
+  | { kind: 'basicSwing'; timer: number; target: BasicAttackTarget };
+
+/** 평타가 노리는 대상. 예고가 끝나는 순간 이 대상이 아직 사거리 안인지 다시 잰다. */
+export type BasicAttackTarget =
+  | { kind: 'player'; id: string }
+  | { kind: 'companion' }
+  | { kind: 'building'; id: string }
+  | { kind: 'core' };
 
 export interface MonsterEntity {
   id: string;
@@ -329,7 +345,7 @@ export interface MonsterEntity {
   facingY: number;
   /** 보스 전용 특수 패턴 상태(§BossPatternState). 일반 몹은 항상 idle이다. */
   pattern: BossPatternState;
-  /** 다음 특수 패턴을 쓸 수 있게 되기까지 남은 시간(초). chargeAttack/slamAttack이 없는 타입은 쓰지 않는다. */
+  /** 다음 특수 패턴을 쓸 수 있게 되기까지 남은 시간(초). meleeAttacks가 없는 타입은 쓰지 않는다. */
   specialAttackCooldown: number;
   /**
    * `moveMonster`가 이동을 전혀 못 시킨 채(축 슬라이딩·접선 미끄러짐까지 다 막힘)
@@ -338,14 +354,6 @@ export interface MonsterEntity {
    * 시도한다(docs/backend/42) — 이게 없으면 그런 위치에서 영원히 못 움직인다.
    */
   stuckSeconds: number;
-  /**
-   * 티모시(AI 동반자) 공격 쿨다운(초). 플레이어 공격 쿨다운(attackCooldown)과 별도로 둔다 —
-   * 같은 틱에 플레이어와 티모시가 둘 다 사거리 안에 있어도 서로의 쿨다운에 영향을 주지
-   * 않게 하기 위해서다. 정식 추격 대상(targetPlayerId)과 달리 단순 근접 판정이라
-   * 히스테리시스/시야각 없이 매 틱 거리만 본다(docs/superpowers/specs/
-   * 2026-08-07-ai-companion-timothy-design.md).
-   */
-  companionAttackCooldown: number;
   /**
    * 콜로니 수호대라면 소속 콜로니 id. 있으면 코어 침공 AI 대신 수호 AI를 탄다 —
    * 리시 반경 안의 플레이어만 공격하고, 아무도 없으면 콜로니로 귀환해 저장 상태로
@@ -1313,6 +1321,15 @@ export class World {
         const player = this.players.get(playerId);
         if (player) player.hp = wavesData.playerHp;
       },
+      setPlayerHp: (playerId, amount) => {
+        const player = this.players.get(playerId);
+        if (!player) return 0;
+        // **상한을 두지 않는다.** 보스 한 방을 버티며 패턴을 끝까지 보는 게 이 커맨드의
+        // 용도라, 최대치로 잘라버리면 정작 쓸 데가 없어진다. 체력 바가 넘치는 문제는
+        // 그리는 쪽에서 비율을 1로 조여 막는다(HudScene/PartyPanel).
+        player.hp = amount;
+        return player.hp;
+      },
       setCoreHp: (amount) => {
         this.core.hp = Math.min(this.core.maxHp, amount);
       },
@@ -1365,8 +1382,6 @@ export class World {
     this.revealAroundPlayers();
 
     this.tickMonsters(dtSeconds);
-    // tickMonsters() 다음에 불러야 몬스터들의 이번 틱 위치 기준으로 근접 판정한다.
-    this.tickCompanionDamage(dtSeconds);
     this.tickCompanion(dtSeconds);
     this.tickQueuedCompanionMessages();
     this.tickResourceNodes(dtSeconds);
@@ -1728,10 +1743,8 @@ export class World {
       facingX,
       facingY,
       pattern: { kind: 'idle' },
-      specialAttackCooldown:
-        data.chargeAttack || data.slamAttack || data.meleeAttacks ? BOSS_FIRST_PATTERN_DELAY : 0,
+      specialAttackCooldown: data.meleeAttacks ? BOSS_FIRST_PATTERN_DELAY : 0,
       stuckSeconds: 0,
-      companionAttackCooldown: 0,
       guardReturnTimer: 0,
       attackAnimTimer: 0,
       attackAnim: 0,
@@ -1922,12 +1935,12 @@ export class World {
       // 벽으로 길을 막았으면 침공 몬스터와 같은 규칙으로 그 벽부터 부순다.
       const blocker = this.findBlockingBuildingInRange(monster, data.attackRange);
       if (blocker) {
-        this.attackBuilding(monster, blocker, data.damage, data.attackInterval);
+        if (monster.attackCooldown <= 0) {
+          this.startBasicAttack(monster, data, { kind: 'building', id: blocker.id });
+        }
       } else if (bestDistance <= data.attackRange) {
         if (monster.attackCooldown <= 0) {
-          this.damagePlayer(target, data.damage);
-          monster.attackCooldown = data.attackInterval;
-          this.markAttack(monster);
+          this.startBasicAttack(monster, data, { kind: 'player', id: target.id });
         }
       } else {
         this.moveMonster(monster, monster.facingX, monster.facingY, data.speed, dtSeconds);
@@ -1967,11 +1980,98 @@ export class World {
   }
 
   /**
+   * 평타를 **시도**한다 — 그 자리에 멈춰 휘두르는 그림을 재생하고, 예고가 끝나는
+   * 순간에야 정산한다(§basicSwing). 쿨다운은 시도 시점에 걸어서 예고 중에 또
+   * 시도하거나 헛친 뒤 곧바로 다시 치는 일이 없게 한다.
+   */
+  private startBasicAttack(
+    monster: MonsterEntity,
+    data: MonsterData,
+    target: BasicAttackTarget,
+  ): void {
+    monster.attackCooldown = data.attackInterval;
+    monster.pattern = { kind: 'basicSwing', timer: data.attackWindupSeconds, target };
+    // 모션은 지금 켠다 — 맞은 뒤에 휘두르면 예고가 아니다.
+    this.markAttack(monster, 1, data.attackWindupSeconds + ATTACK_ANIM_SECONDS);
+  }
+
+  /**
+   * 평타 예고 진행. 시간이 다 되면 **사거리를 다시 재서** 정산한다 — 예고 중에
+   * 빠져나간 대상은 맞지 않는다(이게 "피할 수 있다"의 전부다).
+   */
+  private tickBasicSwing(monster: MonsterEntity, data: MonsterData, dtSeconds: number): boolean {
+    const pattern = monster.pattern as Extract<BossPatternState, { kind: 'basicSwing' }>;
+    pattern.timer -= dtSeconds;
+    if (pattern.timer > 0) return true;
+
+    this.resolveBasicHit(monster, data, pattern.target);
+    monster.pattern = { kind: 'idle' };
+    // 한 번 휘둘렀으니 다시 "시야 안 가장 가까운 사람"을 고른다(§clearAggroAfterAttack).
+    this.clearAggroAfterAttack(monster);
+    return true;
+  }
+
+  /** 예고가 끝난 순간의 정산. 대상별로 사거리를 다시 재고, 벗어났으면 헛친다. */
+  private resolveBasicHit(
+    monster: MonsterEntity,
+    data: MonsterData,
+    target: BasicAttackTarget,
+  ): void {
+    const inRange = (x: number, y: number, extra = 0): boolean =>
+      Math.hypot(x - monster.x, y - monster.y) <= data.attackRange + extra;
+
+    switch (target.kind) {
+      case 'player': {
+        const player = this.players.get(target.id);
+        if (player && player.hp > 0 && inRange(player.x, player.y, HIT_RADIUS)) {
+          this.damagePlayer(player, data.damage);
+        }
+        break;
+      }
+      case 'companion': {
+        if (
+          this.companion.state !== 'downed' &&
+          inRange(this.companion.x, this.companion.y, HIT_RADIUS)
+        ) {
+          this.damageCompanion(data.damage);
+        }
+        break;
+      }
+      case 'building': {
+        const building = this.buildings.get(target.id);
+        if (building && inRange(building.x, building.y)) {
+          building.hp = Math.max(0, building.hp - data.damage);
+          if (building.hp <= 0) {
+            this.buildings.remove(building.id);
+            this.recomputeFlowField();
+          }
+        }
+        break;
+      }
+      case 'core': {
+        if (coreDistance(monster.x, monster.y) <= data.attackRange) {
+          this.core.hp = Math.max(0, this.core.hp - data.damage);
+        }
+        break;
+      }
+    }
+
+    // 휘두른 자리에 티모시가 서 있으면 함께 맞는다 — 노린 대상은 아니지만 칼이 지나간다.
+    if (
+      target.kind !== 'companion' &&
+      this.companion.state !== 'downed' &&
+      inRange(this.companion.x, this.companion.y, HIT_RADIUS)
+    ) {
+      this.damageCompanion(data.damage);
+    }
+  }
+
+  /**
    * 공격 모션을 켠다. 피해가 실제로 들어간 자리마다 부른다(빗나간 시도에는 안 켠다).
    * `anim`은 재생할 동작 번호 — 검술이 여러 개인 보스만 1이 아닌 값을 넘긴다.
    */
-  private markAttack(monster: MonsterEntity, anim = 1): void {
-    monster.attackAnimTimer = ATTACK_ANIM_SECONDS;
+  private markAttack(monster: MonsterEntity, anim = 1, seconds = ATTACK_ANIM_SECONDS): void {
+    monster.attackAnimTimer = seconds;
     monster.attackAnim = anim;
   }
 
@@ -2204,31 +2304,11 @@ export class World {
     companion.state = 'seeking';
   }
 
-  /**
-   * 몬스터의 정교한 추격/리시 로직(resolveAggroTarget)은 건드리지 않고, 단순 근접
-   * 판정만으로 티모시를 노출시킨다 — 어떤 몬스터든 자기 공격 사거리 안에 티모시가
-   * 있으면 때린다(추격 대상인지와 무관하다). 플레이어 공격 쿨다운과는 별도
-   * 필드(`companionAttackCooldown`)를 써서 서로 간섭하지 않는다.
-   */
-  private tickCompanionDamage(dtSeconds: number): void {
-    if (this.companion.state === 'downed') return;
-    for (const monster of this.monsters.values()) {
-      monster.companionAttackCooldown = Math.max(0, monster.companionAttackCooldown - dtSeconds);
-      const data = monstersData[monster.type];
-      const distance = Math.hypot(this.companion.x - monster.x, this.companion.y - monster.y);
-      if (distance > data.attackRange) continue;
-      if (monster.companionAttackCooldown > 0) continue;
-      this.damageCompanion(data.damage);
-      monster.companionAttackCooldown = data.attackInterval;
-      this.markAttack(monster);
-    }
-  }
-
   private damageCompanion(amount: number): void {
     this.companion.hp = Math.max(0, this.companion.hp - amount);
     if (this.companion.hp <= 0) {
       this.companion.state = 'downed';
-      // tickCompanionDamage()가 이미 'downed' 상태를 걸러내므로 이 전환은 딱 한 번만 일어난다.
+      // 피해를 주는 쪽이 모두 'downed'를 걸러내므로 이 전환은 딱 한 번만 일어난다.
       const nearestId = this.findNearestPlayerId(this.companion.x, this.companion.y);
       if (nearestId) this.enqueueCompanionPersonaEvent('companionDowned', nearestId);
     }
@@ -2271,9 +2351,9 @@ export class World {
       }
 
       // 보스 특수 패턴이 이번 틱의 이동/공격을 전부 처리했으면(예고 중이라 멈춰 있거나
-      // 돌진 중이거나) 아래 일반 추격/이동 로직은 건너뛴다. chargeAttack/slamAttack이
-      // 없는 타입(잡몹 등)은 매 틱 이 검사 하나만 거치고 바로 false를 반환한다.
-      if (this.tickBossPattern(monster, data, dtSeconds)) continue;
+      // 돌진 중이거나) 아래 일반 추격/이동 로직은 건너뛴다. meleeAttacks가 없는
+      // 타입(잡몹 등)은 매 틱 이 검사 하나만 거치고 바로 false를 반환한다.
+      if (this.tickAttackPattern(monster, data, dtSeconds)) continue;
 
       // 콜로니 수호대는 코어 침공 AI를 아예 타지 않는다 — 리시 안 플레이어 요격,
       // 없으면 귀환 후 저장 복귀가 전부다.
@@ -2296,12 +2376,12 @@ export class World {
 
         const blocker = this.findBlockingBuildingInRange(monster, data.attackRange);
         if (blocker) {
-          this.attackBuilding(monster, blocker, data.damage, data.attackInterval);
+          if (monster.attackCooldown <= 0) {
+            this.startBasicAttack(monster, data, { kind: 'building', id: blocker.id });
+          }
         } else if (distance <= data.attackRange) {
           if (monster.attackCooldown <= 0) {
-            this.damagePlayer(target, data.damage);
-            monster.attackCooldown = data.attackInterval;
-            this.markAttack(monster);
+            this.startBasicAttack(monster, data, { kind: 'player', id: target.id });
           }
         } else {
           // 자원 노드/콜로니가 경로를 막아도 moveMonster가 축 슬라이딩으로 알아서
@@ -2315,7 +2395,23 @@ export class World {
 
       const blocker = this.findBlockingBuildingInRange(monster, data.attackRange);
       if (blocker) {
-        this.attackBuilding(monster, blocker, data.damage, data.attackInterval);
+        if (monster.attackCooldown <= 0) {
+          this.startBasicAttack(monster, data, { kind: 'building', id: blocker.id });
+        }
+        continue;
+      }
+
+      // 코어로 가는 길에 티모시가 서 있으면 그를 먼저 친다. 추격 대상은 사람뿐이라
+      // (resolveAggroTarget) 여기서 따로 봐 주지 않으면, 몬스터가 티모시를 그대로
+      // 지나쳐 코어만 때리게 된다.
+      if (
+        this.companion.state !== 'downed' &&
+        Math.hypot(this.companion.x - monster.x, this.companion.y - monster.y) <=
+          data.attackRange + HIT_RADIUS
+      ) {
+        if (monster.attackCooldown <= 0) {
+          this.startBasicAttack(monster, data, { kind: 'companion' });
+        }
         continue;
       }
 
@@ -2327,9 +2423,7 @@ export class World {
           monster.facingY = -monster.y / distanceToCore;
         }
         if (monster.attackCooldown <= 0) {
-          this.core.hp = Math.max(0, this.core.hp - data.damage);
-          monster.attackCooldown = data.attackInterval;
-          this.markAttack(monster);
+          this.startBasicAttack(monster, data, { kind: 'core' });
         }
         continue;
       }
@@ -2365,8 +2459,8 @@ export class World {
   }
 
   /**
-   * 보스 전용 특수 패턴(돌진/광역)의 상태 전이를 한 틱 진행한다. `chargeAttack`/
-   * `slamAttack` 데이터가 둘 다 없는 타입(잡몹 등)은 이 검사 하나만 거치고 즉시
+   * 보스 전용 검술의 상태 전이를 한 틱 진행한다. `meleeAttacks` 데이터가
+   * 없는 타입(잡몹 등)은 이 검사 하나만 거치고 즉시
    * false를 반환해서 일반 몹의 틱 비용을 사실상 늘리지 않는다.
    *
    * true를 반환하면 이번 틱의 이동/공격을 이 메서드가 전부 처리했다는 뜻이라, 호출부
@@ -2374,22 +2468,16 @@ export class World {
    * 예고 중에는 몬스터가 그 자리에 멈춰 있어야 화면에 미리 보여준 위험 범위와 실제
    * 판정 범위가 어긋나지 않는다.
    */
-  private tickBossPattern(monster: MonsterEntity, data: MonsterData, dtSeconds: number): boolean {
-    if (!data.chargeAttack && !data.slamAttack && !data.meleeAttacks) return false;
-
+  private tickAttackPattern(monster: MonsterEntity, data: MonsterData, dtSeconds: number): boolean {
     switch (monster.pattern.kind) {
+      case 'basicSwing':
+        return this.tickBasicSwing(monster, data, dtSeconds);
       case 'meleeSwing':
         return this.tickMeleeSwing(monster, data, dtSeconds);
       case 'meleeRecover':
         return this.tickMeleeRecover(monster, dtSeconds);
-      case 'chargeTelegraph':
-        return this.tickChargeTelegraph(monster, data, dtSeconds);
-      case 'charging':
-        return this.tickCharging(monster, data, dtSeconds);
-      case 'slamTelegraph':
-        return this.tickSlamTelegraph(monster, data, dtSeconds);
       case 'idle':
-        return this.tryStartBossPattern(monster, data, dtSeconds);
+        return data.meleeAttacks ? this.tryStartBossPattern(monster, data, dtSeconds) : false;
     }
   }
 
@@ -2416,58 +2504,46 @@ export class World {
       const ready: number[] = [];
       data.meleeAttacks.forEach((attack, index) => {
         if ((monster.meleeCooldowns[index] ?? 0) > 0) return;
-        // 타격이 여러 번인 기술은 그중 가장 먼 사거리로 후보를 가린다.
-        const reach = Math.max(...attack.hits.map((hit) => hit.range));
+        // 타격이 여러 번인 기술은 그중 가장 먼 사거리로 후보를 가린다. 돌진이 붙은
+        // 기술은 **돌진으로 좁히는 거리까지 더해서** 본다 — 간격을 메우는 게 돌진의
+        // 존재 이유인데, 최종 사거리만 보면 이미 붙어 있을 때만 나와서 무의미해진다.
+        const dashTravel = attack.dash
+          ? attack.dash.speed * (attack.dash.toSeconds - attack.dash.fromSeconds)
+          : 0;
+        const reach = Math.max(...attack.hits.map((hit) => hit.range)) + dashTravel;
         if (targetDistance > reach) return;
         ready.push(index);
       });
 
       if (ready.length > 0) {
         const index = ready[Math.floor(this.rng() * ready.length)]!;
+        const chosen = data.meleeAttacks[index]!;
         const dirX = targetDistance > 0 ? dxToTarget / targetDistance : monster.facingX;
         const dirY = targetDistance > 0 ? dyToTarget / targetDistance : monster.facingY;
         monster.facingX = dirX;
         monster.facingY = dirY;
-        monster.pattern = { kind: 'meleeSwing', elapsed: 0, index, nextHit: 0, dirX, dirY };
+        monster.pattern = {
+          kind: 'meleeSwing',
+          elapsed: 0,
+          index,
+          nextHit: 0,
+          dirX,
+          dirY,
+          dashHitIds: new Set(),
+        };
+        // **동작이 곧 예고**이므로 모션은 지금 켠다. 타격 순간에 켜면 예고 내내 보스가
+        // 가만히 서 있다가 맞은 뒤에야 칼을 휘두른다(실측으로 확인: 모션 지연 667ms =
+        // 피해 지연 667ms). 판정 시점(atSeconds)은 재생 속도에 맞춰 잡혀 있어서,
+        // 여기서 켜야 "칼이 뻗는 프레임에 맞는다"가 성립한다.
+        const lastHitAt = chosen.hits[chosen.hits.length - 1]!.atSeconds;
+        this.markAttack(monster, chosen.anim, lastHitAt + chosen.recoverSeconds);
         return true;
       }
       // 쓸 수 있는 검술이 없으면(전부 쿨다운이거나 너무 멀다) 평소처럼 추격한다.
-      if (!data.chargeAttack && !data.slamAttack) return false;
+      return false;
     }
 
-    const canCharge = !!data.chargeAttack;
-    const canSlam = !!data.slamAttack;
-    // 둘 다 가능하면 매번 무작위로 고른다 — 항상 같은 순서로만 나오면 패턴이 아니라
-    // 그냥 다음 공격을 외우는 게 돼버린다.
-    const useCharge = canCharge && (!canSlam || this.rng() < 0.5);
-
-    const dirX = targetDistance > 0 ? dxToTarget / targetDistance : monster.facingX;
-    const dirY = targetDistance > 0 ? dyToTarget / targetDistance : monster.facingY;
-    monster.facingX = dirX;
-    monster.facingY = dirY;
-
-    if (useCharge) {
-      const charge = data.chargeAttack!;
-      monster.pattern = {
-        kind: 'chargeTelegraph',
-        timer: charge.telegraphSeconds,
-        total: charge.telegraphSeconds,
-        dirX,
-        dirY,
-      };
-    } else {
-      const slam = data.slamAttack!;
-      // 타겟의 "현재" 위치에 지점을 고정한다 — 예고가 끝날 때까지 타겟을 계속 따라가면
-      // 미리 보여준 범위 밖으로 피해도 소용없어진다.
-      monster.pattern = {
-        kind: 'slamTelegraph',
-        timer: slam.telegraphSeconds,
-        total: slam.telegraphSeconds,
-        x: target.x,
-        y: target.y,
-      };
-    }
-    return true;
+    return false;
   }
 
   /**
@@ -2491,6 +2567,15 @@ export class World {
     monster.facingY = pattern.dirY;
     pattern.elapsed += dtSeconds;
 
+    // 돌진 구간이면 앞으로 밀고 나가면서 닿는 대상을 한 번씩 쓸어버린다.
+    if (
+      attack.dash &&
+      pattern.elapsed >= attack.dash.fromSeconds &&
+      pattern.elapsed <= attack.dash.toSeconds
+    ) {
+      this.tickMeleeDash(monster, attack.dash, pattern, dtSeconds);
+    }
+
     while (
       pattern.nextHit < attack.hits.length &&
       pattern.elapsed >= attack.hits[pattern.nextHit]!.atSeconds
@@ -2506,11 +2591,45 @@ export class World {
     return true;
   }
 
+  /**
+   * 돌진 한 틱 — 고정된 방향으로 밀고 나가며 몸에 닿는 대상을 **한 번씩만** 때린다.
+   * 이동은 평소와 같은 `moveMonster`를 쓴다. 거구 보스는 crushesObstacles라 나무를
+   * 밟고 지나가고, 그렇지 않은 타입이면 장애물 앞에서 자연히 멈춘다.
+   */
+  private tickMeleeDash(
+    monster: MonsterEntity,
+    dash: NonNullable<MeleeAttackData['dash']>,
+    pattern: Extract<BossPatternState, { kind: 'meleeSwing' }>,
+    dtSeconds: number,
+  ): void {
+    this.moveMonster(monster, pattern.dirX, pattern.dirY, dash.speed, dtSeconds);
+
+    for (const player of this.players.values()) {
+      if (player.hp <= 0 || pattern.dashHitIds.has(player.id)) continue;
+      if (!circlesOverlap(monster.x, monster.y, player.x, player.y, dash.radius + HIT_RADIUS)) continue;
+      this.damagePlayer(player, dash.damage);
+      pattern.dashHitIds.add(player.id);
+    }
+
+    if (
+      this.companion.state !== 'downed' &&
+      !pattern.dashHitIds.has('companion') &&
+      circlesOverlap(monster.x, monster.y, this.companion.x, this.companion.y, dash.radius + HIT_RADIUS)
+    ) {
+      this.damageCompanion(dash.damage);
+      pattern.dashHitIds.add('companion');
+    }
+  }
+
   /** 검을 휘두른 뒤 경직. 그냥 시간만 흘려보낸다(이동·공격 없음). */
   private tickMeleeRecover(monster: MonsterEntity, dtSeconds: number): boolean {
     const pattern = monster.pattern as Extract<BossPatternState, { kind: 'meleeRecover' }>;
     pattern.timer -= dtSeconds;
-    if (pattern.timer <= 0) monster.pattern = { kind: 'idle' };
+    if (pattern.timer <= 0) {
+      monster.pattern = { kind: 'idle' };
+      // 기술 하나가 끝났으니 다시 "가장 가까운 사람"을 고른다 — 보스도 같은 규칙이다.
+      this.clearAggroAfterAttack(monster);
+    }
     return true;
   }
 
@@ -2548,77 +2667,8 @@ export class World {
     if (this.companion.state !== 'downed' && withinMeleeArc(hit, this.companion.x, this.companion.y, HIT_RADIUS)) {
       this.damageCompanion(swing.damage);
     }
-
-    this.markAttack(monster, attack.anim);
-  }
-
-  /** 돌진 예고 — 그 자리에 멈춰 방향을 유지하다가, 시간이 다 되면 실제 돌진으로 전이한다. */
-  private tickChargeTelegraph(monster: MonsterEntity, data: MonsterData, dtSeconds: number): boolean {
-    const pattern = monster.pattern as Extract<BossPatternState, { kind: 'chargeTelegraph' }>;
-    monster.facingX = pattern.dirX;
-    monster.facingY = pattern.dirY;
-    pattern.timer -= dtSeconds;
-    if (pattern.timer > 0) return true;
-
-    const charge = data.chargeAttack!;
-    monster.pattern = {
-      kind: 'charging',
-      timer: charge.duration,
-      dirX: pattern.dirX,
-      dirY: pattern.dirY,
-      hitPlayerIds: new Set(),
-    };
-    return true;
-  }
-
-  /**
-   * 실제 돌진 실행. 예고 때 고정한 방향으로 `chargeAttack.speed`만큼 빠르게 이동하며,
-   * 경로 폭(`width`) 안에 들어온 플레이어를 때린다 — 한 번의 돌진 동안 같은 플레이어를
-   * 여러 틱에 걸쳐 중복으로 맞히지 않도록 `hitPlayerIds`로 1회만 적중시킨다.
-   */
-  private tickCharging(monster: MonsterEntity, data: MonsterData, dtSeconds: number): boolean {
-    const pattern = monster.pattern as Extract<BossPatternState, { kind: 'charging' }>;
-    const charge = data.chargeAttack!;
-
-    monster.facingX = pattern.dirX;
-    monster.facingY = pattern.dirY;
-    this.moveMonster(monster, pattern.dirX, pattern.dirY, charge.speed, dtSeconds);
-
-    const hitRadius = HIT_RADIUS + charge.width / 2;
-    for (const player of this.players.values()) {
-      if (player.hp <= 0 || pattern.hitPlayerIds.has(player.id)) continue;
-      if (circlesOverlap(monster.x, monster.y, player.x, player.y, hitRadius)) {
-        this.damagePlayer(player, charge.damage);
-        pattern.hitPlayerIds.add(player.id);
-      }
-    }
-
-    pattern.timer -= dtSeconds;
-    if (pattern.timer <= 0) {
-      monster.pattern = { kind: 'idle' };
-      monster.specialAttackCooldown = charge.cooldown;
-    }
-    return true;
-  }
-
-  /** 광역 예고 — 그 자리(타겟 위치에 멈춘 지점)에서 대기하다가, 시간이 다 되면 즉시 범위 피해를 준다. */
-  private tickSlamTelegraph(monster: MonsterEntity, data: MonsterData, dtSeconds: number): boolean {
-    const pattern = monster.pattern as Extract<BossPatternState, { kind: 'slamTelegraph' }>;
-    pattern.timer -= dtSeconds;
-    if (pattern.timer > 0) return true;
-
-    const slam = data.slamAttack!;
-    const hitRadius = slam.radius + HIT_RADIUS;
-    for (const player of this.players.values()) {
-      if (player.hp <= 0) continue;
-      if (circlesOverlap(pattern.x, pattern.y, player.x, player.y, hitRadius)) {
-        this.damagePlayer(player, slam.damage);
-      }
-    }
-
-    monster.pattern = { kind: 'idle' };
-    monster.specialAttackCooldown = slam.cooldown;
-    return true;
+    // 여기서 markAttack을 다시 부르지 않는다 — 동작 시작 때 이미 켰고, 2연타에서
+    // 다시 켜면 애니메이션이 첫 장부터 재시작해 두 번째 타격이 어긋난다.
   }
 
   /** 공격 사거리 안의, 이동을 막는(blocksMovement) 건축물 중 가장 가까운 것을 찾는다. */
@@ -2769,30 +2819,20 @@ export class World {
     }
   }
 
-  /** 건축물 공격. HP가 0이 되면 제거하고 Flow Field를 다시 계산한다(막던 셀이 열렸으므로). */
-  private attackBuilding(
-    monster: MonsterEntity,
-    building: BuildingEntity,
-    damage: number,
-    attackInterval: number,
-  ): void {
-    if (monster.attackCooldown > 0) return;
-
-    building.hp = Math.max(0, building.hp - damage);
-    monster.attackCooldown = attackInterval;
-    this.markAttack(monster);
-
-    if (building.hp <= 0) {
-      this.buildings.remove(building.id);
-      this.recomputeFlowField();
-    }
-  }
-
   /**
-   * 어그로 타겟에 히스테리시스(leash)를 둔다. 매 틱 "가장 가까운 플레이어"를 새로
-   * 계산하면 두 플레이어가 아그로 반경 경계 부근에 걸쳐 있을 때 타겟이 계속 바뀌면서
-   * 이동 방향이 떨린다. 한 번 잡은 타겟은 죽거나(hp 0) 아그로 반경의
-   * `AGGRO_LEASH_MULTIPLIER`배 밖으로 벗어나기 전까지 그대로 유지한다.
+   * 어그로 규칙(멀티/싱글 공통).
+   *
+   *   시야 안에서 가장 가까운 플레이어를 잡는다 → 사거리에 들어오면 **공격 1회** →
+   *   그 즉시 타겟을 놓고 다시 탐색한다. 시야 안에 아무도 없을 때만 코어로 향한다.
+   *
+   * 매 틱 새로 계산하지 않고 공격 사이에만 유지하는 이유: 매 틱 "가장 가까운 사람"을
+   * 다시 고르면 두 명이 경계 부근에 걸쳐 있을 때 타겟이 왔다 갔다 하며 이동 방향이
+   * 떨린다. 반대로 영원히 붙잡고 있으면 여럿이 둘러싼 상황에서 한 명만 계속 노려
+   * "가장 가까운 사람을 친다"는 규칙이 무너진다. 한 번 때릴 때까지만 유지하는 것이
+   * 두 문제를 동시에 피한다(§clearAggroAfterAttack).
+   *
+   * 추격 중에는 아그로 반경의 `AGGRO_LEASH_MULTIPLIER`배까지 따라붙는다 — 사거리
+   * 직전에서 반경을 살짝 벗어났다고 놓아주면 영원히 못 잡는다.
    */
   private resolveAggroTarget(monster: MonsterEntity, aggroRadius: number): PlayerEntity | undefined {
     const current = monster.targetPlayerId ? this.players.get(monster.targetPlayerId) : undefined;
@@ -2804,6 +2844,14 @@ export class World {
     const next = this.findNearestPlayer(monster, aggroRadius);
     monster.targetPlayerId = next?.id;
     return next;
+  }
+
+  /**
+   * 공격을 한 번 넣은 뒤 타겟을 놓는다. 다음 틱에 다시 "시야 안 가장 가까운 사람"을
+   * 고르므로, 여럿이 둘러싸면 실제로 번갈아 맞게 된다.
+   */
+  private clearAggroAfterAttack(monster: MonsterEntity): void {
+    monster.targetPlayerId = undefined;
   }
 
   /** 근처 몬스터가 겹치지 않도록 밀어내는 벡터(군집 분리, 기술명세 §5.3)를 계산한다. */
@@ -3229,49 +3277,54 @@ export interface BossTelegraph {
 }
 
 /**
- * 몬스터의 현재 보스 패턴 상태를 서버/로컬 커넥션이 동기화 스냅샷에 그대로 실을 수
- * 있는 형태로 변환한다. 예고(Telegraph) 상태가 아니면(idle/charging/일반 몹) undefined —
- * 돌진이 실제로 실행되는 동안에는 보스가 빠르게 움직이는 모습 자체가 "이미 벌어진 일"을
- * 보여주므로 별도의 경고 표시가 필요 없다. 서버(GameRoom)와 로컬(LocalConnection) 양쪽이
- * 이 함수를 그대로 재사용해서, 두 경로가 서로 다른 방식으로 값을 계산해 어긋날 여지를 없앤다.
+ * 지금 예고 중인 다음 타격을 화면에 그릴 수 있는 모양으로 바꾼다. 예고 중이 아니면 undefined.
+ *
+ * **전방향(arc 360)은 원, 부채꼴은 방향 띠**로 내보낸다 — 클라이언트가 이미 그 두 모양을
+ * 그릴 줄 알아서(예전 돌진/광역 예고에 쓰던 렌더러) 그대로 재사용한다. 옆으로 못 피하는
+ * 광역 기술일수록 미리 보여주는 게 중요하다.
  */
 export function describeBossTelegraph(
   monster: MonsterEntity,
   data: MonsterData,
 ): BossTelegraph | undefined {
   const pattern = monster.pattern;
+  if (pattern.kind !== 'meleeSwing') return undefined;
 
-  if (pattern.kind === 'chargeTelegraph') {
-    const charge = data.chargeAttack;
-    if (!charge) return undefined;
-    return {
-      kind: 'charge',
-      x: monster.x,
-      y: monster.y,
-      dirX: pattern.dirX,
-      dirY: pattern.dirY,
-      radius: charge.width / 2,
-      range: charge.speed * charge.duration,
-      remaining: Math.max(0, pattern.timer),
-      total: pattern.total,
-    };
-  }
+  const attack = data.meleeAttacks?.[pattern.index];
+  const hit = attack?.hits[pattern.nextHit];
+  if (!attack || !hit) return undefined;
 
-  if (pattern.kind === 'slamTelegraph') {
-    const slam = data.slamAttack;
-    if (!slam) return undefined;
+  // 진행률은 "직전 타격(없으면 동작 시작)부터 이번 타격까지" 구간으로 잰다 —
+  // 2연타에서 두 번째 예고가 이미 꽉 찬 상태로 뜨지 않게.
+  const previousAt = pattern.nextHit > 0 ? attack.hits[pattern.nextHit - 1]!.atSeconds : 0;
+  const total = Math.max(0.001, hit.atSeconds - previousAt);
+  const remaining = Math.max(0, hit.atSeconds - pattern.elapsed);
+
+  if (hit.arc >= 360) {
     return {
       kind: 'slam',
-      x: pattern.x,
-      y: pattern.y,
+      x: monster.x,
+      y: monster.y,
       dirX: 0,
       dirY: 0,
-      radius: slam.radius,
+      radius: hit.range,
       range: 0,
-      remaining: Math.max(0, pattern.timer),
-      total: pattern.total,
+      remaining,
+      total,
     };
   }
 
-  return undefined;
+  const halfArc = (hit.arc * Math.PI) / 360;
+  return {
+    kind: 'charge',
+    x: monster.x,
+    y: monster.y,
+    dirX: pattern.dirX,
+    dirY: pattern.dirY,
+    // 부채꼴을 감싸는 띠의 반폭. 사거리 끝에서 부채꼴이 가장 넓어진다.
+    radius: hit.range * Math.sin(halfArc),
+    range: hit.range,
+    remaining,
+    total,
+  };
 }

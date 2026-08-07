@@ -20,29 +20,6 @@ export function loadData<T>(schema: z.ZodType<T>, json: unknown): T {
 
 // --- monsters.json ---------------------------------------------------------
 
-/** 돌진 공격: 방향을 예고한 뒤 그 방향으로 빠르게 대시하며 경로 위 플레이어를 때린다. */
-const ChargeAttackSchema = z.object({
-  /** 돌진 전 예고(텔레그래프) 시간(초) — 이 동안 플레이어가 피할 수 있어야 한다. */
-  telegraphSeconds: z.number().positive(),
-  /** 돌진 중 이동 속도(px/s). 평상시 speed와 무관하게 별도로 정의한다. */
-  speed: z.number().positive(),
-  /** 돌진이 지속되는 시간(초). speed * duration이 곧 돌진 거리다. */
-  duration: z.number().positive(),
-  /** 돌진 경로의 폭(px). 이 폭 안에 있으면 맞는다. */
-  width: z.number().positive(),
-  damage: z.number().nonnegative(),
-  /** 이 패턴을 다시 쓸 수 있게 되기까지의 시간(초, 예고 시작 시점부터 카운트하지 않고 종료 후부터). */
-  cooldown: z.number().positive(),
-});
-
-/** 광역 공격: 지점을 예고한 뒤 그 자리에 원형 범위로 즉시 피해를 준다. */
-const SlamAttackSchema = z.object({
-  telegraphSeconds: z.number().positive(),
-  radius: z.number().positive(),
-  damage: z.number().nonnegative(),
-  cooldown: z.number().positive(),
-});
-
 /**
  * 검술 한 동작 안의 **타격 한 번**.
  *
@@ -75,6 +52,25 @@ const MeleeAttackSchema = z.object({
   anim: z.number().int().positive(),
   /** 이 동작이 만드는 타격들. 시간순으로 넣는다. */
   hits: z.array(MeleeHitSchema).min(1),
+  /**
+   * 있으면 이 동작은 **앞으로 돌진하면서** 지나가는 것을 쓸어버린다(화염 골렘 3번).
+   *
+   * `hits`(특정 순간의 부채꼴 판정)와 성격이 다르다 — 이쪽은 창(window) 동안 계속
+   * 이동하며 몸에 닿는 대상을 **한 번씩만** 때린다. 순간 판정으로는 "지나가면서 밀어버린다"를
+   * 표현할 수 없고, 매 틱 판정하면 가만히 선 사람이 수십 번 맞는다.
+   */
+  dash: z
+    .object({
+      /** 동작 시작 후 돌진이 시작/종료되는 시점(초). 스프라이트가 실제로 나아가는 구간에 맞춘다. */
+      fromSeconds: z.number().nonnegative(),
+      toSeconds: z.number().positive(),
+      /** 돌진 이동 속도(px/s). 평상시 speed와 무관하다. */
+      speed: z.number().positive(),
+      /** 몸에 닿았다고 보는 반경(px). */
+      radius: z.number().positive(),
+      damage: z.number().nonnegative(),
+    })
+    .optional(),
   /** 마지막 타격 후 경직(초). 이 동안은 움직이지도 다음 공격을 하지도 않는다 — 반격할 틈이다. */
   recoverSeconds: z.number().nonnegative(),
   /** 이 기술을 다시 쓸 수 있게 되기까지의 시간(초). 기술마다 따로 돈다. */
@@ -104,6 +100,15 @@ const MonsterDataSchema = z.object({
   speed: z.number().nonnegative(),
   attackRange: z.number().nonnegative(),
   attackInterval: z.number().positive(),
+  /**
+   * 평타의 예고 시간(초). 이 시간 동안 몬스터는 멈춰서 휘두르는 그림을 재생하고,
+   * **끝나는 순간에** 사거리를 다시 재서 피해를 정산한다 — 그 사이 빠져나가면 헛친다.
+   *
+   * 값은 Attack01에서 무기가 가장 멀리 뻗는 프레임을 재생 속도로 나눈 것이다
+   * (잡몹 14fps / 보스 9fps). 그림과 판정이 같은 순간을 가리켜야 "닿아 보이는데 안
+   * 맞는다"가 생기지 않는다.
+   */
+  attackWindupSeconds: z.number().nonnegative(),
   /** 있으면 이 반경 내 플레이어를 코어 대신 직접 추격한다(돌진형/보스). 없으면 항상 코어로 직진. */
   aggroRadius: z.number().nonnegative().optional(),
   /**
@@ -121,10 +126,6 @@ const MonsterDataSchema = z.object({
       }),
     )
     .optional(),
-  /** 있으면 이 타입은 돌진 패턴을 쓸 수 있다(보스 전용, 없으면 미사용). */
-  chargeAttack: ChargeAttackSchema.optional(),
-  /** 있으면 이 타입은 광역 패턴을 쓸 수 있다(보스 전용, 없으면 미사용). */
-  slamAttack: SlamAttackSchema.optional(),
   /**
    * 있으면 이 타입은 근접 검술을 쓴다(보스 전용). 여러 개를 두고 **대상까지의 거리로**
    * 쓸 수 있는 것만 골라 무작위로 하나 쓴다 — 거리마다 다른 기술이 나와야 패턴이

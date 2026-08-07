@@ -39,6 +39,8 @@ export interface DevWorldAccess {
   clearMonsters(): void;
 
   healPlayer(playerId: string): void;
+  /** 내 체력을 특정 값으로 정한다. 0이면 다운 상태 확인용. */
+  setPlayerHp(playerId: string, amount: number): number;
   setCoreHp(amount: number): void;
   rerollShop(): void;
 
@@ -253,6 +255,18 @@ const COMMANDS: Record<string, CommandSpec> = {
     run(access, playerId) {
       access.healPlayer(playerId);
       return ok('체력 회복');
+    },
+  },
+
+  hp: {
+    usage: 'hp <값>',
+    summary: '내 체력을 정한다(0이면 다운). 보스 피해량 확인용.',
+    run(access, playerId, args) {
+      // 0을 허용해야 "다운 → 부활" 흐름을 확인할 수 있어서 parseCount(최소 1)를 안 쓴다.
+      const raw = Number(args[0]);
+      if (!Number.isInteger(raw) || raw < 0) return fail('값은 0 이상의 정수여야 한다.');
+      const applied = access.setPlayerHp(playerId, raw);
+      return ok(`체력 ${applied}`);
     },
   },
 

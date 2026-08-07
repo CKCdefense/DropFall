@@ -241,3 +241,31 @@ describe('개발자 커맨드 — 입력 처리', () => {
     expect(world.runDevCommand('p1', 'list 아무거나').ok).toBe(false);
   });
 });
+
+describe('개발자 커맨드 — 체력', () => {
+  it('hp는 최대치를 넘겨서도 설정된다(보스 패턴을 끝까지 보려고 쓰는 커맨드다)', () => {
+    const world = worldWithPlayer();
+
+    const result = world.runDevCommand('p1', 'hp 1000');
+
+    expect(result.ok).toBe(true);
+    expect(world.getPlayers().get('p1')!.hp).toBe(1000);
+  });
+
+  it('hp 0은 다운 상태를 만든다', () => {
+    const world = worldWithPlayer();
+
+    expect(world.runDevCommand('p1', 'hp 0').ok).toBe(true);
+    expect(world.getPlayers().get('p1')!.hp).toBe(0);
+  });
+
+  it('음수나 정수가 아닌 값은 거절한다', () => {
+    const world = worldWithPlayer();
+    const before = world.getPlayers().get('p1')!.hp;
+
+    expect(world.runDevCommand('p1', 'hp -5').ok).toBe(false);
+    expect(world.runDevCommand('p1', 'hp abc').ok).toBe(false);
+    expect(world.runDevCommand('p1', 'hp 1.5').ok).toBe(false);
+    expect(world.getPlayers().get('p1')!.hp).toBe(before);
+  });
+});
