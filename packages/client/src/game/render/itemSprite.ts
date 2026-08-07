@@ -18,7 +18,12 @@ const MATERIAL_FRAME: Record<string, string> = {
   repair_kit: 'item_consumable_repair_kit_0',
   core_cell: 'item_consumable_core_cell_0',
   energy_cell: 'item_consumable_energy_cell_0',
-  drop_normal: 'item_drop_normal_idle_0',
+  // drop_rare는 아틀라스에 'item_drop_rare_idle_0'로 들어있는데, drop_normal만
+  // 'idle' 세그먼트가 빠진 'item_drop_normal__0'로 들어있다(에셋 소스의 이름표
+  // 오타로 보임 — 원본 아세프라이트/생성기를 고치는 대신 실제 아틀라스에 있는
+  // 이름에 코드를 맞췄다. 나중에 아틀라스를 'item_drop_normal_idle_0'로 다시
+  // 뽑으면 이 줄도 같이 바꿔야 한다).
+  drop_normal: 'item_drop_normal__0',
   drop_rare: 'item_drop_rare_idle_0',
 };
 
