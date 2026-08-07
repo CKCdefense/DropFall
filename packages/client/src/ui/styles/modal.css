@@ -1,0 +1,304 @@
+/*
+ * 모달 — 타이틀 화면 위에 겹쳐 뜨는 창.
+ *
+ * 외곽 프레임은 title_modal.png를 9-slice로 쓴다. 에셋이 없으면 `.modal:not([data-asset])`
+ * 규칙이 플레이스홀더 테두리를 대신 그린다. (docs/frontend/06-ui-asset-slots.md)
+ */
+
+.modal-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(12px, 3vh, 40px) clamp(12px, 3vw, 40px);
+  background: rgba(8, 10, 15, 0.6);
+}
+
+.modal {
+  --slice: var(--asset-modal-slice);
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+
+  /*
+   * 창 크기와 무관하게 항상 같은 비율로 뜬다.
+   * 로고와 같은 방식 — "높이 상한 × 비율"을 폭의 상한에 포함시켜야
+   * max-height로 높이만 잘려 비율이 깨지는 일이 없다.
+   * 내용이 늘어나도 크기는 그대로고, 방 목록만 안에서 스크롤된다.
+   */
+  width: min(var(--modal-w), 92vw, calc(88vh * var(--modal-ratio)));
+  aspect-ratio: var(--modal-ratio);
+  padding: clamp(14px, 2.5vh, 24px);
+  background: var(--panel);
+
+  border-style: solid;
+  border-width: calc(var(--slice) * 1px * var(--modal-px));
+  border-color: var(--panel-line);
+  border-image-source: var(--asset-modal);
+  border-image-slice: var(--slice) fill;
+  border-image-width: calc(var(--slice) * 1px * var(--modal-px));
+  border-image-repeat: round;
+}
+
+/* 에셋이 없을 때: 두께는 유지하고 안팎 1px 선으로 프레임처럼 보이게 */
+.modal:not([data-asset]) {
+  border-color: var(--panel);
+  outline: 1px solid var(--panel-line);
+  outline-offset: -1px;
+  box-shadow: inset 0 0 0 1px var(--panel-line);
+}
+
+/*
+ * 9-slice 에셋이 적용됐을 때.
+ * 프레임 안쪽에 이미 여백이 있으므로 패딩을 줄이고, 에셋의 안쪽 면이 밝은 회색이라
+ * 기본 팔레트(밝은 글자 / 어두운 배경)를 그대로 쓰면 글자가 묻힌다 — 안쪽만 반전시킨다.
+ * 에셋 색이 바뀌면 이 블록의 색만 조정하면 된다.
+ */
+.modal[data-asset] {
+  padding: clamp(4px, 1vh, 10px);
+  color: #1b1f27;
+}
+
+.modal[data-asset] .room-row {
+  border-color: rgba(27, 31, 39, 0.35);
+}
+
+.modal[data-asset] .room-row-head,
+.modal[data-asset] .room-count,
+.modal[data-asset] .room-locked,
+.modal[data-asset] .modal-empty,
+.modal[data-asset] .modal-loading,
+.modal[data-asset] .field-block > span,
+.modal[data-asset] .hint {
+  color: #3f4753;
+}
+
+.modal[data-asset] .room-code {
+  color: #1d5c39;
+}
+
+.modal[data-asset] .icon-search::before {
+  border-color: var(--text-dim);
+}
+
+.modal-head {
+  display: flex;
+  align-items: stretch;
+  gap: var(--gap-sm);
+}
+
+.modal-head .field {
+  flex: 1;
+  min-width: 0;
+}
+
+/* 새로고침 — 와이어프레임의 정사각 버튼 */
+.btn-square {
+  flex: none;
+  width: 52px;
+  min-width: 0;
+  padding: 0;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: center;
+  gap: clamp(12px, 3vw, 32px);
+}
+
+.modal-actions .btn {
+  min-width: clamp(110px, 20vw, 160px);
+}
+
+/* ---------------------------------------------------------------- 방 목록 표 */
+
+.room-table {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: var(--gap-sm);
+  min-height: 0;
+}
+
+/* 방코드 / 방 이름 / 인원 / 참가 — 헤더와 각 행이 같은 격자를 쓴다 */
+.room-row {
+  display: grid;
+  grid-template-columns: minmax(72px, 1fr) minmax(0, 2.4fr) minmax(56px, 1fr) auto;
+  align-items: center;
+  gap: var(--gap-sm);
+  min-height: 46px;
+  padding: 4px 10px;
+  border: 2px solid var(--panel-line);
+  font-size: 14px;
+}
+
+.room-row-head {
+  border: none;
+  padding: 0 10px;
+  min-height: 0;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
+.room-row-head .room-name {
+  text-align: center;
+}
+
+/* 남은 높이를 전부 차지하고, 넘치는 만큼만 안에서 스크롤된다 */
+.room-rows {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: var(--gap-sm);
+  min-height: 0;
+}
+
+/* 스크롤 컨테이너에서 행이 눌리지 않게 */
+.room-rows > * {
+  flex: none;
+}
+
+.room-code {
+  color: var(--accent);
+  letter-spacing: 1px;
+}
+
+.room-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
+}
+
+.room-count {
+  color: var(--text-dim);
+  text-align: right;
+}
+
+.room-row-empty {
+  justify-items: center;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
+.room-locked {
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+.room-password-row {
+  display: flex;
+  gap: var(--gap-sm);
+  padding: 0 10px;
+}
+
+.modal-empty,
+.modal-loading {
+  margin: 0;
+  padding: 28px 12px;
+  color: var(--text-dim);
+  font-size: 13px;
+  text-align: center;
+}
+
+/* ---------------------------------------------------------------- 코드 찾기 */
+
+.code-form {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  justify-content: center;
+  gap: var(--gap);
+  padding: 8px 0;
+}
+
+/* ---------------------------------------------------------------- 검색 아이콘 */
+
+/* 에셋 전까지 CSS로 그린 돋보기. 아이콘 에셋이 생기면 .asset 슬롯으로 교체한다. */
+.icon-search {
+  flex: none;
+  position: relative;
+  width: 16px;
+  height: 16px;
+}
+
+.icon-search::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 11px;
+  height: 11px;
+  border: 2px solid var(--text-dim);
+  border-radius: 50%;
+}
+
+.icon-search::after {
+  content: '';
+  position: absolute;
+  right: 1px;
+  bottom: 0;
+  width: 7px;
+  height: 2px;
+  background: var(--text-dim);
+  transform: rotate(45deg);
+  transform-origin: right center;
+}
+
+/* ---------------------------------------------------------------- 방 코드 4칸 */
+
+.code-form-label {
+  color: var(--text-dim);
+  font-size: 14px;
+  text-align: center;
+}
+
+.code-boxes {
+  display: flex;
+  justify-content: center;
+  gap: clamp(8px, 2vw, 16px);
+}
+
+/* 한 칸에도 입력창 9-slice가 그대로 들어간다 (assetAttr('input')) */
+.code-box {
+  --slice: var(--asset-input-slice);
+  width: clamp(48px, 9vw, 68px);
+  aspect-ratio: 1;
+  padding: 0;
+  background: #12141a;
+  color: var(--text);
+  font: inherit;
+  font-size: clamp(20px, 3vw, 30px);
+  text-align: center;
+  text-transform: uppercase;
+  outline: none;
+  border-style: solid;
+  border-width: calc(var(--slice) * 1px * var(--input-px));
+  border-color: var(--panel-line);
+  border-image-source: var(--asset-input);
+  border-image-slice: var(--slice) fill;
+  border-image-width: calc(var(--slice) * 1px * var(--input-px));
+  border-image-repeat: round;
+}
+
+.code-box[data-asset] {
+  background: none;
+  color: #e8eef7;
+}
+
+.code-box[data-asset]:focus {
+  border-image-source: var(--asset-input-hover);
+}
+
+.code-box:not([data-asset]) {
+  border-width: calc(3px * var(--px));
+  border-color: #12141a;
+  box-shadow: inset 0 0 0 1px var(--panel-line);
+}
+
+.code-box:not([data-asset]):focus {
+  box-shadow: inset 0 0 0 1px var(--accent-dim);
+}

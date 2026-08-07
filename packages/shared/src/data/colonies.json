@@ -1,0 +1,12 @@
+{
+  "spawnRadiusMin": 700,
+  "spawnRadiusMax": 1000,
+  "minSpacing": 400,
+  "channelSeconds": 6,
+  "essenceReward": 1,
+  "stages": [
+    { "afterWave": 0, "spawnIntervalSeconds": 20, "types": ["trash"] },
+    { "afterWave": 2, "spawnIntervalSeconds": 14, "types": ["trash", "rusher"] },
+    { "afterWave": 4, "spawnIntervalSeconds": 9, "types": ["trash", "rusher", "tanker"] }
+  ]
+}

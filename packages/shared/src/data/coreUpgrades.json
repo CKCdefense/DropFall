@@ -1,0 +1,21 @@
+{
+  "$comment": "코어는 티어 1로 시작한다. tiers는 '다음 티어로 올리는 비용/효과' 목록이라 최대 티어(3) - 1개다.",
+  "startTier": 1,
+  "baseBuildRadius": 175,
+  "tiers": [
+    {
+      "cost": 8,
+      "coreHpBonus": 300,
+      "buildRadiusBonus": 175,
+      "unlocksCrafting": true,
+      "unlocksStatUpgrades": false
+    },
+    {
+      "cost": 20,
+      "coreHpBonus": 500,
+      "buildRadiusBonus": 280,
+      "unlocksCrafting": true,
+      "unlocksStatUpgrades": true
+    }
+  ]
+}

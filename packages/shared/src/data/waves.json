@@ -1,0 +1,13 @@
+{
+  "coreHp": 1000,
+  "playerHp": 100,
+  "spawnRadius": 900,
+  "dayDuration": 90,
+  "waves": [
+    { "nightDuration": 60, "spawnPoints": 1, "spawns": { "trash": 8 } },
+    { "nightDuration": 75, "spawnPoints": 2, "spawns": { "trash": 14, "rusher": 3 } },
+    { "nightDuration": 90, "spawnPoints": 2, "spawns": { "trash": 20, "rusher": 6 } },
+    { "nightDuration": 100, "spawnPoints": 3, "spawns": { "trash": 26, "rusher": 8, "tanker": 2 } },
+    { "nightDuration": 120, "spawnPoints": 3, "spawns": { "trash": 26, "rusher": 8, "tanker": 2, "boss": 1 } }
+  ]
+}

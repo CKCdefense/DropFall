@@ -1,0 +1,170 @@
+{
+  "pistol": {
+    "name": "권총",
+    "kind": "weapon",
+    "weaponId": "pistol",
+    "stackSize": 1,
+    "buyPrice": 40,
+    "rarity": "common"
+  },
+  "bandage": {
+    "name": "붕대",
+    "kind": "consumable",
+    "healAmount": 30,
+    "stackSize": 5,
+    "rarity": "common",
+    "buyPrice": 20
+  },
+  "wood": {
+    "name": "나무",
+    "kind": "material",
+    "stackSize": 200,
+    "sellPrice": 1
+  },
+  "stone": {
+    "name": "돌",
+    "kind": "material",
+    "stackSize": 200,
+    "sellPrice": 1
+  },
+  "drop_normal": {
+    "name": "부품",
+    "kind": "material",
+    "stackSize": 200,
+    "sellPrice": 4
+  },
+  "drop_rare": {
+    "name": "희귀부품",
+    "kind": "material",
+    "stackSize": 200,
+    "sellPrice": 25
+  },
+  "axe_t1": {
+    "name": "도끼 T1",
+    "kind": "weapon",
+    "weaponId": "axe_t1",
+    "stackSize": 1
+  },
+  "axe_t2": {
+    "name": "도끼 T2",
+    "kind": "weapon",
+    "weaponId": "axe_t2",
+    "stackSize": 1
+  },
+  "axe_t3": {
+    "name": "도끼 T3",
+    "kind": "weapon",
+    "weaponId": "axe_t3",
+    "stackSize": 1
+  },
+  "pickax_t1": {
+    "name": "곡괭이 T1",
+    "kind": "weapon",
+    "weaponId": "pickax_t1",
+    "stackSize": 1
+  },
+  "pickax_t2": {
+    "name": "곡괭이 T2",
+    "kind": "weapon",
+    "weaponId": "pickax_t2",
+    "stackSize": 1
+  },
+  "pickax_t3": {
+    "name": "곡괭이 T3",
+    "kind": "weapon",
+    "weaponId": "pickax_t3",
+    "stackSize": 1
+  },
+  "hammer_t1": {
+    "name": "망치 T1",
+    "kind": "weapon",
+    "weaponId": "hammer_t1",
+    "stackSize": 1
+  },
+  "hammer_t2": {
+    "name": "망치 T2",
+    "kind": "weapon",
+    "weaponId": "hammer_t2",
+    "stackSize": 1
+  },
+  "magnum": {
+    "name": "매그넘",
+    "kind": "weapon",
+    "weaponId": "magnum",
+    "stackSize": 1,
+    "buyPrice": 120,
+    "rarity": "rare"
+  },
+  "rifle": {
+    "name": "소총",
+    "kind": "weapon",
+    "weaponId": "rifle",
+    "stackSize": 1,
+    "buyPrice": 200,
+    "rarity": "rare"
+  },
+  "shotgun": {
+    "name": "산탄총",
+    "kind": "weapon",
+    "weaponId": "shotgun",
+    "stackSize": 1,
+    "buyPrice": 260,
+    "rarity": "epic"
+  },
+  "minigun": {
+    "name": "미니건",
+    "kind": "weapon",
+    "weaponId": "minigun",
+    "stackSize": 1,
+    "buyPrice": 500,
+    "rarity": "legendary"
+  },
+  "beamsword": {
+    "name": "빔소드",
+    "kind": "weapon",
+    "weaponId": "beamsword",
+    "stackSize": 1,
+    "buyPrice": 400,
+    "rarity": "legendary"
+  },
+  "medkit": {
+    "name": "구급킷",
+    "kind": "consumable",
+    "healAmount": 80,
+    "stackSize": 5,
+    "rarity": "rare",
+    "buyPrice": 60
+  },
+  "stimpack": {
+    "name": "응급주사",
+    "kind": "consumable",
+    "healAmount": 200,
+    "stackSize": 3,
+    "rarity": "epic",
+    "buyPrice": 140
+  },
+  "repair_kit": {
+    "name": "수리키트",
+    "kind": "consumable",
+    "coreHealAmount": 200,
+    "stackSize": 5,
+    "rarity": "rare",
+    "buyPrice": 90
+  },
+  "core_cell": {
+    "name": "코어셀",
+    "kind": "consumable",
+    "coreHealAmount": 500,
+    "stackSize": 3,
+    "rarity": "epic",
+    "buyPrice": 220
+  },
+  "energy_cell": {
+    "name": "에너지셀",
+    "kind": "consumable",
+    "energyAmount": 3,
+    "stackSize": 3,
+    "rarity": "legendary",
+    "buyPrice": 400
+  }
+}

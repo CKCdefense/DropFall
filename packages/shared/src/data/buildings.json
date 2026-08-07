@@ -1,0 +1,16 @@
+{
+  "fence": {
+    "woodCost": 5,
+    "stoneCost": 0,
+    "hp": 50,
+    "blocksMovement": true,
+    "blocksProjectile": false
+  },
+  "wall": {
+    "woodCost": 5,
+    "stoneCost": 10,
+    "hp": 200,
+    "blocksMovement": true,
+    "blocksProjectile": true
+  }
+}

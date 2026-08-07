@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- 게임 화면이라 사용자 확대/축소를 막는다. 레이아웃은 항상 뷰포트에 맞춘다. -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <title>DropFall</title>
+  </head>
+  <body>
+    <!-- 뷰포트에 고정된 앱 셸. 스크롤은 여기서 원천 차단된다. -->
+    <div id="app">
+      <!-- 로비/타이틀 등 폼 입력 화면. 인게임에서는 숨긴다. -->
+      <div id="ui-root"></div>
+      <!-- Phaser 캔버스가 붙는 곳. 인게임에서만 보인다. -->
+      <div id="game-root" hidden></div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

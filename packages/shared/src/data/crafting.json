@@ -1,0 +1,81 @@
+{
+  "recipes": [
+    {
+      "id": "axe_t1",
+      "itemId": "axe_t1",
+      "requiresTier": 1,
+      "cost": {
+        "wood": 20,
+        "stone": 10
+      }
+    },
+    {
+      "id": "axe_t2",
+      "itemId": "axe_t2",
+      "requiresTier": 2,
+      "cost": {
+        "wood": 40,
+        "stone": 30,
+        "drop_normal": 5
+      }
+    },
+    {
+      "id": "axe_t3",
+      "itemId": "axe_t3",
+      "requiresTier": 3,
+      "cost": {
+        "wood": 60,
+        "stone": 50,
+        "drop_normal": 15
+      }
+    },
+    {
+      "id": "pickax_t1",
+      "itemId": "pickax_t1",
+      "requiresTier": 1,
+      "cost": {
+        "wood": 20,
+        "stone": 10
+      }
+    },
+    {
+      "id": "pickax_t2",
+      "itemId": "pickax_t2",
+      "requiresTier": 2,
+      "cost": {
+        "wood": 40,
+        "stone": 30,
+        "drop_normal": 5
+      }
+    },
+    {
+      "id": "pickax_t3",
+      "itemId": "pickax_t3",
+      "requiresTier": 3,
+      "cost": {
+        "wood": 60,
+        "stone": 50,
+        "drop_normal": 15
+      }
+    },
+    {
+      "id": "hammer_t1",
+      "itemId": "hammer_t1",
+      "requiresTier": 1,
+      "cost": {
+        "wood": 20,
+        "stone": 10
+      }
+    },
+    {
+      "id": "hammer_t2",
+      "itemId": "hammer_t2",
+      "requiresTier": 2,
+      "cost": {
+        "wood": 40,
+        "stone": 30,
+        "drop_normal": 5
+      }
+    }
+  ]
+}

@@ -1,0 +1,311 @@
+/*
+ * 공통 UI 컴포넌트.
+ *
+ * 핵심 아이디어: **9-slice 에셋이 들어올 자리를 미리 만들어 둔다.**
+ * `border-image-source`가 `none`이면 브라우저가 아래 `border`(플레이스홀더)를 그리고,
+ * url(...)이 들어오면 그대로 9-slice로 대체된다. 마크업/레이아웃 변경이 필요 없다.
+ */
+
+/* ---------------------------------------------------------------- 9-slice 프레임 */
+
+.frame {
+  --slice: var(--asset-frame-slice);
+  position: relative;
+  background: var(--panel);
+  border-style: solid;
+  border-width: calc(var(--slice) * 1px * var(--px));
+  border-color: var(--panel-line);
+  border-image-source: var(--asset-frame);
+  border-image-slice: var(--slice) fill;
+  border-image-width: calc(var(--slice) * 1px * var(--px));
+  border-image-repeat: round;
+}
+
+/*
+ * 에셋이 없을 때의 플레이스홀더 표현.
+ * 테두리 "두께"는 9-slice가 차지할 공간이라 그대로 두고, 색만 배경과 맞춘 뒤
+ * 안팎에 1px 선을 그어 프레임처럼 읽히게 한다 — 두꺼운 회색 덩어리로 보이지 않도록.
+ * 에셋이 들어오면 요소에 data-asset을 붙여 이 규칙을 끈다.
+ */
+.frame:not([data-asset]) {
+  border-color: var(--panel);
+  outline: 1px solid var(--panel-line);
+  outline-offset: -1px;
+  box-shadow:
+    inset 0 0 0 1px var(--panel-line),
+    calc(var(--px) * 1px) calc(var(--px) * 1px) 0 var(--shadow);
+}
+
+/*
+ * `.frame`은 현재 로비에서 쓰지 않는다 — 랜딩/목록 화면은 컨테이너 패널 없이
+ * 화면 전체를 쓰기 때문이다. 앞으로 만들 인벤토리·상점·정산 창의 기본 프레임이라
+ * 9-slice 구조를 미리 갖춰 남겨둔다.
+ */
+
+/* ---------------------------------------------------------------- 버튼 */
+
+.btn {
+  --slice: var(--asset-button-slice);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 10px 18px;
+  background: #262b37;
+  color: var(--text);
+  font: inherit;
+  font-size: 15px;
+  white-space: nowrap;
+  cursor: pointer;
+  border-style: solid;
+  border-width: calc(var(--slice) * 1px * var(--button-px));
+  border-color: var(--panel-line);
+  border-image-source: var(--asset-button);
+  border-image-slice: var(--slice) fill;
+  border-image-width: calc(var(--slice) * 1px * var(--button-px));
+  border-image-repeat: round;
+}
+
+/*
+ * 에셋이 적용됐을 때: 테두리가 두꺼워지므로 안쪽 여백을 확보한다.
+ * 배경도 9-slice의 fill이 그리므로 자체 배경색을 지운다.
+ */
+.btn[data-asset] {
+  min-height: 54px;
+  padding: 0 20px;
+  background: none;
+  /* btn_stone의 fill이 중간 회색(#6e6f74)이라 어두운 글자로는 대비가 부족하다 */
+  color: #f2f5fa;
+}
+
+.btn[data-asset]:hover:not(:disabled) {
+  color: #ffffff;
+}
+
+/* 프레임과 동일한 플레이스홀더 표현 (위 .frame 주석 참고) */
+.btn:not([data-asset]) {
+  border-width: calc(4px * var(--px));
+  border-color: #262b37;
+  outline: 1px solid var(--panel-line);
+  outline-offset: -1px;
+  box-shadow: inset 0 0 0 1px var(--panel-line);
+}
+
+.btn:hover:not(:disabled) {
+  border-image-source: var(--asset-button-hover, var(--asset-button));
+  color: var(--accent);
+}
+
+.btn:not([data-asset]):hover:not(:disabled) {
+  outline-color: var(--accent-dim);
+  box-shadow: inset 0 0 0 1px var(--accent-dim);
+}
+
+.btn:active:not(:disabled) {
+  /* 눌림 표현. 에셋이 들어오면 button-active 슬롯으로 교체 예정 */
+  transform: translateY(1px);
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--text-dim);
+  border-width: calc(1px * var(--px));
+  border-image-source: none;
+}
+
+.btn-small {
+  min-height: 32px;
+  padding: 4px 10px;
+  font-size: 13px;
+  border-width: calc(2px * var(--px));
+  border-image-source: none;
+}
+
+/* 텍스트 링크형 — 9-slice 자리를 잡지 않는 유일한 버튼이라 플레이스홀더 표현도 끈다 */
+.btn-link,
+.btn-link:not([data-asset]),
+.btn-link:not([data-asset]):hover:not(:disabled) {
+  min-height: 0;
+  padding: 4px;
+  background: none;
+  border: none;
+  outline: none;
+  box-shadow: none;
+  color: var(--text-dim);
+  font-size: 13px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.btn-link:hover {
+  color: var(--text);
+}
+
+/* ---------------------------------------------------------------- 입력 */
+
+.field {
+  --slice: var(--asset-input-slice);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 52px;
+  padding: 0 14px;
+  background: #12141a;
+  border-style: solid;
+  border-width: calc(var(--slice) * 1px * var(--input-px));
+  border-color: var(--panel-line);
+  border-image-source: var(--asset-input);
+  border-image-slice: var(--slice) fill;
+  border-image-width: calc(var(--slice) * 1px * var(--input-px));
+  border-image-repeat: round;
+}
+
+/*
+ * 에셋이 적용되면 안쪽 배경은 9-slice의 fill이 그린다 — 자체 배경색을 지운다.
+ * fill이 중간 밝기(어두운 청회색)라 기본 placeholder 색으로는 글자가 묻힌다.
+ * 에셋 색이 바뀌면 아래 색만 조정하면 된다.
+ */
+.field[data-asset] {
+  background: none;
+  padding: 0 4px;
+}
+
+.field[data-asset]:hover,
+.field[data-asset]:focus-within {
+  border-image-source: var(--asset-input-hover);
+}
+
+.field[data-asset] input {
+  color: #e8eef7;
+}
+
+.field[data-asset] input::placeholder {
+  color: #a8b3c2;
+}
+
+.field[data-asset] .field-label {
+  color: #c3ccd9;
+}
+
+.field:not([data-asset]) {
+  border-width: calc(3px * var(--px));
+  border-color: #12141a;
+  outline: 1px solid var(--panel-line);
+  outline-offset: -1px;
+  box-shadow: inset 0 0 0 1px var(--panel-line);
+}
+
+.field:not([data-asset]):focus-within {
+  outline-color: var(--accent-dim);
+  box-shadow: inset 0 0 0 1px var(--accent-dim);
+}
+
+.field-label {
+  flex: none;
+  color: var(--text-dim);
+  font-size: 14px;
+}
+
+.field input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 0;
+  background: none;
+  border: none;
+  outline: none;
+  color: var(--text);
+  font: inherit;
+}
+
+.field input::placeholder {
+  color: #4d5666;
+}
+
+.field-code input {
+  text-transform: uppercase;
+  letter-spacing: 6px;
+  text-align: center;
+}
+
+/* ---------------------------------------------------------------- 이미지 에셋 슬롯 */
+
+/*
+ * 이미지 에셋이 들어갈 자리. 지금은 `placeholder` 클래스가 붙어 있어 점선 상자와
+ * 라벨(data-placeholder)이 보인다. 에셋이 준비되면
+ *   1) tokens.css의 --asset-* 를 url(...)로 바꾸고
+ *   2) 마크업에서 `placeholder` 클래스만 제거
+ * 하면 끝이다. 슬롯 크기는 동일하므로 레이아웃이 밀리지 않는다.
+ */
+.asset {
+  display: block;
+  background-image: var(--src, none);
+  background-size: 100% 100%;
+  background-repeat: no-repeat;
+  image-rendering: pixelated;
+}
+
+.asset.placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: calc(1px * var(--px)) dashed var(--panel-line-strong);
+  color: var(--text-dim);
+  font-size: 12px;
+  letter-spacing: 1px;
+}
+
+.asset.placeholder::after {
+  content: attr(data-placeholder);
+}
+
+/* 로고 슬롯 — 에셋 전까지는 텍스트 로고를 대신 보여준다 */
+.asset-logo {
+  /*
+   * 세로 상한을 max-height로 걸면 높이만 잘리고 폭은 그대로라 이미지가 가로로 늘어난다.
+   * 대신 "높이 상한 × 비율"을 폭의 상한에 포함시켜, 어떤 창 크기에서도 비율이 정확히 유지되게 한다.
+   */
+  width: min(var(--logo-w), calc(var(--logo-max-h) * var(--logo-ratio)));
+  aspect-ratio: var(--logo-ratio);
+  /* flex 자식으로서 세로로 찌그러지지 않게 */
+  flex: none;
+  --src: var(--asset-logo);
+  /* 혹시 박스 비율이 어긋나도 이미지 자체는 왜곡되지 않도록 */
+  background-size: contain;
+  background-position: center;
+}
+
+.asset-logo.placeholder {
+  border-color: var(--panel-line);
+  color: var(--accent);
+  font-family: var(--font-display);
+  font-size: clamp(40px, 11vw, 104px);
+  font-weight: 700;
+  letter-spacing: 2px;
+  line-height: 1;
+}
+
+/* ---------------------------------------------------------------- 메시지 */
+
+.msg {
+  margin: 0;
+  padding: 10px 12px;
+  font-size: 13px;
+  border: calc(1px * var(--px)) solid transparent;
+  text-align: center;
+}
+
+.msg-error {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.msg-info {
+  color: var(--text-dim);
+  border-color: var(--panel-line);
+}

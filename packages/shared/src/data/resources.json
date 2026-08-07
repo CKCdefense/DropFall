@@ -1,0 +1,18 @@
+{
+  "wood": {
+    "requiredTool": "axe",
+    "hitRadius": 14,
+    "hp": 54,
+    "yieldOnDeplete": 25,
+    "respawnSeconds": 60,
+    "dropItemId": "wood"
+  },
+  "stone": {
+    "requiredTool": "pickax",
+    "hitRadius": 14,
+    "hp": 42,
+    "yieldOnDeplete": 9,
+    "respawnSeconds": 90,
+    "dropItemId": "stone"
+  }
+}

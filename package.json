@@ -1,0 +1,27 @@
+{
+  "name": "dropfall",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.18.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter \"@dropfall/*\" run dev",
+    "build": "pnpm -r --if-present run build",
+    "test": "pnpm -r --if-present run test",
+    "lint": "eslint .",
+    "dev:server": "pnpm --filter @dropfall/server run dev",
+    "dev:client": "pnpm --filter @dropfall/client run dev",
+    "typecheck": "pnpm -r --if-present run typecheck",
+    "build:atlas": "node tools/build-atlas.mjs"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.8.0",
+    "prettier": "^3.9.6",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.65.0"
+  }
+}

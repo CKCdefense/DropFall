@@ -1,0 +1,12 @@
+/*
+ * 스타일 진입점. 순서가 의미를 가진다 — 토큰 → 셸 → 컴포넌트 → 화면.
+ *
+ * 시각 요소는 전부 플레이스홀더 상태이고, 픽셀 에셋이 준비되면
+ * tokens.css의 `--asset-*` 값만 교체하면 된다. (docs/frontend/06 참고)
+ */
+@import './styles/tokens.css';
+@import './styles/base.css';
+@import './styles/components.css';
+@import './styles/lobby.css';
+@import './styles/modal.css';
+@import './styles/waiting.css';

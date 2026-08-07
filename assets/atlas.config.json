@@ -1,0 +1,112 @@
+{
+  "$comment": "아틀라스 구성. 새 에셋 디렉터리를 추가하면 여기에 등록한다. tools/build-atlas.mjs가 읽는다.",
+  "atlases": [
+    {
+      "name": "game",
+      "$comment": "인게임 월드 스프라이트. 캐릭터/아이템/건축물/오브젝트/이펙트 (몬스터는 monsters 아틀라스로 분리)",
+      "sources": [
+        "sprites/characters",
+        "sprites/items",
+        "sprites/buildings",
+        "sprites/objects",
+        "sprites/props",
+        "sprites/fx"
+      ]
+    },
+    {
+      "name": "monsters",
+      "$comment": "몬스터. 재업로드 금지 라이센스 에셋을 쓰므로 원본도 이 아틀라스 산출물도 커밋하지 않는다 (sprites/monsters/README.md)",
+      "sources": [
+        "sprites/monsters"
+      ]
+    },
+    {
+      "name": "tiles",
+      "$comment": "타일셋. Phaser Tilemap이 타일 번호로 격자 위치를 계산하므로 packed가 아니라 고정 칸 수 격자로 뽑는다",
+      "sources": [
+        "tiles"
+      ],
+      "sheetType": "rows",
+      "sheetColumns": 20
+    },
+    {
+      "name": "ui",
+      "$comment": "인게임 HUD(캔버스에 그리는 것만). 로비 DOM용 9-slice는 아틀라스에 넣지 않는다",
+      "sources": [
+        "ui/hud",
+        "ui/icons"
+      ]
+    }
+  ],
+  "copy": [
+    {
+      "$comment": "CSS border-image는 아틀라스 일부를 잘라 쓸 수 없어 개별 파일이 필요하다",
+      "from": "ui/dom",
+      "to": "ui",
+      "extensions": [
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".webp"
+      ]
+    },
+    {
+      "from": "ui/logo",
+      "to": "ui",
+      "extensions": [
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".webp"
+      ]
+    },
+    {
+      "from": "ui/backgrounds",
+      "to": "ui",
+      "extensions": [
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".webp"
+      ]
+    },
+    {
+      "from": "maps",
+      "to": "maps",
+      "extensions": [
+        ".tmj",
+        ".json"
+      ]
+    },
+    {
+      "from": "audio/bgm",
+      "to": "audio",
+      "extensions": [
+        ".ogg",
+        ".mp3"
+      ]
+    },
+    {
+      "from": "audio/sfx",
+      "to": "audio",
+      "extensions": [
+        ".ogg",
+        ".wav",
+        ".mp3"
+      ]
+    },
+    {
+      "from": "fonts",
+      "to": "fonts",
+      "extensions": [
+        ".woff2"
+      ],
+      "$comment": "실제로 쓰는 갈무리 웨이트만 복사한다. 원본 디렉터리에는 ttf/bdf 등 변형이 함께 들어 있다.",
+      "include": [
+        "Galmuri11.woff2",
+        "Galmuri11-Bold.woff2",
+        "Galmuri7.woff2"
+      ]
+    }
+  ]
+}

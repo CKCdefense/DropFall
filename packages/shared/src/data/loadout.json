@@ -1,0 +1,22 @@
+{
+  "$comment": "playerStarting은 참가 시 개인 인벤토리에, coreStorage는 게임 시작 시 팀 창고에 한 번 들어간다.",
+  "playerStarting": [],
+  "coreStorage": [
+    {
+      "itemId": "pistol",
+      "count": 1
+    },
+    {
+      "itemId": "axe_t1",
+      "count": 1
+    },
+    {
+      "itemId": "pickax_t1",
+      "count": 1
+    },
+    {
+      "itemId": "bandage",
+      "count": 3
+    }
+  ]
+}
