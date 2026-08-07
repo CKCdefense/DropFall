@@ -18,3 +18,4 @@ export { COLONY_RADIUS } from './sim/colony';
 export * from './sim/coreShape';
 export * from './sim/explored';
 export * from './sim/corePersona';
+export * from './sim/companionPersona';

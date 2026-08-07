@@ -103,3 +103,29 @@ export interface CoreCommentaryMessage {
 
 /** server→client 브로드캐스트 메시지 이름. `room.broadcast(CORE_COMMENTARY_MESSAGE, ...)`. */
 export const CORE_COMMENTARY_MESSAGE = 'coreCommentary';
+
+/**
+ * 티모시(AI 동반자)의 한 줄 대사. 코어 납품/근접 상호작용/다운·부활/웨이브 종료 시 서버가
+ * 그 이벤트의 대상 플레이어 트레잇으로 LLM(또는 실패 시 폴백 대사)을 생성해 방 전체에
+ * broadcast한다 — 코어 페르소나와 달리 방 전체가 아니라 특정 플레이어를 향한 대사다.
+ */
+export interface CompanionCommentaryMessage {
+  text: string;
+  /** 이 대사가 향하는 플레이어의 세션 id. */
+  playerId: string;
+}
+
+export const COMPANION_COMMENTARY_MESSAGE = 'companionCommentary';
+
+/**
+ * 플레이어 채팅 한 줄. 클라→서버로는 텍스트만 보내고(`chat` 메시지, 페이로드 {text}),
+ * 서버가 보낸 사람 정보(playerId/nickname)를 붙여 방 전체에 broadcast한다 — 방(팀)
+ * 전체가 항상 볼 수 있는 채팅이라 거리 판정 없이 그대로 뿌린다.
+ */
+export interface ChatMessage {
+  playerId: string;
+  nickname: string;
+  text: string;
+}
+
+export const CHAT_MESSAGE = 'chatMessage';

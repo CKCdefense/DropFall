@@ -174,6 +174,24 @@ export class InputController {
     return BUILD_MODES[this.buildModeIndex];
   }
 
+  /**
+   * 채팅/개발자 콘솔처럼 텍스트 입력이 뜰 때 부른다. `keyboard.enabled = false`만으로는
+   * 부족하다 — Phaser는 그 순간부터 keyup 이벤트도 무시하므로, 입력을 여는 순간 이동키를
+   * 누르고 있었다면 `isDown`이 true에 박제돼 서버가 "마지막 입력을 계속 반복 적용"하는
+   * 모델(§buildInput 주석) 때문에 캐릭터가 창을 연 채로도 계속 미끄러진다. 여기서
+   * 키 상태를 직접 리셋하고, 그 결과(정지)를 즉시 한 번 전송해 서버 쪽 이동도 끊는다.
+   */
+  haltMovement(): void {
+    this.keys.up.reset();
+    this.keys.down.reset();
+    this.keys.left.reset();
+    this.keys.right.reset();
+    this.keys.channel.reset();
+    this.fireTimer = 0;
+    this.seq += 1;
+    this.connection.sendInput(this.buildInput());
+  }
+
   get weaponId(): string | undefined {
     return this.equipped.weaponId;
   }
