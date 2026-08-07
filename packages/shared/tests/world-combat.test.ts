@@ -42,6 +42,19 @@ function equipDefaultKit(world: World, playerId: string): void {
   inventory.add('bandage', 3);
 }
 
+
+/**
+ * 자원 노드를 전부 멀리 치운다. `new World()`는 노드를 무작위(코어 260px 밖)로
+ * 배치하는데, 사격 무대(x 300~500)가 그 범위 안이라 시드에 따라 노드가 탄도를
+ * 막아 간헐적으로 실패했다 — 노드는 투사체를 흡수한다.
+ */
+function clearShootingRange(world: World): void {
+  for (const node of world.getResourceNodes().values()) {
+    node.x = 5000;
+    node.y = 5000;
+  }
+}
+
 describe('World — 전투/웨이브 통합', () => {
   it('day로 시작해서 dayDuration이 지나면 night(1웨이브)로 전환된다', () => {
     const world = new World();
@@ -80,6 +93,7 @@ describe('World — 전투/웨이브 통합', () => {
     world.addPlayer('p1', 300, 0);
     equipDefaultKit(world, 'p1');
     startFirstWave(world);
+    clearShootingRange(world);
 
     const [monster] = [...world.getMonsters().values()];
     // trash의 hitRadius는 6. 총알은 중심에서 6px 안으로 들어와야 맞는다.
@@ -99,6 +113,7 @@ describe('World — 전투/웨이브 통합', () => {
     world.addPlayer('p1', 300, 0);
     equipDefaultKit(world, 'p1');
     startFirstWave(world);
+    clearShootingRange(world);
 
     const [monster] = [...world.getMonsters().values()];
     // 진행선(+x)에서 세로로 hitRadius(6)보다 멀리 떨어뜨린다
@@ -135,6 +150,7 @@ describe('World — 전투/웨이브 통합', () => {
     world.addPlayer('p1', 300, 0);
     equipDefaultKit(world, 'p1');
     startFirstWave(world);
+    clearShootingRange(world);
 
     const [monster] = [...world.getMonsters().values()];
     monster!.x = 400;
@@ -182,6 +198,7 @@ describe('World — 전투/웨이브 통합', () => {
     world.addPlayer('p1', 300, 0);
     equipDefaultKit(world, 'p1');
     startFirstWave(world);
+    clearShootingRange(world);
 
     const [monster] = [...world.getMonsters().values()];
     monster!.x = 340; // muzzleOffset(19)보다 충분히 멀다
@@ -666,6 +683,7 @@ describe('World — 몬스터 처치 보상(부품/에너지)', () => {
     world.addPlayer('p1', 300, 0);
     equipDefaultKit(world, 'p1');
     startFirstWave(world);
+    clearShootingRange(world);
 
     const [monster] = [...world.getMonsters().values()];
     monster!.x = 400;
@@ -741,6 +759,7 @@ describe('World — 몬스터 처치 보상(부품/에너지)', () => {
     world.addPlayer('p1', 300, 0);
     equipDefaultKit(world, 'p1');
     startFirstWave(world);
+    clearShootingRange(world);
 
     const [monster] = [...world.getMonsters().values()];
     monster!.x = 400;

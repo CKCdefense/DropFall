@@ -42,11 +42,17 @@ const DUSK: Sky = { tint: 0x8078b0, light: 0.65 };
 const NIGHT: Sky = { tint: 0x232e4c, light: 1 };
 
 /**
- * 낮이 끝나기 전 전환 구간(초). "너무 빨리 어두워진다"는 피드백으로 노을 시작을
- * 40→55초로 당겼다 — 90초 낮 기준 35초의 순수 낮 뒤 55초에 걸쳐 천천히 물든다.
+ * 하루 타임라인(경과 비율 기준).
+ *
+ *   0 ~ 1/2   한낮
+ *   1/2 ~ 3/4 한낮 → 노을 (여기가 예전에 없던 구간이다 — 문턱을 넘는 순간 목표가
+ *             "완성된 노을"로 점프해서, 보간 2초 만에 하늘이 확 물들었다)
+ *   3/4 ~ 0.9 노을 → 저녁(보랏빛)
+ *   0.9 ~ 1   저녁 → 밤 (낮이 끝나는 순간 정확히 밤 색이 완성된다)
  */
-const SUNSET_START = Math.min(55, wavesData.dayDuration * 0.6);
-const DUSK_START = Math.min(25, wavesData.dayDuration * 0.28);
+const SUNSET_BEGIN = 0.5;
+const SUNSET_FULL = 0.75;
+const DUSK_FULL = 0.9;
 
 /** 밤이 끝난 뒤 아침이 밝는 데 걸리는 시간(초). 밤은 몬스터 전멸로 끝나 예고가 없다. */
 const DAWN_SECONDS = 10;
@@ -174,22 +180,21 @@ export class DayNightOverlay {
     // 승리/패배 화면은 결과가 잘 보이게 하늘을 걷는다.
     if (status.wavePhase !== 'day') return DAYLIGHT;
 
-    const remaining = status.phaseTimeRemaining;
-    const elapsed = wavesData.dayDuration - remaining;
+    const elapsed = wavesData.dayDuration - status.phaseTimeRemaining;
+    const frac = Math.min(1, Math.max(0, elapsed / wavesData.dayDuration));
 
     // 새벽 — 밤을 겪은 다음 낮의 첫 몇 초만. 게임 시작 직후는 한낮에서 출발한다.
     if (this.hasSeenNight && elapsed < DAWN_SECONDS) {
       return mixSky(NIGHT, DAYLIGHT, elapsed / DAWN_SECONDS);
     }
-    // 저녁 → 밤: 남은 시간이 0이 되는 순간 정확히 밤 색이 완성된다.
-    if (remaining <= DUSK_START) {
-      return mixSky(DUSK, NIGHT, 1 - remaining / DUSK_START);
+    if (frac <= SUNSET_BEGIN) return DAYLIGHT;
+    if (frac <= SUNSET_FULL) {
+      return mixSky(DAYLIGHT, SUNSET, (frac - SUNSET_BEGIN) / (SUNSET_FULL - SUNSET_BEGIN));
     }
-    // 노을 → 저녁.
-    if (remaining <= SUNSET_START) {
-      return mixSky(SUNSET, DUSK, 1 - (remaining - DUSK_START) / (SUNSET_START - DUSK_START));
+    if (frac <= DUSK_FULL) {
+      return mixSky(SUNSET, DUSK, (frac - SUNSET_FULL) / (DUSK_FULL - SUNSET_FULL));
     }
-    return DAYLIGHT;
+    return mixSky(DUSK, NIGHT, (frac - DUSK_FULL) / (1 - DUSK_FULL));
   }
 }
 
