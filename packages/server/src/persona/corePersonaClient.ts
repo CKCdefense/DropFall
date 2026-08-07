@@ -26,7 +26,12 @@ interface RequestSpec {
 }
 
 function directRequestSpec(): RequestSpec | null {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  // 일반적인 ANTHROPIC_API_KEY가 아니라 이 기능 전용 이름을 쓴다 — Claude Code 같은
+  // 도구가 이미 그 이름의 환경변수를 셸에 등록해 놓은 경우가 흔한데, .env 로딩은
+  // 이미 있는 환경변수를 덮어쓰지 않아서(process.loadEnvFile()의 dotenv식 동작) 그
+  // 값이 조용히 재사용되며 인증 실패(401)로 이어진다. 이름을 분리하면 이 충돌 자체가
+  // 안 생긴다.
+  const apiKey = process.env.CORE_PERSONA_ANTHROPIC_API_KEY;
   if (!apiKey) return null;
   return {
     url: 'https://api.anthropic.com/v1/messages',
