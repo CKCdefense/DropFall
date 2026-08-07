@@ -97,9 +97,10 @@ export class DevConsole {
     this.open = !this.open;
     this.root.dataset.open = this.open ? '1' : '0';
 
-    // 열려 있는 동안 Phaser 키보드를 끈다 — 안 그러면 명령을 치는 동안 캐릭터가
-    // 움직이고 퀵슬롯이 바뀐다.
-    if (this.scene.input.keyboard) this.scene.input.keyboard.enabled = !this.open;
+    // 열려 있는 동안 Phaser 키보드를 **게임 전역**에서 끈다. 씬 하나만 끄면 안 된다 —
+    // 이 콘솔은 HudScene 소속이지만 E(코어 모달)·WASD·퀵슬롯은 GameScene 키보드에
+    // 붙어 있어서, HUD만 꺼서는 'e'를 치는 순간 모달이 열렸다.
+    if (this.scene.game.input.keyboard) this.scene.game.input.keyboard.enabled = !this.open;
 
     if (this.open) this.input.focus();
     else this.input.blur();
@@ -170,6 +171,6 @@ export class DevConsole {
   destroy(): void {
     window.removeEventListener('keydown', this.onGlobalKey);
     this.root.remove();
-    if (this.scene.input.keyboard) this.scene.input.keyboard.enabled = true;
+    if (this.scene.game.input.keyboard) this.scene.game.input.keyboard.enabled = true;
   }
 }

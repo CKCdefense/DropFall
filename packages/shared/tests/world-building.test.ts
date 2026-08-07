@@ -906,7 +906,9 @@ describe('World — 건축물과 플레이어', () => {
 describe('World — 건축물과 투사체', () => {
   it('벽은 투사체를 막고 통과시키지 않는다', () => {
     const world = createTestWorld();
-    world.addPlayer('shooter', 0, 0);
+    // 코어(발자국 ±52, 건축 금지 여유 포함) 밖에서 쏜다 — 원점 무대는 벽 자리가
+    // 금지 셀에 걸리고 총구가 코어에 흡수된다.
+    world.addPlayer('shooter', 200, 0);
     equipDefaultKit(world, 'shooter'); // 기본 aimAngle=0 → +x 방향 조준
     world.addPlayer('builder', -500, -500);
     equipDefaultKit(world, 'builder');
@@ -914,7 +916,7 @@ describe('World — 건축물과 투사체', () => {
     grantSharedResources(world, 100, 100);
 
     // 사수 조준 방향(바로 앞)에 벽을 짓는다.
-    const { cx, cy } = worldToCell(60, 0);
+    const { cx, cy } = worldToCell(260, 0);
     world.placeBuilding('builder', 'wall', cx, cy);
     expect(world.getBuildings().size).toBe(1);
 

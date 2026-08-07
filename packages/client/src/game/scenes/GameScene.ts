@@ -7,6 +7,7 @@ import {
   HUD_BLOCK_KEY,
   INPUT_CONTROLLER_KEY,
 } from '../createGame';
+import { DayNightOverlay } from '../render/DayNightOverlay';
 import { EntityRenderer } from '../render/EntityRenderer';
 import { queueGameAtlas } from '../render/playerSprite';
 import { TerrainLayer, hasTerrainTileset, queueTerrainTileset } from '../render/TerrainLayer';
@@ -32,6 +33,7 @@ export class GameScene extends Phaser.Scene {
   private connection!: GameConnection;
   private entityRenderer!: EntityRenderer;
   private terrain?: TerrainLayer;
+  private dayNight!: DayNightOverlay;
   private input_!: InputController;
   private isFollowing = false;
   private collisionDebugVisible = false;
@@ -60,6 +62,8 @@ export class GameScene extends Phaser.Scene {
     this.drawGround();
 
     this.entityRenderer = new EntityRenderer(this, this.connection.sessionId);
+    // 낮·밤 하늘. 모든 월드 오브젝트 위에 얹히는 화면 고정 오버레이라 depth로 관리한다.
+    this.dayNight = new DayNightOverlay(this);
     this.input_ = new InputController(
       this,
       this.connection,
@@ -78,6 +82,8 @@ export class GameScene extends Phaser.Scene {
 
     this.applyZoom();
     this.scale.on(Phaser.Scale.Events.RESIZE, this.applyZoom, this);
+    // 어둠막은 화면 크기 그대로라 창 크기가 바뀌면 같이 늘려야 한다.
+    this.scale.on(Phaser.Scale.Events.RESIZE, this.resizeDayNight, this);
 
     // C: 플레이어-건축물 충돌 판정 반경 디버그 테두리 토글. 실제 캐릭터 에셋을
     // 씌우면 그림만 봐서는 판정 범위를 가늠하기 어려워서, 확인용으로 추가했다.
@@ -88,9 +94,14 @@ export class GameScene extends Phaser.Scene {
 
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.scale.off(Phaser.Scale.Events.RESIZE, this.applyZoom, this);
+      this.scale.off(Phaser.Scale.Events.RESIZE, this.resizeDayNight, this);
       this.entityRenderer.destroy();
       this.terrain?.destroy();
     });
+  }
+
+  private resizeDayNight(): void {
+    this.dayNight.resize();
   }
 
   update(_time: number, delta: number): void {
@@ -100,6 +111,7 @@ export class GameScene extends Phaser.Scene {
     this.entityRenderer.sync(snapshot);
     // 건축 구역 포장 — 반경이 바뀐 순간에만 실제로 다시 그린다(TerrainLayer 참고).
     this.terrain?.setBuildRadius(snapshot.status.coreBuildRadius);
+    this.dayNight.update(snapshot.status, this.cameras.main, delta);
 
     const me = snapshot.players.find((player) => player.id === this.connection.sessionId);
     if (!me) return;
