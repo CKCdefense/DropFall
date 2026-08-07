@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { World } from '../src/sim/world';
-import { monstersData, wavesData } from '../src/data';
+import { craftingData, monstersData, wavesData } from '../src/data';
 
 /** 1웨이브가 시작될 때까지(day → night) 틱을 진행시킨다. */
 function startFirstWave(world: World): void {
@@ -417,6 +417,107 @@ describe('World — 전원 다운 = 즉시 패배', () => {
 
     expect(world.getWavePhase()).toBe('day');
     expect(world.getPlayers().get('p1')!.hp).toBe(wavesData.playerHp);
+  });
+});
+
+/** dropItem은 private이지만, "바닥에 뭔가 있는 상태"를 준비하는 데는 이 방법이 제일 짧다
+ * (economy.test.ts의 killMonster와 같은 패턴 — private 메서드를 캐스팅해서 부른다). */
+function forceDropItem(world: World, itemId: string, count: number, x: number, y: number): void {
+  (
+    world as unknown as {
+      dropItem(itemId: string, count: number, x: number, y: number): void;
+    }
+  ).dropItem(itemId, count, x, y);
+}
+
+describe('World — 다운된(hp 0) 플레이어는 이동 말고는 아무 동작도 할 수 없다', () => {
+  it('이동은 그대로 된다 — 도망/은신 등 최소한의 조작은 남겨둔다', () => {
+    const world = new World();
+    // 코어 발자국 밖(코어는 원점)에서 시작해야 이동 자체가 코어 충돌에 막히지 않는다.
+    world.addPlayer('p1', 200, 200);
+    world.getPlayers().get('p1')!.hp = 0;
+
+    world.setInput('p1', { seq: 1, moveX: 1, moveY: 0, aimAngle: 0 });
+    world.tick(0.5);
+
+    const player = world.getPlayers().get('p1')!;
+    expect(player.x).toBeGreaterThan(200);
+  });
+
+  it('공격해도 투사체가 생기지 않는다', () => {
+    const world = new World();
+    world.addPlayer('p1', 0, 0);
+    equipDefaultKit(world, 'p1');
+    world.selectSlot('p1', 0); // 권총(원거리)
+    world.getPlayers().get('p1')!.hp = 0;
+
+    world.fireWeapon('p1');
+
+    expect(world.getProjectiles().size).toBe(0);
+  });
+
+  it('바닥 드롭을 주울 수 없다', () => {
+    const world = new World();
+    world.addPlayer('p1', 0, 0);
+    forceDropItem(world, 'wood', 3, 0, 0);
+    world.getPlayers().get('p1')!.hp = 0;
+
+    world.pickUpNearestDrop('p1');
+
+    expect(carriedCount(world, 'p1', 'wood')).toBe(0);
+    expect(droppedCount(world, 'wood')).toBe(3); // 바닥에 그대로 남았다
+  });
+
+  it('재료가 충분해도 제작할 수 없다', () => {
+    const world = new World();
+    world.addPlayer('p1', 0, 0);
+    const recipe = craftingData.recipes.find((entry) => entry.id === 'axe_t1')!;
+    for (const [itemId, count] of Object.entries(recipe.cost)) {
+      world.getCore().storage.add(itemId, count);
+    }
+    world.getPlayers().get('p1')!.hp = 0;
+    // 창고에는 시작 지급품(loadout.coreStorage)이 이미 들어 있을 수 있어서(economy.test.ts와
+    // 같은 이유) 절대량이 아니라 변화량으로 본다.
+    const before = world.getCore().storage.countOf(recipe.itemId);
+
+    world.craftItem('p1', recipe.id);
+
+    expect(world.getCore().storage.countOf(recipe.itemId)).toBe(before);
+  });
+
+  it('자원이 충분해도 건축할 수 없다', () => {
+    const world = new World();
+    world.addPlayer('p1', 0, 0);
+    world.getCore().storage.add('wood', 999);
+    world.getCore().storage.add('stone', 999);
+    world.getPlayers().get('p1')!.hp = 0;
+
+    world.placeBuilding('p1', 'fence', 3, 3);
+
+    expect(world.getBuildings().size).toBe(0);
+  });
+
+  it('투표해도 표가 안 들어간다(혼자인 방에서 즉시 스킵되지 않는지로 확인)', () => {
+    const world = new World();
+    world.addPlayer('p1', 0, 0);
+    world.getPlayers().get('p1')!.hp = 0;
+
+    world.castSkipVote('p1');
+
+    // 살아있었다면 1인 방에서 혼자 투표한 순간 만장일치라 바로 낮이 끝났을 것이다.
+    expect(world.getWavePhase()).toBe('day');
+  });
+
+  it('에너지가 충분해도 코어를 업그레이드할 수 없다', () => {
+    const world = new World();
+    world.addPlayer('p1', 0, 0);
+    const tierBefore = world.getCore().tier;
+    world.getCore().sharedEnergy = 999999;
+    world.getPlayers().get('p1')!.hp = 0;
+
+    world.upgradeCore('p1');
+
+    expect(world.getCore().tier).toBe(tierBefore);
   });
 });
 

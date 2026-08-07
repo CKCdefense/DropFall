@@ -705,7 +705,8 @@ export class World {
    */
   fireWeapon(playerId: string): void {
     const player = this.players.get(playerId);
-    if (!player) return;
+    // 쓰러진 플레이어는 공격할 수 없다 — useSelectedItem과 같은 규칙(§668).
+    if (!player || player.hp <= 0) return;
     // fireWeapon()은 tick()과 무관하게 아무 때나(발사 요청이 오는 즉시) 불릴 수 있다.
     // monsterGrid는 moveMonster()를 거칠 때만 점진적으로 갱신되는데, 몬스터 좌표가
     // moveMonster를 거치지 않고 직접 바뀌는 경로(테스트의 직접 대입, 향후 추가될
@@ -753,7 +754,8 @@ export class World {
    */
   castSkipVote(playerId: string): void {
     if (this.waveManager.currentPhase !== 'day') return;
-    if (!this.players.has(playerId)) return;
+    const player = this.players.get(playerId);
+    if (!player || player.hp <= 0) return;
 
     this.skipVotes.add(playerId);
     if (this.players.size > 0 && this.skipVotes.size >= this.players.size) {
@@ -820,7 +822,7 @@ export class World {
    */
   pickUpNearestDrop(playerId: string): void {
     const player = this.players.get(playerId);
-    if (!player) return;
+    if (!player || player.hp <= 0) return;
 
 
     let target: DroppedItemEntity | undefined;
@@ -861,7 +863,7 @@ export class World {
     toIndex: unknown,
   ): void {
     const player = this.players.get(playerId);
-    if (!player) return;
+    if (!player || player.hp <= 0) return;
     if (!isContainerName(from) || !isContainerName(to)) return;
     if (!Number.isInteger(fromIndex) || !Number.isInteger(toIndex)) return;
     if (from === to && fromIndex === toIndex) return;
@@ -896,7 +898,7 @@ export class World {
    */
   quickMoveItem(playerId: string, container: unknown, index: unknown): void {
     const player = this.players.get(playerId);
-    if (!player) return;
+    if (!player || player.hp <= 0) return;
     if (!isContainerName(container)) return;
     if (!Number.isInteger(index)) return;
 
@@ -933,7 +935,8 @@ export class World {
    * 부족하면 조용히 무시한다.
    */
   upgradeCore(playerId: string): void {
-    if (!this.players.has(playerId)) return;
+    const player = this.players.get(playerId);
+    if (!player || player.hp <= 0) return;
 
     // tiers는 "다음 티어로 올리는" 목록이라, 티어 1이 0번 항목을 산다.
     const tier = coreUpgradesData.tiers[this.core.tier - coreUpgradesData.startTier];
@@ -956,7 +959,7 @@ export class World {
    */
   craftItem(playerId: string, recipeId: unknown): void {
     const player = this.players.get(playerId);
-    if (!player || !this.isNearCore(player)) return;
+    if (!player || player.hp <= 0 || !this.isNearCore(player)) return;
     if (typeof recipeId !== 'string') return;
 
     const recipe = craftingData.recipes.find((entry) => entry.id === recipeId);
@@ -990,7 +993,7 @@ export class World {
    */
   sellToShop(playerId: string, itemId: unknown, count: unknown): void {
     const player = this.players.get(playerId);
-    if (!player || !this.isNearCore(player)) return;
+    if (!player || player.hp <= 0 || !this.isNearCore(player)) return;
     if (typeof itemId !== 'string' || !Number.isInteger(count)) return;
 
     const amount = count as number;
@@ -1006,7 +1009,7 @@ export class World {
   /** 상점에서 산다. 대금은 팀 자금에서 나가고 물건은 창고로 들어간다. */
   buyFromShop(playerId: string, itemId: unknown): void {
     const player = this.players.get(playerId);
-    if (!player || !this.isNearCore(player)) return;
+    if (!player || player.hp <= 0 || !this.isNearCore(player)) return;
     if (typeof itemId !== 'string') return;
     // 오늘 진열된 것만 살 수 있다. 어제 봤던 id를 그대로 보내도 통하지 않는다.
     if (!this.core.shopStock.includes(itemId)) return;
@@ -1140,7 +1143,8 @@ export class World {
       if (otherCell.cx === cx && otherCell.cy === cy) return;
     }
 
-    if (!this.players.has(playerId)) return;
+    const player = this.players.get(playerId);
+    if (!player || player.hp <= 0) return;
 
     // 비용은 코어 창고에서 나간다. 둘 중 하나라도 모자라면 아무것도 소비하지 않는다 —
     // 나무만 깎이고 실패하면 자원이 조용히 증발한다.
@@ -1165,7 +1169,8 @@ export class World {
   demolishBuilding(playerId: string, cx: unknown, cy: unknown): void {
     if (!isFiniteNumber(cx) || !isFiniteNumber(cy)) return;
     if (!Number.isInteger(cx) || !Number.isInteger(cy)) return;
-    if (!this.players.has(playerId)) return;
+    const player = this.players.get(playerId);
+    if (!player || player.hp <= 0) return;
 
     const building = this.buildings.at(cx, cy);
     if (!building) return;
@@ -1348,6 +1353,8 @@ export class World {
     for (const [id, player] of this.players) {
       const input = this.inputs.get(id);
       if (!input) continue;
+      // 쓰러진 플레이어도 이동은 할 수 있다(도망/은신 등 최소한의 조작은 남겨둔다) —
+      // 공격·제작·건축 등 그 외 행동만 막는다(아래 각 메서드의 hp 체크 참고).
       this.movePlayer(player, input.moveX, input.moveY, dtSeconds);
       player.aimAngle = input.aimAngle;
       player.lastProcessedSeq = input.seq;
@@ -1538,7 +1545,7 @@ export class World {
   /** 티모시 옆에서 상호작용(E)했음을 알린다. 사거리 밖이면 조용히 무시하고 false. */
   requestCompanionInteraction(playerId: string): boolean {
     const player = this.players.get(playerId);
-    if (!player) return false;
+    if (!player || player.hp <= 0) return false;
     const distance = Math.hypot(player.x - this.companion.x, player.y - this.companion.y);
     if (distance > companionData.interactRange) return false;
     this.enqueueCompanionPersonaEvent('proximityInteract', playerId);
