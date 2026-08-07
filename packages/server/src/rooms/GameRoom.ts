@@ -384,8 +384,13 @@ export class GameRoom extends Room {
     this.state.coreSharedEnergy = core.sharedEnergy;
     this.state.coreMoney = core.money;
     // 진열은 하루에 한 번만 바뀐다 — 매 틱 덮어쓰지 않고 달라졌을 때만 갈아 끼운다.
+    // splice(0, len, ...새값)은 쓸 수 없다 — ArraySchema#splice는 insertCount가
+    // deleteCount보다 크면 던진다(예: 첫 낮 진열이 빈 배열 위에 N개를 채우는 경우,
+    // 매 틱 반복적으로 터져서 결국 방이 응답을 멈추고 클라이언트 연결이 끊겼다).
+    // clear() 후 push()는 개수 제약이 없어 항상 안전하다.
     if (!sameStrings(this.state.shopStock, core.shopStock)) {
-      this.state.shopStock.splice(0, this.state.shopStock.length, ...core.shopStock);
+      this.state.shopStock.clear();
+      this.state.shopStock.push(...core.shopStock);
     }
     this.state.coreTier = core.tier;
     this.state.coreBuildRadius = this.world.getBuildRadius();
