@@ -5,13 +5,15 @@ import {
   buildCompanionPersonaPrompt,
   applyCompanionPersonaEvent,
   createInitialCompanionTraits,
+  World,
   type CorePersonaTraits,
   type PersonaEvent,
   type PersonaEventKind,
   type CompanionPersonaEvent,
   type CompanionPersonaEventKind,
 } from '@dropfall/shared';
-import { generateCoreCommentary, type PersonaProvider } from '../persona/corePersonaClient';
+import { generateCoreCommentary, generateWithTools, type PersonaProvider } from '../persona/corePersonaClient';
+import { COMPANION_TOOLS, executeCompanionTool } from '../persona/companionTools';
 
 /**
  * 코어 AI 페르소나가 **실제로 뭐라고 말하는지** 눈으로 확인하는 스크립트. 서버를 띄울
@@ -48,10 +50,14 @@ import { generateCoreCommentary, type PersonaProvider } from '../persona/corePer
  *
  * "@티모시 밥 먹었냐"처럼 채팅으로 직접 말 걸었을 때 **실제로 뭐라고 답하는지**를
  * 서버/클라이언트 없이 바로 확인하려면 `--message`를 준다(companion 모드가 자동으로
- * 켜지고 kind는 playerMessage로 고정된다):
+ * 켜지고 kind는 playerMessage로 고정된다). 이 경로는 도구 사용(에이전트 루프)도 실제로
+ * 켜져 있다 — "나무 몇 개 있어?"처럼 물어보면 티모시가 실제로 조회해서 답하는지까지
+ * 확인할 수 있게, 창고에 나무 12개/돌 5개를 미리 채워둔 World를 하나 만들어 물어본다:
  *
  *   pnpm --filter @dropfall/server exec tsx src/dev/persona-smoke-test.ts \
  *     --message="밥 먹었냐" --provider=hchat --repeat=3
+ *   pnpm --filter @dropfall/server exec tsx src/dev/persona-smoke-test.ts \
+ *     --message="나무 몇 개 있어?" --provider=hchat
  *
  * 그 외 티모시 트리거(코어 납품/근접 상호작용/다운/부활/웨이브 종료)를 보려면
  * `--companion`만 켠다(인자 없으면 기본 샘플 5종, `--kind`로 하나만 골라도 됨):
@@ -132,23 +138,33 @@ async function callAndPrint(
   }
 }
 
-/** callAndPrint의 티모시 버전 — buildCompanionPersonaPrompt를 쓴다는 것만 다르다. */
+/**
+ * callAndPrint의 티모시 버전 — buildCompanionPersonaPrompt(messages 배열)를 쓴다는 것과,
+ * playerMessage는 실제 도구 사용(에이전트 루프)까지 켠다는 점이 다르다. `world`는
+ * playerMessage일 때 도구 실행(창고/웨이브/티모시 상태 조회) 대상이다.
+ */
 async function callAndPrintCompanion(
   label: string,
   provider: PersonaProvider,
   event: CompanionPersonaEvent,
   repeat: number,
   verbose: boolean,
+  world: World,
 ): Promise<void> {
-  const { system, user } = buildCompanionPersonaPrompt(event);
+  const { system, messages } = buildCompanionPersonaPrompt(event);
   if (verbose) {
     console.log(`[persona-smoke] --- 프롬프트(티모시) ---`);
     console.log(`[persona-smoke] system: ${system}`);
-    console.log(`[persona-smoke] user: ${user}`);
+    for (const turn of messages) console.log(`[persona-smoke] ${turn.role}: ${turn.content}`);
   }
 
   for (let i = 0; i < repeat; i += 1) {
-    const text = await generateCoreCommentary(provider, system, user);
+    const text =
+      event.kind === 'playerMessage'
+        ? await generateWithTools(provider, system, messages, COMPANION_TOOLS, (name) =>
+            executeCompanionTool(world, name),
+          )
+        : await generateCoreCommentary(provider, system, messages);
     const tag = repeat > 1 ? ` (#${i + 1}/${repeat})` : '';
     if (text === null) {
       console.log(`[persona-smoke] [${provider}] 티모시:${label}${tag}: (null — 키 미설정이거나 호출 실패)`);
@@ -158,10 +174,24 @@ async function callAndPrintCompanion(
   }
 }
 
+/**
+ * 티모시 도구 호출(get_storage/get_wave_status/get_companion_status)이 그럴듯한 값을
+ * 돌려주도록 최소한으로 채운 World. 실제 서버 없이도 "나무 몇 개 있어?" 같은 질문에
+ * 티모시가 실제로 조회해서 답하는지 확인할 수 있다.
+ */
+function createSmokeWorld(): World {
+  const world = new World();
+  world.addPlayer('tester', 0, 0);
+  world.runDevCommand('tester', 'store wood 12');
+  world.runDevCommand('tester', 'store stone 5');
+  return world;
+}
+
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   const providers = providersFrom(args.provider);
   const repeat = Math.max(1, Number(args.repeat) || 1);
+  const world = createSmokeWorld();
 
   const traitsFromArgs = (): CorePersonaTraits => ({
     trust: Number(args.trust) || 0,
@@ -185,7 +215,7 @@ async function main(): Promise<void> {
 
     console.log(`[persona-smoke] 티모시에게 말 걸기: "${args.message}" traits=${JSON.stringify(traits)}`);
     for (const provider of providers) {
-      await callAndPrintCompanion('playerMessage', provider, event, repeat, true);
+      await callAndPrintCompanion('playerMessage', provider, event, repeat, true, world);
     }
     return;
   }
@@ -202,7 +232,7 @@ async function main(): Promise<void> {
         `[persona-smoke] 티모시 커스텀 실행: kind=${customCompanionKind} wave=${wave} traits=${JSON.stringify(traits)}`,
       );
       for (const provider of providers) {
-        await callAndPrintCompanion(customCompanionKind, provider, event, repeat, true);
+        await callAndPrintCompanion(customCompanionKind, provider, event, repeat, true, world);
       }
       return;
     }
@@ -212,7 +242,7 @@ async function main(): Promise<void> {
       console.log(`\n=== provider: ${provider} (티모시) ===`);
       for (const { label, kind, wave } of DEFAULT_COMPANION_SAMPLES) {
         const traits = applyCompanionPersonaEvent(createInitialCompanionTraits(), kind);
-        await callAndPrintCompanion(label, provider, { kind, playerId: 'tester', traits, wave }, 1, false);
+        await callAndPrintCompanion(label, provider, { kind, playerId: 'tester', traits, wave }, 1, false, world);
         attempted += 1;
       }
     }
