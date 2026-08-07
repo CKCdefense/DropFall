@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { World } from '../src/sim/world';
+import { World } from '../../src/sim/world';
 import {
   applyPersonaEvent,
   createInitialPersonaTraits,
   moodBucketFor,
   pickFallbackLine,
-} from '../src/sim/corePersona';
-import { corePersonaData } from '../src/data';
+} from '../../src/sim/corePersona';
+import { corePersonaData } from '../../src/data';
 
 /** 매번 같은 시퀀스를 내는 결정론적 rng — colony.test.ts/wave.test.ts와 동일 패턴. */
 function seededRng(seed: number): () => number {
