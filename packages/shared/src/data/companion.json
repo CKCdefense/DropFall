@@ -1,0 +1,10 @@
+{
+  "name": "티모시",
+  "moveSpeed": 90,
+  "harvestRange": 24,
+  "harvestDamage": 6,
+  "harvestIntervalSeconds": 0.8,
+  "capacity": 20,
+  "maxHp": 40,
+  "spawnOffset": { "x": -80, "y": 0 }
+}

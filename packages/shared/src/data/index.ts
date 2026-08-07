@@ -12,6 +12,7 @@ import shopJson from './shop.json';
 import coloniesJson from './colonies.json';
 import coreUpgradesJson from './coreUpgrades.json';
 import corePersonaJson from './corePersona.json';
+import companionJson from './companion.json';
 
 export function loadData<T>(schema: z.ZodType<T>, json: unknown): T {
   return schema.parse(json);
@@ -448,3 +449,29 @@ export type PersonaTraitDelta = z.infer<typeof PersonaTraitDeltaSchema>;
 export type CorePersonaData = z.infer<typeof CorePersonaDataSchema>;
 
 export const corePersonaData = loadData(CorePersonaDataSchema, corePersonaJson);
+
+// --- companion.json ------------------------------------------------------------
+
+/**
+ * AI 동반자("티모시") 설정. 방(팀)당 1마리, 자원 채집/운반만 한다
+ * (docs/superpowers/specs/2026-08-07-ai-companion-timothy-design.md).
+ */
+const CompanionDataSchema = z.object({
+  /** UI/로그에 표시할 이름. 나중에 바꿀 수 있게 데이터로 뺐다. */
+  name: z.string().min(1),
+  moveSpeed: z.number().positive(),
+  /** 이 거리 안에 들어오면 이동을 멈추고 채집을 시작한다. */
+  harvestRange: z.number().positive(),
+  /** 채집 한 번(harvestIntervalSeconds마다)에 노드 hp를 깎는 양. */
+  harvestDamage: z.number().positive(),
+  harvestIntervalSeconds: z.number().positive(),
+  /** carriedWood + carriedStone이 이 값 이상이면 코어로 돌아간다. */
+  capacity: z.number().int().positive(),
+  maxHp: z.number().positive(),
+  /** 코어 기준 스폰 위치(px). */
+  spawnOffset: z.object({ x: z.number(), y: z.number() }),
+});
+
+export type CompanionData = z.infer<typeof CompanionDataSchema>;
+
+export const companionData = loadData(CompanionDataSchema, companionJson);
