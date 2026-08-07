@@ -339,6 +339,7 @@ export class GameRoom extends Room {
     this.syncResourceNodes();
     this.syncBuildings();
     this.syncColonies();
+    this.syncCompanion();
     this.syncDroppedItems();
     this.syncCoreStorage();
 
@@ -535,6 +536,21 @@ export class GameRoom extends Room {
       }
       schema.destroyed = colony.destroyed;
     }
+  }
+
+  /** 티모시는 콜로니처럼 항상 존재하는 단일 개체라 diff-and-update 루프가 필요 없다. */
+  private syncCompanion(): void {
+    const companion = this.world.getCompanion();
+    const schema = this.state.companion;
+    schema.x = companion.x;
+    schema.y = companion.y;
+    schema.facingX = companion.facingX;
+    schema.facingY = companion.facingY;
+    schema.state = companion.state;
+    schema.carriedWood = companion.carriedWood;
+    schema.carriedStone = companion.carriedStone;
+    schema.hp = companion.hp;
+    schema.maxHp = companion.maxHp;
   }
 }
 
