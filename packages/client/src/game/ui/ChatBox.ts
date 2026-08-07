@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { companionData } from '@dropfall/shared';
 import type { GameConnection } from '../../net/GameConnection';
 import { INPUT_CONTROLLER_KEY } from '../createGame';
 import type { InputController } from '../input/InputController';
@@ -12,6 +13,10 @@ import type { InputController } from '../input/InputController';
  *
  * 발신은 서버가 검증한 뒤 자기 자신에게도 broadcast로 되돌아온 걸 표시한다 —
  * 여기서 먼저 찍지 않는다(로컬 에코와 서버 반영이 어긋날 일이 없다).
+ *
+ * `@` 입력 후 Tab을 누르면 "@티모시 "로 자동완성된다(§completeMention) — 티모시가
+ * 지금은 유일한 멘션 대상이라 후보를 고를 필요 없이 즉시 완성해도 된다. 매번 이름
+ * 전체를 타이핑하는 게 귀찮다는 피드백으로 추가했다.
  */
 
 const MAX_LOG_LINES = 8;
@@ -40,6 +45,7 @@ const STYLE = `
 .df-chat__row[data-open='1'] { display: flex; }
 .df-chat__prompt { color: #6fd08c; }
 .df-chat__input { flex: 1; background: transparent; border: 0; outline: 0; color: #f2f5fa; font: inherit; }
+.df-chat__hint { color: #79828f; font-size: 10px; white-space: nowrap; }
 `;
 
 export class ChatBox {
@@ -67,6 +73,7 @@ export class ChatBox {
       <div class="df-chat__row">
         <span class="df-chat__prompt">&gt;</span>
         <input class="df-chat__input" spellcheck="false" autocomplete="off" maxlength="200" />
+        <span class="df-chat__hint">@+Tab: ${companionData.name}</span>
       </div>`;
     document.body.appendChild(this.root);
 
@@ -120,6 +127,13 @@ export class ChatBox {
       return;
     }
 
+    if (event.key === 'Tab') {
+      // 브라우저 기본 동작(다음 요소로 포커스 이동)을 막아야 입력창에 계속 남는다.
+      event.preventDefault();
+      this.completeMention();
+      return;
+    }
+
     if (event.key === 'Enter') {
       event.preventDefault();
       const text = this.input.value.trim();
@@ -127,6 +141,23 @@ export class ChatBox {
       this.toggle(false);
       if (text) this.connection.sendChat(text);
     }
+  }
+
+  /**
+   * `@`(뒤에 이름을 몇 글자 쳤어도 상관없음)로 시작한 상태에서 Tab을 누르면 그 첫
+   * 단어를 "@티모시"로 완성한다. 멘션 대상이 티모시 하나뿐이라 후보를 고를 필요가
+   * 없다 — 그냥 바로 완성해서 커서를 뒤에 두고 나머지 문장을 이어 치게 한다.
+   */
+  private completeMention(): void {
+    const mention = `@${companionData.name}`;
+    const value = this.input.value;
+    if (value.length > 0 && !value.startsWith('@')) return; // '@' 없이 Tab이면 아무 일도 안 한다
+
+    const spaceIndex = value.indexOf(' ');
+    const rest = spaceIndex === -1 ? '' : value.slice(spaceIndex + 1);
+    this.input.value = rest ? `${mention} ${rest}` : `${mention} `;
+    const caret = this.input.value.length;
+    this.input.setSelectionRange(caret, caret);
   }
 
   private toggle(open: boolean): void {
