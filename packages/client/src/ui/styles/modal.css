@@ -112,6 +112,27 @@
   min-width: clamp(110px, 20vw, 160px);
 }
 
+/* ---------------------------------------------------------------- 나가기 확인창 */
+
+/*
+ * 로비 목록/방 만들기 모달과 내용이 완전히 다르다(문구 한 줄 + 버튼 두 개뿐) —
+ * 그 모달들이 쓰는 큰 고정 비율(--modal-w/--modal-ratio, 방 목록용 그리드에
+ * 맞춘 값)을 그대로 물려받으면 대부분이 빈 공간인 큰 상자가 뜬다. 내용에 맞는
+ * 작은 크기로 따로 잡는다.
+ */
+.confirm-modal {
+  width: min(360px, 88vw);
+  aspect-ratio: auto;
+  align-items: center;
+  text-align: center;
+  gap: var(--gap-lg);
+}
+
+.confirm-modal .confirm-message {
+  margin: 0;
+  font-size: 16px;
+}
+
 /* ---------------------------------------------------------------- 방 목록 표 */
 
 .room-table {

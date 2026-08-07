@@ -2,46 +2,28 @@ import { describe, expect, it } from 'vitest';
 import { World, describeBossTelegraph, type MonsterEntity } from '../src/sim/world';
 import { monstersData } from '../src/data';
 
-const bossData = monstersData.boss;
+const bossData = monstersData.boss_dark_knight;
 const chargeData = bossData.chargeAttack!;
 const slamData = bossData.slamAttack!;
 
 /**
- * wave5로 점프해서 보스가 스폰될 때까지 잘게 쪼개 틱한다. 스폰 큐가 매번 무작위로
- * 섞이므로(WaveManager 내부 rng, World가 주입할 수 없음) 보스가 큐의 어디에
- * 걸리든 밤 전체 길이(120초)만큼은 확실히 커버해야 한다.
+ * 보스 한 마리를 개발자 커맨드로 직접 스폰한다. 예전엔 wave 5로 점프해 잡몹 37마리
+ * 사이에서 보스가 나올 때까지 틱했지만, 이제 보스는 잡몹을 전멸시켜야 나오는
+ * 구조라(웨이브 경유가 훨씬 번거롭다) 패턴 로직만 검증하는 이 파일에서는 dev
+ * 스폰으로 바로 만든다 — 패턴(charge/slam)은 스폰 경로와 무관하게 데이터만 보고
+ * 동작하므로 검증 범위는 같다.
  *
- * 보스를 찾으면 같은 웨이브에 같이 스폰된 다른 몬스터(trash/rusher/tanker)는 전부
- * 지운다 — 이 파일의 테스트는 hp 변화량을 정확히(등호로) 비교하는데, 다른 몬스터가
- * 테스트용 플레이어를 별도로 때리면 그 등호가 깨진다. `getMonsters()`의 반환
- * 타입은 `ReadonlyMap`이지만 실제로는 World가 들고 있는 그 Map 인스턴스 그대로라,
- * 테스트 전용으로 캐스팅해서 정리한다.
- *
- * 플레이어는 이 함수가 끝난 뒤(호출부에서) 추가한다 — 스폰을 기다리는 동안(최대
- * 120초 분량의 틱) 플레이어가 먼저 존재하면 어그로 있는 다른 몬스터(rusher)가
- * 우연히 근처를 지나가며 때릴 아주 작은 확률이 생기는데, 아예 그 시점엔 플레이어가
- * 없게 만들어서 그 가능성 자체를 없앤다.
+ * 커맨드 실행용 플레이어는 아그로 반경 밖 맵 구석에 세워 보스의 행동에 영향을
+ * 주지 않는다 — 이 파일의 테스트는 hp 변화량을 등호로 비교하므로, 테스트가 직접
+ * 추가하는 플레이어 외에는 아무도 근처에 없어야 한다.
  */
 function spawnBoss(world: World): MonsterEntity {
-  world.debugJumpToWave(5);
-  const core = world.getCore() as { hp: number; maxHp: number };
-  for (let i = 0; i < 5000; i += 1) {
-    for (const monster of world.getMonsters().values()) {
-      if (monster.type === 'boss') {
-        const monsters = world.getMonsters() as Map<string, MonsterEntity>;
-        for (const [id, other] of [...monsters]) {
-          if (other !== monster) monsters.delete(id);
-        }
-        return monster;
-      }
-    }
-    // 지키는 플레이어 없이 몬스터 37마리를 그대로 두면 코어가 죽어 'defeat'로
-    // 전환되고, WaveManager.tick()이 그 즉시 스폰을 완전히 멈춘다(보스가 아직 큐에
-    // 남아있어도) — 탐색 도중엔 코어를 계속 만피로 되돌려서 그 경합을 피한다.
-    core.hp = core.maxHp;
-    world.tick(0.1);
-  }
-  throw new Error('보스가 스폰되지 않았다');
+  world.addPlayer('dev', 1000, 1000);
+  const result = world.runDevCommand('dev', 'spawn boss_dark_knight 1');
+  if (!result.ok) throw new Error(`보스 스폰 실패: ${result.message}`);
+  const boss = [...world.getMonsters().values()].find((m) => m.type === 'boss_dark_knight');
+  if (!boss) throw new Error('보스가 스폰되지 않았다');
+  return boss;
 }
 
 describe('World — 보스 특수 패턴', () => {

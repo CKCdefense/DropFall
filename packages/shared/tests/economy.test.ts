@@ -186,9 +186,9 @@ describe('World — 몬스터 드랍 테이블', () => {
   it('rng가 항상 0이면(=최저값) 확률이 붙은 드랍이 전부 터진다', () => {
     // rng()가 0이면 `rng() >= chance`가 항상 거짓이라 모든 항목이 통과한다.
     const world = new World({ rng: () => 0 });
-    const type = 'trash';
+    const type = 'demon';
     const drops = monstersData[type].itemDrops ?? [];
-    expect(drops.length, 'trash에 드랍 테이블이 있어야 이 테스트가 의미 있다').toBeGreaterThan(0);
+    expect(drops.length, 'demon에 드랍 테이블이 있어야 이 테스트가 의미 있다').toBeGreaterThan(0);
 
     world.debugJumpToWave(1);
     world.tick(0.001);
@@ -203,12 +203,12 @@ describe('World — 몬스터 드랍 테이블', () => {
 
   it('rng가 항상 1이면(=최고값) 확률이 1 미만인 드랍은 하나도 안 나온다', () => {
     const world = new World({ rng: () => 0.999999 });
-    const drops = (monstersData.trash.itemDrops ?? []).filter((entry) => entry.chance < 1);
+    const drops = (monstersData.demon.itemDrops ?? []).filter((entry) => entry.chance < 1);
     expect(drops.length).toBeGreaterThan(0);
 
     world.debugJumpToWave(1);
     world.tick(0.001);
-    const monster = [...world.getMonsters().values()].find((entity) => entity.type === 'trash')!;
+    const monster = [...world.getMonsters().values()].find((entity) => entity.type === 'demon')!;
     killMonster(world, monster.id);
 
     for (const entry of drops) {

@@ -28,7 +28,7 @@ const MONSTER_COLOR = 0xd9756b;
 const RESOURCE_COLOR = 0x5b8c4a;
 const BUILDING_COLOR = 0xb08a5c;
 const COLONY_COLOR = 0x7a3fb0;
-const COLONY_DESTROYED_COLOR = 0x4a3f52;
+const COLONY_PURIFIED_COLOR = 0x4a3f52;
 
 /** 지형 이미지를 살짝 죽여 엔티티 점이 위로 뜨게 한다. */
 const TERRAIN_ALPHA = 0.9;
@@ -104,13 +104,13 @@ export class Minimap {
     this.plot(snapshot.resourceNodes, RESOURCE_COLOR, 1);
     this.plot(snapshot.buildings, BUILDING_COLOR, 1);
     this.plot(
-      snapshot.colonies.filter((colony) => !colony.destroyed),
+      snapshot.colonies.filter((colony) => !colony.purified),
       COLONY_COLOR,
       2,
     );
     this.plot(
-      snapshot.colonies.filter((colony) => colony.destroyed),
-      COLONY_DESTROYED_COLOR,
+      snapshot.colonies.filter((colony) => colony.purified),
+      COLONY_PURIFIED_COLOR,
       2,
     );
     this.plot(snapshot.monsters, MONSTER_COLOR, 1.5);

@@ -11,6 +11,7 @@ import {
 import { DayNightOverlay } from '../render/DayNightOverlay';
 import { EntityRenderer } from '../render/EntityRenderer';
 import { queueGameAtlas } from '../render/playerSprite';
+import { queueMonsterAtlas } from '../render/monsterSprite';
 import { TerrainLayer, hasTerrainTileset, queueTerrainTileset } from '../render/TerrainLayer';
 import { InputController } from '../input/InputController';
 import { HUD_SCENE_KEY } from './HudScene';
@@ -50,6 +51,8 @@ export class GameScene extends Phaser.Scene {
   preload(): void {
     // 아틀라스가 아직 없어도 게임은 떠야 한다 — 실패하면 도형 플레이스홀더로 그린다.
     queueGameAtlas(this);
+    // 라이센스 에셋이라 저장소에 없을 수 있다 — 없으면 도형 플레이스홀더로 떨어진다.
+    queueMonsterAtlas(this);
     queueTerrainTileset(this);
   }
 

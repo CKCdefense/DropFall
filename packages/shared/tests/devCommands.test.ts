@@ -133,7 +133,7 @@ describe('개발자 커맨드 — 자원·진행', () => {
   it('day는 몬스터를 치우고 낮으로 되돌린다', () => {
     const world = worldWithPlayer();
     world.runDevCommand('p1', 'wave 2');
-    world.runDevCommand('p1', 'spawn trash 5');
+    world.runDevCommand('p1', 'spawn demon 5');
     expect(world.getMonsters().size).toBeGreaterThan(0);
 
     world.runDevCommand('p1', 'day');
@@ -145,11 +145,11 @@ describe('개발자 커맨드 — 자원·진행', () => {
   it('spawn은 요청한 마릿수를 코어에서 떨어뜨려 놓는다', () => {
     const world = worldWithPlayer();
 
-    world.runDevCommand('p1', 'spawn tanker 4');
+    world.runDevCommand('p1', 'spawn lava_slime 4');
 
     const monsters = [...world.getMonsters().values()];
     expect(monsters).toHaveLength(4);
-    expect(monsters.every((monster) => monster.type === 'tanker')).toBe(true);
+    expect(monsters.every((monster) => monster.type === 'lava_slime')).toBe(true);
     // 코어에 붙여 놓으면 소환하자마자 코어가 맞기 시작한다.
     expect(monsters.every((monster) => Math.hypot(monster.x, monster.y) > 100)).toBe(true);
   });
@@ -166,7 +166,7 @@ describe('개발자 커맨드 — 자원·진행', () => {
 
   it('killall은 필드를 비운다', () => {
     const world = worldWithPlayer();
-    world.runDevCommand('p1', 'spawn trash 3');
+    world.runDevCommand('p1', 'spawn demon 3');
 
     world.runDevCommand('p1', 'killall');
 
@@ -237,7 +237,7 @@ describe('개발자 커맨드 — 입력 처리', () => {
     const world = worldWithPlayer();
 
     expect(world.runDevCommand('p1', 'list weapons').message).toContain('rifle');
-    expect(world.runDevCommand('p1', 'list monsters').message).toContain('boss');
+    expect(world.runDevCommand('p1', 'list monsters').message).toContain('boss_dark_knight');
     expect(world.runDevCommand('p1', 'list 아무거나').ok).toBe(false);
   });
 });

@@ -32,8 +32,6 @@ export class PlayerSchema extends Schema {
   @type('number') stone = 0;
   /** 몬스터가 떨구는 부품(drop_normal) 휴대량. 나무/돌과 동일하게 창고로 옮겨야 팀 몫이 된다. */
   @type('number') parts = 0;
-  /** 콜로니 채널링(파괴 작업) 진행률(0~1). 채널링 중이 아니면 0. */
-  @type('number') channelProgress = 0;
   @type([ItemSlotSchema]) slots = new ArraySchema<ItemSlotSchema>(
     ...Array.from({ length: SLOT_COUNT }, () => new ItemSlotSchema()),
   );
@@ -46,6 +44,22 @@ export class MonsterSchema extends Schema {
   @type('number') y = 0;
   @type('number') hp = 0;
   @type('number') maxHp = 0;
+  /**
+   * 지금 공격 모션 중인가. 클라이언트가 켜지는 순간에 공격 애니메이션을 재생한다.
+   * 좌표처럼 매 틱 바뀌는 값이 아니라 공격당 두 번만 뒤집혀서 패치 비용이 거의 없다.
+   */
+  @type('boolean') attacking = false;
+  /**
+   * 재생할 공격 동작 번호(1~3). 검술이 여러 개인 보스는 기술마다 사거리·각도가 달라서,
+   * 그림과 판정이 같은 기술을 가리키려면 어느 동작인지도 함께 알려줘야 한다.
+   */
+  @type('uint8') attackAnim = 0;
+  /**
+   * 왼쪽을 보고 있는가(스프라이트 좌우 반전용). 방향 벡터를 그대로 보내면 매 틱
+   * 바뀌는 실수 두 개가 몬스터 수만큼 실려 나가는데, 그림에 실제로 쓰는 정보는
+   * 부호 하나뿐이다. 제자리 공격 중에도 정확한 방향이 필요해서 서버가 알려준다.
+   */
+  @type('boolean') facingLeft = false;
   /** 보스 전용 공격 예고(텔레그래프). 진행 중이 아니면 빈 문자열('' | 'charge' | 'slam'). */
   @type('string') telegraphKind = '';
   @type('number') telegraphX = 0;
@@ -86,7 +100,12 @@ export class BuildingSchema extends Schema {
 export class ColonySchema extends Schema {
   @type('number') x = 0;
   @type('number') y = 0;
-  @type('boolean') destroyed = false;
+  /** 성장 단계(1~3). 클라이언트가 크기/색으로 위협도를 보여준다. */
+  @type('number') stage = 1;
+  /** 아직 콜로니 안에 저장된 몬스터 수. 0이고 purified면 빈 껍데기다. */
+  @type('number') stored = 0;
+  /** 정화된 빈 껍데기 상태(다음 낮에 재보급). */
+  @type('boolean') purified = false;
 }
 
 /**

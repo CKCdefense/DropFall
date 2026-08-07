@@ -25,7 +25,8 @@
 - [ ] Colyseus 서버 부팅, 룸 입장까지
 - [ ] Git 컨벤션 적용, PR 템플릿, CI(lint+test)
 - [ ] **GitHub Pages 자동 배포 파이프라인** (빈 화면이어도 좋으니 W1에 뚫어둔다)
-- [ ] 홈서버: Cloudflare Tunnel + 도메인 연결, systemd 등록
+- [ ] 홈서버: Tailscale Funnel(wss:// 공개 노출, 원래 계획한 Cloudflare Tunnel은
+      도메인 미보유로 무산 — [07-deployment.md](07-deployment.md) §2), systemd 등록
 - **주말 결과물**: 접속하면 사각형이 움직이는 화면
 
 ### W2 — 멀티 동기화 (**최대 리스크 구간**)

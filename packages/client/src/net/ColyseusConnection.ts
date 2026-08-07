@@ -40,7 +40,6 @@ interface RemotePlayerState {
   parts: number;
   slots: { itemId: string; count: number }[];
   selectedSlot: number;
-  channelProgress: number;
 }
 
 interface RemoteMonsterState {
@@ -49,6 +48,9 @@ interface RemoteMonsterState {
   y: number;
   hp: number;
   maxHp: number;
+  attacking: boolean;
+  attackAnim: number;
+  facingLeft: boolean;
   telegraphKind: string;
   telegraphX: number;
   telegraphY: number;
@@ -79,7 +81,9 @@ interface RemoteBuildingState {
 interface RemoteColonyState {
   x: number;
   y: number;
-  destroyed: boolean;
+  stage: number;
+  stored: number;
+  purified: boolean;
 }
 
 interface RemoteGameState {
@@ -358,7 +362,6 @@ export class ColyseusConnection implements GameConnection {
           slot.itemId ? { itemId: slot.itemId, count: slot.count } : null,
         ),
         selectedSlot: player.selectedSlot,
-        channelProgress: player.channelProgress,
       });
     });
 
@@ -371,6 +374,9 @@ export class ColyseusConnection implements GameConnection {
         y: monster.y,
         hp: monster.hp,
         maxHp: monster.maxHp,
+        attacking: monster.attacking,
+        attackAnim: monster.attackAnim,
+        facingLeft: monster.facingLeft,
         telegraphKind: (monster.telegraphKind || '') as '' | 'charge' | 'slam',
         telegraphX: monster.telegraphX,
         telegraphY: monster.telegraphY,
@@ -419,7 +425,14 @@ export class ColyseusConnection implements GameConnection {
 
     const colonies: WorldSnapshot['colonies'] = [];
     state?.colonies?.forEach((colony, id) => {
-      colonies.push({ id, x: colony.x, y: colony.y, destroyed: colony.destroyed });
+      colonies.push({
+        id,
+        x: colony.x,
+        y: colony.y,
+        stage: colony.stage,
+        stored: colony.stored,
+        purified: colony.purified,
+      });
     });
 
     const companion: WorldSnapshot['companion'] = {

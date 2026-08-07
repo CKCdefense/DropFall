@@ -44,15 +44,49 @@ function equipDefaultKit(world: World, playerId: string): void {
 
 
 /**
- * 자원 노드를 전부 멀리 치운다. `new World()`는 노드를 무작위(코어 260px 밖)로
- * 배치하는데, 사격 무대(x 300~500)가 그 범위 안이라 시드에 따라 노드가 탄도를
- * 막아 간헐적으로 실패했다 — 노드는 투사체를 흡수한다.
+ * 자원 노드를 전부 멀리 치운다.
+ *
+ * `new World()`는 rng를 안 주면 `Math.random`으로 노드를 배치한다 — 코어 260px 밖
+ * 어디든 올 수 있어서, 테스트가 몬스터/플레이어를 특정 좌표에 세우면 그 자리에
+ * 노드가 겹칠 확률이 늘 남는다. 노드는 **투사체를 흡수하고 이동도 막아서**, 겹치면
+ * 사격이 빗나가거나 몬스터가 그 자리에 굳는다(실제로 두 종류 모두 간헐 실패로 겪었다).
+ * 무대를 쓰는 테스트는 전부 이걸 먼저 부른다.
  */
-function clearShootingRange(world: World): void {
+function clearResourceNodes(world: World): void {
   for (const node of world.getResourceNodes().values()) {
     node.x = 5000;
     node.y = 5000;
   }
+}
+
+/**
+ * 테스트 대상 몬스터 한 마리만 남기고 나머지를 치운 뒤, 타입까지 고정해서 돌려준다.
+ *
+ * 웨이브 1이 여러 타입을 무리로 쏟아내면서(demon/hellhound) "첫 번째 몬스터"의 체력·
+ * 속도·시야가 판마다 달라졌다 — 정확한 수치를 등호로 비교하는 테스트들이 이것 때문에
+ * 간헐적으로 깨졌다. 남은 몬스터들도 분리력으로 대상을 밀어내 무대를 흐트러뜨린다.
+ */
+function isolateMonster(world: World, type = 'demon'): { x: number; y: number; hp: number } {
+  const monsters = world.getMonsters() as Map<string, { type: string; hp: number; maxHp: number }>;
+  const [first] = [...monsters.entries()];
+  for (const [id] of [...monsters]) if (id !== first![0]) monsters.delete(id);
+
+  const monster = first![1];
+  monster.type = type;
+  monster.hp = monstersData[type]!.hp;
+  monster.maxHp = monstersData[type]!.hp;
+  return monster as unknown as { x: number; y: number; hp: number };
+}
+
+/**
+ * 몬스터를 제자리에 붙들어 둔다. 탄도 기하(스쳐 지나가는가)를 재는 테스트는 몬스터가
+ * 가만히 있어야 의미가 있는데, 실제로는 코어를 향해 걸어간다 — 게다가 콜로니가 시야를
+ * 막으면 Flow Field의 8방향 양자화 때문에 대각선으로 움직여서 탄도선을 가로지른다
+ * (총알이 스쳐 가야 할 테스트에서 12 피해가 들어가는 간헐 실패로 드러났다).
+ */
+function pinAt(monster: { x: number; y: number }, x: number, y: number): void {
+  monster.x = x;
+  monster.y = y;
 }
 
 describe('World — 전투/웨이브 통합', () => {
@@ -73,9 +107,10 @@ describe('World — 전투/웨이브 통합', () => {
     equipDefaultKit(world, 'p1');
     startFirstWave(world);
 
-    // 스폰된 몬스터 중 하나를 플레이어 바로 옆으로 옮겨서 근접 사거리 안에 둔다
-    const [monster] = [...world.getMonsters().values()];
-    expect(monster).toBeDefined();
+    // 대상 한 마리만 남기고 플레이어 바로 옆으로 옮겨 근접 사거리 안에 둔다.
+    // demon으로 고정하는 이유: hellhound(hp 16)면 도끼 한 방(18)에 죽어 엔티티가
+    // 삭제되고, 삭제 경로는 로컬 참조의 hp를 갱신하지 않아 "hp가 그대로"로 보였다.
+    const monster = isolateMonster(world);
     monster!.x = 5;
     monster!.y = 0;
     const initialHp = monster!.hp;
@@ -93,16 +128,19 @@ describe('World — 전투/웨이브 통합', () => {
     world.addPlayer('p1', 300, 0);
     equipDefaultKit(world, 'p1');
     startFirstWave(world);
-    clearShootingRange(world);
+    clearResourceNodes(world);
 
-    const [monster] = [...world.getMonsters().values()];
-    // trash의 hitRadius는 6. 총알은 중심에서 6px 안으로 들어와야 맞는다.
+    const monster = isolateMonster(world);
+    // demon의 hitRadius는 6. 총알은 중심에서 6px 안으로 들어와야 맞는다.
     monster!.x = 500;
     monster!.y = 0;
     const initialHp = monster!.hp;
 
     world.fireWeapon('p1'); // 권총, +x 방향
-    for (let i = 0; i < 120 && world.getProjectiles().size > 0; i += 1) world.tick(1 / 60);
+    for (let i = 0; i < 120 && world.getProjectiles().size > 0; i += 1) {
+      pinAt(monster, 500, 0);
+      world.tick(1 / 60);
+    }
 
     expect(monster!.hp).toBeLessThan(initialHp);
   });
@@ -113,16 +151,19 @@ describe('World — 전투/웨이브 통합', () => {
     world.addPlayer('p1', 300, 0);
     equipDefaultKit(world, 'p1');
     startFirstWave(world);
-    clearShootingRange(world);
+    clearResourceNodes(world);
 
-    const [monster] = [...world.getMonsters().values()];
+    const monster = isolateMonster(world);
     // 진행선(+x)에서 세로로 hitRadius(6)보다 멀리 떨어뜨린다
     monster!.x = 500;
     monster!.y = 12;
     const initialHp = monster!.hp;
 
     world.fireWeapon('p1');
-    for (let i = 0; i < 120 && world.getProjectiles().size > 0; i += 1) world.tick(1 / 60);
+    for (let i = 0; i < 120 && world.getProjectiles().size > 0; i += 1) {
+      pinAt(monster, 500, 12);
+      world.tick(1 / 60);
+    }
 
     expect(monster!.hp).toBe(initialHp);
   });
@@ -150,7 +191,7 @@ describe('World — 전투/웨이브 통합', () => {
     world.addPlayer('p1', 300, 0);
     equipDefaultKit(world, 'p1');
     startFirstWave(world);
-    clearShootingRange(world);
+    clearResourceNodes(world);
 
     const [monster] = [...world.getMonsters().values()];
     monster!.x = 400;
@@ -198,7 +239,7 @@ describe('World — 전투/웨이브 통합', () => {
     world.addPlayer('p1', 300, 0);
     equipDefaultKit(world, 'p1');
     startFirstWave(world);
-    clearShootingRange(world);
+    clearResourceNodes(world);
 
     const [monster] = [...world.getMonsters().values()];
     monster!.x = 340; // muzzleOffset(19)보다 충분히 멀다
@@ -330,11 +371,11 @@ describe('World — 전원 다운 = 즉시 패배', () => {
     world.addPlayer('alive', 500, 500); // 어그로 반경(120) 밖 — 추격 후보에서 자연히 제외됨
     world.getPlayers().get('down')!.hp = 0;
 
-    // rusher(돌진형)를 다운된 플레이어=코어 바로 옆에 둔다(둘 다 원점 근처).
-    // wave 1엔 rusher가 없으므로 스폰된 몬스터의 타입을 바꿔서 검증한다.
+    // hellhound(돌진형)를 다운된 플레이어=코어 바로 옆에 둔다(둘 다 원점 근처).
+    // wave 1엔 hellhound가 없으므로 스폰된 몬스터의 타입을 바꿔서 검증한다.
     startFirstWave(world);
     const [monster] = [...world.getMonsters().values()];
-    (monster as { type: string }).type = 'rusher';
+    (monster as { type: string }).type = 'hellhound';
     monster!.x = 1;
     monster!.y = 0;
 
@@ -359,7 +400,7 @@ describe('World — 전원 다운 = 즉시 패배', () => {
     const monsters = world.getMonsters() as unknown as Map<string, unknown>;
     const wave1 = wavesData.waves[0]!;
     for (let i = 0; i < 5000 && world.getWavePhase() === 'night'; i += 1) {
-      world.tick(wave1.nightDuration / 1000);
+      world.tick(wave1.groupIntervalSeconds / 4);
       for (const id of [...monsters.keys()]) monsters.delete(id);
     }
 
@@ -425,9 +466,14 @@ describe('World — 몬스터 군집 분리', () => {
     const world = new World();
     startFirstWave(world);
     spawnAtLeast(world, 2);
+    clearResourceNodes(world);
 
     // 스폰된 몬스터 중 둘을 분리 반경(HIT_RADIUS*2.5=25px) 안으로 바짝 붙여놓는다.
+    // 두 마리의 타입(=이동 속도)을 같게 고정한다 — 웨이브 1이 demon(60)/hellhound(130)
+    // 혼성이 되면서, 뒤쪽이 hellhound면 분리력보다 빠르게 따라붙어 간헐 실패했다.
     const monsters = [...world.getMonsters().values()];
+    (monsters[0] as { type: string }).type = 'demon';
+    (monsters[1] as { type: string }).type = 'demon';
     monsters[0]!.x = 200;
     monsters[0]!.y = 0;
     monsters[1]!.x = 210;
@@ -444,6 +490,7 @@ describe('World — 몬스터 군집 분리', () => {
     const world = new World();
     startFirstWave(world);
     spawnAtLeast(world, 2);
+    clearResourceNodes(world);
 
     const monsters = [...world.getMonsters().values()];
     monsters[0]!.x = 200;
@@ -467,7 +514,7 @@ describe('World — 어그로 타겟 히스테리시스', () => {
     startFirstWave(world);
 
     const [monster] = [...world.getMonsters().values()];
-    (monster as { type: string }).type = 'rusher'; // aggroRadius 120
+    (monster as { type: string }).type = 'hellhound'; // aggroRadius 240
     monster!.x = 10;
     monster!.y = 0;
     monster!.facingX = -1; // 플레이어('near', 원점) 쪽을 바라보게 시야각 안에 둔다
@@ -490,7 +537,7 @@ describe('World — 어그로 타겟 히스테리시스', () => {
     startFirstWave(world);
 
     const [monster] = [...world.getMonsters().values()];
-    (monster as { type: string }).type = 'rusher';
+    (monster as { type: string }).type = 'hellhound';
     monster!.x = 10;
     monster!.y = 0;
     monster!.facingX = -1; // 플레이어('near', 원점) 쪽을 바라보게 시야각 안에 둔다
@@ -515,7 +562,7 @@ describe('World — 어그로 타겟 히스테리시스', () => {
     startFirstWave(world);
 
     const [monster] = [...world.getMonsters().values()];
-    (monster as { type: string }).type = 'rusher';
+    (monster as { type: string }).type = 'hellhound';
     monster!.x = 0;
     monster!.y = 0;
     // 'down'은 몬스터와 완전히 같은 좌표라 시야각 검사가 자동으로 건너뛰어지지만,
@@ -540,7 +587,7 @@ describe('World — 어그로 시야각(120도)', () => {
     startFirstWave(world);
 
     const [monster] = [...world.getMonsters().values()];
-    (monster as { type: string }).type = 'rusher'; // aggroRadius 120
+    (monster as { type: string }).type = 'hellhound'; // aggroRadius 240
     monster!.x = 0;
     monster!.y = 0;
     monster!.facingX = 1; // +x 방향을 바라봄 — 플레이어는 -x(등 뒤)
@@ -559,7 +606,7 @@ describe('World — 어그로 시야각(120도)', () => {
     startFirstWave(world);
 
     const [monster] = [...world.getMonsters().values()];
-    (monster as { type: string }).type = 'rusher';
+    (monster as { type: string }).type = 'hellhound';
     monster!.x = 0;
     monster!.y = 0;
     monster!.facingX = 1;
@@ -577,7 +624,7 @@ describe('World — 어그로 시야각(120도)', () => {
     startFirstWave(world);
 
     const [monster] = [...world.getMonsters().values()];
-    (monster as { type: string }).type = 'rusher';
+    (monster as { type: string }).type = 'hellhound';
     monster!.x = 10;
     monster!.y = 0;
     monster!.facingX = -1;
@@ -672,7 +719,7 @@ describe('World — 몬스터 처치 보상(부품/에너지)', () => {
     expect(world.getMonsters().has(monster!.id)).toBe(false); // 죽었다
     const gained = droppedCount(world, 'drop_normal') - partsBefore;
     // 부품은 확정 드랍이다 — 확률이 붙은 희귀부품과 달리 매번 min~max 사이로 나온다.
-    const drop = monstersData.trash.itemDrops!.find((entry) => entry.itemId === 'drop_normal')!;
+    const drop = monstersData.demon.itemDrops!.find((entry) => entry.itemId === 'drop_normal')!;
     expect(gained).toBeGreaterThanOrEqual(drop.min);
     expect(gained).toBeLessThanOrEqual(drop.max);
   });
@@ -683,7 +730,7 @@ describe('World — 몬스터 처치 보상(부품/에너지)', () => {
     world.addPlayer('p1', 300, 0);
     equipDefaultKit(world, 'p1');
     startFirstWave(world);
-    clearShootingRange(world);
+    clearResourceNodes(world);
 
     const [monster] = [...world.getMonsters().values()];
     monster!.x = 400;
@@ -714,7 +761,7 @@ describe('World — 몬스터 처치 보상(부품/에너지)', () => {
     expect(droppedCount(world, 'drop_normal')).toBeGreaterThan(0);
   });
 
-  it('보스를 죽이면 바닥 드랍 대신 팀 공유 에너지가 늘어난다', () => {
+  it('보스를 죽이면 팀 공유 에너지와 바닥 드랍을 둘 다 준다', () => {
     const world = new World();
     world.addPlayer('p1', 0, 0);
     equipDefaultKit(world, 'p1');
@@ -724,7 +771,7 @@ describe('World — 몬스터 처치 보상(부품/에너지)', () => {
     // 무리가 코어/플레이어를 먼저 전멸시켜버린다 — 다른 테스트들과 같은 트릭으로
     // 이미 스폰된 몬스터의 타입을 보스로 바꿔서 처치 보상 로직만 정확히 검증한다.
     const [monster] = [...world.getMonsters().values()];
-    (monster as { type: string }).type = 'boss';
+    (monster as { type: string }).type = 'boss_demon';
     monster!.x = 5;
     monster!.y = 0;
     monster!.hp = 1;
@@ -734,9 +781,11 @@ describe('World — 몬스터 처치 보상(부품/에너지)', () => {
     world.fireWeapon('p1');
 
     expect(world.getMonsters().has(monster!.id)).toBe(false);
-    expect(droppedCount(world, 'drop_normal')).toBe(0); // 보스 보상은 에너지 한 갈래뿐이다
+    // 보스는 에너지와 바닥 드랍을 **둘 다** 준다 — 레이드 보상 체감을 위해
+    // 예전의 "에너지가 있으면 드랍 생략" 규칙을 없앴다.
+    expect(droppedCount(world, 'drop_normal')).toBeGreaterThan(0);
     const gained = world.getCore().sharedEnergy - energyBefore;
-    const drop = monstersData.boss.energyDrop!;
+    const drop = monstersData.boss_demon.energyDrop!;
     expect(gained).toBeGreaterThanOrEqual(drop.min);
     expect(gained).toBeLessThanOrEqual(drop.max);
   });
@@ -759,7 +808,7 @@ describe('World — 몬스터 처치 보상(부품/에너지)', () => {
     world.addPlayer('p1', 300, 0);
     equipDefaultKit(world, 'p1');
     startFirstWave(world);
-    clearShootingRange(world);
+    clearResourceNodes(world);
 
     const [monster] = [...world.getMonsters().values()];
     monster!.x = 400;

@@ -33,8 +33,6 @@ export interface PlayerView {
   /** 퀵슬롯. 길이는 항상 SLOT_COUNT이고 빈 칸은 null이다. */
   slots: (InventorySlot | null)[];
   selectedSlot: number;
-  /** 콜로니 채널링(파괴 작업) 진행률(0~1). 채널링 중이 아니면 0. */
-  channelProgress: number;
 }
 
 export interface MonsterView {
@@ -45,6 +43,12 @@ export interface MonsterView {
   y: number;
   hp: number;
   maxHp: number;
+  /** 지금 공격 모션 중인가. 켜지는 순간에 공격 애니메이션을 한 번 재생한다. */
+  attacking: boolean;
+  /** 재생할 공격 동작 번호(1~3). 검술이 여러 개인 보스만 1이 아닌 값이 온다. */
+  attackAnim: number;
+  /** 왼쪽을 보고 있는가(스프라이트 좌우 반전). 제자리 공격 중에도 방향이 정확해야 해서 서버가 정한다. */
+  facingLeft: boolean;
   /** 보스 전용 공격 예고(텔레그래프). 진행 중이 아니면 빈 문자열. */
   telegraphKind: '' | 'charge' | 'slam';
   telegraphX: number;
@@ -100,8 +104,12 @@ export interface ColonyView {
   id: string;
   x: number;
   y: number;
-  /** 채널링 1회 완료로 파괴됐는지. 파괴돼도 위치는 계속 내려온다(렌더러가 흐리게/제거를 결정). */
-  destroyed: boolean;
+  /** 성장 단계(1~3). 클수록 위협적 — 렌더러가 크기/색으로 표현한다. */
+  stage: number;
+  /** 아직 안에 저장된 몬스터 수. 수호대를 잡을수록 줄고, 0 + 수호대 전멸이면 정화된다. */
+  stored: number;
+  /** 정화된 빈 껍데기(다음 낮에 재보급). 위협이 없는 상태라 흐리게 그린다. */
+  purified: boolean;
 }
 
 /**

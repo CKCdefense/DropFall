@@ -1,14 +1,36 @@
 import { coloniesData, type ColonyStage } from '../data';
 
+/**
+ * 콜로니 — 몬스터가 "저장"돼 있는 거점(docs/backend/41 배치 + 재설계).
+ *
+ * 라이프사이클:
+ *  1. 판 시작에 인원수만큼 사분면 외곽에 배치, 1단계 저장분을 채우고 시작한다.
+ *  2. 플레이어가 트리거 반경에 접근하면 저장분에서 수호대가 한 마리씩 소환된다
+ *     (동시 guardConcurrent마리 유지). 수호대는 리시 반경 안의 플레이어를 공격하고,
+ *     아무도 없으면 콜로니로 돌아가 잠시 뒤 저장 상태로 복귀한다(stored 복원).
+ *  3. 저장분과 수호대를 전부 처치하면 **정화** — 팀 에너지 보상 + 단계 1로 초기화.
+ *     빈 껍데기 상태로 있다가 다음 낮에 1단계 저장분이 다시 채워진다.
+ *  4. 낮 동안 정화하지 않으면 밤 시작에 한 단계 성장한다(저장분이 대략 2배).
+ *  5. 밤 웨이브가 시작되면 저장분의 일부가 **복제**되어 콜로니 방향에서 침공에
+ *     합류한다(저장분은 그대로 — 줄면 밤 정화가 공짜가 된다).
+ *
+ * 예전의 채널링 파괴(R키 6초)는 이 정화 메커니즘으로 대체됐다 — 파괴라는 개념이
+ * 없어졌으므로 콜로니는 판이 끝날 때까지 장애물로 남는다.
+ */
 export interface ColonyEntity {
   id: string;
   x: number;
   y: number;
-  /** 채널링 1회 완료로 파괴되면 true. 파괴돼도 엔티티 자체는 지우지 않는다(위치는
-   * 랜드마크로 계속 의미가 있고, 클라이언트가 "부서졌다"는 상태를 보여줄 수 있게). */
-  destroyed: boolean;
-  /** 다음 스폰까지 남은 시간(초). destroyed면 더 이상 줄어들지 않는다. */
-  spawnTimer: number;
+  /** 성장 단계(1-based, 최대 coloniesData.stages.length). */
+  stage: number;
+  /** 아직 콜로니 안에 저장돼 있는 몬스터 수. 수호대 소환 시 1 줄고 귀환 복귀 시 1 는다. */
+  stored: number;
+  /** 정화된 빈 껍데기 상태(다음 낮에 재보급). 이 상태에선 수호대도 침공 합류도 없다. */
+  purified: boolean;
+  /** 다음 수호대 보충 소환까지 남은 시간(초). */
+  guardRespawnTimer: number;
+  /** 현재 나와 있는 수호대 몬스터 id들. World가 소환/사망/복귀 시 갱신한다. */
+  readonly guardIds: Set<string>;
 }
 
 /**
@@ -32,17 +54,15 @@ export const COLONY_RADIUS = 14;
 
 let nextColonyId = 1;
 
-/**
- * 현재 웨이브에 맞는 난이도 구간을 고른다 — `afterWave`가 `currentWave` 이하인
- * 항목 중 가장 큰(가장 최근에 열린) 것. `coloniesData.stages`는 최소 1개 보장되고
- * 첫 항목의 `afterWave`가 0이므로(스키마상 강제는 아니지만 데이터 관례) 항상 결과가 있다.
- */
-export function colonyStageFor(currentWave: number): ColonyStage {
-  let best = coloniesData.stages[0];
-  for (const stage of coloniesData.stages) {
-    if (stage.afterWave <= currentWave && stage.afterWave >= best.afterWave) best = stage;
-  }
-  return best;
+/** 단계 번호(1-based)를 데이터 항목으로. 범위를 벗어나면 가장 가까운 끝 단계로 조인다. */
+export function colonyStageData(stage: number): ColonyStage {
+  const index = Math.max(0, Math.min(stage - 1, coloniesData.stages.length - 1));
+  return coloniesData.stages[index]!;
+}
+
+/** 최대 단계(현재 3). 성장은 여기서 멈춘다. */
+export function maxColonyStage(): number {
+  return coloniesData.stages.length;
 }
 
 /**
@@ -91,9 +111,6 @@ function shuffled<T>(items: readonly T[], rng: () => number): T[] {
  * 콜로니를 사분면당 최대 1개씩, 접속 인원수만큼 배치하고 관리한다(docs/backend/41).
  *
  * `BuildingRegistry`(building.ts)와 같은 위상의 서브시스템 전용 소형 상태 클래스다.
- * 밤 웨이브 스폰 지점(wave.ts의 `buildSpawnPoints`)과 달리 콜로니는 판이 끝날
- * 때까지 위치가 고정인 랜드마크지만, **판마다는** 인원수·배치 둘 다 달라진다.
- *
  * 생성자에서 바로 콜로니를 만들지 않는다 — 인원이 몇 명일지는 `World` 생성
  * 시점엔 알 수 없다(서버는 로비가 끝나야, 즉 게임이 실제로 시작돼야 확정된다).
  * 인원이 확정된 시점에 호출자가 `seed(count, rng)`를 명시적으로 한 번 불러야 한다.
@@ -107,7 +124,6 @@ export class ColonyRegistry {
    * 두 번 부르면 사분면당 1개 제약이 깨진다).
    */
   seed(count: number, rng: () => number): void {
-    const initialInterval = colonyStageFor(0).spawnIntervalSeconds;
     const quadrantCount = Math.max(1, Math.min(count, QUADRANTS));
     const quadrants = shuffled([0, 1, 2, 3], rng).slice(0, quadrantCount);
 
@@ -121,8 +137,11 @@ export class ColonyRegistry {
         id,
         x: position.x,
         y: position.y,
-        destroyed: false,
-        spawnTimer: initialInterval,
+        stage: 1,
+        stored: colonyStageData(1).stored,
+        purified: false,
+        guardRespawnTimer: 0,
+        guardIds: new Set(),
       });
     }
   }
@@ -138,11 +157,5 @@ export class ColonyRegistry {
   /** id → 콜로니 전체 맵. GameRoom 동기화처럼 여러 번 순회해야 하는 소비자용. */
   entries(): ReadonlyMap<string, ColonyEntity> {
     return this.colonies;
-  }
-
-  /** 파괴 표시만 한다 — 엔티티는 그대로 남는다(§ColonyEntity.destroyed 참고). */
-  destroy(id: string): void {
-    const colony = this.colonies.get(id);
-    if (colony) colony.destroyed = true;
   }
 }

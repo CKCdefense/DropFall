@@ -129,7 +129,7 @@ describe('World — 티모시 피격/다운/리셋', () => {
   it('몬스터 공격 사거리 안에 있으면 맞고, hp가 0이 되면 다운된다', () => {
     const world = createTestWorld();
     world.addPlayer('tester', 0, 0); // runDevCommand는 hasPlayer를 요구한다
-    world.runDevCommand('tester', 'spawn trash 1');
+    world.runDevCommand('tester', 'spawn demon 1');
     const [monster] = [...world.getMonsters().values()];
     const companion = mutableCompanion(world);
     companion.x = monster.x;

@@ -69,6 +69,16 @@ const CORE_BAR_HEIGHT = 8;
 /** 자기 체력 바 — 퀵슬롯 바로 위에 붙인다. */
 const SELF_BAR_WIDTH = 180;
 const SELF_BAR_HEIGHT = 6;
+/** 보스 HP바(상단 중앙, 웨이브 다이얼 아래) 규격. */
+const BOSS_BAR_WIDTH = 200;
+const BOSS_BAR_HEIGHT = 8;
+/** 보스 타입(monsters.json 키) → 표시 이름. 아직 데이터에 이름 필드가 없어 클라이언트 표만 둔다. */
+const BOSS_NAME: Record<string, string> = {
+  boss_demon: '악마 군주',
+  boss_knight: '흑기사',
+  boss_golem: '화염 골렘',
+  boss_dark_knight: '심연의 흑기사',
+};
 
 /**
  * HUD. GameScene과 분리된 별도 Scene이다 —
@@ -99,13 +109,19 @@ export class HudScene extends Phaser.Scene {
 
   private selfBarBack!: Phaser.GameObjects.Rectangle;
   private selfBar!: Phaser.GameObjects.Rectangle;
+
+  /** 보스 레이드 표시 — 보스가 살아있는 동안만 보인다. */
+  private bossBarBack!: Phaser.GameObjects.Rectangle;
+  private bossBar!: Phaser.GameObjects.Rectangle;
+  private bossNameText!: Phaser.GameObjects.Text;
+  private bossWarnText!: Phaser.GameObjects.Text;
+  /** 직전 프레임에 보인 보스 몬스터 id. 새 보스 등장(경고 연출) 감지용. */
+  private lastBossId: string | undefined;
   private roomText!: Phaser.GameObjects.Text;
   private resourceText!: Phaser.GameObjects.Text;
   private buildModeText!: Phaser.GameObjects.Text;
   private debugText!: Phaser.GameObjects.Text;
   private helpText!: Phaser.GameObjects.Text;
-  /** 콜로니 채널링(파괴 작업) 진행률 표시. 채널링 중이 아니면 빈 문자열로 숨긴다. */
-  private channelText!: Phaser.GameObjects.Text;
   /**
    * 코어 AI 페르소나 대사 토스트 — 웨이브 다이얼 아래에서 잠깐 떴다 사라진다.
    * CoreModal을 안 열어도 보이게 하려고 추가했다(모달 안 대사는 그대로 유지 —
@@ -170,6 +186,26 @@ export class HudScene extends Phaser.Scene {
 
     // 상단 중앙 원형 — 웨이브 번호 + 남은 시간
     this.waveDial = new WaveDial(this);
+
+    // 보스 레이드 바 — 잡몹을 전멸시키면 보스가 나오고, 이 바가 남은 밤의 전부다.
+    this.bossBarBack = this.add
+      .rectangle(0, 0, BOSS_BAR_WIDTH, BOSS_BAR_HEIGHT, BAR_BACK)
+      .setOrigin(0.5, 0)
+      .setVisible(false);
+    this.bossBar = this.add
+      .rectangle(0, 0, BOSS_BAR_WIDTH, BOSS_BAR_HEIGHT, 0xd94f4f)
+      .setOrigin(0, 0)
+      .setVisible(false);
+    this.bossNameText = this.add
+      .text(0, 0, '', { fontFamily: FONT, fontSize: `${SIZE_BODY}px`, color: '#f2b8b8' })
+      .setOrigin(0.5, 1)
+      .setVisible(false);
+    applyTextShadow(this.bossNameText);
+    this.bossWarnText = this.add
+      .text(0, 0, '보스 출현!', { fontFamily: FONT, fontSize: `${SIZE_BODY + 4}px`, color: '#ff6b5e' })
+      .setOrigin(0.5, 0.5)
+      .setAlpha(0);
+    applyTextShadow(this.bossWarnText);
     // 우상단 사각형 — 미니맵
     // 지형은 시드에서 결정된다 — 서버가 방 코드로 지형을 정하므로 같은 값을 넘긴다.
     this.minimap = new Minimap(this, roomCode);
@@ -186,9 +222,6 @@ export class HudScene extends Phaser.Scene {
     this.buildModeText = this.add.text(0, 0, '건축모드: 꺼짐', DIM_STYLE);
     this.debugText = this.add.text(0, 0, '', SMALL_STYLE);
     this.helpText = this.add.text(0, 0, '', DIM_STYLE).setOrigin(0.5, 1);
-    this.channelText = this.add
-      .text(0, 0, '', { fontFamily: FONT, fontSize: `${SIZE_BODY}px`, color: ACCENT })
-      .setOrigin(0.5, 1);
     this.aiToastText = this.add
       .text(0, 0, '', { fontFamily: FONT, fontSize: `${SIZE_BODY}px`, color: ACCENT, align: 'center' })
       .setOrigin(0.5, 0)
@@ -222,7 +255,6 @@ export class HudScene extends Phaser.Scene {
       this.buildModeText,
       this.debugText,
       this.helpText,
-      this.channelText,
       this.aiToastText,
     ];
 
@@ -445,6 +477,16 @@ export class HudScene extends Phaser.Scene {
     this.waveDial.layout(width / 2, pad, scale);
     this.minimap.layout(width - pad, pad, scale);
 
+    // 보스 바 — 웨이브 다이얼(지름 52) 바로 아래 중앙. 경고 문구는 화면 중앙 상단 1/3.
+    const bossBarY = pad + 64 * scale;
+    const bossBarW = BOSS_BAR_WIDTH * scale;
+    this.bossNameText.setFontSize(SIZE_BODY * scale).setPosition(width / 2, bossBarY - 2 * scale);
+    this.bossBarBack.setSize(bossBarW, BOSS_BAR_HEIGHT * scale).setPosition(width / 2, bossBarY);
+    this.bossBar
+      .setSize(bossBarW, BOSS_BAR_HEIGHT * scale)
+      .setPosition(width / 2 - bossBarW / 2, bossBarY);
+    this.bossWarnText.setFontSize((SIZE_BODY + 4) * scale).setPosition(width / 2, height / 3);
+
     // 코어 AI 토스트 — 웨이브 다이얼(지름 52 + 안쪽 텍스트) 바로 아래, 가운데 정렬.
     this.aiToastText
       .setFontSize(SIZE_BODY * scale)
@@ -466,9 +508,6 @@ export class HudScene extends Phaser.Scene {
     this.selfBar
       .setSize(selfBarW, SELF_BAR_HEIGHT * scale)
       .setPosition(width / 2 - selfBarW / 2, selfBarY);
-    this.channelText
-      .setFontSize(SIZE_BODY * scale)
-      .setPosition(width / 2, selfBarY - 4 * scale);
 
     // --- 나머지
     this.resourceText.setFontSize(SIZE_BODY * scale).setPosition(pad, height - 40 * scale);
@@ -506,6 +545,7 @@ export class HudScene extends Phaser.Scene {
       nextTier ? nextTier.cost : null,
     );
     this.waveDial.update(status);
+    this.updateBossBar(snapshot);
     this.minimap.update(snapshot, this.connection.sessionId);
     this.party.update(
       snapshot.players.filter((player) => player.id !== this.connection.sessionId),
@@ -566,6 +606,41 @@ export class HudScene extends Phaser.Scene {
     this.selfBar.fillColor = barColor(ratio);
   }
 
+  /**
+   * 보스 레이드 표시. 서버가 따로 알려주지 않아도 스냅샷의 몬스터 타입(boss_ 접두사)만
+   * 보면 로컬/원격 어느 모드에서든 같은 로직으로 동작한다 — 별도 동기화 필드가 없다.
+   */
+  private updateBossBar(snapshot: WorldSnapshot): void {
+    const boss = snapshot.monsters.find((monster) => monster.type.startsWith('boss_'));
+
+    const visible = boss !== undefined;
+    this.bossBarBack.setVisible(visible);
+    this.bossBar.setVisible(visible);
+    this.bossNameText.setVisible(visible);
+
+    if (!boss) {
+      this.lastBossId = undefined;
+      return;
+    }
+
+    // 처음 나타난 보스면 경고 연출 — 번쩍 떠올랐다가 서서히 사라진다.
+    if (boss.id !== this.lastBossId) {
+      this.lastBossId = boss.id;
+      this.bossWarnText.setText(`${BOSS_NAME[boss.type] ?? '보스'} 출현!`);
+      this.bossWarnText.setAlpha(1);
+      this.tweens.add({
+        targets: this.bossWarnText,
+        alpha: 0,
+        delay: 1800,
+        duration: 700,
+      });
+    }
+
+    this.bossNameText.setText(BOSS_NAME[boss.type] ?? '보스');
+    const ratio = boss.maxHp > 0 ? Math.max(0, boss.hp / boss.maxHp) : 0;
+    this.bossBar.width = this.bossBarBack.width * ratio;
+  }
+
   private updateTexts(snapshot: WorldSnapshot, me: PlayerView | undefined): void {
     const { status } = snapshot;
 
@@ -580,12 +655,6 @@ export class HudScene extends Phaser.Scene {
         : '휴대 나무 0 · 돌 0 · 파편 0',
     );
 
-    // 채널링 중일 때만 보인다 — 진행률 0(채널링 아님)이면 빈 문자열로 완전히 숨긴다.
-    const channelProgress = me?.channelProgress ?? 0;
-    this.channelText.setText(
-      channelProgress > 0 ? `콜로니 파괴 중... ${Math.floor(channelProgress * 100)}%` : '',
-    );
-
     // InputController는 GameScene 소속이라 registry로만 접근한다 — 씬 시작 순서와
     // 무관하게 늦어도 다음 프레임엔 값이 채워져 있다(GameScene.create 참고).
     const inputController = this.registry.get(INPUT_CONTROLLER_KEY) as InputController | undefined;
@@ -597,7 +666,7 @@ export class HudScene extends Phaser.Scene {
     // 철거 모드는 좌클릭이 "설치"가 아니라 "철거"라 힌트 문구도 따로 갈라야 한다.
     const controlsHint =
       buildMode === 'off'
-        ? `WASD 이동 · 좌클릭 사용 · [1~${SLOT_COUNT}] 퀵슬롯 · [E] 코어 입고 · [F] 코어 메뉴 · [B] 건축모드 · [R] 콜로니 파괴(엄호 필요)`
+        ? `WASD 이동 · 좌클릭 사용 · [1~${SLOT_COUNT}] 퀵슬롯 · [E] 코어 입고 · [F] 코어 메뉴 · [B] 건축모드`
         : buildMode === 'demolish'
           ? '좌클릭 철거(환급 없음) · 우클릭/[B] 취소 또는 다음 건축물'
           : '좌클릭 설치 · 우클릭/[B] 취소 또는 다음 건축물';

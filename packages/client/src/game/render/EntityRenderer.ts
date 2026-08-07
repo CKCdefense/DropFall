@@ -58,6 +58,17 @@ import {
   type SwingState,
   type WeaponParts,
 } from './weaponFx';
+import {
+  MONSTER_ATLAS,
+  MONSTER_ORIGIN_Y,
+  monsterAttackAnim,
+  monsterScale,
+  hasMonsterSprite,
+  monsterAnimKey,
+  monsterIdleFrame,
+  monsterSpriteHeight,
+  registerMonsterAnimations,
+} from './monsterSprite';
 import { FONT_SMALL, SIZE_SMALL, applyTextShadow } from '../ui/theme';
 
 /**
@@ -74,11 +85,16 @@ const LABEL_FONT_SIZE = SIZE_SMALL;
  * 아트가 들어오면 이 표를 스프라이트 키로 바꾸면 된다.
  */
 const MONSTER_COLOR: Record<string, number> = {
-  trash: 0xa4576a,
-  rusher: 0xd07a4a,
-  tanker: 0x8c5ba8,
-  ranged: 0x5f9ea0,
-  boss: 0xd94f4f,
+  demon: 0xa4576a,
+  hellhound: 0xd07a4a,
+  blood: 0x7e2b3c,
+  eyeball: 0xc9c26b,
+  lava_slime: 0xd96f32,
+  minotaur: 0x8c5ba8,
+  boss_demon: 0xd94f4f,
+  boss_knight: 0x4a4f6b,
+  boss_golem: 0xb0622f,
+  boss_dark_knight: 0x2e2b3f,
 };
 const MONSTER_COLOR_FALLBACK = 0xa4576a;
 /**
@@ -89,6 +105,12 @@ const MONSTER_COLOR_FALLBACK = 0xa4576a;
  * 서버/클라 양쪽이 공유해서 쓰면 이 어긋남 자체가 구조적으로 생길 수 없다.
  */
 const MONSTER_HIT_RADIUS_FALLBACK = 10;
+
+/**
+ * 피격 시 흰색으로 번쩍이는 시간(ms). 60ms면 60fps에서 서너 프레임이다 — 눈에는
+ * 확실히 걸리면서 잔상으로 남지는 않는 길이다. 더 길면 연사 중에 계속 하얗게 뜬다.
+ */
+const HIT_FLASH_MS = 60;
 
 /** 자원 노드 타입별 플레이스홀더 색상(docs/backend/24). 크기는 몬스터와 같은 이유로
  * resourcesData[type].hitRadius에서 그대로 뽑는다(그림-판정 어긋남 방지). */
@@ -352,6 +374,7 @@ export class EntityRenderer {
     this.hasSwing = hasSwingFx(scene);
     this.hasBullet = hasBulletFx(scene);
     if (this.hasMuzzle) registerMuzzleAnimation(scene);
+    registerMonsterAnimations(scene);
     this.registerGatherAnimations();
     this.registerCoreAnimations();
     if (this.hasSwing) registerSwingAnimation(scene);
@@ -690,7 +713,16 @@ export class EntityRenderer {
         this.monsters.set(monster.id, sprite);
       }
 
-      sprite.setPosition(Math.round(monster.x), Math.round(monster.y));
+      // 피격은 **체력이 줄었는지**로 안다. 서버에 필드를 새로 만들지 않아도 되고,
+      // 누가 때렸든(내 공격·팀원·포탑) 똑같이 반응한다는 장점이 덤으로 붙는다.
+      const lastHp = sprite.getData('hp') as number | undefined;
+      const tookDamage = lastHp !== undefined && monster.hp < lastHp;
+      sprite.setData('hp', monster.hp);
+
+      const nextX = Math.round(monster.x);
+      const nextY = Math.round(monster.y);
+      this.updateMonsterAnim(sprite, monster, nextX - sprite.x, tookDamage);
+      sprite.setPosition(nextX, nextY);
       sprite.setDepth(monster.y);
 
       // HP 바는 피해를 입었을 때만 보인다 — 멀쩡한 몬스터까지 바가 뜨면 화면이 시끄럽다.
@@ -705,7 +737,120 @@ export class EntityRenderer {
       }
     }
 
-    this.removeMissing(this.monsters, alive);
+    // 사라진 몬스터는 그냥 지우지 않고 죽는 모습을 남긴다(§spawnMonsterCorpse).
+    for (const [id, sprite] of this.monsters) {
+      if (alive.has(id)) continue;
+      this.spawnMonsterCorpse(sprite);
+      sprite.destroy();
+      this.monsters.delete(id);
+    }
+  }
+
+  /**
+   * 공격/걷기/대기 전환과 좌우 반전.
+   *
+   * **공격은 서버가 알려준다**(`attacking`) — 클라이언트는 몬스터가 무엇을 때리는지
+   * 모르므로 위치만 보고는 추측할 수 없다. 다만 그 값을 매 프레임 그대로 따르지 않고
+   * **켜지는 순간(false→true)에 한 번 재생**한다: 서버 플래그는 패치 주기에 맞춰
+   * 여러 프레임 동안 켜져 있어서, 그대로 따르면 같은 모션이 매 프레임 처음부터 다시
+   * 시작해 첫 장에서 덜덜 떨린다.
+   *
+   * 방향도 서버 값을 쓴다. 이동량으로 추정하면 제자리에서 공격하는 동안(=방향이 가장
+   * 중요한 순간) 마지막 이동 방향에 얼어붙어, 플레이어가 돌아 들어가면 등을 보고
+   * 때리게 된다.
+   */
+  private updateMonsterAnim(
+    container: Phaser.GameObjects.Container,
+    monster: MonsterView,
+    deltaX: number,
+    tookDamage: boolean,
+  ): void {
+    const body = container.getByName('body');
+    if (!(body instanceof Phaser.GameObjects.Sprite)) return;
+
+    body.setFlipX(monster.facingLeft);
+
+    // 피격은 무엇보다 우선한다 — 때린 쪽에 즉시 반응이 돌아와야 손맛이 산다.
+    // 공격 모션 중이어도 끊고 들어간다(연사로 계속 맞으면 계속 밀리는 게 맞다).
+    const hurtKey = monsterAnimKey(monster.type, 'hurt');
+    if (tookDamage) {
+      this.flashSprite(body);
+      if (this.scene.anims.exists(hurtKey)) {
+        body.play(hurtKey, true);
+        return;
+      }
+    }
+    if (body.anims.currentAnim?.key === hurtKey && body.anims.isPlaying) return;
+
+    // 어느 동작을 재생할지는 서버가 정한다 — 보스는 검술 세 종류의 사거리·각도가
+    // 전부 달라서, 그림과 판정이 같은 기술을 가리켜야 한다.
+    const attackKey = monsterAnimKey(monster.type, monsterAttackAnim(monster.attackAnim));
+    const wasAttacking = (container.getData('attacking') as boolean | undefined) ?? false;
+    container.setData('attacking', monster.attacking);
+
+    if (monster.attacking && !wasAttacking && this.scene.anims.exists(attackKey)) {
+      body.play(attackKey, true);
+      return;
+    }
+    // 공격 모션은 끝까지 재생하고 나서 이동/대기로 돌아간다(반복 없는 애니메이션이라
+    // 끝나면 isPlaying이 false가 된다).
+    if (body.anims.currentAnim?.key.includes('_attack') && body.anims.isPlaying) return;
+
+    // 픽셀 단위로 반올림된 좌표라, 아주 느린 몬스터는 프레임에 따라 delta가 0이 된다 —
+    // 그때마다 걷기가 끊기지 않도록 정지 판정에 약간의 유예를 둔다.
+    const moving = deltaX !== 0;
+    const stillFrames = (container.getData('still') as number | undefined) ?? 0;
+    container.setData('still', moving ? 0 : stillFrames + 1);
+
+    const key = monsterAnimKey(monster.type, moving || stillFrames < 6 ? 'walk' : 'idle');
+    if (body.anims.currentAnim?.key !== key || !body.anims.isPlaying) body.play(key, true);
+  }
+
+  /**
+   * 맞은 순간 흰색으로 한 번 번쩍인다.
+   *
+   * 피격 모션만으로는 약하다 — 4프레임짜리라 난전에서는 눈에 안 들어오고, 몬스터마다
+   * 동작 크기도 제각각이다. 실루엣을 통째로 흰색으로 칠하는 건(setTintFill) 어떤
+   * 그림이든 똑같이 확실하게 읽히는 고전적인 피격 표현이다.
+   *
+   * 스프라이트가 그 사이에 사라질 수 있어서(처치) 콜백에서 살아있는지 확인한다.
+   */
+  private flashSprite(body: Phaser.GameObjects.Sprite): void {
+    body.setTintFill(0xffffff);
+    this.scene.time.delayedCall(HIT_FLASH_MS, () => {
+      if (body.active) body.clearTint();
+    });
+  }
+
+  /**
+   * 죽는 모습을 잠깐 남긴다. 서버는 처치 즉시 몬스터를 지우므로(스냅샷에서 사라진다)
+   * 시체는 순수하게 클라이언트가 만드는 잔상이다 — 판정에는 아무 영향이 없다.
+   * 애니메이션이 끝나면 스스로 사라진다.
+   */
+  private spawnMonsterCorpse(container: Phaser.GameObjects.Container): void {
+    const body = container.getByName('body');
+    if (!(body instanceof Phaser.GameObjects.Sprite)) return;
+
+    const type = container.getData('type') as string | undefined;
+    if (!type || !this.scene.anims.exists(monsterAnimKey(type, 'death'))) return;
+
+    const corpse = this.scene.add
+      .sprite(container.x, container.y, MONSTER_ATLAS, monsterIdleFrame(type))
+      .setOrigin(0.5, MONSTER_ORIGIN_Y)
+      .setScale(monsterScale(type))
+      .setFlipX(body.flipX)
+      // 산 몬스터보다 아래에 깔아서 시체가 전투를 가리지 않게 한다.
+      .setDepth(container.y - 1);
+
+    corpse.play(monsterAnimKey(type, 'death'));
+    corpse.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => {
+      this.scene.tweens.add({
+        targets: corpse,
+        alpha: 0,
+        duration: 400,
+        onComplete: () => corpse.destroy(),
+      });
+    });
   }
 
   private createMonster(monster: MonsterView): Phaser.GameObjects.Container {
@@ -713,13 +858,29 @@ export class EntityRenderer {
     const hitRadius = monstersData[monster.type]?.hitRadius ?? MONSTER_HIT_RADIUS_FALLBACK;
     const size = hitRadius * 2;
 
+    // 스프라이트가 있으면 그림을, 없으면(에셋 미보유) 도형 플레이스홀더를 쓴다.
+    // 그림은 **발밑을 원점**으로 잡아 y=0(월드 좌표 그대로)에 세운다 — 도형과 달리
+    // 실제로 서 있는 모습이라, 몸통 중앙을 억지로 ACTION_PLANE_Y에 맞추면 땅에 파묻힌다.
+    const spriteHeight = monsterSpriteHeight(monster.type);
+    const useSprite = hasMonsterSprite(this.scene, monster.type);
+
     // 총알과 같은 높이 평면(plane.ts)에 올린다 — 발밑(월드 좌표) 그대로 그리면 총알이
     // 머리 위로 지나가는 것처럼 보인다. 판정은 항상 월드 좌표(컨테이너 자체 위치)로
     // 이뤄지니 이 오프셋은 순수하게 보이는 위치만 바꾼다.
-    const body = this.scene.add.rectangle(0, ACTION_PLANE_Y, size, size, color);
-    body.setStrokeStyle(1, 0x1a1c23);
+    const body: Phaser.GameObjects.GameObject = useSprite
+      ? this.scene.add
+          .sprite(0, 0, MONSTER_ATLAS, monsterIdleFrame(monster.type))
+          .setOrigin(0.5, MONSTER_ORIGIN_Y)
+          .setScale(monsterScale(monster.type))
+      : (() => {
+          const rect = this.scene.add.rectangle(0, ACTION_PLANE_Y, size, size, color);
+          rect.setStrokeStyle(1, 0x1a1c23);
+          return rect;
+        })();
+    body.setName('body');
 
-    const barTop = ACTION_PLANE_Y - size / 2 - 4;
+    // HP 바는 머리 위에 띄운다 — 그림이면 실측 높이, 도형이면 사각형 위쪽 기준.
+    const barTop = useSprite ? -spriteHeight - 4 : ACTION_PLANE_Y - size / 2 - 4;
     const barBack = this.scene.add
       .rectangle(-HP_BAR_WIDTH / 2, barTop, HP_BAR_WIDTH, HP_BAR_HEIGHT, 0x2b303c)
       .setOrigin(0, 0.5);
@@ -742,7 +903,16 @@ export class EntityRenderer {
     collisionDebug.setName('collisionDebug');
     collisionDebug.setVisible(this.collisionDebugVisible);
 
-    return this.scene.add.container(monster.x, monster.y, [barBack, bar, body, collisionDebug]);
+    const container = this.scene.add.container(monster.x, monster.y, [
+      barBack,
+      bar,
+      body,
+      collisionDebug,
+    ]);
+    // 죽을 때 어떤 그림으로 쓰러질지 알아야 해서 타입을 들고 있는다(스냅샷에서 이미
+    // 사라진 뒤라 그 시점엔 조회할 곳이 없다).
+    container.setData('type', monster.type);
+    return container;
   }
 
   // ---------------------------------------------------------------- 보스 공격 예고
@@ -1340,16 +1510,30 @@ export class EntityRenderer {
       }
 
       sprite.setDepth(colony.y);
-      // 파괴돼도 엔티티는 안 사라진다(colony.ts) — 예전엔 흐리게 남겨 랜드마크로
-      // 계속 보여줬지만, 더 이상 위협도 아니고 하드 충돌도 없앴으니(docs/backend/43)
-      // 화면에서도 아예 숨긴다.
-      sprite.setVisible(!colony.destroyed);
+      // 정화돼도 구조물은 남는다(colony.ts) — 빈 껍데기는 흐리게, 단계가 오를수록
+      // 크게 그려서 위협도를 한눈에 보이게 한다. 저장분은 위에 숫자로 띄운다.
+      sprite.setAlpha(colony.purified ? 0.4 : 1);
+      sprite.setScale(1 + (colony.stage - 1) * 0.18);
+      const label = sprite.getByName('stored') as Phaser.GameObjects.Text | null;
+      label?.setText(colony.purified ? '' : `${colony.stored}`);
     }
 
     this.removeMissing(this.colonies, alive);
   }
 
   private createColony(colony: ColonyView): Phaser.GameObjects.Container {
+    // 저장된 몬스터 수. "얼마나 키워졌나/얼마나 남았나"가 정화 판단의 핵심 정보라
+    // 월드에 바로 띄운다 — 두 생성 경로(스프라이트/도형)가 같은 이름표를 공유한다.
+    const stored = this.scene.add
+      .text(0, -COLONY_SIZE - 4, '', {
+        fontFamily: FONT_SMALL,
+        fontSize: `${SIZE_SMALL}px`,
+        color: '#d9b8f2',
+      })
+      .setOrigin(0.5, 1)
+      .setName('stored');
+    applyTextShadow(stored);
+
     // 스프라이트가 있으면 쓴다. 원본이 125x128이라 타일 격자에 맞게 줄이고, 접지선을
     // 캐릭터와 같은 규칙(발밑)으로 둔다.
     if (this.scene.textures.exists(GAME_ATLAS) && this.scene.textures.get(GAME_ATLAS).has(COLONY_FRAME)) {
@@ -1358,12 +1542,12 @@ export class EntityRenderer {
         .setOrigin(0.5, PLAYER_ORIGIN_Y)
         .setScale(COLONY_SCALE)
         .setName('body');
-      return this.scene.add.container(colony.x, colony.y, [sprite]);
+      return this.scene.add.container(colony.x, colony.y, [sprite, stored]);
     }
 
     const body = this.scene.add.rectangle(0, 0, COLONY_SIZE, COLONY_SIZE, COLONY_COLOR);
     body.setStrokeStyle(2, 0x1a1c23);
-    return this.scene.add.container(colony.x, colony.y, [body]);
+    return this.scene.add.container(colony.x, colony.y, [body, stored]);
   }
 
   // ---------------------------------------------------------------- 티모시(AI 동반자)

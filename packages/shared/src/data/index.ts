@@ -44,6 +44,44 @@ const SlamAttackSchema = z.object({
 });
 
 /**
+ * 검술 한 동작 안의 **타격 한 번**.
+ *
+ * 동작 하나가 곧 타격 하나는 아니다 — 흑기사의 1번 기술은 내려베고 이어서 찌르는
+ * 2연타라, 애니메이션 한 번에 판정이 두 번 들어간다. 그래서 타격을 배열로 두고
+ * 각자 시점·사거리·각도·피해를 갖는다.
+ */
+const MeleeHitSchema = z.object({
+  /** 동작 시작 후 이 시점(초)에 판정이 들어간다. 검이 뻗는 프레임에 맞춘 값이다. */
+  atSeconds: z.number().nonnegative(),
+  /** 판정 사거리(px, 보스 중심 기준). */
+  range: z.number().positive(),
+  /** 부채꼴 각도(도). 140이면 좌우 ±70도, **360이면 전방향**(착지 광역 등). */
+  arc: z.number().positive().max(360),
+  damage: z.number().nonnegative(),
+});
+
+/**
+ * 보스 근접 검술 한 동작.
+ *
+ * 돌진(charge)/광역(slam)과 달리 **스프라이트에 실제로 그려진 동작**을 그대로 판정으로
+ * 옮긴 것이다. 그래서 사거리·각도·타격 시점은 임의값이 아니라 프레임을 실측해서 넣는다 —
+ * 무기가 닿아 보이는 곳이 실제로 맞는 곳이어야 한다.
+ *
+ * 별도의 바닥 예고 표시가 없는 대신 **동작 자체가 예고**다. 무기를 치켜드는 그림이
+ * 재생되는 동안 보스는 멈춰 서 있고, 정해진 시점마다 판정이 들어간다.
+ */
+const MeleeAttackSchema = z.object({
+  /** 스프라이트 태그 번호(1=Attack01, 2=Attack02, 3=Attack03). 클라이언트가 어느 동작을 재생할지 고른다. */
+  anim: z.number().int().positive(),
+  /** 이 동작이 만드는 타격들. 시간순으로 넣는다. */
+  hits: z.array(MeleeHitSchema).min(1),
+  /** 마지막 타격 후 경직(초). 이 동안은 움직이지도 다음 공격을 하지도 않는다 — 반격할 틈이다. */
+  recoverSeconds: z.number().nonnegative(),
+  /** 이 기술을 다시 쓸 수 있게 되기까지의 시간(초). 기술마다 따로 돈다. */
+  cooldown: z.number().positive(),
+});
+
+/**
  * 처치 보상 랜덤 범위(정수, 양끝 포함). `min === max`면 고정값이 된다.
  * `World.grantMonsterDrop()`이 처치 순간 이 범위 안에서 하나를 뽑는다.
  */
@@ -88,6 +126,21 @@ const MonsterDataSchema = z.object({
   /** 있으면 이 타입은 광역 패턴을 쓸 수 있다(보스 전용, 없으면 미사용). */
   slamAttack: SlamAttackSchema.optional(),
   /**
+   * 있으면 이 타입은 근접 검술을 쓴다(보스 전용). 여러 개를 두고 **대상까지의 거리로**
+   * 쓸 수 있는 것만 골라 무작위로 하나 쓴다 — 거리마다 다른 기술이 나와야 패턴이
+   * "다음 공격 외우기"가 되지 않는다.
+   */
+  meleeAttacks: z.array(MeleeAttackSchema).min(1).optional(),
+  /**
+   * 자원 노드/콜로니를 밟고 지나간다(거구 전용).
+   *
+   * 덩치가 커지면 장애물 회피 자체가 성립하지 않는다 — 우회 경로(FlowField)는 16px
+   * 격자로 "빈 칸"을 찾는데, 반경 40짜리는 그 칸에 애초에 들어가지 못해서 노드 옆에서
+   * 갈리기만 한다(3배 보스로 실측: 700px에서 출발해 코어 458px 앞 나무에 걸려 정지).
+   * 게다가 거대한 보스가 나무 한 그루에 막히는 그림 자체가 이상하다.
+   */
+  crushesObstacles: z.boolean().optional(),
+  /**
    * 처치 즉시 팀 공유 창고(coreSharedEnergy)에 지급되는 랜덤량. 콜로니 파괴 보상과
    * 같은 자원이다 — 보스 전용(희귀 등급), 개인 소지 단계 없이 바로 팀 전체 몫이 된다.
    */
@@ -99,6 +152,8 @@ const MonstersDataSchema = z.record(z.string(), MonsterDataSchema);
 export type MonsterType = keyof typeof monstersData;
 export type MonsterData = z.infer<typeof MonsterDataSchema>;
 export type DropRange = z.infer<typeof DropRangeSchema>;
+export type MeleeAttackData = z.infer<typeof MeleeAttackSchema>;
+export type MeleeHitData = z.infer<typeof MeleeHitSchema>;
 
 export const monstersData = loadData(MonstersDataSchema, monstersJson);
 
@@ -149,9 +204,31 @@ export const weaponsData = loadData(WeaponsDataSchema, weaponsJson);
 // --- waves.json --------------------------------------------------------------
 
 const WaveEntrySchema = z.object({
-  nightDuration: z.number().positive(),
   spawnPoints: z.number().int().positive(),
+  /**
+   * 무리 스폰. 한 번에 전체가 오는 게 아니라 groupSize마리씩 묶여
+   * groupIntervalSeconds 간격으로 몰려온다 — 파도가 "밀려온다"는 리듬을 만든다.
+   * 밤 길이는 시간이 아니라 토벌로 끝나므로 별도 nightDuration은 없다.
+   */
+  groupSize: z.number().int().positive(),
+  groupIntervalSeconds: z.number().positive(),
   spawns: z.record(z.string(), z.number().int().nonnegative()),
+  /**
+   * 엘리트 확률 등장(예: 미노타우르스). 밤 시작 시 count번 독립적으로 굴려서
+   * 성공한 만큼 스폰 큐에 섞는다 — "나올 수도 있는" 긴장감이 목적이라 확정이 아니다.
+   */
+  elite: z
+    .object({
+      type: z.string(),
+      chance: z.number().min(0).max(1),
+      count: z.number().int().positive(),
+    })
+    .optional(),
+  /**
+   * 있으면 이 밤은 보스 레이드로 끝난다 — 잡몹을 전멸시키면 이 타입이 소환되고,
+   * 보스를 잡아야 낮이 온다. 없으면(1일차) 잡몹 전멸 즉시 낮.
+   */
+  bossType: z.string().optional(),
 });
 
 const WavesDataSchema = z.object({
@@ -297,16 +374,16 @@ export const loadoutData = loadData(LoadoutDataSchema, loadoutJson);
 // --- colonies.json ------------------------------------------------------------
 
 /**
- * 콜로니 난이도 구간. `afterWave` 이하의 값들 중 현재 웨이브(`WaveManager.currentWave`)에
- * 가장 가까운(가장 큰) 항목을 골라 쓴다 — 밤 웨이브(waves.json)가 이미 웨이브 진행도로
- * 난이도 곡선을 그리는 것과 같은 축을 재사용해서, "시간이 지날수록 강해진다"를 게임 내
- * 절대 시간이 아니라 웨이브 진행도로 표현한다.
+ * 콜로니 성장 단계(1~3). 배열 인덱스 + 1이 곧 단계 번호다. 낮 동안 정화하지 않으면
+ * 한 단계 오르고(stored가 대략 2배씩), 정화하면 1단계로 초기화된다.
  */
 const ColonyStageSchema = z.object({
-  afterWave: z.number().int().nonnegative(),
-  spawnIntervalSeconds: z.number().positive(),
-  /** 이 구간에서 나올 수 있는 몬스터 타입(monsters.json 키). 스폰마다 하나를 무작위로 고른다. */
+  /** 이 단계에서 콜로니에 저장되는 몬스터 수. 수호대는 이 저장분에서 나온다. */
+  stored: z.number().int().positive(),
+  /** 이 단계 수호대로 나올 수 있는 몬스터 타입(monsters.json 키). 소환마다 무작위. */
   types: z.array(z.string()).min(1),
+  /** 이 단계에서 정화했을 때 팀 공유 에너지 보상. 키운 걸 잡을수록 크다 — 리스크-리턴. */
+  purifyEnergy: z.number().int().positive(),
 });
 
 const ColoniesDataSchema = z
@@ -321,14 +398,30 @@ const ColoniesDataSchema = z
     /** 콜로니끼리 최소 이 거리(px) 이상 떨어지게 재시도한다 — 사분면이 인접하면
      * 경계 부근에서 서로 거의 붙어버릴 수 있어서 필요하다(docs/backend/41). */
     minSpacing: z.number().positive(),
-    /** 채널링(콜로니 파괴 작업)에 필요한 시간(초). */
-    channelSeconds: z.number().positive(),
-    /** 콜로니 파괴 1회당 팀 공유 창고(coreSharedEnergy)에 지급되는 양. */
-    essenceReward: z.number().int().positive(),
+    /** 살아있는 플레이어가 이 반경(px) 안에 들어오면 수호대 소환이 시작된다. */
+    triggerRadius: z.number().positive(),
+    /** 수호대가 추격을 포기하고 콜로니로 귀환하는 기준 반경(px, 콜로니 중심 기준).
+     * triggerRadius보다 커야 경계에서 소환↔귀환이 진동하지 않는다. */
+    leashRadius: z.number().positive(),
+    /** 동시에 나와 있을 수 있는 수호대 수. 저장분 전체가 한꺼번에 쏟아지지 않고
+     * 이 수를 유지하도록 한 마리씩 보충된다(입구 낚시 방지 겸 압박 유지). */
+    guardConcurrent: z.number().int().positive(),
+    /** 수호대 보충 소환 간격(초). */
+    guardRespawnSeconds: z.number().positive(),
+    /** 귀환을 마친 수호대가 저장 상태로 돌아가(사라져) stored를 복원하기까지의 대기(초). */
+    returnDespawnSeconds: z.number().positive(),
+    /** 밤 웨이브 시작 시 콜로니 저장분의 이 비율(내림)만큼 **복제**되어 그 콜로니
+     * 방향에서 침공에 합류한다. 저장분 자체는 줄지 않는다 — 줄면 밤에 정화가
+     * 공짜가 된다. */
+    waveContributionRatio: z.number().min(0).max(1),
+    /** 성장 단계(1~3). 배열 순서가 단계 순서다. */
     stages: z.array(ColonyStageSchema).min(1),
   })
   .refine((data) => data.spawnRadiusMax >= data.spawnRadiusMin, {
     message: 'spawnRadiusMax는 spawnRadiusMin 이상이어야 한다',
+  })
+  .refine((data) => data.leashRadius > data.triggerRadius, {
+    message: 'leashRadius는 triggerRadius보다 커야 한다(경계 진동 방지)',
   });
 
 export type ColonyStage = z.infer<typeof ColonyStageSchema>;

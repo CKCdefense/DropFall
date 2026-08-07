@@ -48,10 +48,11 @@ export class WaveManager {
   private waveIndex = -1;
   private spawnQueue: MonsterType[] = [];
   private spawnPoints: SpawnPoint[] = [];
-  private spawnInterval = 1;
   private spawnTimer = 0;
   /** 스폰 지점을 순서대로 도는 커서. 매번 무작위로 뽑으면 지점 하나에 몰릴 수 있다. */
   private spawnPointCursor = 0;
+  /** 이번 밤의 보스가 이미 소환됐는가. bossType이 없는 웨이브(1일차)에서는 안 쓴다. */
+  private bossSpawned = false;
 
   constructor(options: WaveManagerOptions = {}) {
     this.rng = options.rng ?? Math.random;
@@ -87,12 +88,17 @@ export class WaveManager {
     for (const [type, count] of Object.entries(entry.spawns)) {
       for (let i = 0; i < count; i += 1) flat.push(type as MonsterType);
     }
+    // 엘리트는 확정이 아니라 밤 시작에 count번 독립적으로 굴린다 — "나올 수도 있다"가 목적.
+    if (entry.elite) {
+      for (let i = 0; i < entry.elite.count; i += 1) {
+        if (this.rng() < entry.elite.chance) flat.push(entry.elite.type as MonsterType);
+      }
+    }
     this.spawnQueue = shuffle(flat, this.rng);
     this.spawnPoints = buildSpawnPoints(entry.spawnPoints, wavesData.spawnRadius, this.rng);
-    this.spawnInterval =
-      this.spawnQueue.length > 0 ? entry.nightDuration / this.spawnQueue.length : 0;
     this.spawnTimer = 0;
     this.spawnPointCursor = 0;
+    this.bossSpawned = false;
     this.phase = 'night';
   }
 
@@ -172,22 +178,40 @@ export class WaveManager {
       return;
     }
 
-    // night
+    // night — groupSize마리씩 묶어 groupIntervalSeconds 간격으로 내보낸다.
+    // 첫 무리는 밤 시작 즉시(spawnTimer 0) 나온다. 무리 하나는 같은 스폰 지점에서
+    // 함께 나와야 "무리"로 보인다 — 지점 순환은 무리 단위로 돈다.
+    const entry = this.currentWaveEntry();
     this.spawnTimer -= dtSeconds;
-    while (this.spawnQueue.length > 0 && this.spawnTimer <= 0) {
-      const type = this.spawnQueue.shift();
-      if (!type) break;
-      // 무작위 선택 대신 순서대로 순환시켜, 지점 하나에 스폰이 몰리지 않고 고르게 퍼지게 한다.
+    while (this.spawnQueue.length > 0 && this.spawnTimer <= 0 && entry) {
       const point = this.spawnPoints[this.spawnPointCursor % this.spawnPoints.length] ?? {
         x: 0,
         y: 0,
       };
       this.spawnPointCursor += 1;
-      spawn(type, point.x, point.y);
-      this.spawnTimer += this.spawnInterval;
+
+      for (let i = 0; i < entry.groupSize; i += 1) {
+        const type = this.spawnQueue.shift();
+        if (!type) break;
+        spawn(type, point.x, point.y);
+      }
+      this.spawnTimer += entry.groupIntervalSeconds;
     }
 
     if (this.spawnQueue.length === 0 && getRemainingMonsters() === 0) {
+      // 보스 레이드: 잡몹을 전멸시키면 보스가 등장하고, 보스까지 잡아야 밤이 끝난다.
+      // 보스를 스폰하면 다음 틱부터 remainingMonsters > 0이 되므로 아래 전환 분기는
+      // 자연히 보스가 죽을 때까지 미뤄진다.
+      if (entry?.bossType && !this.bossSpawned) {
+        this.bossSpawned = true;
+        const point = this.spawnPoints[Math.floor(this.rng() * this.spawnPoints.length)] ?? {
+          x: 0,
+          y: 0,
+        };
+        spawn(entry.bossType as MonsterType, point.x, point.y);
+        return;
+      }
+
       if (this.waveIndex >= wavesData.waves.length - 1) {
         this.phase = 'victory';
       } else {

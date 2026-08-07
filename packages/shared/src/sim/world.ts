@@ -15,6 +15,8 @@ import {
   weaponsData,
   type BuildingType,
   type DropRange,
+  type MeleeAttackData,
+  type MeleeHitData,
   type MonsterData,
   type CraftRecipe,
   type ItemKind,
@@ -25,7 +27,13 @@ import {
 import type { PlayerInputMessage } from '../protocol/messages';
 import { FlowField, type FlowFieldGrid } from './ai/flowField';
 import { BuildingRegistry, type BuildingEntity } from './building';
-import { COLONY_RADIUS, ColonyRegistry, colonyStageFor, type ColonyEntity } from './colony';
+import {
+  COLONY_RADIUS,
+  ColonyRegistry,
+  colonyStageData,
+  maxColonyStage,
+  type ColonyEntity,
+} from './colony';
 import { createCompanion, type CompanionEntity } from './companion';
 import {
   applyPersonaEvent,
@@ -55,6 +63,7 @@ import { CoreStorage, STORAGE_SLOT_COUNT } from './storage';
 import { coreDistance, isWithinCoreInteract } from './coreShape';
 import { ExploredMap } from './explored';
 import { normalizeMoveVector, stepPosition } from './movement';
+import { SpatialGrid } from './spatialGrid';
 import { WaveManager, type GamePhase } from './wave';
 import { runDevCommand, type DevCommandResult, type DevWorldAccess } from './devCommands';
 
@@ -110,10 +119,33 @@ export const BARE_HANDS_WEAPON_ID = 'fist';
 /** 개발 커맨드로 몬스터를 부를 때 코어에서 띄우는 거리(px). 바로 옆에 붙여 놓으면 코어가 즉사한다. */
 const DEV_SPAWN_RADIUS = 160;
 
-/** 콜로니 채널링(파괴 작업)을 시작할 수 있는 반경(px). "구조물 바로 옆" 상호작용 거리다. */
-const COLONY_CHANNEL_RADIUS = 72;
+/**
+ * 공격 모션을 켜 두는 시간(초). 클라이언트는 이 값이 켜지는 **순간**(false→true)에
+ * 공격 애니메이션을 한 번 재생한다 — 그래서 정확한 길이가 아니라 "네트워크로 그 전이가
+ * 확실히 전달될 만큼"만 되면 된다. 20Hz 패치 기준 0.4초면 여덟 번쯤 실려 나간다.
+ * 가장 짧은 공격 주기(0.8초)보다 짧아야 연속 공격이 한 번으로 뭉치지 않는다.
+ */
+const ATTACK_ANIM_SECONDS = 0.4;
+
+/** 수호대가 콜로니 곁으로 "도착했다"고 보는 여유 거리(px). 충돌 반경 바로 바깥이다. */
+const GUARD_HOME_ARRIVE_MARGIN = 10;
 /** 이 거리보다 가까운 몬스터끼리는 서로 밀어낸다 — 군집 분리(기술명세 §5.3). */
 const SEPARATION_RADIUS = HIT_RADIUS * 2.5;
+/**
+ * 몬스터 공간 분할 격자(SpatialGrid)의 칸 크기(px). `SEPARATION_RADIUS`(=25px)나
+ * 흔한 투사체 히트 판정 반경보다 넉넉히 크게 잡아서, 질의 반경이 한두 칸 안에서
+ * 끝나게 한다(너무 작으면 질의마다 훑는 칸 수가 늘어 이득이 줄어든다).
+ */
+const MONSTER_GRID_CELL_SIZE = 64;
+/**
+ * 몬스터 타입별 히트박스 반경(`monsterRadius`)의 최댓값. 그리드 질의 반경에 이 값을
+ * 더해야, 큰(보스급) 몬스터가 질의 중심에서 격자 반경만큼 떨어져 있어도(중심은
+ * 범위 밖이지만 몸이 걸치는 경우) 후보에서 빠뜨리지 않는다.
+ */
+const MAX_MONSTER_HIT_RADIUS = Math.max(
+  HIT_RADIUS,
+  ...Object.values(monstersData).map((data) => data.hitRadius ?? HIT_RADIUS),
+);
 /** 분리력이 주 이동 방향을 완전히 덮어쓰지 않도록 두는 가중치. */
 const SEPARATION_WEIGHT = 0.6;
 /** 한 번 잡은 어그로 타겟은 아그로 반경의 이 배수를 벗어나기 전까진 유지한다(타겟 떨림 방지). */
@@ -209,12 +241,7 @@ export interface PlayerEntity {
 
   /** 퀵슬롯. 장착 무기도 여기서 나온다 — 클라이언트가 무기를 주장할 수 없다. */
   inventory: Inventory;
-  /** 지금 채널링(콜로니 파괴 작업) 중인 콜로니 id. 채널링 중이 아니면 undefined. */
-  channelingColonyId?: string;
-  /** 채널링 진행률(0~1). 이동/피격/사거리 이탈로 언제든 0으로 리셋될 수 있다. */
-  channelProgress: number;
-  /** 이번 틱에 몬스터에게 맞았는지. 매 틱 시작 시 초기화되고, damagePlayer()가 세팅한다.
-   * 채널링 "피격 시 중단" 판정에 쓴다 — tickChannels()가 tickMonsters() 이후에 읽는다. */
+  /** 이번 틱에 몬스터에게 맞았는지. 매 틱 시작 시 초기화되고, damagePlayer()가 세팅한다. */
   tookDamageThisTick: boolean;
 }
 
@@ -264,7 +291,25 @@ export type BossPatternState =
   | { kind: 'idle' }
   | { kind: 'chargeTelegraph'; timer: number; total: number; dirX: number; dirY: number }
   | { kind: 'charging'; timer: number; dirX: number; dirY: number; hitPlayerIds: Set<string> }
-  | { kind: 'slamTelegraph'; timer: number; total: number; x: number; y: number };
+  | { kind: 'slamTelegraph'; timer: number; total: number; x: number; y: number }
+  /**
+   * 근접 검술 진행 중. 바닥 표시 없이 **동작 자체가 예고**라(무기를 치켜드는 프레임),
+   * 클라이언트가 어느 동작을 재생할지 알 수 있게 `index`(meleeAttacks 배열 위치)를
+   * 들고 있는다.
+   *
+   * 동작 하나가 타격 하나는 아니다 — 흑기사 1번 기술처럼 2연타가 있어서, 경과 시간
+   * (`elapsed`)을 재면서 아직 안 터진 타격(`nextHit`)의 시점을 넘길 때마다 판정한다.
+   */
+  | {
+      kind: 'meleeSwing';
+      elapsed: number;
+      index: number;
+      nextHit: number;
+      dirX: number;
+      dirY: number;
+    }
+  /** 판정 후 경직. 이 동안은 이동도 다음 공격도 없다 — 플레이어가 반격할 틈이다. */
+  | { kind: 'meleeRecover'; timer: number };
 
 export interface MonsterEntity {
   id: string;
@@ -301,6 +346,30 @@ export interface MonsterEntity {
    * 2026-08-07-ai-companion-timothy-design.md).
    */
   companionAttackCooldown: number;
+  /**
+   * 콜로니 수호대라면 소속 콜로니 id. 있으면 코어 침공 AI 대신 수호 AI를 탄다 —
+   * 리시 반경 안의 플레이어만 공격하고, 아무도 없으면 콜로니로 귀환해 저장 상태로
+   * 복귀한다(stored 복원). 웨이브/침공 복제 몬스터는 undefined다.
+   */
+  homeColonyId?: string;
+  /** 수호대 전용: 콜로니 곁에 도착한 뒤 저장 상태로 복귀하기까지 누적된 대기(초). */
+  guardReturnTimer: number;
+  /**
+   * 근접 검술별 남은 쿨다운(초). meleeAttacks 배열과 같은 순서다 — 기술마다 따로
+   * 돌아야 "멀면 찌르기, 붙으면 내려치기"처럼 거리에 따라 다른 기술이 나온다.
+   */
+  meleeCooldowns: number[];
+  /**
+   * 지금 재생해야 할 공격 동작 번호(0=없음, 1~3=Attack01~03). 잡몹은 항상 1이고,
+   * 검술이 여러 개인 보스만 값이 갈린다.
+   */
+  attackAnim: number;
+  /**
+   * 공격 모션이 남은 시간(초). 실제로 피해를 넣은 순간 ATTACK_ANIM_SECONDS로 채워지고
+   * 매 틱 줄어든다. 전투 판정에는 전혀 쓰지 않는다 — 클라이언트가 공격 애니메이션을
+   * 재생할 시점을 알려주기 위해서만 존재한다(그림 없이는 알 방법이 없다).
+   */
+  attackAnimTimer: number;
 }
 
 export interface CoreState {
@@ -357,6 +426,13 @@ export class World {
   private players = new Map<string, PlayerEntity>();
   private inputs = new Map<string, PlayerInputMessage>();
   private monsters = new Map<string, MonsterEntity>();
+  /**
+   * `monsters`와 항상 같은 내용을 담고 있어야 하는 공간 분할 인덱스(docs/backend/45).
+   * 몬스터가 추가/제거/이동될 때마다(addMonster/damageMonster/moveMonster, monsters를
+   * clear()하는 디버그 커맨드들) 같이 갱신한다 — 매 틱 통째로 다시 만들지 않고 계속
+   * 살아있는 상태로 들고 가는 이유는 SpatialGrid 클래스 주석 참고.
+   */
+  private readonly monsterGrid = new SpatialGrid(MONSTER_GRID_CELL_SIZE);
   private projectiles = new Map<string, ProjectileEntity>();
   private readonly cooldowns = new WeaponCooldowns();
   private readonly waveManager = new WaveManager();
@@ -390,6 +466,13 @@ export class World {
   private readonly droppedItems = new Map<string, DroppedItemEntity>();
   private readonly colonies = new ColonyRegistry();
   /**
+   * 이번 밤의 콜로니 침공 복제분 대기열. 밤 시작에 buildNightContingents()가 만들고
+   * tickContingents()가 콜로니 방향에서 무리 단위로 내보낸다. 다음 밤 시작에 통째로
+   * 교체된다.
+   */
+  private readonly contingents: { x: number; y: number; queue: MonsterType[]; timer: number }[] =
+    [];
+  /**
    * AI 동반자("티모시"). 방(팀)당 1마리라 players/monsters처럼 Map으로 관리하지 않는다
    * (docs/superpowers/specs/2026-08-07-ai-companion-timothy-design.md). 코어는 항상
    * 원점(0,0)이라 스폰 위치도 생성자에서 바로 정할 수 있다 — startColonies처럼 인원수를
@@ -397,12 +480,9 @@ export class World {
    */
   private companion: CompanionEntity = createCompanion(0, 0);
   /**
-   * 파괴되지 않은 콜로니가 차지한 그리드 셀("cx,cy" 키) 집합. 콜로니는 위치가
-   * 절대 안 바뀌지만(colony.ts), **존재 여부(파괴됐는지)는 바뀐다** — 파괴된
-   * 콜로니는 더 이상 막지 않는다(docs/backend/43, 예전엔 폐허로 계속 막았지만
-   * 뒤집었다). 그래서 생성 시점에 한 번만 캐싱하지 않고, 콜로니가 새로 배치될
-   * 때(`startColonies`)와 파괴될 때(`tickChannels`) `rebuildColonyObstacleCells()`로
-   * 통째로 다시 계산한다 — 자원 노드의 `resourceObstacleCells`와 같은 패턴이다.
+   * 콜로니가 차지한 그리드 셀("cx,cy" 키) 집합. 콜로니는 위치가 절대 안 바뀌고,
+   * 정화돼도 구조물은 남으므로(재설계 후 "파괴" 개념이 없다) 배치 시점
+   * (`startColonies`)에 한 번만 계산하면 판이 끝날 때까지 그대로다.
    * FlowField의 `isBlocked` 콜백이 여기 기록된 셀도 같이 막힌 것으로 본다.
    *
    * 코어 자신의 셀은 절대 여기 넣지 않는다 — FlowField의 목표(target) 셀이 막히면
@@ -484,14 +564,12 @@ export class World {
   }
 
   /**
-   * 파괴되지 않은 콜로니의 현재 위치를 기준으로 차단 셀 집합을 통째로 다시
-   * 계산한다. 콜로니가 새로 배치되거나(`startColonies`) 파괴될 때(`tickChannels`)
-   * 호출해야 한다 — `rebuildResourceObstacleCells()`와 같은 패턴이다.
+   * 콜로니의 위치를 기준으로 차단 셀 집합을 계산한다. 배치(`startColonies`) 때 한 번이면
+   * 된다 — 재설계 후 콜로니는 파괴되지 않아 존재 여부가 변하지 않는다.
    */
   private rebuildColonyObstacleCells(): void {
     this.colonyObstacleCells.clear();
     for (const colony of this.colonies.values()) {
-      if (colony.destroyed) continue; // 파괴되면 더 이상 막지 않는다(docs/backend/43)
       const { cx, cy } = worldToCell(colony.x, colony.y);
       this.colonyObstacleCells.add(`${cx},${cy}`);
     }
@@ -523,7 +601,6 @@ export class World {
       lastProcessedSeq: 0,
       hp: wavesData.playerHp,
       inventory,
-      channelProgress: 0,
       tookDamageThisTick: false,
     });
   }
@@ -546,10 +623,7 @@ export class World {
       !isFiniteNumber(input.seq) ||
       !isFiniteNumber(input.moveX) ||
       !isFiniteNumber(input.moveY) ||
-      !isFiniteNumber(input.aimAngle) ||
-      // channeling은 옵셔널이다 — 없으면(구버전 호출부/테스트) false로 취급하고
-      // 입력 전체를 거절하지 않는다. 있는데 boolean이 아니면 거절한다.
-      (input.channeling !== undefined && typeof input.channeling !== 'boolean')
+      !isFiniteNumber(input.aimAngle)
     ) {
       return;
     }
@@ -565,7 +639,6 @@ export class World {
       moveX,
       moveY,
       aimAngle: input.aimAngle,
-      channeling: input.channeling === true,
     });
   }
 
@@ -625,9 +698,13 @@ export class World {
   fireWeapon(playerId: string): void {
     const player = this.players.get(playerId);
     if (!player) return;
-    // 채널링 중엔 공격할 수 없다 — "무방비 상태"를 실제로 강제한다(콜로니 채널링은
-    // 엄호가 필요한 협동 압박 요소로 설계됐다, docs/backend/35).
-    if (player.channelingColonyId) return;
+    // fireWeapon()은 tick()과 무관하게 아무 때나(발사 요청이 오는 즉시) 불릴 수 있다.
+    // monsterGrid는 moveMonster()를 거칠 때만 점진적으로 갱신되는데, 몬스터 좌표가
+    // moveMonster를 거치지 않고 직접 바뀌는 경로(테스트의 직접 대입, 향후 추가될
+    // 수 있는 순간이동류 효과 등)가 있으면 그 사이 그리드가 낡을 수 있다 — 발사
+    // 판정(근접/총구 간격) 직전에 한 번 다시 채워서 항상 정확한 상태로 쓴다. 몬스터
+    // 수만큼(O(M))이라 비싸지 않다.
+    this.rebuildMonsterGrid();
 
     // 무기를 안 들었으면 맨손이다. 붕대 같은 소모품을 들고 있을 때는 좌클릭이
     // "사용"이라 여기까지 오지 않는다(클라이언트가 useSlot으로 보낸다).
@@ -1099,6 +1176,7 @@ export class World {
   debugJumpToWave(waveNumber: number): void {
     if (this.waveManager.debugJumpToWave(waveNumber)) {
       this.monsters.clear();
+      this.monsterGrid.clear();
     }
   }
 
@@ -1138,6 +1216,8 @@ export class World {
     this.skipVotes.clear();
     // 하루가 지나면 상점 물건이 통째로 바뀐다. 오늘 못 산 전설은 오늘로 끝이다.
     this.rollShopStock();
+    // 정화된 콜로니는 재보급, 살아남은 콜로니는 성장(§settleColoniesOnDayBegan).
+    this.settleColoniesOnDayBegan();
   }
 
   /**
@@ -1206,11 +1286,11 @@ export class World {
 
       jumpToWave: (waveNumber) => {
         const moved = this.waveManager.debugJumpToWave(waveNumber);
-        if (moved) this.monsters.clear();
+        if (moved) this.clearAllMonsters();
         return moved;
       },
       forceDay: () => {
-        this.monsters.clear();
+        this.clearAllMonsters();
         // 스폰 큐까지 비워야 낮에 몬스터가 계속 튀어나오지 않는다. 낮에 딸린 일은
         // 정상 진행과 같은 함수로 처리한다.
         if (this.waveManager.debugEndNight() && this.waveManager.currentPhase === 'day') {
@@ -1227,7 +1307,7 @@ export class World {
           this.addMonster(type, Math.cos(angle) * radius, Math.sin(angle) * radius);
         }
       },
-      clearMonsters: () => this.monsters.clear(),
+      clearMonsters: () => this.clearAllMonsters(),
 
       healPlayer: (playerId) => {
         const player = this.players.get(playerId);
@@ -1259,13 +1339,19 @@ export class World {
     const previousPhase = this.waveManager.currentPhase;
     this.waveManager.tick(
       dtSeconds,
-      () => this.monsters.size,
+      // 아직 스폰 대기 중인 콜로니 침공 복제분도 "살아있는" 것으로 계산해야 한다 —
+      // 본대가 먼저 전멸해도 복제분이 다 나올 때까지 밤이(보스가) 오지 않게.
+      () => this.monsters.size + this.pendingContingentCount(),
       (type, x, y) => this.addMonster(type, x, y),
     );
     // 밤이 끝나고 새 낮이 시작되는 시점(웨이브 클리어) — 다운된 플레이어를 부활시키고
     // 지난 낮의 스킵 투표를 초기화한다(docs/backend/11 §4.1).
     if (previousPhase !== 'day' && this.waveManager.currentPhase === 'day') {
       this.onDayBegan();
+    }
+    // 낮이 끝나고 밤이 시작되는 시점 — 콜로니 저장분이 복제되어 침공에 합류한다.
+    if (previousPhase === 'day' && this.waveManager.currentPhase === 'night') {
+      this.buildNightContingents();
     }
     // 밤이 끝난 시점(다음 낮이든 최종 승리든) — 코어 AI 페르소나가 그 웨이브를 코멘트한다.
     if (
@@ -1284,12 +1370,10 @@ export class World {
     this.tickCompanion(dtSeconds);
     this.tickQueuedCompanionMessages();
     this.tickResourceNodes(dtSeconds);
-    // tickMonsters() 다음에 불러야 한다 — 이번 틱의 피격(tookDamageThisTick)이
-    // 이미 반영된 뒤여야 "피격 시 채널 중단"이 정확히 판정된다.
-    this.tickChannels(dtSeconds);
-    // tickChannels() 다음에 불러야 한다 — 이번 틱에 새로 채널링이 시작된 콜로니도
-    // 한 틱 지연 없이 바로 스폰이 멈춰야 한다(§tickColonies의 채널링 중 스폰 정지).
-    this.tickColonies(dtSeconds);
+    // tickMonsters() 다음에 불러야 한다 — 이번 틱에 죽은 수호대가 guardIds에서
+    // 이미 빠진 뒤여야 정화 판정이 한 틱 늦지 않는다.
+    this.tickColonyGuards(dtSeconds);
+    this.tickContingents(dtSeconds);
 
     tickProjectiles(this.projectiles, dtSeconds);
     this.resolveProjectileHits();
@@ -1625,7 +1709,8 @@ export class World {
     node.y = position.y;
   }
 
-  private addMonster(type: MonsterType, x: number, y: number): void {
+  /** 몬스터를 추가하고 id를 돌려준다 — 수호대 소환처럼 스폰 직후 추가 설정이 필요한 곳용. */
+  private addMonster(type: MonsterType, x: number, y: number): string {
     const data = monstersData[type];
     const id = `monster_${nextMonsterId++}`;
     // 스폰 직후엔 코어를 향해 걷기 시작하니, 초기 시야 방향도 코어 쪽으로 잡아둔다.
@@ -1643,10 +1728,17 @@ export class World {
       facingX,
       facingY,
       pattern: { kind: 'idle' },
-      specialAttackCooldown: data.chargeAttack || data.slamAttack ? BOSS_FIRST_PATTERN_DELAY : 0,
+      specialAttackCooldown:
+        data.chargeAttack || data.slamAttack || data.meleeAttacks ? BOSS_FIRST_PATTERN_DELAY : 0,
       stuckSeconds: 0,
       companionAttackCooldown: 0,
+      guardReturnTimer: 0,
+      attackAnimTimer: 0,
+      attackAnim: 0,
+      meleeCooldowns: (data.meleeAttacks ?? []).map(() => 0),
     });
+    this.monsterGrid.insert(id, x, y);
+    return id;
   }
 
   /**
@@ -1734,46 +1826,250 @@ export class World {
   }
 
   /**
-   * 살아있는 콜로니마다 스폰 타이머를 감소시키고, 0이 되면 몬스터를 하나 추가한다.
-   * `tickMonsters()`처럼 페이즈(낮/밤) 무관하게 매 틱 그냥 돈다 — 콜로니가 낮에도
-   * 몬스터를 내보내는 게 이 기능의 핵심이라, 애초에 페이즈로 막을 이유가 없다
-   * (몬스터 자체는 addMonster()로 추가되는 순간부터 tickMonsters()가 똑같이
-   * 다루므로, 낮/밤에 따라 AI가 달라지지 않는다).
+   * 콜로니 수호대 소환/정화 판정. `tickMonsters()` 이후에 불러야 한다 — 이번 틱에
+   * 죽은 수호대가 guardIds에서 이미 빠진 뒤여야 정화가 한 틱 늦지 않는다.
    *
-   * 스테이지(난이도 구간)는 현재 웨이브 진행도(WaveManager.currentWave) 기준으로
-   * 콜로니 전체가 공유한다 — "시간이 지날수록 강해진다"를 밤 웨이브와 같은 축으로
-   * 표현한다(§colonyStageFor).
+   * 소환 규칙: 살아있는 플레이어가 트리거 반경 안에 있으면 저장분에서 한 마리씩
+   * 꺼내 소환하고, 동시 수호대 수(guardConcurrent)를 유지하도록 보충한다. 저장분
+   * 전체가 한꺼번에 쏟아지지 않게 하는 건 압박 유지와 "입구 낚시" 방지를 겸한다 —
+   * 대신 순차 보충이라 플레이어가 하나씩 끊어 먹는 것도 자연히 가능하다(설계 의도).
    *
-   * **채널링 중인 콜로니는 스폰이 완전히 멈춘다.** 누군가 파괴 작업 중인 콜로니가
-   * 그 와중에도 계속 몬스터를 뱉으면 엄호하는 인원이 오히려 더 불리해지기만 하고,
-   * "채널링 = 그 콜로니를 무력화하기 시작했다"는 의미도 흐려진다. 스폰 타이머
-   * 자체를 얼려서(감소시키지 않음) 멈추는 이유: 그냥 스폰만 건너뛰고 타이머는
-   * 계속 줄이면, 채널링이 중간에 끊겼을 때 밀린 스폰이 한꺼번에(또는 다음 틱에
-   * 바로) 터져나오는 부자연스러운 결과가 된다.
+   * 페이즈(낮/밤) 무관하게 돈다 — 밤에도 콜로니에 접근하면 수호대가 나온다.
    */
-  private tickColonies(dtSeconds: number): void {
-    const stage = colonyStageFor(this.waveManager.currentWave);
-
+  private tickColonyGuards(dtSeconds: number): void {
     for (const colony of this.colonies.values()) {
-      if (colony.destroyed) continue;
-      if (this.isColonyBeingChanneled(colony.id)) continue;
+      if (colony.purified) continue;
 
-      colony.spawnTimer -= dtSeconds;
-      if (colony.spawnTimer > 0) continue;
+      // 정화: 저장분도 수호대도 남지 않은 순간, 이 콜로니는 비워졌다.
+      if (colony.stored <= 0 && colony.guardIds.size === 0) {
+        this.purifyColony(colony);
+        continue;
+      }
 
-      colony.spawnTimer = stage.spawnIntervalSeconds;
+      const triggered = this.anyAlivePlayerWithin(colony.x, colony.y, coloniesData.triggerRadius);
+      if (!triggered) {
+        // 아무도 없으면 보충 타이머를 초기값으로 되돌린다 — 다음 접근 때 곧바로
+        // 첫 수호대가 나오게(경계에서 들락거리며 타이머만 갉는 것 방지).
+        colony.guardRespawnTimer = 0;
+        continue;
+      }
+
+      if (colony.stored <= 0 || colony.guardIds.size >= coloniesData.guardConcurrent) continue;
+
+      colony.guardRespawnTimer -= dtSeconds;
+      if (colony.guardRespawnTimer > 0) continue;
+      colony.guardRespawnTimer = coloniesData.guardRespawnSeconds;
+
+      const stage = colonyStageData(colony.stage);
       const type = stage.types[Math.floor(this.rng() * stage.types.length)] as MonsterType;
 
-      // 콜로니 중심 좌표 그대로 스폰시키면(예전 방식) 콜로니 자신의 하드 충돌
-      // 반경(docs/backend/38) 안에서 태어나는 셈이라, moveMonster의 장애물 회피가
-      // "이미 겹친 상태"를 벗어날 방법이 없어 그 자리에 영구히 끼어버린다
-      // (docs/backend/40). 콜로니 경계 바로 바깥, 무작위 각도의 지점에 스폰시켜서
-      // 처음부터 안 겹치게 한다.
+      // 콜로니 중심 좌표 그대로 스폰시키면 콜로니 자신의 하드 충돌 반경(docs/backend/38)
+      // 안에서 태어나 영구히 끼어버린다(docs/backend/40). 경계 바로 바깥에 스폰한다.
       const spawnMonsterR = monstersData[type]?.hitRadius ?? HIT_RADIUS;
       const angle = this.rng() * Math.PI * 2;
       const offset = COLONY_RADIUS + spawnMonsterR + 2; // 여유 2px — 겹침 없이 확실히 밖
-      this.addMonster(type, colony.x + Math.cos(angle) * offset, colony.y + Math.sin(angle) * offset);
+      const guardId = this.addMonster(
+        type,
+        colony.x + Math.cos(angle) * offset,
+        colony.y + Math.sin(angle) * offset,
+      );
+      const guard = this.monsters.get(guardId);
+      if (guard) {
+        guard.homeColonyId = colony.id;
+        colony.stored -= 1;
+        colony.guardIds.add(guardId);
+      }
     }
+  }
+
+  /**
+   * 수호대 한 마리의 틱. 일반 몬스터와 달리 **콜로니 중심** 기준으로 판단한다 —
+   * 자기 위치 기준이면 추격 중에 리시가 몬스터를 따라 이동해 무한 추격이 된다.
+   *
+   * 1) 리시 반경(콜로니 기준) 안에 살아있는 플레이어가 있으면 가장 가까운 쪽을 요격.
+   * 2) 없으면 콜로니 곁으로 귀환. 도착 후 returnDespawnSeconds가 지나면 저장 상태로
+   *    복귀한다 — 엔티티가 사라지고 콜로니 stored가 복원된다("자연스럽게 돌아가
+   *    수호하다가 저장 상태로").
+   */
+  private tickGuard(monster: MonsterEntity, data: MonsterData, dtSeconds: number): void {
+    const colony = this.colonies.get(monster.homeColonyId!);
+    if (!colony) {
+      // 방어적 처리 — 소속 콜로니가 없으면(있을 수 없는 상태) 일반 몬스터로 강등한다.
+      monster.homeColonyId = undefined;
+      return;
+    }
+
+    // 요격 대상: 리시 반경(콜로니 기준) 안에서 수호대 자신과 가장 가까운 생존자.
+    let target: PlayerEntity | undefined;
+    let bestDistance = Infinity;
+    for (const player of this.players.values()) {
+      if (player.hp <= 0) continue;
+      if (Math.hypot(player.x - colony.x, player.y - colony.y) > coloniesData.leashRadius) continue;
+      const distance = Math.hypot(player.x - monster.x, player.y - monster.y);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        target = player;
+      }
+    }
+
+    if (target) {
+      monster.guardReturnTimer = 0;
+      if (bestDistance > 0) {
+        monster.facingX = (target.x - monster.x) / bestDistance;
+        monster.facingY = (target.y - monster.y) / bestDistance;
+      }
+
+      // 벽으로 길을 막았으면 침공 몬스터와 같은 규칙으로 그 벽부터 부순다.
+      const blocker = this.findBlockingBuildingInRange(monster, data.attackRange);
+      if (blocker) {
+        this.attackBuilding(monster, blocker, data.damage, data.attackInterval);
+      } else if (bestDistance <= data.attackRange) {
+        if (monster.attackCooldown <= 0) {
+          this.damagePlayer(target, data.damage);
+          monster.attackCooldown = data.attackInterval;
+          this.markAttack(monster);
+        }
+      } else {
+        this.moveMonster(monster, monster.facingX, monster.facingY, data.speed, dtSeconds);
+      }
+      return;
+    }
+
+    // 귀환: 콜로니 충돌 반경 바로 바깥까지 다가간 뒤 잠시 서성이다 저장 상태로.
+    const homeDistance = Math.hypot(colony.x - monster.x, colony.y - monster.y);
+    const arriveDistance = COLONY_RADIUS + monsterRadius(monster) + GUARD_HOME_ARRIVE_MARGIN;
+    if (homeDistance > arriveDistance) {
+      monster.guardReturnTimer = 0;
+      monster.facingX = (colony.x - monster.x) / homeDistance;
+      monster.facingY = (colony.y - monster.y) / homeDistance;
+      this.moveMonster(monster, monster.facingX, monster.facingY, data.speed, dtSeconds);
+      return;
+    }
+
+    monster.guardReturnTimer += dtSeconds;
+    if (monster.guardReturnTimer < coloniesData.returnDespawnSeconds) return;
+
+    this.monsters.delete(monster.id);
+    colony.guardIds.delete(monster.id);
+    // 단계 재보급(settleColoniesOnDayBegan)이 사이에 끼어도 저장분이 상한을 넘지 않게 조인다.
+    colony.stored = Math.min(colony.stored + 1, colonyStageData(colony.stage).stored);
+  }
+
+  /**
+   * 개발 커맨드 전용: 몬스터를 전부 치우면서 콜로니 수호대 장부와 침공 대기열도 함께
+   * 비운다 — 장부에 유령 id가 남으면 동시 수호대 상한이 영구히 차서 소환이 멈춘다.
+   */
+  private clearAllMonsters(): void {
+    this.monsters.clear();
+    this.monsterGrid.clear();
+    this.contingents.length = 0;
+    for (const colony of this.colonies.values()) colony.guardIds.clear();
+  }
+
+  /**
+   * 공격 모션을 켠다. 피해가 실제로 들어간 자리마다 부른다(빗나간 시도에는 안 켠다).
+   * `anim`은 재생할 동작 번호 — 검술이 여러 개인 보스만 1이 아닌 값을 넘긴다.
+   */
+  private markAttack(monster: MonsterEntity, anim = 1): void {
+    monster.attackAnimTimer = ATTACK_ANIM_SECONDS;
+    monster.attackAnim = anim;
+  }
+
+  /** 정화 처리: 단계 보상 지급 후 1단계 빈 껍데기로. 다음 낮에 재보급된다(onDayBegan). */
+  private purifyColony(colony: ColonyEntity): void {
+    this.core.sharedEnergy += colonyStageData(colony.stage).purifyEnergy;
+    colony.stage = 1;
+    colony.stored = 0;
+    colony.purified = true;
+    this.enqueuePersonaEvent('colonyDestroyed');
+  }
+
+  /** 살아있는 플레이어 중 (x,y)에서 radius 안에 있는 사람이 하나라도 있는가. */
+  private anyAlivePlayerWithin(x: number, y: number, radius: number): boolean {
+    for (const player of this.players.values()) {
+      if (player.hp <= 0) continue;
+      if (circlesOverlap(player.x, player.y, x, y, radius)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * 밤 시작에 콜로니 저장분의 일부를 **복제**해 침공 대기열로 만든다. 저장분 자체는
+   * 줄지 않는다 — 줄면 "밤에는 콜로니가 비어 정화가 공짜"라는 허점이 생긴다.
+   * 대기열은 tickContingents()가 웨이브와 같은 무리 리듬으로 콜로니 방향에서
+   * 내보낸다("콜로니가 있는 방향에서 몰려온다").
+   */
+  private buildNightContingents(): void {
+    this.contingents.length = 0;
+    for (const colony of this.colonies.values()) {
+      if (colony.purified || colony.stored <= 0) continue;
+      const count = Math.floor(colony.stored * coloniesData.waveContributionRatio);
+      if (count <= 0) continue;
+
+      const stage = colonyStageData(colony.stage);
+      const queue: MonsterType[] = [];
+      for (let i = 0; i < count; i += 1) {
+        queue.push(stage.types[Math.floor(this.rng() * stage.types.length)] as MonsterType);
+      }
+      this.contingents.push({ x: colony.x, y: colony.y, queue, timer: 0 });
+    }
+  }
+
+  /**
+   * 새 낮이 시작될 때의 콜로니 정산. 정화된 빈 껍데기는 1단계 저장분으로 재보급되고
+   * (정화 즉시 재보급하면 그 자리에서 무한 보상 파밍이 된다 — 하루에 한 번만),
+   * 살아남은(정화 안 된) 콜로니는 한 단계 성장한다(저장분 대략 2배, 최대 3단계).
+   */
+  private settleColoniesOnDayBegan(): void {
+    for (const colony of this.colonies.values()) {
+      if (colony.purified) {
+        colony.purified = false;
+        colony.stored = colonyStageData(colony.stage).stored;
+      } else {
+        colony.stage = Math.min(colony.stage + 1, maxColonyStage());
+        colony.stored = colonyStageData(colony.stage).stored;
+      }
+      colony.guardRespawnTimer = 0;
+    }
+  }
+
+  /**
+   * 침공 복제분을 무리 단위로 내보낸다. 무리 크기/간격은 현재 웨이브 항목을 그대로
+   * 따라가 본대와 같은 리듬으로 밀려온다. 밤이 아니면(승리/패배 포함) 대기열만
+   * 남고 소진되지 않는데, 어차피 다음 밤 시작에 새로 만들어 덮으므로 문제없다.
+   */
+  private tickContingents(dtSeconds: number): void {
+    if (this.waveManager.currentPhase !== 'night') return;
+    const entry = wavesData.waves[this.waveManager.currentWave - 1];
+    const groupSize = entry?.groupSize ?? 4;
+    const interval = entry?.groupIntervalSeconds ?? 12;
+
+    for (const contingent of this.contingents) {
+      if (contingent.queue.length === 0) continue;
+      contingent.timer -= dtSeconds;
+      if (contingent.timer > 0) continue;
+      contingent.timer = interval;
+
+      for (let i = 0; i < groupSize; i += 1) {
+        const type = contingent.queue.shift();
+        if (!type) break;
+        const spawnMonsterR = monstersData[type]?.hitRadius ?? HIT_RADIUS;
+        const angle = this.rng() * Math.PI * 2;
+        const offset = COLONY_RADIUS + spawnMonsterR + 2;
+        this.addMonster(
+          type,
+          contingent.x + Math.cos(angle) * offset,
+          contingent.y + Math.sin(angle) * offset,
+        );
+      }
+    }
+  }
+
+  /** 아직 스폰 대기 중인 침공 복제분 총 마릿수. 밤 종료 판정에 산 몬스터처럼 계산된다. */
+  private pendingContingentCount(): number {
+    let total = 0;
+    for (const contingent of this.contingents) total += contingent.queue.length;
+    return total;
   }
 
   /** 살아있는(hp>0) 자원 노드 중 (x,y)에서 가장 가까운 것. 없으면 undefined. */
@@ -1924,6 +2220,7 @@ export class World {
       if (monster.companionAttackCooldown > 0) continue;
       this.damageCompanion(data.damage);
       monster.companionAttackCooldown = data.attackInterval;
+      this.markAttack(monster);
     }
   }
 
@@ -1935,68 +2232,6 @@ export class World {
       const nearestId = this.findNearestPlayerId(this.companion.x, this.companion.y);
       if (nearestId) this.enqueueCompanionPersonaEvent('companionDowned', nearestId);
     }
-  }
-
-  /** 이번 틱 기준으로 이 콜로니를 채널링 중인 플레이어가 있는지. */
-  private isColonyBeingChanneled(colonyId: string): boolean {
-    for (const player of this.players.values()) {
-      if (player.channelingColonyId === colonyId) return true;
-    }
-    return false;
-  }
-
-  /**
-   * 콜로니 채널링(파괴 작업) 진행을 처리한다. `tickMonsters()` 이후에 불러야 한다
-   * — 이번 틱에 몬스터에게 맞았는지(`tookDamageThisTick`)가 이미 반영된 뒤여야
-   * "피격 시 중단"이 정확히 판정된다.
-   *
-   * 조건(이동 없음 + 피격 없음 + 파괴 안 된 콜로니 사거리 안 + 채널 키 유지)이
-   * 하나라도 깨지면 그 자리에서 진행률을 0으로 되돌린다 — 부분 진행을 이어서
-   * 채우는 게 아니라 매번 처음부터 다시 시작해야 한다(이게 "엄호"를 실제로
-   * 필요하게 만드는 핵심 규칙, docs/backend/35).
-   */
-  private tickChannels(dtSeconds: number): void {
-    for (const [playerId, player] of this.players) {
-      const input = this.inputs.get(playerId);
-      const wantsChannel = input?.channeling === true && input.moveX === 0 && input.moveY === 0;
-      const target = wantsChannel && player.hp > 0 ? this.findChannelableColony(player) : undefined;
-
-      if (!target || player.tookDamageThisTick) {
-        player.channelingColonyId = undefined;
-        player.channelProgress = 0;
-        continue;
-      }
-
-      // 채널 대상이 바뀌면(다른 콜로니로 옮겨감) 진행률을 새로 시작한다.
-      if (player.channelingColonyId !== target.id) {
-        player.channelingColonyId = target.id;
-        player.channelProgress = 0;
-      }
-
-      player.channelProgress += dtSeconds / coloniesData.channelSeconds;
-      if (player.channelProgress < 1) continue;
-
-      this.colonies.destroy(target.id);
-      // 파괴된 콜로니는 더 이상 막지 않는다(docs/backend/43) — 셀 캐시부터
-      // FlowField까지 다시 계산해야 그 즉시 반영된다(자원 노드 고갈 처리와 동일 패턴).
-      this.rebuildColonyObstacleCells();
-      this.recomputeFlowField();
-      this.core.sharedEnergy += coloniesData.essenceReward;
-      this.enqueuePersonaEvent('colonyDestroyed');
-      player.channelingColonyId = undefined;
-      player.channelProgress = 0;
-    }
-  }
-
-  /** 파괴되지 않은 콜로니 중 채널링 사거리(COLONY_CHANNEL_RADIUS) 안에 있는 것을 찾는다. */
-  private findChannelableColony(player: PlayerEntity): ColonyEntity | undefined {
-    for (const colony of this.colonies.values()) {
-      if (colony.destroyed) continue;
-      if (circlesOverlap(player.x, player.y, colony.x, colony.y, COLONY_CHANNEL_RADIUS)) {
-        return colony;
-      }
-    }
-    return undefined;
   }
 
   /**
@@ -2018,14 +2253,34 @@ export class World {
    * 자체는 추가 비용이 거의 없다(대입 두 번).
    */
   private tickMonsters(dtSeconds: number): void {
+    // 이번 틱 시작 시점 기준으로 그리드를 다시 채운다 — moveMonster를 안 거치고
+    // 몬스터 좌표가 바뀔 수 있는 경로(테스트의 직접 대입 등, fireWeapon과 같은 이유)를
+    // 대비한 안전망이다. 이후 이 루프 안에서 moveMonster가 호출될 때마다 증분
+    // 갱신되므로(try/finally), 이 틱 안에서는 항상 "지금까지 처리된 몬스터는 최신
+    // 위치, 아직 처리 안 된 몬스터는 이번 틱 시작 위치"를 정확히 반영한다 — 기존
+    // (그리드 도입 전) computeSeparation이 살아있는 this.monsters를 그대로 순회하며
+    // 갖던 것과 같은 순서 의존적 동작이다.
+    this.rebuildMonsterGrid();
     for (const monster of this.monsters.values()) {
       const data = monstersData[monster.type];
       monster.attackCooldown = Math.max(0, monster.attackCooldown - dtSeconds);
+      monster.attackAnimTimer = Math.max(0, monster.attackAnimTimer - dtSeconds);
+      if (monster.attackAnimTimer === 0) monster.attackAnim = 0;
+      for (let i = 0; i < monster.meleeCooldowns.length; i += 1) {
+        monster.meleeCooldowns[i] = Math.max(0, monster.meleeCooldowns[i]! - dtSeconds);
+      }
 
       // 보스 특수 패턴이 이번 틱의 이동/공격을 전부 처리했으면(예고 중이라 멈춰 있거나
       // 돌진 중이거나) 아래 일반 추격/이동 로직은 건너뛴다. chargeAttack/slamAttack이
       // 없는 타입(잡몹 등)은 매 틱 이 검사 하나만 거치고 바로 false를 반환한다.
       if (this.tickBossPattern(monster, data, dtSeconds)) continue;
+
+      // 콜로니 수호대는 코어 침공 AI를 아예 타지 않는다 — 리시 안 플레이어 요격,
+      // 없으면 귀환 후 저장 복귀가 전부다.
+      if (monster.homeColonyId) {
+        this.tickGuard(monster, data, dtSeconds);
+        continue;
+      }
 
       const target = data.aggroRadius
         ? this.resolveAggroTarget(monster, data.aggroRadius)
@@ -2046,6 +2301,7 @@ export class World {
           if (monster.attackCooldown <= 0) {
             this.damagePlayer(target, data.damage);
             monster.attackCooldown = data.attackInterval;
+            this.markAttack(monster);
           }
         } else {
           // 자원 노드/콜로니가 경로를 막아도 moveMonster가 축 슬라이딩으로 알아서
@@ -2073,6 +2329,7 @@ export class World {
         if (monster.attackCooldown <= 0) {
           this.core.hp = Math.max(0, this.core.hp - data.damage);
           monster.attackCooldown = data.attackInterval;
+          this.markAttack(monster);
         }
         continue;
       }
@@ -2118,9 +2375,13 @@ export class World {
    * 판정 범위가 어긋나지 않는다.
    */
   private tickBossPattern(monster: MonsterEntity, data: MonsterData, dtSeconds: number): boolean {
-    if (!data.chargeAttack && !data.slamAttack) return false;
+    if (!data.chargeAttack && !data.slamAttack && !data.meleeAttacks) return false;
 
     switch (monster.pattern.kind) {
+      case 'meleeSwing':
+        return this.tickMeleeSwing(monster, data, dtSeconds);
+      case 'meleeRecover':
+        return this.tickMeleeRecover(monster, dtSeconds);
       case 'chargeTelegraph':
         return this.tickChargeTelegraph(monster, data, dtSeconds);
       case 'charging':
@@ -2144,17 +2405,44 @@ export class World {
     const target = data.aggroRadius ? this.resolveAggroTarget(monster, data.aggroRadius) : undefined;
     if (!target) return false;
 
+    const dxToTarget = target.x - monster.x;
+    const dyToTarget = target.y - monster.y;
+    const targetDistance = Math.hypot(dxToTarget, dyToTarget);
+
+    // 근접 검술을 가진 보스는 그쪽을 먼저 본다 — 사거리가 닿고 쿨다운이 끝난 기술
+    // 중에서 무작위로 하나. 거리로 후보가 갈리므로 붙으면 짧은 기술, 떨어지면 긴
+    // 기술이 나온다(항상 같은 순서면 패턴이 아니라 그냥 외우는 게 된다).
+    if (data.meleeAttacks) {
+      const ready: number[] = [];
+      data.meleeAttacks.forEach((attack, index) => {
+        if ((monster.meleeCooldowns[index] ?? 0) > 0) return;
+        // 타격이 여러 번인 기술은 그중 가장 먼 사거리로 후보를 가린다.
+        const reach = Math.max(...attack.hits.map((hit) => hit.range));
+        if (targetDistance > reach) return;
+        ready.push(index);
+      });
+
+      if (ready.length > 0) {
+        const index = ready[Math.floor(this.rng() * ready.length)]!;
+        const dirX = targetDistance > 0 ? dxToTarget / targetDistance : monster.facingX;
+        const dirY = targetDistance > 0 ? dyToTarget / targetDistance : monster.facingY;
+        monster.facingX = dirX;
+        monster.facingY = dirY;
+        monster.pattern = { kind: 'meleeSwing', elapsed: 0, index, nextHit: 0, dirX, dirY };
+        return true;
+      }
+      // 쓸 수 있는 검술이 없으면(전부 쿨다운이거나 너무 멀다) 평소처럼 추격한다.
+      if (!data.chargeAttack && !data.slamAttack) return false;
+    }
+
     const canCharge = !!data.chargeAttack;
     const canSlam = !!data.slamAttack;
     // 둘 다 가능하면 매번 무작위로 고른다 — 항상 같은 순서로만 나오면 패턴이 아니라
     // 그냥 다음 공격을 외우는 게 돼버린다.
     const useCharge = canCharge && (!canSlam || this.rng() < 0.5);
 
-    const dx = target.x - monster.x;
-    const dy = target.y - monster.y;
-    const distance = Math.hypot(dx, dy);
-    const dirX = distance > 0 ? dx / distance : monster.facingX;
-    const dirY = distance > 0 ? dy / distance : monster.facingY;
+    const dirX = targetDistance > 0 ? dxToTarget / targetDistance : monster.facingX;
+    const dirY = targetDistance > 0 ? dyToTarget / targetDistance : monster.facingY;
     monster.facingX = dirX;
     monster.facingY = dirY;
 
@@ -2180,6 +2468,88 @@ export class World {
       };
     }
     return true;
+  }
+
+  /**
+   * 근접 검술 진행 — 무기를 휘두르는 동안 멈춰 서 있는다. **방향은 시작 시점에
+   * 고정한다**: 동작 내내 플레이어를 따라 돌면 "동작을 보고 옆으로 빠진다"는 이 기술의
+   * 유일한 대응 수단이 사라진다.
+   *
+   * 경과 시간을 재면서 각 타격의 시점을 넘길 때마다 판정을 넣는다. 한 틱이 여러 타격
+   * 시점을 한꺼번에 넘길 수도 있어서(느린 틱) `while`로 밀린 것까지 전부 처리한다 —
+   * 안 그러면 2연타 중 하나가 조용히 사라진다.
+   */
+  private tickMeleeSwing(monster: MonsterEntity, data: MonsterData, dtSeconds: number): boolean {
+    const pattern = monster.pattern as Extract<BossPatternState, { kind: 'meleeSwing' }>;
+    const attack = data.meleeAttacks?.[pattern.index];
+    if (!attack) {
+      monster.pattern = { kind: 'idle' };
+      return false;
+    }
+
+    monster.facingX = pattern.dirX;
+    monster.facingY = pattern.dirY;
+    pattern.elapsed += dtSeconds;
+
+    while (
+      pattern.nextHit < attack.hits.length &&
+      pattern.elapsed >= attack.hits[pattern.nextHit]!.atSeconds
+    ) {
+      this.resolveMeleeHit(monster, attack, attack.hits[pattern.nextHit]!, pattern.dirX, pattern.dirY);
+      pattern.nextHit += 1;
+    }
+
+    if (pattern.nextHit < attack.hits.length) return true;
+
+    monster.meleeCooldowns[pattern.index] = attack.cooldown;
+    monster.pattern = { kind: 'meleeRecover', timer: attack.recoverSeconds };
+    return true;
+  }
+
+  /** 검을 휘두른 뒤 경직. 그냥 시간만 흘려보낸다(이동·공격 없음). */
+  private tickMeleeRecover(monster: MonsterEntity, dtSeconds: number): boolean {
+    const pattern = monster.pattern as Extract<BossPatternState, { kind: 'meleeRecover' }>;
+    pattern.timer -= dtSeconds;
+    if (pattern.timer <= 0) monster.pattern = { kind: 'idle' };
+    return true;
+  }
+
+  /**
+   * 검술 판정 한 번. 플레이어와 티모시 모두 부채꼴 안에 있으면 맞는다 —
+   * 플레이어 무기와 **같은 함수**(withinMeleeArc)를 써서 "보이는 부채꼴 = 맞는 범위"
+   * 규칙이 양쪽에서 어긋나지 않게 한다.
+   */
+  private resolveMeleeHit(
+    monster: MonsterEntity,
+    attack: MeleeAttackData,
+    swing: MeleeHitData,
+    dirX: number,
+    dirY: number,
+  ): void {
+    const hit = {
+      // ownerId는 "누구의 명중으로 칠지"를 가리는 값이라 플레이어 무기에만 의미가
+      // 있다(withinMeleeArc는 쓰지 않는다). 몬스터 공격에는 주인이 없으니 몬스터
+      // 자신의 id를 넣어 형태만 맞춘다.
+      ownerId: monster.id,
+      originX: monster.x,
+      originY: monster.y,
+      range: swing.range,
+      aimAngle: Math.atan2(dirY, dirX),
+      // 360도면 halfArc가 π가 되어 withinMeleeArc가 방향을 아예 안 본다(전방향 광역).
+      halfArc: (swing.arc * Math.PI) / 360,
+      damage: swing.damage,
+    };
+
+    for (const player of this.players.values()) {
+      if (player.hp <= 0) continue;
+      if (!withinMeleeArc(hit, player.x, player.y, HIT_RADIUS)) continue;
+      this.damagePlayer(player, swing.damage);
+    }
+    if (this.companion.state !== 'downed' && withinMeleeArc(hit, this.companion.x, this.companion.y, HIT_RADIUS)) {
+      this.damageCompanion(swing.damage);
+    }
+
+    this.markAttack(monster, attack.anim);
   }
 
   /** 돌진 예고 — 그 자리에 멈춰 방향을 유지하다가, 시간이 다 되면 실제 돌진으로 전이한다. */
@@ -2290,7 +2660,6 @@ export class World {
       if (circlesOverlap(x, y, node.x, node.y, radius)) return true;
     }
     for (const colony of this.colonies.values()) {
-      if (colony.destroyed) continue; // 파괴된 콜로니는 더 이상 막지 않는다(docs/backend/43)
       if (circlesOverlap(x, y, colony.x, colony.y, PLAYER_COLONY_COLLISION_RADIUS)) return true;
     }
     // 코어는 원이 아니라 8각 발자국이다(coreShape.ts) — 스프라이트 윤곽 그대로 막는다.
@@ -2308,7 +2677,18 @@ export class World {
    * 공격해서 없앤다). 코어도 다루지 않는다 — 몬스터의 목표 자체라 막으면 안 된다
    * (docs/backend/38).
    */
-  private isBlockedForMonster(x: number, y: number, monsterR: number): boolean {
+  /**
+   * `crushes`가 true면 자원 노드/콜로니를 통과한다(거구 보스). 회피가 물리적으로
+   * 불가능한 덩치라 막아봐야 갈리기만 하고, 거대한 보스가 나무 한 그루에 멈춰 서는
+   * 그림도 이상하다(§MonsterData.crushesObstacles).
+   */
+  private isBlockedForMonster(
+    x: number,
+    y: number,
+    monsterR: number,
+    crushes = false,
+  ): boolean {
+    if (crushes) return false;
     for (const node of this.resourceNodes.values()) {
       if (node.hp <= 0) continue; // 고갈된 자리는 통과할 수 있다(docs/backend/39)
       if (circlesOverlap(x, y, node.x, node.y, monsterR + resourcesData[node.type].hitRadius)) {
@@ -2316,7 +2696,6 @@ export class World {
       }
     }
     for (const colony of this.colonies.values()) {
-      if (colony.destroyed) continue; // 파괴된 콜로니는 더 이상 막지 않는다(docs/backend/43)
       if (circlesOverlap(x, y, colony.x, colony.y, monsterR + COLONY_RADIUS)) return true;
     }
     return false;
@@ -2347,7 +2726,6 @@ export class World {
       }
     }
     for (const colony of this.colonies.values()) {
-      if (colony.destroyed) continue; // 파괴된 콜로니는 더 이상 막지 않는다(docs/backend/43)
       const gap = Math.hypot(colony.x - x, colony.y - y) - (monsterR + COLONY_RADIUS);
       if (gap < nearestGap) {
         nearestGap = gap;
@@ -2402,6 +2780,7 @@ export class World {
 
     building.hp = Math.max(0, building.hp - damage);
     monster.attackCooldown = attackInterval;
+    this.markAttack(monster);
 
     if (building.hp <= 0) {
       this.buildings.remove(building.id);
@@ -2428,12 +2807,29 @@ export class World {
   }
 
   /** 근처 몬스터가 겹치지 않도록 밀어내는 벡터(군집 분리, 기술명세 §5.3)를 계산한다. */
+  /**
+   * monsterGrid를 `this.monsters`의 현재 좌표로 통째로 다시 채운다. 몬스터 수만큼(O(M))
+   * 이라 싸다 — moveMonster()를 거치지 않고 좌표가 바뀔 수 있는 지점(틱 시작 시점,
+   * fireWeapon 진입 시점) 앞에서 호출해 그리드가 항상 최신 상태에서 출발하게 한다.
+   */
+  private rebuildMonsterGrid(): void {
+    this.monsterGrid.clear();
+    for (const monster of this.monsters.values()) {
+      this.monsterGrid.insert(monster.id, monster.x, monster.y);
+    }
+  }
+
   private computeSeparation(monster: MonsterEntity): { x: number; y: number } {
     let x = 0;
     let y = 0;
 
-    for (const other of this.monsters.values()) {
-      if (other.id === monster.id) continue;
+    // 전체 몬스터를 다 보는 대신, SEPARATION_RADIUS가 걸치는 격자 칸의 후보만 본다
+    // (docs/backend/45) — 판정 자체(거리 < SEPARATION_RADIUS)는 그대로라 결과는 같다.
+    const candidateIds = this.monsterGrid.queryRadius(monster.x, monster.y, SEPARATION_RADIUS);
+    for (const otherId of candidateIds) {
+      if (otherId === monster.id) continue;
+      const other = this.monsters.get(otherId);
+      if (!other) continue; // 그리드 갱신과 monsters 삭제 사이 타이밍 상 이론상만 존재하는 방어선
       const dx = monster.x - other.x;
       const dy = monster.y - other.y;
       const distance = Math.hypot(dx, dy);
@@ -2482,6 +2878,24 @@ export class World {
     speed: number,
     dtSeconds: number,
   ): void {
+    // 아래 본문 안의 여러 return 지점(자유 이동/축 슬라이딩/접선 미끄러짐/탈출 점프)
+    // 중 어느 쪽으로 끝나든 monster.x/y가 바뀔 수 있다 — try/finally로 감싸서
+    // "몬스터 위치가 바뀌면 그리드도 같이 바뀐다"를 한 곳에서 보장한다(개별 return마다
+    // 그리드 갱신 호출을 넣으면 새 return이 추가될 때 빠뜨리기 쉽다).
+    try {
+      this.moveMonsterInner(monster, dirX, dirY, speed, dtSeconds);
+    } finally {
+      this.monsterGrid.updateEntry(monster.id, monster.x, monster.y);
+    }
+  }
+
+  private moveMonsterInner(
+    monster: MonsterEntity,
+    dirX: number,
+    dirY: number,
+    speed: number,
+    dtSeconds: number,
+  ): void {
     const separation = this.computeSeparation(monster);
     const dirLength = Math.hypot(dirX, dirY);
     const normX = dirLength > 0 ? dirX / dirLength : 0;
@@ -2490,10 +2904,11 @@ export class World {
     const dx = (normX * speed + separation.x * speed * SEPARATION_WEIGHT) * dtSeconds;
     const dy = (normY * speed + separation.y * speed * SEPARATION_WEIGHT) * dtSeconds;
     const monsterR = monsterRadius(monster);
+    const crushes = monstersData[monster.type]?.crushesObstacles === true;
 
     const fullX = monster.x + dx;
     const fullY = monster.y + dy;
-    if (!this.isBlockedForMonster(fullX, fullY, monsterR)) {
+    if (!this.isBlockedForMonster(fullX, fullY, monsterR, crushes)) {
       monster.x = fullX;
       monster.y = fullY;
       monster.stuckSeconds = 0; // 완전히 자유로운 이동 — 확실히 안 막혔다
@@ -2514,9 +2929,9 @@ export class World {
     // 경우) 그 축만의 "이동"은 사실 제자리(현재 좌표 그대로)다 — 아무 데도 안
     // 움직였으면서 막힘 여부만 우연히 통과할 수 있어, 그 축이 실제로 변할 때만
     // (dx/dy != 0) 결과를 인정한다.
-    if (dx !== 0 && !this.isBlockedForMonster(fullX, monster.y, monsterR)) {
+    if (dx !== 0 && !this.isBlockedForMonster(fullX, monster.y, monsterR, crushes)) {
       monster.x = fullX;
-    } else if (dy !== 0 && !this.isBlockedForMonster(monster.x, fullY, monsterR)) {
+    } else if (dy !== 0 && !this.isBlockedForMonster(monster.x, fullY, monsterR, crushes)) {
       monster.y = fullY;
     } else {
       // X/Y 축 슬라이딩도 안 됐다 — 목표가 장애물 중심과 거의 같은 x 또는 y라
@@ -2542,7 +2957,7 @@ export class World {
           const stepLength = Math.hypot(dx, dy);
           const tangentFullX = monster.x + tangentX * stepLength;
           const tangentFullY = monster.y + tangentY * stepLength;
-          if (!this.isBlockedForMonster(tangentFullX, tangentFullY, monsterR)) {
+          if (!this.isBlockedForMonster(tangentFullX, tangentFullY, monsterR, crushes)) {
             monster.x = tangentFullX;
             monster.y = tangentFullY;
           }
@@ -2554,7 +2969,7 @@ export class World {
     }
 
     if (monster.stuckSeconds >= STUCK_ESCAPE_SECONDS) {
-      this.tryEscapeStuckMonster(monster, normX, normY, monsterR);
+      this.tryEscapeStuckMonster(monster, normX, normY, monsterR, crushes);
       monster.stuckSeconds = 0; // 성공하든 실패하든 다음 주기에 새 각도로 다시 시도
     }
   }
@@ -2586,6 +3001,7 @@ export class World {
     normX: number,
     normY: number,
     monsterR: number,
+    crushes: boolean,
   ): void {
     // 목표 방향을 못 구하면(정지 상태 등) 그냥 원점 반대쪽 아무 방향이나 기준으로
     // 삼는다 — 이런 경우가 실제로는 거의 없지만 각도 자체를 정의 못 하는 사고를 막는다.
@@ -2599,7 +3015,7 @@ export class World {
       const angle = desiredAngle + side * magnitude * ANGLE_STEP + (this.rng() - 0.5) * 0.1;
       const candidateX = monster.x + Math.cos(angle) * STUCK_ESCAPE_DISTANCE;
       const candidateY = monster.y + Math.sin(angle) * STUCK_ESCAPE_DISTANCE;
-      if (!this.isBlockedForMonster(candidateX, candidateY, monsterR)) {
+      if (!this.isBlockedForMonster(candidateX, candidateY, monsterR, crushes)) {
         monster.x = candidateX;
         monster.y = candidateY;
         return;
@@ -2627,7 +3043,19 @@ export class World {
 
     let closestId: string | undefined;
     let closestAlong = Infinity;
-    for (const [id, monster] of this.monsters) {
+    // 전체 몬스터 대신 격자 후보만 본다(docs/backend/45). 세그먼트(플레이어→총구) 위의
+    // 어느 점이든 플레이어로부터 gapLength 이내이므로, 플레이어 중심 반경
+    // gapLength + 몬스터 최대 히트박스로 질의하면 세그먼트 전체를 안전하게 덮는다.
+    // 이 함수는 "가장 가까운" 후보를 직접 비교해서 고르므로(첫 매치 반환이 아님)
+    // 후보 순서와 무관하게 결과가 같다.
+    const candidateIds = this.monsterGrid.queryRadius(
+      player.x,
+      player.y,
+      gapLength + MAX_MONSTER_HIT_RADIUS,
+    );
+    for (const id of candidateIds) {
+      const monster = this.monsters.get(id);
+      if (!monster) continue;
       const hitRadius = monsterRadius(monster);
       const alongRaw = (monster.x - player.x) * dirX + (monster.y - player.y) * dirY;
       const along = Math.max(0, Math.min(gapLength, alongRaw));
@@ -2646,7 +3074,18 @@ export class World {
   }
 
   private applyMeleeHit(hit: MeleeHit): void {
-    for (const [id, monster] of this.monsters) {
+    // 전체 몬스터 대신 격자 후보만 본다(docs/backend/45) — 부채꼴의 최대 반경(range)에
+    // 몬스터 최대 히트박스를 더해 후보를 안전하게 잡는다. 이 함수는 부채꼴 안의
+    // 몬스터 전부에게 피해를 주므로(첫 매치에서 멈추지 않음) 후보 순서는 결과에
+    // 영향을 주지 않는다.
+    const candidateIds = this.monsterGrid.queryRadius(
+      hit.originX,
+      hit.originY,
+      hit.range + MAX_MONSTER_HIT_RADIUS,
+    );
+    for (const id of candidateIds) {
+      const monster = this.monsters.get(id);
+      if (!monster) continue;
       if (withinMeleeArc(hit, monster.x, monster.y, monsterRadius(monster))) {
         this.damageMonster(id, monster.hp - hit.damage);
       }
@@ -2669,7 +3108,17 @@ export class World {
   }
 
   private projectileHitsMonster(projectileId: string, projectile: ProjectileEntity): boolean {
-    for (const [monsterId, monster] of this.monsters) {
+    // 전체 몬스터 대신 격자 후보만 본다(docs/backend/45) — 후보 반경에 몬스터 최대
+    // 히트박스를 더해야, 큰(보스급) 몬스터의 중심이 격자 반경 밖이어도 몸이 걸치는
+    // 경우를 놓치지 않는다.
+    const candidateIds = this.monsterGrid.queryRadius(
+      projectile.x,
+      projectile.y,
+      MAX_MONSTER_HIT_RADIUS,
+    );
+    for (const monsterId of candidateIds) {
+      const monster = this.monsters.get(monsterId);
+      if (!monster) continue;
       if (circlesOverlap(projectile.x, projectile.y, monster.x, monster.y, monsterRadius(monster))) {
         this.damageMonster(monsterId, monster.hp - projectile.damage);
         this.projectiles.delete(projectileId);
@@ -2695,7 +3144,6 @@ export class World {
       }
     }
     for (const colony of this.colonies.values()) {
-      if (colony.destroyed) continue; // 파괴된 콜로니는 투사체도 그냥 통과한다(docs/backend/43)
       if (circlesOverlap(projectile.x, projectile.y, colony.x, colony.y, COLONY_RADIUS)) {
         this.projectiles.delete(projectileId);
         return;
@@ -2715,7 +3163,13 @@ export class World {
     if (remainingHp <= 0) {
       const monster = this.monsters.get(id);
       this.monsters.delete(id);
-      if (monster) this.grantMonsterDrop(monster);
+      this.monsterGrid.remove(id);
+      if (monster) {
+        // 수호대였다면 소속 콜로니 장부에서 지운다 — 저장분은 복원되지 않는다
+        // (죽은 몬스터는 영구히 줄어드는 게 정화로 가는 길이다).
+        if (monster.homeColonyId) this.colonies.get(monster.homeColonyId)?.guardIds.delete(id);
+        this.grantMonsterDrop(monster);
+      }
       return;
     }
     const monster = this.monsters.get(id);
@@ -2737,9 +3191,11 @@ export class World {
   private grantMonsterDrop(monster: MonsterEntity): void {
     const data = monstersData[monster.type];
 
+    // 에너지와 바닥 드랍은 배타가 아니다 — 보스/엘리트는 팀 에너지도 주고 부품도
+    // 떨군다(예전엔 에너지가 있으면 드랍을 건너뛰었는데, 보스 레이드를 잡았는데
+    // 바닥에 아무것도 안 떨어지는 건 보상 체감이 밋밋했다).
     if (data.energyDrop) {
       this.core.sharedEnergy += this.rollDropRange(data.energyDrop);
-      return;
     }
 
     // 드랍 테이블은 항목마다 독립 판정이다 — 한 마리가 부품과 희귀부품을 함께 줄 수 있다.
