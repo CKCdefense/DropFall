@@ -45,6 +45,8 @@ export interface MonsterView {
   maxHp: number;
   /** 지금 공격 모션 중인가. 켜지는 순간에 공격 애니메이션을 한 번 재생한다. */
   attacking: boolean;
+  /** 재생할 공격 동작 번호(1~3). 검술이 여러 개인 보스만 1이 아닌 값이 온다. */
+  attackAnim: number;
   /** 왼쪽을 보고 있는가(스프라이트 좌우 반전). 제자리 공격 중에도 방향이 정확해야 해서 서버가 정한다. */
   facingLeft: boolean;
   /** 보스 전용 공격 예고(텔레그래프). 진행 중이 아니면 빈 문자열. */

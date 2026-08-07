@@ -65,11 +65,25 @@ const DEFAULT_SPRITE_HEIGHT = 24;
 export const MONSTER_ORIGIN_Y = 0.6;
 
 /**
- * 렌더 배율. 팩 그림이 이미 17~46px라(플레이어 32px와 같은 대역) 확대·축소 없이 쓴다.
- * 히트박스(hitRadius)보다 그림이 1.5~2배 큰데, 이건 플레이어도 같은 비율이라
- * (스프라이트 32px vs 판정 지름 20px) 이 게임에서 일관된 감각이다.
+ * 렌더 배율.
+ *
+ * 잡몹은 팩 그림이 이미 17~30px라(플레이어 32px와 같은 대역) 확대 없이 쓴다.
+ * 히트박스보다 그림이 1.5~2배 큰데, 플레이어도 같은 비율이라(스프라이트 32px vs
+ * 판정 지름 20px) 일관된 감각이다.
+ *
+ * **보스는 다르다.** 같은 100px 캔버스에 그려져 있어도 실제 그림은 25~33px라,
+ * 1:1로 그리면 잡몹과 덩치가 같아서 "보스가 왔다"는 느낌이 전혀 안 난다. 배율을
+ * 올리면 monsters.json의 hitRadius와 검술 사거리도 같은 배수로 올려야 한다 —
+ * 보이는 크기와 맞는 범위가 어긋나면 안 된다.
  */
-export const MONSTER_SCALE = 1;
+const SCALE: Record<string, number> = {
+  boss_demon: 3,
+};
+const DEFAULT_SCALE = 1;
+
+export function monsterScale(type: string): number {
+  return SCALE[type] ?? DEFAULT_SCALE;
+}
 
 /**
  * 팩의 태그 이름(대문자 시작)을 우리가 쓰는 상태 이름에 붙인 것.
@@ -81,22 +95,38 @@ const TAG = {
   idle: 'Idle',
   walk: 'Walk',
   attack: 'Attack01',
+  attack2: 'Attack02',
+  attack3: 'Attack03',
   hurt: 'Hurt',
   death: 'Death',
 } as const;
 export type MonsterAnim = keyof typeof TAG;
+
+/** 서버가 보내는 동작 번호(1~3) → 애니메이션 이름. 범위를 벗어나면 첫 번째 공격으로. */
+const ATTACK_BY_INDEX: readonly MonsterAnim[] = ['attack', 'attack2', 'attack3'];
+export function monsterAttackAnim(index: number): MonsterAnim {
+  return ATTACK_BY_INDEX[index - 1] ?? 'attack';
+}
 
 /** 피격은 빠르게 지나가야 한다 — 4프레임을 18fps로 돌리면 0.22초로, 연사에도 안 밀린다. */
 const FRAME_RATE: Record<MonsterAnim, number> = {
   idle: 6,
   walk: 10,
   attack: 14,
+  attack2: 14,
+  attack3: 14,
   hurt: 18,
   death: 12,
 };
 
 /** 한 번만 재생하고 멈추는 상태(반복하면 안 되는 것들). */
-const ONE_SHOT: ReadonlySet<MonsterAnim> = new Set<MonsterAnim>(['attack', 'hurt', 'death']);
+const ONE_SHOT: ReadonlySet<MonsterAnim> = new Set<MonsterAnim>([
+  'attack',
+  'attack2',
+  'attack3',
+  'hurt',
+  'death',
+]);
 
 /** 아틀라스 로드를 예약한다. 파일이 없으면(에셋 미보유) 조용히 넘어간다. */
 export function queueMonsterAtlas(scene: Phaser.Scene): void {
@@ -126,8 +156,9 @@ export function monsterIdleFrame(type: string): string {
   return `${SPRITE_FILE[type]}_${TAG.idle}_0`;
 }
 
+/** 화면에 그려지는 높이(px) = 실측 그림 높이 × 배율. HP 바를 머리 위에 띄우는 데 쓴다. */
 export function monsterSpriteHeight(type: string): number {
-  return SPRITE_HEIGHT[type] ?? DEFAULT_SPRITE_HEIGHT;
+  return (SPRITE_HEIGHT[type] ?? DEFAULT_SPRITE_HEIGHT) * monsterScale(type);
 }
 
 /**

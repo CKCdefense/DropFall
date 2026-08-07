@@ -18,12 +18,28 @@ describe('data', () => {
     // hellhound는 넓은 시야의 사냥꾼, blood는 사실상 코어 직행(몸에 닿아야 반응)이다.
     expect(monstersData.hellhound.aggroRadius).toBe(240);
     expect(monstersData.blood.aggroRadius).toBeLessThan(50);
-    // 보스 4종은 전부 특수 패턴 두 개를 가진다 — 데이터 누락이 있으면 여기서 잡힌다.
+    // 보스 4종은 전부 특수 패턴과 에너지 보상을 가진다 — 데이터 누락이 있으면 여기서
+    // 잡힌다. 패턴 종류는 보스마다 다르다(검술 / 돌진·광역).
     for (const type of ['boss_demon', 'boss_knight', 'boss_golem', 'boss_dark_knight'] as const) {
-      expect(monstersData[type].chargeAttack, type).toBeDefined();
-      expect(monstersData[type].slamAttack, type).toBeDefined();
-      expect(monstersData[type].energyDrop, type).toBeDefined();
+      const data = monstersData[type];
+      const hasPattern = !!(data.meleeAttacks ?? data.chargeAttack ?? data.slamAttack);
+      expect(hasPattern, type).toBe(true);
+      expect(data.energyDrop, type).toBeDefined();
     }
+
+    // 2일차 보스는 스프라이트에 그려진 검술 3종을 쓴다. 사거리·각도는 프레임 실측에서
+    // 나온 값이라, 누가 임의로 줄이면 "검이 닿아 보이는데 안 맞는다"가 된다.
+    const demonMelee = monstersData.boss_demon.meleeAttacks!;
+    expect(demonMelee).toHaveLength(3);
+    expect(demonMelee.map((a) => a.anim)).toEqual([1, 2, 3]);
+    // 양손 베기(3번)가 가장 멀고 가장 넓다.
+    expect(demonMelee[2]!.range).toBeGreaterThan(demonMelee[1]!.range);
+    expect(demonMelee[2]!.arc).toBeGreaterThan(demonMelee[0]!.arc);
+    // 찌르기(1번)는 멀지만 좁다 — 각도로 성격이 갈린다.
+    expect(demonMelee[0]!.range).toBeGreaterThan(demonMelee[1]!.range);
+    expect(demonMelee[0]!.arc).toBeLessThan(demonMelee[1]!.arc);
+    // 그림이 3배로 커진 만큼 피격 반경도 같이 커져야 한다(보이는 크기 = 맞는 범위).
+    expect(monstersData.boss_demon.hitRadius).toBeGreaterThan(30);
   });
 
   it('weapons.json이 스키마를 통과하고 club/pistol을 포함한다', () => {

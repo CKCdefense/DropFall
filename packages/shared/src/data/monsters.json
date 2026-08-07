@@ -91,23 +91,47 @@
   },
 
   "boss_demon": {
-    "$comment": "2일차 보스 — 첫 보스라 패턴 교본 역할. 돌진·내려찍기 둘 다 여유 있는 예고. (Demon_C)",
+    "$comment": "2일차 보스 — 쌍검 악마(Demon_E). 돌진·내려찍기 대신 스프라이트에 실제로 그려진 검술 3종을 쓴다. 사거리·각도는 프레임을 실측해서 정했다(meleeAttacks 주석 참고).",
     "hp": 400,
-    "hitRadius": 14,
+    "hitRadius": 40,
     "damage": 20,
     "speed": 45,
-    "attackRange": 22,
+    "attackRange": 52,
     "attackInterval": 2,
-    "aggroRadius": 200,
-    "chargeAttack": {
-      "telegraphSeconds": 1,
-      "speed": 260,
-      "duration": 0.5,
-      "width": 40,
-      "damage": 25,
-      "cooldown": 8
-    },
-    "slamAttack": { "telegraphSeconds": 1.3, "radius": 70, "damage": 30, "cooldown": 10 },
+    "aggroRadius": 320,
+    "crushesObstacles": true,
+    "meleeAttacks": [
+      {
+        "$comment": "Attack01 찌르기 — 검 끝이 프레임 기준 38px까지 뻗는다(×3배율=114). 길지만 매우 좁다.",
+        "anim": 1,
+        "windupSeconds": 0.45,
+        "recoverSeconds": 0.25,
+        "range": 114,
+        "arc": 40,
+        "damage": 26,
+        "cooldown": 3.5
+      },
+      {
+        "$comment": "Attack02 내려치기 — 앞으로는 28px(×3=84)로 짧고 아래로 내리찍는다. 대신 묵직하다.",
+        "anim": 2,
+        "windupSeconds": 0.32,
+        "recoverSeconds": 0.4,
+        "range": 84,
+        "arc": 80,
+        "damage": 32,
+        "cooldown": 4.5
+      },
+      {
+        "$comment": "Attack03 양손 베기 — 39px(×3=117)로 가장 멀리, 가장 넓게 쓸어낸다. 예고가 길어 피할 틈이 있다.",
+        "anim": 3,
+        "windupSeconds": 0.6,
+        "recoverSeconds": 0.45,
+        "range": 117,
+        "arc": 140,
+        "damage": 40,
+        "cooldown": 7
+      }
+    ],
     "energyDrop": { "min": 3, "max": 5 },
     "itemDrops": [
       { "itemId": "drop_normal", "chance": 1, "min": 4, "max": 6 },

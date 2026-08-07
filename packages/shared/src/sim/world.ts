@@ -15,6 +15,7 @@ import {
   weaponsData,
   type BuildingType,
   type DropRange,
+  type MeleeAttackData,
   type MonsterData,
   type CraftRecipe,
   type ItemKind,
@@ -273,7 +274,22 @@ export type BossPatternState =
   | { kind: 'idle' }
   | { kind: 'chargeTelegraph'; timer: number; total: number; dirX: number; dirY: number }
   | { kind: 'charging'; timer: number; dirX: number; dirY: number; hitPlayerIds: Set<string> }
-  | { kind: 'slamTelegraph'; timer: number; total: number; x: number; y: number };
+  | { kind: 'slamTelegraph'; timer: number; total: number; x: number; y: number }
+  /**
+   * 근접 검술 예고. 바닥 표시 없이 **동작 자체가 예고**라(칼을 치켜드는 프레임),
+   * 클라이언트가 어느 동작을 재생할지 알 수 있게 `index`(meleeAttacks 배열 위치)를
+   * 들고 있는다. timer가 0이 되는 순간 부채꼴 판정이 한 번 들어간다.
+   */
+  | {
+      kind: 'meleeWindup';
+      timer: number;
+      total: number;
+      index: number;
+      dirX: number;
+      dirY: number;
+    }
+  /** 판정 후 경직. 이 동안은 이동도 다음 공격도 없다 — 플레이어가 반격할 틈이다. */
+  | { kind: 'meleeRecover'; timer: number };
 
 export interface MonsterEntity {
   id: string;
@@ -318,6 +334,16 @@ export interface MonsterEntity {
   homeColonyId?: string;
   /** 수호대 전용: 콜로니 곁에 도착한 뒤 저장 상태로 복귀하기까지 누적된 대기(초). */
   guardReturnTimer: number;
+  /**
+   * 근접 검술별 남은 쿨다운(초). meleeAttacks 배열과 같은 순서다 — 기술마다 따로
+   * 돌아야 "멀면 찌르기, 붙으면 내려치기"처럼 거리에 따라 다른 기술이 나온다.
+   */
+  meleeCooldowns: number[];
+  /**
+   * 지금 재생해야 할 공격 동작 번호(0=없음, 1~3=Attack01~03). 잡몹은 항상 1이고,
+   * 검술이 여러 개인 보스만 값이 갈린다.
+   */
+  attackAnim: number;
   /**
    * 공격 모션이 남은 시간(초). 실제로 피해를 넣은 순간 ATTACK_ANIM_SECONDS로 채워지고
    * 매 틱 줄어든다. 전투 판정에는 전혀 쓰지 않는다 — 클라이언트가 공격 애니메이션을
@@ -1667,11 +1693,14 @@ export class World {
       facingX,
       facingY,
       pattern: { kind: 'idle' },
-      specialAttackCooldown: data.chargeAttack || data.slamAttack ? BOSS_FIRST_PATTERN_DELAY : 0,
+      specialAttackCooldown:
+        data.chargeAttack || data.slamAttack || data.meleeAttacks ? BOSS_FIRST_PATTERN_DELAY : 0,
       stuckSeconds: 0,
       companionAttackCooldown: 0,
       guardReturnTimer: 0,
       attackAnimTimer: 0,
+      attackAnim: 0,
+      meleeCooldowns: (data.meleeAttacks ?? []).map(() => 0),
     });
     return id;
   }
@@ -1900,9 +1929,13 @@ export class World {
     for (const colony of this.colonies.values()) colony.guardIds.clear();
   }
 
-  /** 공격 모션을 켠다. 피해가 실제로 들어간 자리마다 부른다(빗나간 시도에는 안 켠다). */
-  private markAttack(monster: MonsterEntity): void {
+  /**
+   * 공격 모션을 켠다. 피해가 실제로 들어간 자리마다 부른다(빗나간 시도에는 안 켠다).
+   * `anim`은 재생할 동작 번호 — 검술이 여러 개인 보스만 1이 아닌 값을 넘긴다.
+   */
+  private markAttack(monster: MonsterEntity, anim = 1): void {
     monster.attackAnimTimer = ATTACK_ANIM_SECONDS;
+    monster.attackAnim = anim;
   }
 
   /** 정화 처리: 단계 보상 지급 후 1단계 빈 껍데기로. 다음 낮에 재보급된다(onDayBegan). */
@@ -2187,6 +2220,10 @@ export class World {
       const data = monstersData[monster.type];
       monster.attackCooldown = Math.max(0, monster.attackCooldown - dtSeconds);
       monster.attackAnimTimer = Math.max(0, monster.attackAnimTimer - dtSeconds);
+      if (monster.attackAnimTimer === 0) monster.attackAnim = 0;
+      for (let i = 0; i < monster.meleeCooldowns.length; i += 1) {
+        monster.meleeCooldowns[i] = Math.max(0, monster.meleeCooldowns[i]! - dtSeconds);
+      }
 
       // 보스 특수 패턴이 이번 틱의 이동/공격을 전부 처리했으면(예고 중이라 멈춰 있거나
       // 돌진 중이거나) 아래 일반 추격/이동 로직은 건너뛴다. chargeAttack/slamAttack이
@@ -2293,9 +2330,13 @@ export class World {
    * 판정 범위가 어긋나지 않는다.
    */
   private tickBossPattern(monster: MonsterEntity, data: MonsterData, dtSeconds: number): boolean {
-    if (!data.chargeAttack && !data.slamAttack) return false;
+    if (!data.chargeAttack && !data.slamAttack && !data.meleeAttacks) return false;
 
     switch (monster.pattern.kind) {
+      case 'meleeWindup':
+        return this.tickMeleeWindup(monster, data, dtSeconds);
+      case 'meleeRecover':
+        return this.tickMeleeRecover(monster, dtSeconds);
       case 'chargeTelegraph':
         return this.tickChargeTelegraph(monster, data, dtSeconds);
       case 'charging':
@@ -2319,17 +2360,50 @@ export class World {
     const target = data.aggroRadius ? this.resolveAggroTarget(monster, data.aggroRadius) : undefined;
     if (!target) return false;
 
+    const dxToTarget = target.x - monster.x;
+    const dyToTarget = target.y - monster.y;
+    const targetDistance = Math.hypot(dxToTarget, dyToTarget);
+
+    // 근접 검술을 가진 보스는 그쪽을 먼저 본다 — 사거리가 닿고 쿨다운이 끝난 기술
+    // 중에서 무작위로 하나. 거리로 후보가 갈리므로 붙으면 짧은 기술, 떨어지면 긴
+    // 기술이 나온다(항상 같은 순서면 패턴이 아니라 그냥 외우는 게 된다).
+    if (data.meleeAttacks) {
+      const ready: number[] = [];
+      data.meleeAttacks.forEach((attack, index) => {
+        if ((monster.meleeCooldowns[index] ?? 0) > 0) return;
+        if (targetDistance > attack.range) return;
+        ready.push(index);
+      });
+
+      if (ready.length > 0) {
+        const index = ready[Math.floor(this.rng() * ready.length)]!;
+        const attack = data.meleeAttacks[index]!;
+        const dirX = targetDistance > 0 ? dxToTarget / targetDistance : monster.facingX;
+        const dirY = targetDistance > 0 ? dyToTarget / targetDistance : monster.facingY;
+        monster.facingX = dirX;
+        monster.facingY = dirY;
+        monster.pattern = {
+          kind: 'meleeWindup',
+          timer: attack.windupSeconds,
+          total: attack.windupSeconds,
+          index,
+          dirX,
+          dirY,
+        };
+        return true;
+      }
+      // 쓸 수 있는 검술이 없으면(전부 쿨다운이거나 너무 멀다) 평소처럼 추격한다.
+      if (!data.chargeAttack && !data.slamAttack) return false;
+    }
+
     const canCharge = !!data.chargeAttack;
     const canSlam = !!data.slamAttack;
     // 둘 다 가능하면 매번 무작위로 고른다 — 항상 같은 순서로만 나오면 패턴이 아니라
     // 그냥 다음 공격을 외우는 게 돼버린다.
     const useCharge = canCharge && (!canSlam || this.rng() < 0.5);
 
-    const dx = target.x - monster.x;
-    const dy = target.y - monster.y;
-    const distance = Math.hypot(dx, dy);
-    const dirX = distance > 0 ? dx / distance : monster.facingX;
-    const dirY = distance > 0 ? dy / distance : monster.facingY;
+    const dirX = targetDistance > 0 ? dxToTarget / targetDistance : monster.facingX;
+    const dirY = targetDistance > 0 ? dyToTarget / targetDistance : monster.facingY;
     monster.facingX = dirX;
     monster.facingY = dirY;
 
@@ -2355,6 +2429,76 @@ export class World {
       };
     }
     return true;
+  }
+
+  /**
+   * 근접 검술 예고 — 칼을 치켜드는 동안 멈춰 서 있는다. **방향은 예고 시작 시점에
+   * 고정한다**: 예고 내내 플레이어를 따라 돌면 미리 보고 피하는 것이 불가능해져서,
+   * "동작을 보고 옆으로 빠진다"는 이 기술의 유일한 대응 수단이 사라진다.
+   *
+   * 타이머가 끝나면 그 방향으로 부채꼴 판정을 **한 번** 넣고 경직으로 넘어간다.
+   */
+  private tickMeleeWindup(monster: MonsterEntity, data: MonsterData, dtSeconds: number): boolean {
+    const pattern = monster.pattern as Extract<BossPatternState, { kind: 'meleeWindup' }>;
+    const attack = data.meleeAttacks?.[pattern.index];
+    if (!attack) {
+      monster.pattern = { kind: 'idle' };
+      return false;
+    }
+
+    monster.facingX = pattern.dirX;
+    monster.facingY = pattern.dirY;
+    pattern.timer -= dtSeconds;
+    if (pattern.timer > 0) return true;
+
+    this.resolveMeleeSwing(monster, attack, pattern.dirX, pattern.dirY);
+    monster.meleeCooldowns[pattern.index] = attack.cooldown;
+    monster.pattern = { kind: 'meleeRecover', timer: attack.recoverSeconds };
+    return true;
+  }
+
+  /** 검을 휘두른 뒤 경직. 그냥 시간만 흘려보낸다(이동·공격 없음). */
+  private tickMeleeRecover(monster: MonsterEntity, dtSeconds: number): boolean {
+    const pattern = monster.pattern as Extract<BossPatternState, { kind: 'meleeRecover' }>;
+    pattern.timer -= dtSeconds;
+    if (pattern.timer <= 0) monster.pattern = { kind: 'idle' };
+    return true;
+  }
+
+  /**
+   * 검술 판정 한 번. 플레이어와 티모시 모두 부채꼴 안에 있으면 맞는다 —
+   * 플레이어 무기와 **같은 함수**(withinMeleeArc)를 써서 "보이는 부채꼴 = 맞는 범위"
+   * 규칙이 양쪽에서 어긋나지 않게 한다.
+   */
+  private resolveMeleeSwing(
+    monster: MonsterEntity,
+    attack: MeleeAttackData,
+    dirX: number,
+    dirY: number,
+  ): void {
+    const hit = {
+      // ownerId는 "누구의 명중으로 칠지"를 가리는 값이라 플레이어 무기에만 의미가
+      // 있다(withinMeleeArc는 쓰지 않는다). 몬스터 공격에는 주인이 없으니 몬스터
+      // 자신의 id를 넣어 형태만 맞춘다.
+      ownerId: monster.id,
+      originX: monster.x,
+      originY: monster.y,
+      range: attack.range,
+      aimAngle: Math.atan2(dirY, dirX),
+      halfArc: (attack.arc * Math.PI) / 360,
+      damage: attack.damage,
+    };
+
+    for (const player of this.players.values()) {
+      if (player.hp <= 0) continue;
+      if (!withinMeleeArc(hit, player.x, player.y, HIT_RADIUS)) continue;
+      this.damagePlayer(player, attack.damage);
+    }
+    if (this.companion.state !== 'downed' && withinMeleeArc(hit, this.companion.x, this.companion.y, HIT_RADIUS)) {
+      this.damageCompanion(attack.damage);
+    }
+
+    this.markAttack(monster, attack.anim);
   }
 
   /** 돌진 예고 — 그 자리에 멈춰 방향을 유지하다가, 시간이 다 되면 실제 돌진으로 전이한다. */
@@ -2482,7 +2626,18 @@ export class World {
    * 공격해서 없앤다). 코어도 다루지 않는다 — 몬스터의 목표 자체라 막으면 안 된다
    * (docs/backend/38).
    */
-  private isBlockedForMonster(x: number, y: number, monsterR: number): boolean {
+  /**
+   * `crushes`가 true면 자원 노드/콜로니를 통과한다(거구 보스). 회피가 물리적으로
+   * 불가능한 덩치라 막아봐야 갈리기만 하고, 거대한 보스가 나무 한 그루에 멈춰 서는
+   * 그림도 이상하다(§MonsterData.crushesObstacles).
+   */
+  private isBlockedForMonster(
+    x: number,
+    y: number,
+    monsterR: number,
+    crushes = false,
+  ): boolean {
+    if (crushes) return false;
     for (const node of this.resourceNodes.values()) {
       if (node.hp <= 0) continue; // 고갈된 자리는 통과할 수 있다(docs/backend/39)
       if (circlesOverlap(x, y, node.x, node.y, monsterR + resourcesData[node.type].hitRadius)) {
@@ -2663,10 +2818,11 @@ export class World {
     const dx = (normX * speed + separation.x * speed * SEPARATION_WEIGHT) * dtSeconds;
     const dy = (normY * speed + separation.y * speed * SEPARATION_WEIGHT) * dtSeconds;
     const monsterR = monsterRadius(monster);
+    const crushes = monstersData[monster.type]?.crushesObstacles === true;
 
     const fullX = monster.x + dx;
     const fullY = monster.y + dy;
-    if (!this.isBlockedForMonster(fullX, fullY, monsterR)) {
+    if (!this.isBlockedForMonster(fullX, fullY, monsterR, crushes)) {
       monster.x = fullX;
       monster.y = fullY;
       monster.stuckSeconds = 0; // 완전히 자유로운 이동 — 확실히 안 막혔다
@@ -2687,9 +2843,9 @@ export class World {
     // 경우) 그 축만의 "이동"은 사실 제자리(현재 좌표 그대로)다 — 아무 데도 안
     // 움직였으면서 막힘 여부만 우연히 통과할 수 있어, 그 축이 실제로 변할 때만
     // (dx/dy != 0) 결과를 인정한다.
-    if (dx !== 0 && !this.isBlockedForMonster(fullX, monster.y, monsterR)) {
+    if (dx !== 0 && !this.isBlockedForMonster(fullX, monster.y, monsterR, crushes)) {
       monster.x = fullX;
-    } else if (dy !== 0 && !this.isBlockedForMonster(monster.x, fullY, monsterR)) {
+    } else if (dy !== 0 && !this.isBlockedForMonster(monster.x, fullY, monsterR, crushes)) {
       monster.y = fullY;
     } else {
       // X/Y 축 슬라이딩도 안 됐다 — 목표가 장애물 중심과 거의 같은 x 또는 y라
@@ -2715,7 +2871,7 @@ export class World {
           const stepLength = Math.hypot(dx, dy);
           const tangentFullX = monster.x + tangentX * stepLength;
           const tangentFullY = monster.y + tangentY * stepLength;
-          if (!this.isBlockedForMonster(tangentFullX, tangentFullY, monsterR)) {
+          if (!this.isBlockedForMonster(tangentFullX, tangentFullY, monsterR, crushes)) {
             monster.x = tangentFullX;
             monster.y = tangentFullY;
           }
@@ -2727,7 +2883,7 @@ export class World {
     }
 
     if (monster.stuckSeconds >= STUCK_ESCAPE_SECONDS) {
-      this.tryEscapeStuckMonster(monster, normX, normY, monsterR);
+      this.tryEscapeStuckMonster(monster, normX, normY, monsterR, crushes);
       monster.stuckSeconds = 0; // 성공하든 실패하든 다음 주기에 새 각도로 다시 시도
     }
   }
@@ -2759,6 +2915,7 @@ export class World {
     normX: number,
     normY: number,
     monsterR: number,
+    crushes: boolean,
   ): void {
     // 목표 방향을 못 구하면(정지 상태 등) 그냥 원점 반대쪽 아무 방향이나 기준으로
     // 삼는다 — 이런 경우가 실제로는 거의 없지만 각도 자체를 정의 못 하는 사고를 막는다.
@@ -2772,7 +2929,7 @@ export class World {
       const angle = desiredAngle + side * magnitude * ANGLE_STEP + (this.rng() - 0.5) * 0.1;
       const candidateX = monster.x + Math.cos(angle) * STUCK_ESCAPE_DISTANCE;
       const candidateY = monster.y + Math.sin(angle) * STUCK_ESCAPE_DISTANCE;
-      if (!this.isBlockedForMonster(candidateX, candidateY, monsterR)) {
+      if (!this.isBlockedForMonster(candidateX, candidateY, monsterR, crushes)) {
         monster.x = candidateX;
         monster.y = candidateY;
         return;

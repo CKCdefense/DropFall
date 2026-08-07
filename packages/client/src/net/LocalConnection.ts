@@ -225,6 +225,7 @@ export class LocalConnection implements GameConnection {
         hp: monster.hp,
         maxHp: monster.maxHp,
         attacking: monster.attackAnimTimer > 0,
+        attackAnim: monster.attackAnim,
         facingLeft: monster.facingX < 0,
         telegraphKind: telegraph?.kind ?? '',
         telegraphX: telegraph?.x ?? 0,

@@ -61,7 +61,8 @@ import {
 import {
   MONSTER_ATLAS,
   MONSTER_ORIGIN_Y,
-  MONSTER_SCALE,
+  monsterAttackAnim,
+  monsterScale,
   hasMonsterSprite,
   monsterAnimKey,
   monsterIdleFrame,
@@ -781,7 +782,9 @@ export class EntityRenderer {
     }
     if (body.anims.currentAnim?.key === hurtKey && body.anims.isPlaying) return;
 
-    const attackKey = monsterAnimKey(monster.type, 'attack');
+    // 어느 동작을 재생할지는 서버가 정한다 — 보스는 검술 세 종류의 사거리·각도가
+    // 전부 달라서, 그림과 판정이 같은 기술을 가리켜야 한다.
+    const attackKey = monsterAnimKey(monster.type, monsterAttackAnim(monster.attackAnim));
     const wasAttacking = (container.getData('attacking') as boolean | undefined) ?? false;
     container.setData('attacking', monster.attacking);
 
@@ -791,7 +794,7 @@ export class EntityRenderer {
     }
     // 공격 모션은 끝까지 재생하고 나서 이동/대기로 돌아간다(반복 없는 애니메이션이라
     // 끝나면 isPlaying이 false가 된다).
-    if (body.anims.currentAnim?.key === attackKey && body.anims.isPlaying) return;
+    if (body.anims.currentAnim?.key.includes('_attack') && body.anims.isPlaying) return;
 
     // 픽셀 단위로 반올림된 좌표라, 아주 느린 몬스터는 프레임에 따라 delta가 0이 된다 —
     // 그때마다 걷기가 끊기지 않도록 정지 판정에 약간의 유예를 둔다.
@@ -834,7 +837,7 @@ export class EntityRenderer {
     const corpse = this.scene.add
       .sprite(container.x, container.y, MONSTER_ATLAS, monsterIdleFrame(type))
       .setOrigin(0.5, MONSTER_ORIGIN_Y)
-      .setScale(MONSTER_SCALE)
+      .setScale(monsterScale(type))
       .setFlipX(body.flipX)
       // 산 몬스터보다 아래에 깔아서 시체가 전투를 가리지 않게 한다.
       .setDepth(container.y - 1);
@@ -868,7 +871,7 @@ export class EntityRenderer {
       ? this.scene.add
           .sprite(0, 0, MONSTER_ATLAS, monsterIdleFrame(monster.type))
           .setOrigin(0.5, MONSTER_ORIGIN_Y)
-          .setScale(MONSTER_SCALE)
+          .setScale(monsterScale(monster.type))
       : (() => {
           const rect = this.scene.add.rectangle(0, ACTION_PLANE_Y, size, size, color);
           rect.setStrokeStyle(1, 0x1a1c23);

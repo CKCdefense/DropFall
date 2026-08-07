@@ -44,6 +44,33 @@ const SlamAttackSchema = z.object({
 });
 
 /**
+ * 보스 근접 검술 한 종류.
+ *
+ * 돌진(charge)/광역(slam)과 달리 **스프라이트에 실제로 그려진 동작**을 그대로 판정으로
+ * 옮긴 것이다. 그래서 사거리·각도는 임의값이 아니라 프레임을 실측해서 넣는다 —
+ * 검이 닿아 보이는 곳이 실제로 맞는 곳이어야 한다.
+ *
+ * 별도의 바닥 예고 표시가 없는 대신 **동작 자체가 예고**다. windupSeconds 동안 보스가
+ * 멈춰서 칼을 치켜드는 그림이 재생되고, 그 시간이 끝나는 순간 판정이 한 번 들어간다.
+ * 그래서 이 값은 애니메이션에서 검이 뻗는 프레임까지의 시간과 맞춰야 한다.
+ */
+const MeleeAttackSchema = z.object({
+  /** 스프라이트 태그 번호(1=Attack01, 2=Attack02, 3=Attack03). 클라이언트가 어느 동작을 재생할지 고른다. */
+  anim: z.number().int().positive(),
+  /** 예고(칼을 치켜드는) 시간(초). 이 시간이 끝나는 순간 판정이 들어간다. */
+  windupSeconds: z.number().positive(),
+  /** 판정 후 경직(초). 이 동안은 움직이지도 다음 공격을 하지도 않는다 — 반격할 틈이다. */
+  recoverSeconds: z.number().nonnegative(),
+  /** 판정 사거리(px, 보스 중심 기준). */
+  range: z.number().positive(),
+  /** 부채꼴 각도(도). 140이면 좌우 ±70도. */
+  arc: z.number().positive().max(360),
+  damage: z.number().nonnegative(),
+  /** 이 기술을 다시 쓸 수 있게 되기까지의 시간(초). 기술마다 따로 돈다. */
+  cooldown: z.number().positive(),
+});
+
+/**
  * 처치 보상 랜덤 범위(정수, 양끝 포함). `min === max`면 고정값이 된다.
  * `World.grantMonsterDrop()`이 처치 순간 이 범위 안에서 하나를 뽑는다.
  */
@@ -88,6 +115,21 @@ const MonsterDataSchema = z.object({
   /** 있으면 이 타입은 광역 패턴을 쓸 수 있다(보스 전용, 없으면 미사용). */
   slamAttack: SlamAttackSchema.optional(),
   /**
+   * 있으면 이 타입은 근접 검술을 쓴다(보스 전용). 여러 개를 두고 **대상까지의 거리로**
+   * 쓸 수 있는 것만 골라 무작위로 하나 쓴다 — 거리마다 다른 기술이 나와야 패턴이
+   * "다음 공격 외우기"가 되지 않는다.
+   */
+  meleeAttacks: z.array(MeleeAttackSchema).min(1).optional(),
+  /**
+   * 자원 노드/콜로니를 밟고 지나간다(거구 전용).
+   *
+   * 덩치가 커지면 장애물 회피 자체가 성립하지 않는다 — 우회 경로(FlowField)는 16px
+   * 격자로 "빈 칸"을 찾는데, 반경 40짜리는 그 칸에 애초에 들어가지 못해서 노드 옆에서
+   * 갈리기만 한다(3배 보스로 실측: 700px에서 출발해 코어 458px 앞 나무에 걸려 정지).
+   * 게다가 거대한 보스가 나무 한 그루에 막히는 그림 자체가 이상하다.
+   */
+  crushesObstacles: z.boolean().optional(),
+  /**
    * 처치 즉시 팀 공유 창고(coreSharedEnergy)에 지급되는 랜덤량. 콜로니 파괴 보상과
    * 같은 자원이다 — 보스 전용(희귀 등급), 개인 소지 단계 없이 바로 팀 전체 몫이 된다.
    */
@@ -99,6 +141,7 @@ const MonstersDataSchema = z.record(z.string(), MonsterDataSchema);
 export type MonsterType = keyof typeof monstersData;
 export type MonsterData = z.infer<typeof MonsterDataSchema>;
 export type DropRange = z.infer<typeof DropRangeSchema>;
+export type MeleeAttackData = z.infer<typeof MeleeAttackSchema>;
 
 export const monstersData = loadData(MonstersDataSchema, monstersJson);
 
