@@ -58,6 +58,16 @@ import {
   type SwingState,
   type WeaponParts,
 } from './weaponFx';
+import {
+  MONSTER_ATLAS,
+  MONSTER_ORIGIN_Y,
+  MONSTER_SCALE,
+  hasMonsterSprite,
+  monsterAnimKey,
+  monsterIdleFrame,
+  monsterSpriteHeight,
+  registerMonsterAnimations,
+} from './monsterSprite';
 import { FONT_SMALL, SIZE_SMALL, applyTextShadow } from '../ui/theme';
 
 /**
@@ -357,6 +367,7 @@ export class EntityRenderer {
     this.hasSwing = hasSwingFx(scene);
     this.hasBullet = hasBulletFx(scene);
     if (this.hasMuzzle) registerMuzzleAnimation(scene);
+    registerMonsterAnimations(scene);
     this.registerGatherAnimations();
     this.registerCoreAnimations();
     if (this.hasSwing) registerSwingAnimation(scene);
@@ -675,7 +686,10 @@ export class EntityRenderer {
         this.monsters.set(monster.id, sprite);
       }
 
-      sprite.setPosition(Math.round(monster.x), Math.round(monster.y));
+      const nextX = Math.round(monster.x);
+      const nextY = Math.round(monster.y);
+      this.updateMonsterAnim(sprite, monster.type, nextX - sprite.x);
+      sprite.setPosition(nextX, nextY);
       sprite.setDepth(monster.y);
 
       // HP 바는 피해를 입었을 때만 보인다 — 멀쩡한 몬스터까지 바가 뜨면 화면이 시끄럽다.
@@ -690,7 +704,70 @@ export class EntityRenderer {
       }
     }
 
-    this.removeMissing(this.monsters, alive);
+    // 사라진 몬스터는 그냥 지우지 않고 죽는 모습을 남긴다(§spawnMonsterCorpse).
+    for (const [id, sprite] of this.monsters) {
+      if (alive.has(id)) continue;
+      this.spawnMonsterCorpse(sprite);
+      sprite.destroy();
+      this.monsters.delete(id);
+    }
+  }
+
+  /**
+   * 걷기/대기 전환과 좌우 반전. 서버가 몬스터의 시야 방향을 따로 내려보내지 않아서
+   * **화면상 이동량으로 판단한다** — 방향 필드를 스냅샷에 추가하면 몬스터 수만큼
+   * 매 패치에 실려 나가는데, 사실상 부호 하나만 쓰는 정보라 그만한 값을 못 한다.
+   * 멈춰 있을 때는 마지막 방향을 유지한다(제자리 공격 중에 홱 돌아보지 않게).
+   */
+  private updateMonsterAnim(
+    container: Phaser.GameObjects.Container,
+    type: string,
+    deltaX: number,
+  ): void {
+    const body = container.getByName('body');
+    if (!(body instanceof Phaser.GameObjects.Sprite)) return;
+
+    if (deltaX !== 0) body.setFlipX(deltaX < 0);
+
+    // 픽셀 단위로 반올림된 좌표라, 아주 느린 몬스터는 프레임에 따라 delta가 0이 된다 —
+    // 그때마다 걷기가 끊기지 않도록 정지 판정에 약간의 유예를 둔다.
+    const moving = deltaX !== 0;
+    const stillFrames = (container.getData('still') as number | undefined) ?? 0;
+    container.setData('still', moving ? 0 : stillFrames + 1);
+
+    const key = monsterAnimKey(type, moving || stillFrames < 6 ? 'walk' : 'idle');
+    if (body.anims.currentAnim?.key !== key) body.play(key, true);
+  }
+
+  /**
+   * 죽는 모습을 잠깐 남긴다. 서버는 처치 즉시 몬스터를 지우므로(스냅샷에서 사라진다)
+   * 시체는 순수하게 클라이언트가 만드는 잔상이다 — 판정에는 아무 영향이 없다.
+   * 애니메이션이 끝나면 스스로 사라진다.
+   */
+  private spawnMonsterCorpse(container: Phaser.GameObjects.Container): void {
+    const body = container.getByName('body');
+    if (!(body instanceof Phaser.GameObjects.Sprite)) return;
+
+    const type = container.getData('type') as string | undefined;
+    if (!type || !this.scene.anims.exists(monsterAnimKey(type, 'death'))) return;
+
+    const corpse = this.scene.add
+      .sprite(container.x, container.y, MONSTER_ATLAS, monsterIdleFrame(type))
+      .setOrigin(0.5, MONSTER_ORIGIN_Y)
+      .setScale(MONSTER_SCALE)
+      .setFlipX(body.flipX)
+      // 산 몬스터보다 아래에 깔아서 시체가 전투를 가리지 않게 한다.
+      .setDepth(container.y - 1);
+
+    corpse.play(monsterAnimKey(type, 'death'));
+    corpse.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => {
+      this.scene.tweens.add({
+        targets: corpse,
+        alpha: 0,
+        duration: 400,
+        onComplete: () => corpse.destroy(),
+      });
+    });
   }
 
   private createMonster(monster: MonsterView): Phaser.GameObjects.Container {
@@ -698,13 +775,29 @@ export class EntityRenderer {
     const hitRadius = monstersData[monster.type]?.hitRadius ?? MONSTER_HIT_RADIUS_FALLBACK;
     const size = hitRadius * 2;
 
+    // 스프라이트가 있으면 그림을, 없으면(에셋 미보유) 도형 플레이스홀더를 쓴다.
+    // 그림은 **발밑을 원점**으로 잡아 y=0(월드 좌표 그대로)에 세운다 — 도형과 달리
+    // 실제로 서 있는 모습이라, 몸통 중앙을 억지로 ACTION_PLANE_Y에 맞추면 땅에 파묻힌다.
+    const spriteHeight = monsterSpriteHeight(monster.type);
+    const useSprite = hasMonsterSprite(this.scene, monster.type);
+
     // 총알과 같은 높이 평면(plane.ts)에 올린다 — 발밑(월드 좌표) 그대로 그리면 총알이
     // 머리 위로 지나가는 것처럼 보인다. 판정은 항상 월드 좌표(컨테이너 자체 위치)로
     // 이뤄지니 이 오프셋은 순수하게 보이는 위치만 바꾼다.
-    const body = this.scene.add.rectangle(0, ACTION_PLANE_Y, size, size, color);
-    body.setStrokeStyle(1, 0x1a1c23);
+    const body: Phaser.GameObjects.GameObject = useSprite
+      ? this.scene.add
+          .sprite(0, 0, MONSTER_ATLAS, monsterIdleFrame(monster.type))
+          .setOrigin(0.5, MONSTER_ORIGIN_Y)
+          .setScale(MONSTER_SCALE)
+      : (() => {
+          const rect = this.scene.add.rectangle(0, ACTION_PLANE_Y, size, size, color);
+          rect.setStrokeStyle(1, 0x1a1c23);
+          return rect;
+        })();
+    body.setName('body');
 
-    const barTop = ACTION_PLANE_Y - size / 2 - 4;
+    // HP 바는 머리 위에 띄운다 — 그림이면 실측 높이, 도형이면 사각형 위쪽 기준.
+    const barTop = useSprite ? -spriteHeight - 4 : ACTION_PLANE_Y - size / 2 - 4;
     const barBack = this.scene.add
       .rectangle(-HP_BAR_WIDTH / 2, barTop, HP_BAR_WIDTH, HP_BAR_HEIGHT, 0x2b303c)
       .setOrigin(0, 0.5);
@@ -727,7 +820,16 @@ export class EntityRenderer {
     collisionDebug.setName('collisionDebug');
     collisionDebug.setVisible(this.collisionDebugVisible);
 
-    return this.scene.add.container(monster.x, monster.y, [barBack, bar, body, collisionDebug]);
+    const container = this.scene.add.container(monster.x, monster.y, [
+      barBack,
+      bar,
+      body,
+      collisionDebug,
+    ]);
+    // 죽을 때 어떤 그림으로 쓰러질지 알아야 해서 타입을 들고 있는다(스냅샷에서 이미
+    // 사라진 뒤라 그 시점엔 조회할 곳이 없다).
+    container.setData('type', monster.type);
+    return container;
   }
 
   // ---------------------------------------------------------------- 보스 공격 예고

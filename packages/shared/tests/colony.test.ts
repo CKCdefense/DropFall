@@ -276,15 +276,12 @@ describe('World — 밤 침공 복제', () => {
     colony!.purified = true;
 
     world.addPlayer('p1', 0, 0);
+
+    // 위 테스트와 같은 이유로 **전환 틱만** 본다 — 이 틱에는 침공 복제분만 나온다.
+    // 그 뒤로도 계속 보면 웨이브 본대(스폰 반경 900)가 콜로니(700~1000) 근처에
+    // 떨어지는 판이 섞여서, 복제분과 구분할 방법이 없어진다.
     world.tick(wavesData.dayDuration); // day → night
 
-    // 밤 내내 콜로니 근처 스폰이 없어야 한다(웨이브 본대는 900px 스폰 반경).
-    for (let i = 0; i < 100; i += 1) {
-      world.tick(0.2);
-      const nearColony = [...world.getMonsters().values()].filter(
-        (m) => Math.hypot(m.x - colony!.x, m.y - colony!.y) < 120,
-      );
-      expect(nearColony).toHaveLength(0);
-    }
+    expect(world.getMonsters().size).toBe(0); // 정화된 콜로니는 한 마리도 안 보낸다
   });
 });
