@@ -340,7 +340,13 @@ describe('World — 티모시 대사 트리거', () => {
     companion.y = monster.y;
     companion.hp = 1;
 
-    world.tick(0.1);
+    // 공격 예고(demon 0.36초)를 지나야 맞는다. 그 사이 티모시가 걸어가 사거리를
+    // 벗어나지 않도록 붙들어 둔다(이 테스트가 보려는 건 다운 이벤트다).
+    for (let i = 0; i < 60; i += 1) {
+      companion.x = monster.x;
+      companion.y = monster.y;
+      world.tick(0.02);
+    }
 
     const events = world.drainCompanionPersonaEvents();
     expect(events.some((e) => e.kind === 'companionDowned' && e.playerId === 'p1')).toBe(true);

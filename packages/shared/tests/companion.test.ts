@@ -136,7 +136,14 @@ describe('World — 티모시 피격/다운/리셋', () => {
     companion.y = monster.y;
     companion.hp = 1;
 
-    world.tick(0.1);
+    // 공격이 "시도 → 예고 → 판정" 3단계라 예고(demon 0.36초)를 지나야 맞는다.
+    // 그 사이 티모시는 채집하러 걸어가 사거리를 벗어나므로(그게 정상이다) 이
+    // 테스트가 보려는 상황 — 사거리 안에 있는 경우 — 을 유지하도록 붙들어 둔다.
+    for (let i = 0; i < 60; i += 1) {
+      companion.x = monster.x;
+      companion.y = monster.y;
+      world.tick(0.02);
+    }
 
     expect(world.getCompanion().state).toBe('downed');
     expect(world.getCompanion().hp).toBe(0);

@@ -100,6 +100,15 @@ const MonsterDataSchema = z.object({
   speed: z.number().nonnegative(),
   attackRange: z.number().nonnegative(),
   attackInterval: z.number().positive(),
+  /**
+   * 평타의 예고 시간(초). 이 시간 동안 몬스터는 멈춰서 휘두르는 그림을 재생하고,
+   * **끝나는 순간에** 사거리를 다시 재서 피해를 정산한다 — 그 사이 빠져나가면 헛친다.
+   *
+   * 값은 Attack01에서 무기가 가장 멀리 뻗는 프레임을 재생 속도로 나눈 것이다
+   * (잡몹 14fps / 보스 9fps). 그림과 판정이 같은 순간을 가리켜야 "닿아 보이는데 안
+   * 맞는다"가 생기지 않는다.
+   */
+  attackWindupSeconds: z.number().nonnegative(),
   /** 있으면 이 반경 내 플레이어를 코어 대신 직접 추격한다(돌진형/보스). 없으면 항상 코어로 직진. */
   aggroRadius: z.number().nonnegative().optional(),
   /**

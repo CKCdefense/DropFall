@@ -309,7 +309,23 @@ export type BossPatternState =
       dashHitIds: Set<string>;
     }
   /** 판정 후 경직. 이 동안은 이동도 다음 공격도 없다 — 플레이어가 반격할 틈이다. */
-  | { kind: 'meleeRecover'; timer: number };
+  | { kind: 'meleeRecover'; timer: number }
+  /**
+   * 평타 예고. **모든 몬스터가 쓴다**(잡몹·보스 공통).
+   *
+   * 예전에는 사거리에 들어온 순간 곧바로 피해를 줬다 — 예고가 없으니 피할 방법이
+   * 아예 없었고, 그림도 맞은 뒤에야 재생됐다. 이제 공격을 "시도"하면 이 상태로
+   * 들어가 멈춰 서서 휘두르고, `timer`가 0이 되는 순간 **사거리를 다시 재서** 정산한다.
+   * 그 사이 빠져나간 대상은 헛친다.
+   */
+  | { kind: 'basicSwing'; timer: number; target: BasicAttackTarget };
+
+/** 평타가 노리는 대상. 예고가 끝나는 순간 이 대상이 아직 사거리 안인지 다시 잰다. */
+export type BasicAttackTarget =
+  | { kind: 'player'; id: string }
+  | { kind: 'companion' }
+  | { kind: 'building'; id: string }
+  | { kind: 'core' };
 
 export interface MonsterEntity {
   id: string;
@@ -338,14 +354,6 @@ export interface MonsterEntity {
    * 시도한다(docs/backend/42) — 이게 없으면 그런 위치에서 영원히 못 움직인다.
    */
   stuckSeconds: number;
-  /**
-   * 티모시(AI 동반자) 공격 쿨다운(초). 플레이어 공격 쿨다운(attackCooldown)과 별도로 둔다 —
-   * 같은 틱에 플레이어와 티모시가 둘 다 사거리 안에 있어도 서로의 쿨다운에 영향을 주지
-   * 않게 하기 위해서다. 정식 추격 대상(targetPlayerId)과 달리 단순 근접 판정이라
-   * 히스테리시스/시야각 없이 매 틱 거리만 본다(docs/superpowers/specs/
-   * 2026-08-07-ai-companion-timothy-design.md).
-   */
-  companionAttackCooldown: number;
   /**
    * 콜로니 수호대라면 소속 콜로니 id. 있으면 코어 침공 AI 대신 수호 AI를 탄다 —
    * 리시 반경 안의 플레이어만 공격하고, 아무도 없으면 콜로니로 귀환해 저장 상태로
@@ -1374,8 +1382,6 @@ export class World {
     this.revealAroundPlayers();
 
     this.tickMonsters(dtSeconds);
-    // tickMonsters() 다음에 불러야 몬스터들의 이번 틱 위치 기준으로 근접 판정한다.
-    this.tickCompanionDamage(dtSeconds);
     this.tickCompanion(dtSeconds);
     this.tickQueuedCompanionMessages();
     this.tickResourceNodes(dtSeconds);
@@ -1739,7 +1745,6 @@ export class World {
       pattern: { kind: 'idle' },
       specialAttackCooldown: data.meleeAttacks ? BOSS_FIRST_PATTERN_DELAY : 0,
       stuckSeconds: 0,
-      companionAttackCooldown: 0,
       guardReturnTimer: 0,
       attackAnimTimer: 0,
       attackAnim: 0,
@@ -1930,12 +1935,12 @@ export class World {
       // 벽으로 길을 막았으면 침공 몬스터와 같은 규칙으로 그 벽부터 부순다.
       const blocker = this.findBlockingBuildingInRange(monster, data.attackRange);
       if (blocker) {
-        this.attackBuilding(monster, blocker, data.damage, data.attackInterval);
+        if (monster.attackCooldown <= 0) {
+          this.startBasicAttack(monster, data, { kind: 'building', id: blocker.id });
+        }
       } else if (bestDistance <= data.attackRange) {
         if (monster.attackCooldown <= 0) {
-          this.damagePlayer(target, data.damage);
-          monster.attackCooldown = data.attackInterval;
-          this.markAttack(monster);
+          this.startBasicAttack(monster, data, { kind: 'player', id: target.id });
         }
       } else {
         this.moveMonster(monster, monster.facingX, monster.facingY, data.speed, dtSeconds);
@@ -1972,6 +1977,93 @@ export class World {
     this.monsterGrid.clear();
     this.contingents.length = 0;
     for (const colony of this.colonies.values()) colony.guardIds.clear();
+  }
+
+  /**
+   * 평타를 **시도**한다 — 그 자리에 멈춰 휘두르는 그림을 재생하고, 예고가 끝나는
+   * 순간에야 정산한다(§basicSwing). 쿨다운은 시도 시점에 걸어서 예고 중에 또
+   * 시도하거나 헛친 뒤 곧바로 다시 치는 일이 없게 한다.
+   */
+  private startBasicAttack(
+    monster: MonsterEntity,
+    data: MonsterData,
+    target: BasicAttackTarget,
+  ): void {
+    monster.attackCooldown = data.attackInterval;
+    monster.pattern = { kind: 'basicSwing', timer: data.attackWindupSeconds, target };
+    // 모션은 지금 켠다 — 맞은 뒤에 휘두르면 예고가 아니다.
+    this.markAttack(monster, 1, data.attackWindupSeconds + ATTACK_ANIM_SECONDS);
+  }
+
+  /**
+   * 평타 예고 진행. 시간이 다 되면 **사거리를 다시 재서** 정산한다 — 예고 중에
+   * 빠져나간 대상은 맞지 않는다(이게 "피할 수 있다"의 전부다).
+   */
+  private tickBasicSwing(monster: MonsterEntity, data: MonsterData, dtSeconds: number): boolean {
+    const pattern = monster.pattern as Extract<BossPatternState, { kind: 'basicSwing' }>;
+    pattern.timer -= dtSeconds;
+    if (pattern.timer > 0) return true;
+
+    this.resolveBasicHit(monster, data, pattern.target);
+    monster.pattern = { kind: 'idle' };
+    // 한 번 휘둘렀으니 다시 "시야 안 가장 가까운 사람"을 고른다(§clearAggroAfterAttack).
+    this.clearAggroAfterAttack(monster);
+    return true;
+  }
+
+  /** 예고가 끝난 순간의 정산. 대상별로 사거리를 다시 재고, 벗어났으면 헛친다. */
+  private resolveBasicHit(
+    monster: MonsterEntity,
+    data: MonsterData,
+    target: BasicAttackTarget,
+  ): void {
+    const inRange = (x: number, y: number, extra = 0): boolean =>
+      Math.hypot(x - monster.x, y - monster.y) <= data.attackRange + extra;
+
+    switch (target.kind) {
+      case 'player': {
+        const player = this.players.get(target.id);
+        if (player && player.hp > 0 && inRange(player.x, player.y, HIT_RADIUS)) {
+          this.damagePlayer(player, data.damage);
+        }
+        break;
+      }
+      case 'companion': {
+        if (
+          this.companion.state !== 'downed' &&
+          inRange(this.companion.x, this.companion.y, HIT_RADIUS)
+        ) {
+          this.damageCompanion(data.damage);
+        }
+        break;
+      }
+      case 'building': {
+        const building = this.buildings.get(target.id);
+        if (building && inRange(building.x, building.y)) {
+          building.hp = Math.max(0, building.hp - data.damage);
+          if (building.hp <= 0) {
+            this.buildings.remove(building.id);
+            this.recomputeFlowField();
+          }
+        }
+        break;
+      }
+      case 'core': {
+        if (coreDistance(monster.x, monster.y) <= data.attackRange) {
+          this.core.hp = Math.max(0, this.core.hp - data.damage);
+        }
+        break;
+      }
+    }
+
+    // 휘두른 자리에 티모시가 서 있으면 함께 맞는다 — 노린 대상은 아니지만 칼이 지나간다.
+    if (
+      target.kind !== 'companion' &&
+      this.companion.state !== 'downed' &&
+      inRange(this.companion.x, this.companion.y, HIT_RADIUS)
+    ) {
+      this.damageCompanion(data.damage);
+    }
   }
 
   /**
@@ -2212,31 +2304,11 @@ export class World {
     companion.state = 'seeking';
   }
 
-  /**
-   * 몬스터의 정교한 추격/리시 로직(resolveAggroTarget)은 건드리지 않고, 단순 근접
-   * 판정만으로 티모시를 노출시킨다 — 어떤 몬스터든 자기 공격 사거리 안에 티모시가
-   * 있으면 때린다(추격 대상인지와 무관하다). 플레이어 공격 쿨다운과는 별도
-   * 필드(`companionAttackCooldown`)를 써서 서로 간섭하지 않는다.
-   */
-  private tickCompanionDamage(dtSeconds: number): void {
-    if (this.companion.state === 'downed') return;
-    for (const monster of this.monsters.values()) {
-      monster.companionAttackCooldown = Math.max(0, monster.companionAttackCooldown - dtSeconds);
-      const data = monstersData[monster.type];
-      const distance = Math.hypot(this.companion.x - monster.x, this.companion.y - monster.y);
-      if (distance > data.attackRange) continue;
-      if (monster.companionAttackCooldown > 0) continue;
-      this.damageCompanion(data.damage);
-      monster.companionAttackCooldown = data.attackInterval;
-      this.markAttack(monster);
-    }
-  }
-
   private damageCompanion(amount: number): void {
     this.companion.hp = Math.max(0, this.companion.hp - amount);
     if (this.companion.hp <= 0) {
       this.companion.state = 'downed';
-      // tickCompanionDamage()가 이미 'downed' 상태를 걸러내므로 이 전환은 딱 한 번만 일어난다.
+      // 피해를 주는 쪽이 모두 'downed'를 걸러내므로 이 전환은 딱 한 번만 일어난다.
       const nearestId = this.findNearestPlayerId(this.companion.x, this.companion.y);
       if (nearestId) this.enqueueCompanionPersonaEvent('companionDowned', nearestId);
     }
@@ -2281,7 +2353,7 @@ export class World {
       // 보스 특수 패턴이 이번 틱의 이동/공격을 전부 처리했으면(예고 중이라 멈춰 있거나
       // 돌진 중이거나) 아래 일반 추격/이동 로직은 건너뛴다. meleeAttacks가 없는
       // 타입(잡몹 등)은 매 틱 이 검사 하나만 거치고 바로 false를 반환한다.
-      if (this.tickBossPattern(monster, data, dtSeconds)) continue;
+      if (this.tickAttackPattern(monster, data, dtSeconds)) continue;
 
       // 콜로니 수호대는 코어 침공 AI를 아예 타지 않는다 — 리시 안 플레이어 요격,
       // 없으면 귀환 후 저장 복귀가 전부다.
@@ -2304,13 +2376,12 @@ export class World {
 
         const blocker = this.findBlockingBuildingInRange(monster, data.attackRange);
         if (blocker) {
-          this.attackBuilding(monster, blocker, data.damage, data.attackInterval);
+          if (monster.attackCooldown <= 0) {
+            this.startBasicAttack(monster, data, { kind: 'building', id: blocker.id });
+          }
         } else if (distance <= data.attackRange) {
           if (monster.attackCooldown <= 0) {
-            this.damagePlayer(target, data.damage);
-            monster.attackCooldown = data.attackInterval;
-            this.markAttack(monster);
-            this.clearAggroAfterAttack(monster);
+            this.startBasicAttack(monster, data, { kind: 'player', id: target.id });
           }
         } else {
           // 자원 노드/콜로니가 경로를 막아도 moveMonster가 축 슬라이딩으로 알아서
@@ -2324,7 +2395,23 @@ export class World {
 
       const blocker = this.findBlockingBuildingInRange(monster, data.attackRange);
       if (blocker) {
-        this.attackBuilding(monster, blocker, data.damage, data.attackInterval);
+        if (monster.attackCooldown <= 0) {
+          this.startBasicAttack(monster, data, { kind: 'building', id: blocker.id });
+        }
+        continue;
+      }
+
+      // 코어로 가는 길에 티모시가 서 있으면 그를 먼저 친다. 추격 대상은 사람뿐이라
+      // (resolveAggroTarget) 여기서 따로 봐 주지 않으면, 몬스터가 티모시를 그대로
+      // 지나쳐 코어만 때리게 된다.
+      if (
+        this.companion.state !== 'downed' &&
+        Math.hypot(this.companion.x - monster.x, this.companion.y - monster.y) <=
+          data.attackRange + HIT_RADIUS
+      ) {
+        if (monster.attackCooldown <= 0) {
+          this.startBasicAttack(monster, data, { kind: 'companion' });
+        }
         continue;
       }
 
@@ -2336,9 +2423,7 @@ export class World {
           monster.facingY = -monster.y / distanceToCore;
         }
         if (monster.attackCooldown <= 0) {
-          this.core.hp = Math.max(0, this.core.hp - data.damage);
-          monster.attackCooldown = data.attackInterval;
-          this.markAttack(monster);
+          this.startBasicAttack(monster, data, { kind: 'core' });
         }
         continue;
       }
@@ -2383,16 +2468,16 @@ export class World {
    * 예고 중에는 몬스터가 그 자리에 멈춰 있어야 화면에 미리 보여준 위험 범위와 실제
    * 판정 범위가 어긋나지 않는다.
    */
-  private tickBossPattern(monster: MonsterEntity, data: MonsterData, dtSeconds: number): boolean {
-    if (!data.meleeAttacks) return false;
-
+  private tickAttackPattern(monster: MonsterEntity, data: MonsterData, dtSeconds: number): boolean {
     switch (monster.pattern.kind) {
+      case 'basicSwing':
+        return this.tickBasicSwing(monster, data, dtSeconds);
       case 'meleeSwing':
         return this.tickMeleeSwing(monster, data, dtSeconds);
       case 'meleeRecover':
         return this.tickMeleeRecover(monster, dtSeconds);
       case 'idle':
-        return this.tryStartBossPattern(monster, data, dtSeconds);
+        return data.meleeAttacks ? this.tryStartBossPattern(monster, data, dtSeconds) : false;
     }
   }
 
@@ -2731,25 +2816,6 @@ export class World {
     if (!this.isBlockedForPlayer(yOnly.x, yOnly.y)) {
       player.x = yOnly.x;
       player.y = yOnly.y;
-    }
-  }
-
-  /** 건축물 공격. HP가 0이 되면 제거하고 Flow Field를 다시 계산한다(막던 셀이 열렸으므로). */
-  private attackBuilding(
-    monster: MonsterEntity,
-    building: BuildingEntity,
-    damage: number,
-    attackInterval: number,
-  ): void {
-    if (monster.attackCooldown > 0) return;
-
-    building.hp = Math.max(0, building.hp - damage);
-    monster.attackCooldown = attackInterval;
-    this.markAttack(monster);
-
-    if (building.hp <= 0) {
-      this.buildings.remove(building.id);
-      this.recomputeFlowField();
     }
   }
 
