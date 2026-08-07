@@ -279,19 +279,16 @@ export interface DroppedItemEntity {
 
 /**
  * 보스 전용 특수 공격 패턴(돌진/광역)의 상태 머신. 일반 몹은 항상 `{ kind: 'idle' }`로
- * 고정이다 — `chargeAttack`/`slamAttack` 데이터가 없는 타입은 `tickBossPattern`이
+ * 고정이다 — `meleeAttacks` 데이터가 없는 타입은 `tickBossPattern`이
  * 첫 검사에서 바로 false를 반환하므로 이 상태를 실제로 오갈 일이 없다.
  *
- * idle → (chargeTelegraph → charging | slamTelegraph) → idle 순으로만 전이한다.
+ * idle → meleeSwing → meleeRecover → idle 순으로만 전이한다.
  * 예고(Telegraph) 상태의 값(방향/지점)은 예고 "시작 시점"에 한 번 고정된다 — 그래야
  * 화면에 미리 보여준 위험 범위와 실제로 피해가 들어가는 범위가 정확히 일치한다(타겟이
  * 예고 도중 움직여도 범위가 따라가면 "본 대로 피했는데 맞는" 상황이 생긴다).
  */
 export type BossPatternState =
   | { kind: 'idle' }
-  | { kind: 'chargeTelegraph'; timer: number; total: number; dirX: number; dirY: number }
-  | { kind: 'charging'; timer: number; dirX: number; dirY: number; hitPlayerIds: Set<string> }
-  | { kind: 'slamTelegraph'; timer: number; total: number; x: number; y: number }
   /**
    * 근접 검술 진행 중. 바닥 표시 없이 **동작 자체가 예고**라(무기를 치켜드는 프레임),
    * 클라이언트가 어느 동작을 재생할지 알 수 있게 `index`(meleeAttacks 배열 위치)를
@@ -332,7 +329,7 @@ export interface MonsterEntity {
   facingY: number;
   /** 보스 전용 특수 패턴 상태(§BossPatternState). 일반 몹은 항상 idle이다. */
   pattern: BossPatternState;
-  /** 다음 특수 패턴을 쓸 수 있게 되기까지 남은 시간(초). chargeAttack/slamAttack이 없는 타입은 쓰지 않는다. */
+  /** 다음 특수 패턴을 쓸 수 있게 되기까지 남은 시간(초). meleeAttacks가 없는 타입은 쓰지 않는다. */
   specialAttackCooldown: number;
   /**
    * `moveMonster`가 이동을 전혀 못 시킨 채(축 슬라이딩·접선 미끄러짐까지 다 막힘)
@@ -1731,8 +1728,7 @@ export class World {
       facingX,
       facingY,
       pattern: { kind: 'idle' },
-      specialAttackCooldown:
-        data.chargeAttack || data.slamAttack || data.meleeAttacks ? BOSS_FIRST_PATTERN_DELAY : 0,
+      specialAttackCooldown: data.meleeAttacks ? BOSS_FIRST_PATTERN_DELAY : 0,
       stuckSeconds: 0,
       companionAttackCooldown: 0,
       guardReturnTimer: 0,
@@ -2274,8 +2270,8 @@ export class World {
       }
 
       // 보스 특수 패턴이 이번 틱의 이동/공격을 전부 처리했으면(예고 중이라 멈춰 있거나
-      // 돌진 중이거나) 아래 일반 추격/이동 로직은 건너뛴다. chargeAttack/slamAttack이
-      // 없는 타입(잡몹 등)은 매 틱 이 검사 하나만 거치고 바로 false를 반환한다.
+      // 돌진 중이거나) 아래 일반 추격/이동 로직은 건너뛴다. meleeAttacks가 없는
+      // 타입(잡몹 등)은 매 틱 이 검사 하나만 거치고 바로 false를 반환한다.
       if (this.tickBossPattern(monster, data, dtSeconds)) continue;
 
       // 콜로니 수호대는 코어 침공 AI를 아예 타지 않는다 — 리시 안 플레이어 요격,
@@ -2368,8 +2364,8 @@ export class World {
   }
 
   /**
-   * 보스 전용 특수 패턴(돌진/광역)의 상태 전이를 한 틱 진행한다. `chargeAttack`/
-   * `slamAttack` 데이터가 둘 다 없는 타입(잡몹 등)은 이 검사 하나만 거치고 즉시
+   * 보스 전용 검술의 상태 전이를 한 틱 진행한다. `meleeAttacks` 데이터가
+   * 없는 타입(잡몹 등)은 이 검사 하나만 거치고 즉시
    * false를 반환해서 일반 몹의 틱 비용을 사실상 늘리지 않는다.
    *
    * true를 반환하면 이번 틱의 이동/공격을 이 메서드가 전부 처리했다는 뜻이라, 호출부
@@ -2378,19 +2374,13 @@ export class World {
    * 판정 범위가 어긋나지 않는다.
    */
   private tickBossPattern(monster: MonsterEntity, data: MonsterData, dtSeconds: number): boolean {
-    if (!data.chargeAttack && !data.slamAttack && !data.meleeAttacks) return false;
+    if (!data.meleeAttacks) return false;
 
     switch (monster.pattern.kind) {
       case 'meleeSwing':
         return this.tickMeleeSwing(monster, data, dtSeconds);
       case 'meleeRecover':
         return this.tickMeleeRecover(monster, dtSeconds);
-      case 'chargeTelegraph':
-        return this.tickChargeTelegraph(monster, data, dtSeconds);
-      case 'charging':
-        return this.tickCharging(monster, data, dtSeconds);
-      case 'slamTelegraph':
-        return this.tickSlamTelegraph(monster, data, dtSeconds);
       case 'idle':
         return this.tryStartBossPattern(monster, data, dtSeconds);
     }
@@ -2448,42 +2438,10 @@ export class World {
         return true;
       }
       // 쓸 수 있는 검술이 없으면(전부 쿨다운이거나 너무 멀다) 평소처럼 추격한다.
-      if (!data.chargeAttack && !data.slamAttack) return false;
+      return false;
     }
 
-    const canCharge = !!data.chargeAttack;
-    const canSlam = !!data.slamAttack;
-    // 둘 다 가능하면 매번 무작위로 고른다 — 항상 같은 순서로만 나오면 패턴이 아니라
-    // 그냥 다음 공격을 외우는 게 돼버린다.
-    const useCharge = canCharge && (!canSlam || this.rng() < 0.5);
-
-    const dirX = targetDistance > 0 ? dxToTarget / targetDistance : monster.facingX;
-    const dirY = targetDistance > 0 ? dyToTarget / targetDistance : monster.facingY;
-    monster.facingX = dirX;
-    monster.facingY = dirY;
-
-    if (useCharge) {
-      const charge = data.chargeAttack!;
-      monster.pattern = {
-        kind: 'chargeTelegraph',
-        timer: charge.telegraphSeconds,
-        total: charge.telegraphSeconds,
-        dirX,
-        dirY,
-      };
-    } else {
-      const slam = data.slamAttack!;
-      // 타겟의 "현재" 위치에 지점을 고정한다 — 예고가 끝날 때까지 타겟을 계속 따라가면
-      // 미리 보여준 범위 밖으로 피해도 소용없어진다.
-      monster.pattern = {
-        kind: 'slamTelegraph',
-        timer: slam.telegraphSeconds,
-        total: slam.telegraphSeconds,
-        x: target.x,
-        y: target.y,
-      };
-    }
-    return true;
+    return false;
   }
 
   /**
@@ -2605,75 +2563,6 @@ export class World {
     }
 
     this.markAttack(monster, attack.anim);
-  }
-
-  /** 돌진 예고 — 그 자리에 멈춰 방향을 유지하다가, 시간이 다 되면 실제 돌진으로 전이한다. */
-  private tickChargeTelegraph(monster: MonsterEntity, data: MonsterData, dtSeconds: number): boolean {
-    const pattern = monster.pattern as Extract<BossPatternState, { kind: 'chargeTelegraph' }>;
-    monster.facingX = pattern.dirX;
-    monster.facingY = pattern.dirY;
-    pattern.timer -= dtSeconds;
-    if (pattern.timer > 0) return true;
-
-    const charge = data.chargeAttack!;
-    monster.pattern = {
-      kind: 'charging',
-      timer: charge.duration,
-      dirX: pattern.dirX,
-      dirY: pattern.dirY,
-      hitPlayerIds: new Set(),
-    };
-    return true;
-  }
-
-  /**
-   * 실제 돌진 실행. 예고 때 고정한 방향으로 `chargeAttack.speed`만큼 빠르게 이동하며,
-   * 경로 폭(`width`) 안에 들어온 플레이어를 때린다 — 한 번의 돌진 동안 같은 플레이어를
-   * 여러 틱에 걸쳐 중복으로 맞히지 않도록 `hitPlayerIds`로 1회만 적중시킨다.
-   */
-  private tickCharging(monster: MonsterEntity, data: MonsterData, dtSeconds: number): boolean {
-    const pattern = monster.pattern as Extract<BossPatternState, { kind: 'charging' }>;
-    const charge = data.chargeAttack!;
-
-    monster.facingX = pattern.dirX;
-    monster.facingY = pattern.dirY;
-    this.moveMonster(monster, pattern.dirX, pattern.dirY, charge.speed, dtSeconds);
-
-    const hitRadius = HIT_RADIUS + charge.width / 2;
-    for (const player of this.players.values()) {
-      if (player.hp <= 0 || pattern.hitPlayerIds.has(player.id)) continue;
-      if (circlesOverlap(monster.x, monster.y, player.x, player.y, hitRadius)) {
-        this.damagePlayer(player, charge.damage);
-        pattern.hitPlayerIds.add(player.id);
-      }
-    }
-
-    pattern.timer -= dtSeconds;
-    if (pattern.timer <= 0) {
-      monster.pattern = { kind: 'idle' };
-      monster.specialAttackCooldown = charge.cooldown;
-    }
-    return true;
-  }
-
-  /** 광역 예고 — 그 자리(타겟 위치에 멈춘 지점)에서 대기하다가, 시간이 다 되면 즉시 범위 피해를 준다. */
-  private tickSlamTelegraph(monster: MonsterEntity, data: MonsterData, dtSeconds: number): boolean {
-    const pattern = monster.pattern as Extract<BossPatternState, { kind: 'slamTelegraph' }>;
-    pattern.timer -= dtSeconds;
-    if (pattern.timer > 0) return true;
-
-    const slam = data.slamAttack!;
-    const hitRadius = slam.radius + HIT_RADIUS;
-    for (const player of this.players.values()) {
-      if (player.hp <= 0) continue;
-      if (circlesOverlap(pattern.x, pattern.y, player.x, player.y, hitRadius)) {
-        this.damagePlayer(player, slam.damage);
-      }
-    }
-
-    monster.pattern = { kind: 'idle' };
-    monster.specialAttackCooldown = slam.cooldown;
-    return true;
   }
 
   /** 공격 사거리 안의, 이동을 막는(blocksMovement) 건축물 중 가장 가까운 것을 찾는다. */
@@ -3284,49 +3173,54 @@ export interface BossTelegraph {
 }
 
 /**
- * 몬스터의 현재 보스 패턴 상태를 서버/로컬 커넥션이 동기화 스냅샷에 그대로 실을 수
- * 있는 형태로 변환한다. 예고(Telegraph) 상태가 아니면(idle/charging/일반 몹) undefined —
- * 돌진이 실제로 실행되는 동안에는 보스가 빠르게 움직이는 모습 자체가 "이미 벌어진 일"을
- * 보여주므로 별도의 경고 표시가 필요 없다. 서버(GameRoom)와 로컬(LocalConnection) 양쪽이
- * 이 함수를 그대로 재사용해서, 두 경로가 서로 다른 방식으로 값을 계산해 어긋날 여지를 없앤다.
+ * 지금 예고 중인 다음 타격을 화면에 그릴 수 있는 모양으로 바꾼다. 예고 중이 아니면 undefined.
+ *
+ * **전방향(arc 360)은 원, 부채꼴은 방향 띠**로 내보낸다 — 클라이언트가 이미 그 두 모양을
+ * 그릴 줄 알아서(예전 돌진/광역 예고에 쓰던 렌더러) 그대로 재사용한다. 옆으로 못 피하는
+ * 광역 기술일수록 미리 보여주는 게 중요하다.
  */
 export function describeBossTelegraph(
   monster: MonsterEntity,
   data: MonsterData,
 ): BossTelegraph | undefined {
   const pattern = monster.pattern;
+  if (pattern.kind !== 'meleeSwing') return undefined;
 
-  if (pattern.kind === 'chargeTelegraph') {
-    const charge = data.chargeAttack;
-    if (!charge) return undefined;
-    return {
-      kind: 'charge',
-      x: monster.x,
-      y: monster.y,
-      dirX: pattern.dirX,
-      dirY: pattern.dirY,
-      radius: charge.width / 2,
-      range: charge.speed * charge.duration,
-      remaining: Math.max(0, pattern.timer),
-      total: pattern.total,
-    };
-  }
+  const attack = data.meleeAttacks?.[pattern.index];
+  const hit = attack?.hits[pattern.nextHit];
+  if (!attack || !hit) return undefined;
 
-  if (pattern.kind === 'slamTelegraph') {
-    const slam = data.slamAttack;
-    if (!slam) return undefined;
+  // 진행률은 "직전 타격(없으면 동작 시작)부터 이번 타격까지" 구간으로 잰다 —
+  // 2연타에서 두 번째 예고가 이미 꽉 찬 상태로 뜨지 않게.
+  const previousAt = pattern.nextHit > 0 ? attack.hits[pattern.nextHit - 1]!.atSeconds : 0;
+  const total = Math.max(0.001, hit.atSeconds - previousAt);
+  const remaining = Math.max(0, hit.atSeconds - pattern.elapsed);
+
+  if (hit.arc >= 360) {
     return {
       kind: 'slam',
-      x: pattern.x,
-      y: pattern.y,
+      x: monster.x,
+      y: monster.y,
       dirX: 0,
       dirY: 0,
-      radius: slam.radius,
+      radius: hit.range,
       range: 0,
-      remaining: Math.max(0, pattern.timer),
-      total: pattern.total,
+      remaining,
+      total,
     };
   }
 
-  return undefined;
+  const halfArc = (hit.arc * Math.PI) / 360;
+  return {
+    kind: 'charge',
+    x: monster.x,
+    y: monster.y,
+    dirX: pattern.dirX,
+    dirY: pattern.dirY,
+    // 부채꼴을 감싸는 띠의 반폭. 사거리 끝에서 부채꼴이 가장 넓어진다.
+    radius: hit.range * Math.sin(halfArc),
+    range: hit.range,
+    remaining,
+    total,
+  };
 }

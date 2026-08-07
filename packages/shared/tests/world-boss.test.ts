@@ -2,225 +2,137 @@ import { describe, expect, it } from 'vitest';
 import { World, describeBossTelegraph, type MonsterEntity } from '../src/sim/world';
 import { monstersData } from '../src/data';
 
-const bossData = monstersData.boss_dark_knight;
-const chargeData = bossData.chargeAttack!;
-const slamData = bossData.slamAttack!;
-
 /**
- * 보스 한 마리를 개발자 커맨드로 직접 스폰한다. 예전엔 wave 5로 점프해 잡몹 37마리
- * 사이에서 보스가 나올 때까지 틱했지만, 이제 보스는 잡몹을 전멸시켜야 나오는
- * 구조라(웨이브 경유가 훨씬 번거롭다) 패턴 로직만 검증하는 이 파일에서는 dev
- * 스폰으로 바로 만든다 — 패턴(charge/slam)은 스폰 경로와 무관하게 데이터만 보고
- * 동작하므로 검증 범위는 같다.
+ * 보스 공격 예고(텔레그래프) 표시.
  *
- * 커맨드 실행용 플레이어는 아그로 반경 밖 맵 구석에 세워 보스의 행동에 영향을
- * 주지 않는다 — 이 파일의 테스트는 hp 변화량을 등호로 비교하므로, 테스트가 직접
- * 추가하는 플레이어 외에는 아무도 근처에 없어야 한다.
+ * 예전에는 돌진(charge)/광역(slam)이라는 별도 패턴이 예고를 만들었는데, 보스 넷이
+ * 전부 스프라이트 기반 검술로 바뀌면서 그 두 패턴은 사라졌다(돌진은 meleeAttacks의
+ * `dash`, 광역은 `arc: 360`이 대신한다). 예고는 이제 **진행 중인 검술의 다음 타격**을
+ * 설명한다 — 클라이언트 렌더러는 그대로 두고(원/방향 띠 두 모양) 그 입력만 바꿨다.
  */
-function spawnBoss(world: World): MonsterEntity {
-  world.addPlayer('dev', 1000, 1000);
-  const result = world.runDevCommand('dev', 'spawn boss_dark_knight 1');
+
+const DEMON = monstersData.boss_demon;
+const GOLEM = monstersData.boss_golem;
+
+function spawnBoss(world: World, type: string): MonsterEntity {
+  world.addPlayer('dev', 3000, 3000);
+  const result = world.runDevCommand('dev', `spawn ${type} 1`);
   if (!result.ok) throw new Error(`보스 스폰 실패: ${result.message}`);
-  const boss = [...world.getMonsters().values()].find((m) => m.type === 'boss_dark_knight');
-  if (!boss) throw new Error('보스가 스폰되지 않았다');
+  const boss = [...world.getMonsters().values()].find((m) => m.type === type)!;
+  boss.x = 400;
+  boss.y = 0;
+  boss.facingX = -1;
+  boss.facingY = 0;
   return boss;
 }
 
-describe('World — 보스 특수 패턴', () => {
-  it('스폰 직후 유예 시간 동안은 아그로 타겟이 있어도 특수 패턴을 쓰지 않는다', () => {
-    const world = new World();
-    const boss = spawnBoss(world);
-    world.addPlayer('p1', boss.x + boss.facingX * 10, boss.y + boss.facingY * 10);
+/** 원하는 기술만 쿨다운을 열어 유도한다(선택이 무작위라 시드를 못 고정한다). */
+function forceAttack(world: World, boss: MonsterEntity, index: number): void {
+  for (let attempt = 0; attempt < 600; attempt += 1) {
+    boss.meleeCooldowns.forEach((_, i) => {
+      boss.meleeCooldowns[i] = i === index ? 0 : 99;
+    });
+    for (const p of world.getPlayers().values()) p.hp = 500;
+    world.tick(0.05);
+    if (boss.pattern.kind === 'meleeSwing' && (boss.pattern as { index: number }).index === index) {
+      return;
+    }
+    if (boss.pattern.kind === 'idle') {
+      boss.x = 400;
+      boss.y = 0;
+    }
+  }
+  throw new Error(`기술 ${index}가 나오지 않았다`);
+}
 
-    world.tick(1); // BOSS_FIRST_PATTERN_DELAY(3초)보다 짧다
+describe('World — 보스 공격 예고', () => {
+  it('검술 중이 아니면 예고가 없다', () => {
+    const world = new World();
+    const boss = spawnBoss(world, 'boss_demon');
+
     expect(boss.pattern.kind).toBe('idle');
+    expect(describeBossTelegraph(boss, DEMON)).toBeUndefined();
   });
 
-  it('유예 시간이 지나고 시야각 안에 타겟이 있으면 예고 상태로 전이한다', () => {
+  it('부채꼴 기술은 방향 띠로, 전방향 기술은 원으로 설명된다', () => {
+    // 클라이언트는 이 두 모양만 그릴 줄 안다 — 어떤 기술이든 둘 중 하나로 번역된다.
     const world = new World();
-    const boss = spawnBoss(world);
-    // 보스가 바라보는 방향 바로 앞에 세워서 "처음 발견" 시야각 검사를 확실히 통과시킨다.
-    world.addPlayer('p1', boss.x + boss.facingX * 10, boss.y + boss.facingY * 10);
+    const boss = spawnBoss(world, 'boss_demon');
+    world.addPlayer('p1', boss.x - 60, boss.y);
 
-    world.tick(3.5); // 유예 시간을 넘긴다
-    expect(['chargeTelegraph', 'slamTelegraph']).toContain(boss.pattern.kind);
+    forceAttack(world, boss, 0); // 데몬 1번 = 찌르기(40도)
+    const cone = describeBossTelegraph(boss, DEMON)!;
+    expect(cone.kind).toBe('charge');
+    expect(cone.range).toBe(DEMON.meleeAttacks![0]!.hits[0]!.range);
+    expect(cone.dirX).toBeCloseTo(-1, 5); // 예고 시작 시점 방향(코어 쪽)으로 고정
+    expect(cone.radius).toBeGreaterThan(0);
+    expect(cone.radius).toBeLessThan(cone.range); // 좁은 기술이라 띠 반폭 < 사거리
+
+    const world2 = new World();
+    const golem = spawnBoss(world2, 'boss_golem');
+    world2.addPlayer('p1', golem.x - 60, golem.y);
+
+    forceAttack(world2, golem, 1); // 골렘 2번 = 광역 찍기(360도)
+    const circle = describeBossTelegraph(golem, GOLEM)!;
+    expect(circle.kind).toBe('slam');
+    expect(circle.radius).toBe(GOLEM.meleeAttacks![1]!.hits[0]!.range);
+    // 원은 보스 자신을 중심으로 그린다.
+    expect(circle.x).toBe(golem.x);
+    expect(circle.y).toBe(golem.y);
   });
 
-  it('돌진 예고 중에는 보스가 이동하지 않고 방향을 유지한다', () => {
+  it('예고 진행률은 타격이 임박할수록 0에 가까워진다', () => {
     const world = new World();
-    const boss = spawnBoss(world);
-    const startX = boss.x;
-    const startY = boss.y;
+    const boss = spawnBoss(world, 'boss_demon');
+    world.addPlayer('p1', boss.x - 60, boss.y);
 
-    boss.pattern = {
-      kind: 'chargeTelegraph',
-      timer: chargeData.telegraphSeconds,
-      total: chargeData.telegraphSeconds,
-      dirX: 1,
-      dirY: 0,
-    };
+    forceAttack(world, boss, 0);
+    const first = describeBossTelegraph(boss, DEMON)!;
+    world.tick(0.1);
+    const later = describeBossTelegraph(boss, DEMON)!;
 
-    world.tick(chargeData.telegraphSeconds / 2);
-
-    expect(boss.x).toBe(startX);
-    expect(boss.y).toBe(startY);
-    expect(boss.pattern.kind).toBe('chargeTelegraph');
-    expect(boss.facingX).toBe(1);
-    expect(boss.facingY).toBe(0);
+    expect(later.remaining).toBeLessThan(first.remaining);
+    expect(later.total).toBe(first.total); // 전체 길이는 안 변한다
+    expect(first.remaining).toBeLessThanOrEqual(first.total);
   });
 
-  it('돌진 예고가 끝나면 실제로 돌진하며 경로 위 플레이어를 한 번만 맞힌다', () => {
+  it('2연타는 첫 타격이 끝나면 두 번째 타격의 예고로 갱신된다', () => {
+    // 흑기사 1번은 내려베기 → 찌르기다. 두 번째 예고가 처음부터 꽉 찬 상태로 뜨지
+    // 않도록, 진행률을 "직전 타격부터" 재는지 확인한다.
     const world = new World();
-    const boss = spawnBoss(world);
+    const boss = spawnBoss(world, 'boss_knight');
+    const data = monstersData.boss_knight;
+    world.addPlayer('p1', boss.x - 40, boss.y);
 
-    // 보스 바로 오른쪽에 서 있는 플레이어 — 돌진 경로(+x) 위에 있다.
-    world.addPlayer('target', boss.x + 15, boss.y);
-    const player = world.getPlayers().get('target')!;
-    const hpBefore = player.hp;
+    forceAttack(world, boss, 0);
+    const firstHit = describeBossTelegraph(boss, data)!;
+    expect(firstHit.range).toBe(data.meleeAttacks![0]!.hits[0]!.range);
 
-    boss.pattern = {
-      kind: 'chargeTelegraph',
-      timer: 0.01,
-      total: chargeData.telegraphSeconds,
-      dirX: 1,
-      dirY: 0,
-    };
-
-    // 예고 종료 → charging 전이 → 돌진 실행까지, 여러 틱에 걸쳐 진행시킨다.
-    for (let i = 0; i < 50 && boss.pattern.kind !== 'idle'; i += 1) {
-      world.tick(chargeData.duration / 10);
+    // 첫 타격이 들어갈 때까지 진행.
+    for (let i = 0; i < 300; i += 1) {
+      const p = boss.pattern;
+      if (p.kind !== 'meleeSwing' || p.nextHit >= 1) break;
+      world.tick(0.01);
     }
 
-    expect(player.hp).toBe(hpBefore - chargeData.damage);
-    expect(boss.pattern.kind).toBe('idle');
-    expect(boss.specialAttackCooldown).toBeCloseTo(chargeData.cooldown, 5);
+    const secondHit = describeBossTelegraph(boss, data)!;
+    expect(secondHit.range).toBe(data.meleeAttacks![0]!.hits[1]!.range);
+    // 두 번째 예고의 전체 길이는 "첫 타격 → 두 번째 타격" 간격이다.
+    const gap =
+      data.meleeAttacks![0]!.hits[1]!.atSeconds - data.meleeAttacks![0]!.hits[0]!.atSeconds;
+    expect(secondHit.total).toBeCloseTo(gap, 3);
+    expect(secondHit.remaining).toBeLessThanOrEqual(secondHit.total);
   });
 
-  it('돌진 경로에서 벗어난 플레이어는 맞지 않는다', () => {
+  it('경직 중에는 예고가 사라진다 — 다 끝난 기술을 계속 보여주지 않는다', () => {
     const world = new World();
-    const boss = spawnBoss(world);
+    const boss = spawnBoss(world, 'boss_demon');
+    world.addPlayer('p1', boss.x - 60, boss.y);
 
-    // 돌진 방향(+x)과 직각인 y축으로 멀리 떨어뜨린다.
-    world.addPlayer('safe', boss.x, boss.y + 500);
-    const player = world.getPlayers().get('safe')!;
-    const hpBefore = player.hp;
+    forceAttack(world, boss, 0);
+    for (let i = 0; i < 300 && boss.pattern.kind === 'meleeSwing'; i += 1) world.tick(0.01);
 
-    boss.pattern = {
-      kind: 'chargeTelegraph',
-      timer: 0.01,
-      total: chargeData.telegraphSeconds,
-      dirX: 1,
-      dirY: 0,
-    };
-
-    for (let i = 0; i < 50 && boss.pattern.kind !== 'idle'; i += 1) {
-      world.tick(chargeData.duration / 10);
-    }
-
-    expect(player.hp).toBe(hpBefore);
-  });
-
-  it('광역 예고가 끝나면 예고 지점 반경 안의 플레이어에게 즉시 피해를 주고 idle로 복귀한다', () => {
-    const world = new World();
-    const boss = spawnBoss(world);
-
-    world.addPlayer('inside', boss.x, boss.y);
-    const player = world.getPlayers().get('inside')!;
-    const hpBefore = player.hp;
-
-    boss.pattern = {
-      kind: 'slamTelegraph',
-      timer: 0.05,
-      total: slamData.telegraphSeconds,
-      x: boss.x,
-      y: boss.y,
-    };
-
-    world.tick(0.1); // 타이머를 넘긴다
-
-    expect(player.hp).toBe(hpBefore - slamData.damage);
-    expect(boss.pattern.kind).toBe('idle');
-    expect(boss.specialAttackCooldown).toBeCloseTo(slamData.cooldown, 5);
-  });
-
-  it('광역 범위 밖에 있는 플레이어는 피해를 받지 않는다', () => {
-    const world = new World();
-    const boss = spawnBoss(world);
-
-    world.addPlayer('outside', boss.x + slamData.radius + 200, boss.y); // 범위 밖 멀리
-    const player = world.getPlayers().get('outside')!;
-    const hpBefore = player.hp;
-
-    boss.pattern = {
-      kind: 'slamTelegraph',
-      timer: 0.05,
-      total: slamData.telegraphSeconds,
-      x: boss.x,
-      y: boss.y,
-    };
-
-    world.tick(0.1);
-
-    expect(player.hp).toBe(hpBefore);
-  });
-
-  it('광역 지점은 예고 시작 시점에 고정되고, 플레이어가 그 자리에 있을 때만 맞는다', () => {
-    const world = new World();
-    const boss = spawnBoss(world);
-
-    // 예고 지점(boss.x, boss.y)에서 멀리 벗어난 채로 예고가 끝나게 한다.
-    world.addPlayer('mover', boss.x + slamData.radius + 300, boss.y);
-    const player = world.getPlayers().get('mover')!;
-    const hpBefore = player.hp;
-
-    boss.pattern = {
-      kind: 'slamTelegraph',
-      timer: 0.05,
-      total: slamData.telegraphSeconds,
-      x: boss.x,
-      y: boss.y,
-    };
-
-    world.tick(0.1);
-
-    expect(player.hp).toBe(hpBefore); // 지점 밖으로 피했으니 안 맞는다
-  });
-
-  it('describeBossTelegraph는 예고 중일 때만 정보를 돌려주고 idle/charging에는 undefined다', () => {
-    const world = new World();
-    const boss = spawnBoss(world);
-
-    expect(describeBossTelegraph(boss, bossData)).toBeUndefined(); // idle
-
-    boss.pattern = {
-      kind: 'chargeTelegraph',
-      timer: 0.6,
-      total: chargeData.telegraphSeconds,
-      dirX: 1,
-      dirY: 0,
-    };
-    const chargeTelegraph = describeBossTelegraph(boss, bossData);
-    expect(chargeTelegraph?.kind).toBe('charge');
-    expect(chargeTelegraph?.radius).toBeCloseTo(chargeData.width / 2, 5);
-    expect(chargeTelegraph?.range).toBeCloseTo(chargeData.speed * chargeData.duration, 5);
-    expect(chargeTelegraph?.remaining).toBeCloseTo(0.6, 5);
-    expect(chargeTelegraph?.total).toBeCloseTo(chargeData.telegraphSeconds, 5);
-
-    boss.pattern = { kind: 'charging', timer: 0.2, dirX: 1, dirY: 0, hitPlayerIds: new Set() };
-    expect(describeBossTelegraph(boss, bossData)).toBeUndefined(); // 돌진 실행 중엔 예고 없음
-
-    boss.pattern = {
-      kind: 'slamTelegraph',
-      timer: 0.4,
-      total: slamData.telegraphSeconds,
-      x: 100,
-      y: 200,
-    };
-    const slamTelegraph = describeBossTelegraph(boss, bossData);
-    expect(slamTelegraph?.kind).toBe('slam');
-    expect(slamTelegraph?.x).toBe(100);
-    expect(slamTelegraph?.y).toBe(200);
-    expect(slamTelegraph?.radius).toBe(slamData.radius);
-    expect(slamTelegraph?.remaining).toBeCloseTo(0.4, 5);
+    expect(boss.pattern.kind).toBe('meleeRecover');
+    expect(describeBossTelegraph(boss, DEMON)).toBeUndefined();
   });
 });

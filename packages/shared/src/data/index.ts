@@ -20,29 +20,6 @@ export function loadData<T>(schema: z.ZodType<T>, json: unknown): T {
 
 // --- monsters.json ---------------------------------------------------------
 
-/** 돌진 공격: 방향을 예고한 뒤 그 방향으로 빠르게 대시하며 경로 위 플레이어를 때린다. */
-const ChargeAttackSchema = z.object({
-  /** 돌진 전 예고(텔레그래프) 시간(초) — 이 동안 플레이어가 피할 수 있어야 한다. */
-  telegraphSeconds: z.number().positive(),
-  /** 돌진 중 이동 속도(px/s). 평상시 speed와 무관하게 별도로 정의한다. */
-  speed: z.number().positive(),
-  /** 돌진이 지속되는 시간(초). speed * duration이 곧 돌진 거리다. */
-  duration: z.number().positive(),
-  /** 돌진 경로의 폭(px). 이 폭 안에 있으면 맞는다. */
-  width: z.number().positive(),
-  damage: z.number().nonnegative(),
-  /** 이 패턴을 다시 쓸 수 있게 되기까지의 시간(초, 예고 시작 시점부터 카운트하지 않고 종료 후부터). */
-  cooldown: z.number().positive(),
-});
-
-/** 광역 공격: 지점을 예고한 뒤 그 자리에 원형 범위로 즉시 피해를 준다. */
-const SlamAttackSchema = z.object({
-  telegraphSeconds: z.number().positive(),
-  radius: z.number().positive(),
-  damage: z.number().nonnegative(),
-  cooldown: z.number().positive(),
-});
-
 /**
  * 검술 한 동작 안의 **타격 한 번**.
  *
@@ -140,10 +117,6 @@ const MonsterDataSchema = z.object({
       }),
     )
     .optional(),
-  /** 있으면 이 타입은 돌진 패턴을 쓸 수 있다(보스 전용, 없으면 미사용). */
-  chargeAttack: ChargeAttackSchema.optional(),
-  /** 있으면 이 타입은 광역 패턴을 쓸 수 있다(보스 전용, 없으면 미사용). */
-  slamAttack: SlamAttackSchema.optional(),
   /**
    * 있으면 이 타입은 근접 검술을 쓴다(보스 전용). 여러 개를 두고 **대상까지의 거리로**
    * 쓸 수 있는 것만 골라 무작위로 하나 쓴다 — 거리마다 다른 기술이 나와야 패턴이

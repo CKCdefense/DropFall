@@ -221,23 +221,48 @@
   },
 
   "boss_dark_knight": {
-    "$comment": "5일차 최종 보스 — 전 패턴 최고 수치. 이 녀석을 잡으면 클리어다. (Black Knight_C)",
+    "$comment": "5일차 최종 보스 — 심연의 흑기사(Black Knight_C). 배율 4, 전 패턴 최고 수치. 이 녀석을 잡으면 클리어다.",
     "hp": 900,
-    "hitRadius": 14,
+    "hitRadius": 56,
     "damage": 32,
     "speed": 55,
-    "attackRange": 22,
+    "attackRange": 72,
     "attackInterval": 1.6,
-    "aggroRadius": 240,
-    "chargeAttack": {
-      "telegraphSeconds": 0.9,
-      "speed": 320,
-      "duration": 0.5,
-      "width": 44,
-      "damage": 40,
-      "cooldown": 5
-    },
-    "slamAttack": { "telegraphSeconds": 1.1, "radius": 80, "damage": 45, "cooldown": 8 },
+    "aggroRadius": 380,
+    "crushesObstacles": true,
+    "meleeAttacks": [
+      {
+        "$comment": "Attack01 — 프레임5에 43px까지 뻗는 크게 휘두르는 베기(×4=176). 셋 중 가장 멀리 닿는다.",
+        "anim": 1,
+        "hits": [{ "atSeconds": 0.36, "range": 176, "arc": 110, "damage": 40 }],
+        "recoverSeconds": 0.25,
+        "cooldown": 4
+      },
+      {
+        "$comment": "Attack02 — 프레임4에 칼을 뒤로 크게 젖혔다가(뒤 -23px) 프레임5에 머리 위에서 내리치는 다른 모션(37px, ×4=148). 사거리는 짧지만 휘두르는 각이 넓다.",
+        "anim": 2,
+        "hits": [{ "atSeconds": 0.36, "range": 148, "arc": 140, "damage": 46 }],
+        "recoverSeconds": 0.35,
+        "cooldown": 5
+      },
+      {
+        "$comment": "Attack03 — 프레임4~9에 공중(머리 -60)에서 앞으로 뛰며(중심 4→28) 프레임6에 칼을 내리찍고, 프레임7~9에 그 자리에서 화염 기둥이 솟는다. 내리찍기는 전방향, 뒤이은 기둥은 앞쪽이라 착지 후 뒤로 빠지면 두 번째는 피할 수 있다.",
+        "anim": 3,
+        "hits": [
+          { "atSeconds": 0.43, "range": 150, "arc": 360, "damage": 36 },
+          { "atSeconds": 0.64, "range": 200, "arc": 90, "damage": 44 }
+        ],
+        "dash": {
+          "fromSeconds": 0.21,
+          "toSeconds": 0.43,
+          "speed": 420,
+          "radius": 70,
+          "damage": 30
+        },
+        "recoverSeconds": 0.5,
+        "cooldown": 12
+      }
+    ],
     "energyDrop": { "min": 8, "max": 12 },
     "itemDrops": [
       { "itemId": "drop_normal", "chance": 1, "min": 5, "max": 8 },

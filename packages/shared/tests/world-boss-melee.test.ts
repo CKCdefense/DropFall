@@ -374,3 +374,100 @@ describe('World — 4일차 보스(화염 골렘)', () => {
     expect(monstersData.boss_golem.crushesObstacles).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------- 5일차 심연의 흑기사
+
+const DARK = monstersData.boss_dark_knight.meleeAttacks!;
+const SLASH = DARK[0]!; // Attack01 — 크게 휘두르는 베기(최장)
+const OVERHEAD = DARK[1]!; // Attack02 — 뒤로 젖혔다 내리치는 다른 모션(넓은 각)
+const PLUNGE = DARK[2]!; // Attack03 — 점프 내리찍기 + 지연 화염 기둥
+
+function spawnDark(world: World): MonsterEntity {
+  world.addPlayer('dev', 3000, 3000);
+  const result = world.runDevCommand('dev', 'spawn boss_dark_knight 1');
+  if (!result.ok) throw new Error(`보스 스폰 실패: ${result.message}`);
+  const boss = [...world.getMonsters().values()].find((m) => m.type === 'boss_dark_knight')!;
+  boss.x = 400;
+  boss.y = 0;
+  boss.facingX = -1;
+  boss.facingY = 0;
+  return boss;
+}
+
+/** 원하는 기술만 쿨다운을 열어 유도한다(선택이 무작위라 시드를 못 고정한다). */
+function forceDarkAttack(world: World, boss: MonsterEntity, index: number): void {
+  for (let attempt = 0; attempt < 600; attempt += 1) {
+    boss.meleeCooldowns.forEach((_, i) => {
+      boss.meleeCooldowns[i] = i === index ? 0 : 99;
+    });
+    for (const p of world.getPlayers().values()) p.hp = 500; // 준비 중 평타로 죽지 않게
+    world.tick(0.05);
+    if (boss.pattern.kind === 'meleeSwing' && (boss.pattern as { index: number }).index === index) {
+      return;
+    }
+    if (boss.pattern.kind === 'idle') {
+      boss.x = 400;
+      boss.y = 0;
+    }
+  }
+  throw new Error(`최종 보스 기술 ${index}가 나오지 않았다`);
+}
+
+describe('World — 5일차 최종 보스(심연의 흑기사)', () => {
+  it('1번과 2번은 서로 다른 성격이다 — 1번이 더 멀리, 2번이 더 넓게', () => {
+    expect(reachOf(SLASH)).toBeGreaterThan(reachOf(OVERHEAD));
+    expect(OVERHEAD.hits[0]!.arc).toBeGreaterThan(SLASH.hits[0]!.arc);
+  });
+
+  it('3번은 내리찍기(전방향) 뒤에 화염 기둥(앞쪽)이 따라오는 2연타다', () => {
+    expect(PLUNGE.hits).toHaveLength(2);
+    const [slam, beam] = PLUNGE.hits;
+    // 내리찍기가 먼저 터지고, 기둥은 그보다 늦게 솟는다.
+    expect(slam!.atSeconds).toBeLessThan(beam!.atSeconds);
+    // 내리찍기는 전방향이라 못 피하고, 기둥은 앞쪽이라 뒤로 빠지면 피할 수 있다.
+    expect(slam!.arc).toBe(360);
+    expect(beam!.arc).toBeLessThan(360);
+    expect(beam!.range).toBeGreaterThan(slam!.range);
+    // 점프해서 앞으로 나아간다.
+    expect(PLUNGE.dash).toBeDefined();
+  });
+
+  it('내리찍기를 맞아도 착지 후 뒤로 빠지면 화염 기둥은 피할 수 있다', () => {
+    const world = new World();
+    const boss = spawnDark(world);
+    world.addPlayer('p1', boss.x - 80, boss.y);
+    const player = world.getPlayers().get('p1')!;
+
+    forceDarkAttack(world, boss, 2);
+    player.hp = 500;
+    const hpBefore = player.hp;
+
+    // 첫 타격(내리찍기)까지 진행.
+    for (let i = 0; i < 300; i += 1) {
+      const p = boss.pattern;
+      if (p.kind !== 'meleeSwing' || p.nextHit >= 1) break;
+      world.tick(0.01);
+    }
+    const afterSlam = player.hp;
+    expect(afterSlam).toBeLessThan(hpBefore); // 전방향이라 맞았다
+
+    // 기둥이 솟기 전에 예고 방향 반대쪽(뒤)으로 크게 빠진다.
+    player.x = boss.x + 260;
+    player.y = boss.y;
+    for (let i = 0; i < 300 && boss.pattern.kind === 'meleeSwing'; i += 1) world.tick(0.01);
+
+    expect(player.hp).toBe(afterSlam); // 기둥은 앞쪽이라 안 맞는다
+  });
+
+  it('보스 4종이 전부 검술 체계로 통일됐다 — 돌진·광역 전용 데이터는 남아있지 않다', () => {
+    for (const type of ['boss_demon', 'boss_knight', 'boss_golem', 'boss_dark_knight'] as const) {
+      const data = monstersData[type];
+      expect(data.meleeAttacks, type).toBeDefined();
+      expect(data.meleeAttacks!.map((a) => a.anim), type).toEqual([1, 2, 3]);
+      expect(data.chargeAttack, type).toBeUndefined();
+      expect(data.slamAttack, type).toBeUndefined();
+      // 거구라 전부 장애물을 밟고 지나간다.
+      expect(data.crushesObstacles, type).toBe(true);
+    }
+  });
+});
