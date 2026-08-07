@@ -33,6 +33,9 @@
 | [backend/42-work-report-monster-stuck-escape-and-extrapolation-clamp.md](backend/42-work-report-monster-stuck-escape-and-extrapolation-clamp.md) | 작업 보고서 — 몬스터가 촘촘한 자원 군집에 완전히 갇히면 탈출 점프, 클라이언트 외삽이 장애물을 인지 못 해 뚫고 지나가 보이던 렌더링 버그 수정 |
 | [backend/43-work-report-object-fade-removal-and-demolish.md](backend/43-work-report-object-fade-removal-and-demolish.md) | 작업 보고서 — 고갈/파괴된 오브젝트 반투명 잔상 제거(완전히 숨김) + 파괴된 콜로니 하드 충돌 해제 + 건설모드 철거 기능(환급 없음) |
 | [backend/44-work-report-shift-click-quick-move.md](backend/44-work-report-shift-click-quick-move.md) | 작업 보고서 — 쉬프트 클릭으로 창고 ↔ 인벤토리 빠른 이동(목적지 칸 자동 선택) |
+| [backend/45-work-report-monster-spatial-grid.md](backend/45-work-report-monster-spatial-grid.md) | 작업 보고서 — 몬스터 공간 분할 격자(SpatialGrid) 도입, 군집 분리/투사체 충돌 O(n²) → O(n) |
+| [backend/46-work-report-resource-node-position-sync.md](backend/46-work-report-resource-node-position-sync.md) | 작업 보고서 — 자원 노드 리스폰 시 서버가 새 좌표를 클라이언트에 재동기화 안 하던 버그 |
+| [backend/47-work-report-patch-rate-bandwidth.md](backend/47-work-report-patch-rate-bandwidth.md) | 작업 보고서 — PATCH_RATE 60→20Hz, 2인 이상 실접속 렉의 원인(대역폭이 인원수에 비례) |
 
 ### 역할 C — 클라이언트/렌더/UI 작업 문서 ([frontend/](frontend/))
 
@@ -48,6 +51,8 @@
 | [frontend/08-lobby-flow.md](frontend/08-lobby-flow.md) | **대기실 흐름** — 화면 전환, 직업/준비/시작 규격, 방 코드 입력 |
 | [frontend/09-work-report-ingame-modals.md](frontend/09-work-report-ingame-modals.md) | 작업 보고서 — 인게임 모달 UI 셸 4종(코어/코어관리/상점/제작) 선작업 |
 | [frontend/10-dev-mode.md](frontend/10-dev-mode.md) | **개발 모드** — 개발자 콘솔(`` ` ``)과 테스트 모드 아이템 도감(F9), 커맨드 목록, 켜는 방법 |
+| [frontend/11-work-report-quit-confirm-modal.md](frontend/11-work-report-quit-confirm-modal.md) | 작업 보고서 — ESC 나가기에 확인창(나가기/취소) 추가 |
+| [frontend/12-work-report-css-asset-double-path.md](frontend/12-work-report-css-asset-double-path.md) | 작업 보고서 — GitHub Pages 배포 시 UI 이미지 전부 404(CSS 커스텀 프로퍼티 url() 이중 경로 해석 버그) |
 
 ## 한 줄 요약
 

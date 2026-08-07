@@ -136,6 +136,14 @@ interface FireInputMessage {
   **클라이언트 보간 지연도 틱이 아니라 `PATCH_RATE` 기준**으로 잡아야 한다.
   자세히: [frontend/05](frontend/05-work-report-patch-rate.md)
 
+- **`PATCH_RATE`는 접속 인원수만큼 대역폭이 곱해진다** — 패치가 클라이언트
+  소켓마다 독립적으로 나가기 때문이다. 한동안 `TICK_RATE`와 같은 60으로
+  뒀는데, 2인 이상 실접속에서 심하게 끊기는 문제로 이어졌다(CPU가 아니라
+  홈서버 업로드 대역폭 병목). 틱은 60을 유지하고 **전송만** 20으로
+  낮췄다 — `SnapshotInterpolator`가 `PATCH_RATE` 기준으로 보간 지연을
+  자동으로 늘려 잡으므로 상수 하나만 바꾸면 된다.
+  자세히: [backend/47](backend/47-work-report-patch-rate-bandwidth.md)
+
 - **저해상도 캔버스를 통째로 확대하지 않는다.** 캔버스는 창 크기(네이티브)로 두고 **월드
   카메라만 정수배로 줌**한다. 한글은 8px에서 판독이 안 되기 때문이다(자소 조합 구조라 최소
   11~12px 필요). 월드 안에 텍스트를 그릴 때는 `text.setResolution(zoom)`을 잊지 말 것 —
