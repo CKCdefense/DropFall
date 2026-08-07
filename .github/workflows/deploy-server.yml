@@ -45,7 +45,9 @@ jobs:
       - uses: tailscale/github-action@v3
         with:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-          oauth-client-secret: ${{ secrets.TS_OAUTH_CLIENT_SECRET }}
+          # 액션의 실제 입력 이름은 oauth-secret이다(oauth-client-secret 아님) —
+          # 잘못된 이름을 쓰면 조용히 무시되고 "OAuth identity empty"로 실패한다.
+          oauth-secret: ${{ secrets.TS_OAUTH_CLIENT_SECRET }}
           tags: tag:ci
 
       - name: SSH로 배포 스크립트 실행
