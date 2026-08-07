@@ -34,7 +34,15 @@ const isProduction = process.env.NODE_ENV === 'production';
 const allowedOrigin = process.env.CLIENT_ORIGIN ?? (isProduction ? '' : '*');
 
 const server = defineServer({
-  transport: new WebSocketTransport(),
+  // permessage-deflate(WebSocket 프레임 압축)을 켠다. 반복적인 숫자/문자열이 많은
+  // 스키마 상태라 압축이 잘 먹는다 — 같은 PATCH_RATE에서도 실제 회선에 나가는
+  // 바이트가 줄어서, 2인 이상 접속 시 대역폭 병목(docs/backend/47)을 완화하면서
+  // PATCH_RATE를 반응성 쪽으로 다시 올릴 여유를 만든다. threshold를 둬서 아주
+  // 작은 메시지(수십 바이트짜리 입력 등)까지 압축 시도하느라 오히려 CPU만 쓰는
+  // 걸 막는다 — 압축 자체의 이득이 오버헤드를 넘는 크기부터만 압축한다.
+  transport: new WebSocketTransport({
+    perMessageDeflate: { threshold: 1024 },
+  }),
   rooms: {
     game: defineRoom(GameRoom),
   },
