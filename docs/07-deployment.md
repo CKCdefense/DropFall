@@ -4,16 +4,20 @@
 > 있다. 이 문서는 그걸 실제로 돌리기 위한 **한 번만 하면 되는 서버 최초
 > 설정**과, `main` 머지마다 자동으로 도는 CI/CD 워크플로 2개를 설명한다.
 
-**"개인 서버 SSH"와 "wss:// 공개 노출"은 별개다** — 헷갈리기 쉬워서 먼저
+**"개인 서버 SSH"와 "wss:// 공개 노출"은 목적이 다르다** — 둘 다 결국
+Tailscale을 쓰지만(원래 계획은 배포용 Tailscale + 공개 노출용 Cloudflare
+Tunnel로 분리하려 했으나, 도메인이 없어 Cloudflare Tunnel을 못 써서
+Tailscale Funnel로 대체했다 — §2), 성격이 전혀 다르니 헷갈리지 않게 먼저
 짚는다:
 - **CI가 서버에 배포하려고 접속하는 경로**: GitHub Actions 러너가
-  Tailscale에 임시로 조인해서, 서버의 tailnet 주소로 SSH 접속한다. 이건
-  "CI → 서버" 한 방향, 배포할 때만 잠깐 쓰는 경로다.
-- **플레이어(GitHub Pages)가 실제로 게임 서버에 접속하는 경로**: Tailscale과
-  무관하다. GitHub Pages는 항상 HTTPS라 브라우저가 `ws://`(비암호화)를
-  차단하므로, 서버는 **Cloudflare Tunnel**로 `wss://game.<도메인>`을 공개
-  노출해야 한다(tech spec §9.3). Tailscale은 tailnet 밖(심사위원, 외부
-  플레이어)에서는 안 닿는다 — 배포용으로만 쓰고 플레이 트래픽에는 안 쓴다.
+  Tailscale에 **임시로** 조인해서(`tag:ci`, 실행할 때만 존재), 서버의
+  tailnet 주소로 **SSH**(포트 22) 접속한다. "CI → 서버" 한 방향, 배포할
+  때만 잠깐 쓰는 경로다 — tailnet 밖에서는 안 닿는다.
+- **플레이어가 실제로 게임 서버(wss://)에 접속하는 경로**: 서버가 이미
+  tailnet에 상시 조인돼 있는 걸 이용해 **Tailscale Funnel**로 포트 2567을
+  공개 인터넷에 노출한다(§2). 이건 tailnet 안팎 상관없이 **누구나** 접속
+  가능한, 완전히 공개된 경로다 — SSH 배포 경로와는 인증/접근 범위가
+  전혀 다르다.
 
 ## 1. 서버 최초 설정 (한 번만)
 
@@ -85,25 +89,46 @@ sudo reboot
 `scripts/deploy-server.sh`(이 리포에 커밋돼 있음)를 한 번 수동으로 실행해서
 정상 동작을 확인해 둔다 — 이후 CI가 실행하는 것과 완전히 같은 스크립트다.
 
-## 2. Cloudflare Tunnel (wss:// 공개 노출)
+## 2. Tailscale Funnel (wss:// 공개 노출)
 
-tech spec §9.3의 예시를 그대로 쓴다:
+원래 계획은 Cloudflare Tunnel(tech spec §9.3 원안)이었지만, 실제로 시도해
+보니 **Cloudflare Tunnel의 공개 호스트네임 라우팅은 우리가 DNS를 소유한
+루트 도메인이 있어야만 동작**한다 — 무료 서브도메인 서비스(`kro.kr` 등)는
+Public Suffix List에 올라간 공유 도메인이라 Cloudflare가 "소유한 루트
+도메인"으로 인정하지 않는다(`cloudflared tunnel login` 화면에 zone
+목록이 비어서 진행 자체가 막힘). 도메인을 새로 사지 않기로 하고
+**Tailscale Funnel**로 바꿨다 — §1에서 서버가 이미 Tailscale에 연결돼
+있으니 추가 계정/도메인/카드 없이 그대로 쓸 수 있다.
 
-```yaml
-# ~/.cloudflared/config.yml
-tunnel: dropfall
-credentials-file: /home/<user>/.cloudflared/<tunnel-id>.json
-ingress:
-  - hostname: game.<도메인>
-    service: http://localhost:2567
-  - service: http_status:404
+```bash
+# 1) tailnet 전체 설정(한 번만, Tailscale 관리자 콘솔에서)
+#    https://login.tailscale.com/admin/dns → HTTPS Certificates 켜기
+
+# 2) 서버에서 로컬 포트를 공개 인터넷에 노출
+sudo tailscale funnel 2567
+# 최초 실행 시 "Funnel is not enabled on your tailnet" 안내와 함께
+# 승인 링크(https://login.tailscale.com/f/funnel?node=...)가 뜬다 —
+# 브라우저로 열어서 한 번만 승인하면 이후엔 바로 활성화된다.
+
+# 3) 확인
+sudo tailscale funnel status
+# https://<머신명>.<tailnet-이름>.ts.net 로 공개 접속 가능(TLS 자동)
 ```
 
-`cloudflared`도 systemd 서비스로 등록해서 `Restart=always` + 부팅 자동
-기동을 걸어 둔다(`cloudflared service install` 명령이 이 유닛을 대신
-만들어준다).
+`tailscale funnel` 설정은 tailscaled 자체(로컬 상태)에 저장되므로 서버
+재부팅 후에도 별도 조치 없이 유지된다 — `cloudflared`처럼 따로 systemd
+유닛을 만들 필요가 없다. 호스트네임(`<머신명>.<tailnet-이름>.ts.net`)도
+고정이라 Cloudflare Quick Tunnel(매 실행마다 무작위 주소 발급)과 달리
+`Restart=always` 자동 복구 설계와 잘 맞는다.
+
+> 실제 확인된 예시: `wss://lab.tailcecca7.ts.net` — 외부 네트워크에서
+> `curl -i https://lab.tailcecca7.ts.net/`로 `404`(Express가 루트 경로에
+> 라우트를 안 둬서 정상) 응답을 받으면 공개 노출이 정상 동작하는 것이다.
 
 ## 3. Tailscale — CI 배포 접속용
+
+서버 자신이 tailnet에 조인해 있는 것(§1 전제, §2에서 Funnel에도 재사용)과
+별개로, **CI가 배포 때만 잠깐 조인하는 통로**를 추가로 설정한다.
 
 1. [Tailscale 관리자 콘솔](https://login.tailscale.com/admin/settings/oauth) →
    **OAuth clients**에서 새 client 발급. 태그(예: `tag:ci`)를 하나 지정한다 —
@@ -144,7 +169,7 @@ ssh-copy-id -i dropfall_deploy_key.pub <서버-계정명>@<서버-tailscale-ip>
 | Secret | `DEPLOY_SSH_KEY` | §4에서 만든 개인키 전체 내용 | 서버 SSH 접속 |
 | Variable | `DEPLOY_SSH_USER` | 서버 로그인 계정명 | SSH 접속 계정 |
 | Variable | `TS_SERVER_HOST` | 서버의 Tailscale IP/MagicDNS 이름 | SSH 접속 대상 |
-| Variable | `VITE_SERVER_URL` | `wss://game.<도메인>` | 클라이언트 빌드에 굽는 서버 주소 |
+| Variable | `VITE_SERVER_URL` | `wss://<머신명>.<tailnet-이름>.ts.net` (§2, 예: `wss://lab.tailcecca7.ts.net`) | 클라이언트 빌드에 굽는 서버 주소 |
 
 ## 6. 워크플로 요약
 
@@ -158,8 +183,8 @@ ssh-copy-id -i dropfall_deploy_key.pub <서버-계정명>@<서버-tailscale-ip>
 ## 7. 배포 체크리스트 (tech spec §9.7과 동일)
 
 - [ ] 팀 외부 네트워크(모바일 핫스팟 등)에서 Pages URL 접속 → 서버 연결 성공
-- [ ] 3인 동시 접속 20분 이상 유지(Cloudflare WebSocket 타임아웃 실측)
-- [ ] 서버 **재부팅 후** `dropfall-server` + `cloudflared` 자동 기동 확인
+- [ ] 3인 동시 접속 20분 이상 유지(WebSocket 유휴 타임아웃 실측)
+- [ ] 서버 **재부팅 후** `dropfall-server` 자동 기동 + `tailscale funnel status`로 Funnel 유지 확인
 - [ ] 로비 장시간 대기 → 연결 유지 확인
 - [ ] 브라우저 콘솔에 mixed content / 404 에셋 경고 없음
 - [ ] `main`에 더미 커밋을 머지해서 두 워크플로가 실제로 초록불로 끝나는지 확인
