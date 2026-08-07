@@ -23,7 +23,10 @@ jobs:
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          # pnpm 11(package.json의 packageManager)이 Node 22.13+를 요구한다 —
+          # engines.node(>=20)만 보고 20으로 뒀다가 CI에서 ERR_UNKNOWN_BUILTIN_MODULE
+          # (node:sqlite)로 실패한 적이 있다. 실제 서버/로컬 개발 환경도 이미 Node 22다.
+          node-version: '22'
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
