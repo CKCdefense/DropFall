@@ -59,10 +59,22 @@ export type ImageAssetKey = keyof typeof IMAGE_ASSETS;
 
 const available = new Set<ImageAssetKey>();
 
-/** BASE_URL을 붙여 Pages 하위경로/홈서버 루트 양쪽에서 통하는 URL을 만든다. */
+/**
+ * BASE_URL을 붙여 Pages 하위경로/홈서버 루트 양쪽에서 통하는 **절대** URL을 만든다.
+ *
+ * 상대경로(`./assets/...`)를 그대로 반환하면 안 된다 — CSS 커스텀 프로퍼티(`--asset-*`)에
+ * 넣은 `url(...)`은 그 값을 **설정한 곳**(document)이 아니라 그 값을 **소비하는
+ * 스타일시트 자신의 위치** 기준으로 상대경로를 다시 해석한다(CSS 스펙). 번들된 CSS가
+ * `dist/assets/index-*.css`처럼 `assets/` 하위에 떨어지는 탓에, 상대경로를 그대로
+ * 커스텀 프로퍼티에 넣으면 그 스타일시트 위치 기준으로 한 번 더 `assets/`가 붙어
+ * `/DropFall/assets/assets/ui/...` 같은 이중 경로가 되어 404가 난다(실제로 배포
+ * 환경에서 관측됨). `document.baseURI`(현재 페이지 URL) 기준의 절대 URL로 만들어
+ * 두면 어느 스타일시트/컨텍스트에서 소비되든 다시 해석될 여지가 없다.
+ */
 export function resolveAssetUrl(path: string): string {
   const base = import.meta.env.BASE_URL;
-  return base.endsWith('/') ? `${base}${path}` : `${base}/${path}`;
+  const relative = base.endsWith('/') ? `${base}${path}` : `${base}/${path}`;
+  return new URL(relative, document.baseURI).href;
 }
 
 function probe(url: string): Promise<boolean> {
