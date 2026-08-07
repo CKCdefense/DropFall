@@ -21,6 +21,14 @@ export const CORE_INTERACT_KEY = 'coreInteract';
 export const INPUT_CONTROLLER_KEY = 'inputController';
 
 /**
+ * HudScene이 등록하는 채팅 로그 append 콜백. 말풍선은 GameScene의 EntityRenderer가
+ * 그리지만(캐릭터 컨테이너를 들고 있는 쪽이 GameScene이라서) 하단 로그 패널은
+ * HudScene 소속(DevConsole과 같은 DOM 오버레이)이라, GameScene이 onChatMessage를
+ * 구독한 뒤 이 키로 로그에도 넘겨준다.
+ */
+export const CHAT_LOG_KEY = 'chatLog';
+
+/**
  * 렌더링 정책 (docs/02-tech-spec.md §7.1~7.2)
  *
  * 캔버스는 **네이티브 해상도**(창 크기)로 두고, 월드 카메라만 정수배로 줌한다.

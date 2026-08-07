@@ -1,7 +1,8 @@
 import Phaser from 'phaser';
-import { MAP_SIZE_TILES, TILE_SIZE, computeCameraZoom } from '@dropfall/shared';
+import { MAP_SIZE_TILES, TILE_SIZE, companionData, computeCameraZoom } from '@dropfall/shared';
 import type { GameConnection } from '../../net/GameConnection';
 import {
+  CHAT_LOG_KEY,
   CONNECTION_KEY,
   CORE_INTERACT_KEY,
   HUD_BLOCK_KEY,
@@ -65,6 +66,20 @@ export class GameScene extends Phaser.Scene {
     this.drawGround();
 
     this.entityRenderer = new EntityRenderer(this, this.connection.sessionId);
+    // 티모시 대사 — 화면 상단 토스트가 아니라 캐릭터 머리 위 말풍선이라 EntityRenderer를
+    // 들고 있는 GameScene이 직접 구독한다(HudScene은 코어 대사만 담당).
+    this.connection.onCompanionCommentary((text) => {
+      this.entityRenderer.showCompanionSpeech(text);
+      // 티모시 대사도 채팅 로그에 남긴다 — "@티모시 ..."로 물어본 답이 말풍선 몇 초
+      // 뒤 사라지고 나면 로그에서만 다시 확인할 수 있다.
+      this.getChatLogAppend()?.(companionData.name, text, 'companion');
+    });
+    // 플레이어 채팅도 같은 이유로 말풍선은 여기서 그린다. 하단 로그 패널(HudScene
+    // 소속)에는 registry로 열어둔 append 함수를 통해 같이 넘겨준다.
+    this.connection.onChatMessage(({ playerId, nickname, text }) => {
+      this.entityRenderer.showPlayerSpeech(playerId, text);
+      this.getChatLogAppend()?.(nickname, text);
+    });
     // 낮·밤 하늘. 모든 월드 오브젝트 위에 얹히는 화면 고정 오버레이라 depth로 관리한다.
     this.dayNight = new DayNightOverlay(this);
     this.input_ = new InputController(
@@ -105,6 +120,13 @@ export class GameScene extends Phaser.Scene {
 
   private resizeDayNight(): void {
     this.dayNight.resize();
+  }
+
+  /** HudScene이 등록한 채팅 로그 append 함수. 씬 시작 순서와 무관하게 매번 다시 꺼내 쓴다. */
+  private getChatLogAppend(): ((nickname: string, text: string, variant?: 'player' | 'companion') => void) | undefined {
+    return this.registry.get(CHAT_LOG_KEY) as
+      | ((nickname: string, text: string, variant?: 'player' | 'companion') => void)
+      | undefined;
   }
 
   update(_time: number, delta: number): void {

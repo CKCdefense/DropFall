@@ -40,6 +40,13 @@ import {
   type PersonaEvent,
 } from './corePersona';
 import {
+  applyCompanionPersonaEvent,
+  createInitialCompanionTraits,
+  type CompanionPersonaEvent,
+  type CompanionPersonaEventKind,
+  type CompanionPersonaTurn,
+} from './companionPersona';
+import {
   HIT_RADIUS,
   WeaponCooldowns,
   circlesOverlap,
@@ -384,6 +391,24 @@ export class World {
   private pendingPersonaEvents: PersonaEvent[] = [];
   /** 코어 상호작용 트리거의 마지막 발생 시각(elapsedSeconds 기준). 스팸 방지 쿨다운에 쓴다. */
   private lastCoreInteractionAt = -Infinity;
+  /** 티모시와 플레이어 사이의 관계 트레잇 — 방 전체가 아니라 플레이어 id별로 따로 쌓인다. */
+  private companionTraits = new Map<string, CorePersonaTraits>();
+  private pendingCompanionPersonaEvents: CompanionPersonaEvent[] = [];
+  /** 티모시 대사(LLM 호출/브로드캐스트) 자체의 방 전역 마지막 발생 시각. 트레잇 누적과는
+   * 별개다 — 누가 됐든 너무 자주 말하지 않게만 막는다. */
+  private lastCompanionCommentaryAt = -Infinity;
+  /** "@티모시 ..." 채팅 전용 쿨다운 시각. 위 잡담 쿨다운과 별개 풀이다(companionPersona.ts 참고). */
+  private lastCompanionMessageAt = -Infinity;
+  /** "@티모시 ..." 대화 기록 — 플레이어별로 최근 몇 마디만(historyMessageLimit) 세션 동안 들고 있다. */
+  private companionConversations = new Map<string, CompanionPersonaTurn[]>();
+  /**
+   * 쿨다운 중에 들어온 "@티모시 ..." 질문을 버리지 않고 쌓아두는 큐. 쿨다운이 끝나는
+   * 즉시(tick마다 확인) 가장 오래된 것부터 하나씩 꺼내 처리한다 — 연달아 두 번 물어보면
+   * 두 번째가 조용히 씹히던 문제(실제로 겪음)를 이렇게 고쳤다. 무한정 쌓이지 않게
+   * 개수를 제한한다(그래도 넘치면 그건 진짜 스팸으로 보고 거절한다).
+   */
+  private queuedCompanionMessages: { playerId: string; message: string }[] = [];
+  private static readonly MAX_QUEUED_COMPANION_MESSAGES = 3;
   private readonly resourceNodes = new Map<string, ResourceNodeEntity>();
   private readonly droppedItems = new Map<string, DroppedItemEntity>();
   private readonly colonies = new ColonyRegistry();
@@ -786,6 +811,10 @@ export class World {
     // 되돌린다. 안 그러면 아이템이 조용히 사라진다.
     const displaced = target.placeAt(toIndex as number, taken);
     if (displaced) source.placeAt(fromIndex as number, displaced);
+
+    // 창고로 들어간 이동이면 티모시가 반응한다(스왑으로 밀려난 아이템이 있어도
+    // taken 자체는 목적지에 자리 잡았으므로 "납품"으로 친다).
+    if (to === 'storage') this.enqueueCompanionPersonaEvent('coreDeposit', playerId);
   }
 
   /**
@@ -816,6 +845,7 @@ export class World {
     if (leftover === slot.count) return; // 하나도 못 옮겼다 — 원래 칸 그대로 둔다
 
     source.removeAt(index as number, slot.count - leftover);
+    if (target === this.core.storage) this.enqueueCompanionPersonaEvent('coreDeposit', playerId);
   }
 
   /** 코어 상호작용(창고 열기 등)이 가능한 거리인지. 클라이언트도 같은 판정을 보여준다. */
@@ -1136,8 +1166,12 @@ export class World {
    * 아무 효과 없다.
    */
   private reviveCompanion(): void {
+    const wasDowned = this.companion.state === 'downed';
     this.companion.hp = this.companion.maxHp;
-    if (this.companion.state === 'downed') this.companion.state = 'seeking';
+    if (!wasDowned) return;
+    this.companion.state = 'seeking';
+    const nearestId = this.findNearestPlayerId(this.companion.x, this.companion.y);
+    if (nearestId) this.enqueueCompanionPersonaEvent('companionRevived', nearestId);
   }
 
   /**
@@ -1201,6 +1235,7 @@ export class World {
         if (this.waveManager.debugEndNight() && this.waveManager.currentPhase === 'day') {
           this.onDayBegan();
           this.enqueuePersonaEvent('waveEnd');
+          this.enqueueCompanionWaveEndEvent();
         }
       },
       spawnMonsters: (type, count) => {
@@ -1263,6 +1298,7 @@ export class World {
       (this.waveManager.currentPhase === 'day' || this.waveManager.currentPhase === 'victory')
     ) {
       this.enqueuePersonaEvent('waveEnd');
+      this.enqueueCompanionWaveEndEvent();
     }
 
     this.revealAroundPlayers();
@@ -1271,6 +1307,7 @@ export class World {
     // tickMonsters() 다음에 불러야 몬스터들의 이번 틱 위치 기준으로 근접 판정한다.
     this.tickCompanionDamage(dtSeconds);
     this.tickCompanion(dtSeconds);
+    this.tickQueuedCompanionMessages();
     this.tickResourceNodes(dtSeconds);
     // tickMonsters() 다음에 불러야 한다 — 이번 틱에 죽은 수호대가 guardIds에서
     // 이미 빠진 뒤여야 정화 판정이 한 틱 늦지 않는다.
@@ -1365,6 +1402,146 @@ export class World {
     if (this.pendingPersonaEvents.length === 0) return [];
     const events = this.pendingPersonaEvents;
     this.pendingPersonaEvents = [];
+    return events;
+  }
+
+  private companionTraitFor(playerId: string): CorePersonaTraits {
+    let traits = this.companionTraits.get(playerId);
+    if (!traits) {
+      traits = createInitialCompanionTraits();
+      this.companionTraits.set(playerId, traits);
+    }
+    return traits;
+  }
+
+  /**
+   * 트레잇은 이벤트마다 항상 갱신한다(대사 쿨다운과 무관하게 관계는 계속 쌓인다).
+   * 실제 대사(LLM 호출/브로드캐스트) 큐는 방 전역 쿨다운을 통과했을 때만 채운다 —
+   * 그러지 않으면 코어 납품처럼 짧은 시간에 여러 번 일어나는 이벤트가 대사를 도배한다.
+   */
+  private enqueueCompanionPersonaEvent(kind: CompanionPersonaEventKind, playerId: string): void {
+    const traits = applyCompanionPersonaEvent(this.companionTraitFor(playerId), kind);
+    this.companionTraits.set(playerId, traits);
+
+    const cooldown = companionData.persona.interactionCooldownSeconds;
+    if (this.elapsedSeconds - this.lastCompanionCommentaryAt < cooldown) return;
+    this.lastCompanionCommentaryAt = this.elapsedSeconds;
+
+    this.pendingCompanionPersonaEvents.push({
+      kind,
+      playerId,
+      traits,
+      wave: this.waveManager.currentWave,
+    });
+  }
+
+  /**
+   * 웨이브 종료는 방 전체 이벤트라 특정 행위자가 없다 — 그 순간 티모시와 가장 가까운
+   * 플레이어를 향해 말한다. 정상 진행(tick)과 개발 커맨드(day)가 같은 함수를 쓴다.
+   */
+  private enqueueCompanionWaveEndEvent(): void {
+    const nearestId = this.findNearestPlayerId(this.companion.x, this.companion.y);
+    if (nearestId) this.enqueueCompanionPersonaEvent('waveEnd', nearestId);
+  }
+
+  /** 특정 지점에서 가장 가까운, 다운되지 않은 플레이어 id. 후보가 없으면 undefined. */
+  private findNearestPlayerId(x: number, y: number): string | undefined {
+    let nearestId: string | undefined;
+    let nearestDistance = Infinity;
+    for (const [id, player] of this.players) {
+      if (player.hp <= 0) continue;
+      const distance = Math.hypot(player.x - x, player.y - y);
+      if (distance < nearestDistance) {
+        nearestDistance = distance;
+        nearestId = id;
+      }
+    }
+    return nearestId;
+  }
+
+  /** 티모시 옆에서 상호작용(E)했음을 알린다. 사거리 밖이면 조용히 무시하고 false. */
+  requestCompanionInteraction(playerId: string): boolean {
+    const player = this.players.get(playerId);
+    if (!player) return false;
+    const distance = Math.hypot(player.x - this.companion.x, player.y - this.companion.y);
+    if (distance > companionData.interactRange) return false;
+    this.enqueueCompanionPersonaEvent('proximityInteract', playerId);
+    return true;
+  }
+
+  /**
+   * 채팅으로 "@티모시 ..." 하고 직접 말을 걸었을 때. 거리 제한이 없다(채팅 자체가 방
+   * 전체에 항상 보이는 것과 같은 맥락) — 대신 `enqueueCompanionPersonaEvent`의 방 전역
+   * 잡담 쿨다운과는 별개인 자체 쿨다운만 통과해야 한다. 쿨다운 중이면 버리지 않고
+   * 큐에 쌓아뒀다가 tick()에서 쿨다운이 끝나는 대로 순서대로 하나씩 내보낸다(연달아
+   * 두 번 물어보면 두 번째가 조용히 씹히던 문제를 이렇게 고쳤다) — 대신 큐가
+   * MAX_QUEUED_COMPANION_MESSAGES를 넘기면 그건 진짜 스팸으로 보고 거절한다.
+   */
+  sendCompanionMessage(playerId: string, message: string): boolean {
+    if (!this.players.has(playerId)) return false;
+    const cooldown = companionData.persona.playerMessageCooldownSeconds;
+    if (this.elapsedSeconds - this.lastCompanionMessageAt < cooldown) {
+      if (this.queuedCompanionMessages.length >= World.MAX_QUEUED_COMPANION_MESSAGES) return false;
+      this.queuedCompanionMessages.push({ playerId, message });
+      return true;
+    }
+    this.emitCompanionMessage(playerId, message);
+    return true;
+  }
+
+  /** sendCompanionMessage의 실제 처리부 — 쿨다운을 이미 통과했다고 가정한다. */
+  private emitCompanionMessage(playerId: string, message: string): void {
+    this.lastCompanionMessageAt = this.elapsedSeconds;
+    const traits = applyCompanionPersonaEvent(this.companionTraitFor(playerId), 'playerMessage');
+    this.companionTraits.set(playerId, traits);
+    // 지금까지의 대화 기록(이번 메시지 이전까지)을 이벤트에 실어 보낸다 — 이번 메시지
+    // 자체는 buildCompanionPersonaPrompt가 새 user 턴으로 따로 붙인다. 복사본을 넘겨야
+    // 한다 — 안 그러면 바로 아래 pushCompanionHistory가 같은 배열 객체를 이어서 밀어
+    // 넣어서, 이 이벤트에 실린 "이전까지의 기록"에 방금 보낸 메시지까지 같이 보이게 된다.
+    const history = [...this.getCompanionHistory(playerId)];
+    this.pendingCompanionPersonaEvents.push({
+      kind: 'playerMessage',
+      playerId,
+      traits,
+      wave: this.waveManager.currentWave,
+      message,
+      history,
+    });
+    this.pushCompanionHistory(playerId, 'user', message);
+  }
+
+  /** 쿨다운이 끝났고 큐에 대기 중인 질문이 있으면 가장 오래된 것 하나를 내보낸다. tick()이 매 틱 부른다. */
+  private tickQueuedCompanionMessages(): void {
+    if (this.queuedCompanionMessages.length === 0) return;
+    const cooldown = companionData.persona.playerMessageCooldownSeconds;
+    if (this.elapsedSeconds - this.lastCompanionMessageAt < cooldown) return;
+    const next = this.queuedCompanionMessages.shift()!;
+    this.emitCompanionMessage(next.playerId, next.message);
+  }
+
+  /** "@티모시 ..." 대화 기록(이 플레이어와 나눈 최근 대화). GameRoom이 프롬프트에 이어 붙인다. */
+  getCompanionHistory(playerId: string): readonly CompanionPersonaTurn[] {
+    return this.companionConversations.get(playerId) ?? [];
+  }
+
+  /** LLM이 실제로 뭐라고 답했는지 기록한다 — GameRoom이 응답을 받은 뒤 호출한다. */
+  recordCompanionReply(playerId: string, reply: string): void {
+    this.pushCompanionHistory(playerId, 'assistant', reply);
+  }
+
+  private pushCompanionHistory(playerId: string, role: CompanionPersonaTurn['role'], content: string): void {
+    const history = this.companionConversations.get(playerId) ?? [];
+    history.push({ role, content });
+    const limit = companionData.persona.historyMessageLimit;
+    while (history.length > limit) history.shift();
+    this.companionConversations.set(playerId, history);
+  }
+
+  /** 쌓인 티모시 대사 이벤트를 전부 꺼내고 큐를 비운다. GameRoom이 매 틱 폴링한다. */
+  drainCompanionPersonaEvents(): CompanionPersonaEvent[] {
+    if (this.pendingCompanionPersonaEvents.length === 0) return [];
+    const events = this.pendingCompanionPersonaEvents;
+    this.pendingCompanionPersonaEvents = [];
     return events;
   }
 
@@ -1979,7 +2156,12 @@ export class World {
 
   private damageCompanion(amount: number): void {
     this.companion.hp = Math.max(0, this.companion.hp - amount);
-    if (this.companion.hp <= 0) this.companion.state = 'downed';
+    if (this.companion.hp <= 0) {
+      this.companion.state = 'downed';
+      // tickCompanionDamage()가 이미 'downed' 상태를 걸러내므로 이 전환은 딱 한 번만 일어난다.
+      const nearestId = this.findNearestPlayerId(this.companion.x, this.companion.y);
+      if (nearestId) this.enqueueCompanionPersonaEvent('companionDowned', nearestId);
+    }
   }
 
   /**

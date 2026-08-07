@@ -515,6 +515,45 @@ const CompanionDataSchema = z.object({
   maxHp: z.number().positive(),
   /** 코어 기준 스폰 위치(px). */
   spawnOffset: z.object({ x: z.number(), y: z.number() }),
+  /** 이 거리 안에서 E를 누르면 근접 상호작용(대사 트리거)이 된다. */
+  interactRange: z.number().positive(),
+  /**
+   * 플레이어별로 쌓이는 티모시와의 관계 트레잇 + LLM 대사 설정. corePersona.json과
+   * 같은 3축(trust/efficiency/recklessness)을 재사용하지만, 방 전체가 아니라
+   * **플레이어 id별로 따로** 누적된다(World가 Map으로 관리).
+   */
+  persona: z.object({
+    traitMin: z.number(),
+    traitMax: z.number(),
+    moodThreshold: z.number().positive(),
+    /** 대사 생성 자체(LLM 호출/브로드캐스트)의 방 전역 최소 간격(초). 트레잇 누적은 이 쿨다운과 무관하게 항상 일어난다. */
+    interactionCooldownSeconds: z.number().positive(),
+    /**
+     * "@티모시 ..." 채팅으로 직접 말 걸었을 때 전용 쿨다운(초). interactionCooldownSeconds와
+     * 별개 풀이다 — 명시적으로 건 말은 방 전역 잡담 쿨다운에 걸려 조용히 씹히면 안 되고,
+     * 반대로 직접 말 걸기 스팸이 다른 이벤트(코어 납품 등)의 대사까지 막아서도 안 된다.
+     */
+    playerMessageCooldownSeconds: z.number().positive(),
+    /**
+     * "@티모시 ..." 대화 기록을 플레이어별로 최근 몇 마디까지 들고 있다가 다음 프롬프트에
+     * 이어 붙일지(메시지 개수, user+assistant 합산 — 3왕복이면 6). 너무 크면 매 호출마다
+     * 토큰이 계속 불어난다.
+     */
+    historyMessageLimit: z.number().int().positive(),
+    eventWeights: z.object({
+      coreDeposit: PersonaTraitDeltaSchema,
+      proximityInteract: PersonaTraitDeltaSchema,
+      companionDowned: PersonaTraitDeltaSchema,
+      companionRevived: PersonaTraitDeltaSchema,
+      waveEnd: PersonaTraitDeltaSchema,
+      playerMessage: PersonaTraitDeltaSchema,
+    }),
+    fallbackLines: z.object({
+      warm: z.array(z.string()).min(1),
+      cold: z.array(z.string()).min(1),
+      neutral: z.array(z.string()).min(1),
+    }),
+  }),
 });
 
 export type CompanionData = z.infer<typeof CompanionDataSchema>;

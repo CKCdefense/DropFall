@@ -250,6 +250,8 @@ export interface GameConnection {
    * 페르소나 대사를 새로 생성할지 정한다 — 여기선 그냥 요청만 보낸다.
    */
   coreInteract(): void;
+  /** 티모시 옆에서 상호작용(E)했음을 알린다. 서버가 사거리를 판정해 대사를 생성할지 정한다. */
+  companionInteract(): void;
   /** 제작 요청. 티어·재료 검증은 서버가 한다. */
   craft(recipeId: string): void;
   /** 창고의 재료를 상점에 판다(대금은 팀 자금으로). */
@@ -288,6 +290,17 @@ export interface GameConnection {
    * 돌려준다 — API 키를 클라이언트 번들에 넣지 않기 위해서다.
    */
   onCoreCommentary(callback: (text: string) => void): void;
+
+  /**
+   * 티모시가 새 대사를 말할 때마다 호출된다(코어 납품/근접 상호작용/다운·부활/웨이브 종료
+   * 시 서버가 broadcast). playerId는 이 대사가 향하는 플레이어의 세션 id다.
+   */
+  onCompanionCommentary(callback: (text: string, playerId: string) => void): void;
+
+  /** 채팅 한 줄 전송. 방 전체가 항상 볼 수 있다(거리 제한 없음). 서버가 길이/공백을 검증한다. */
+  sendChat(text: string): void;
+  /** 누군가(나 포함) 채팅을 보낼 때마다 호출된다. */
+  onChatMessage(callback: (message: { playerId: string; nickname: string; text: string }) => void): void;
 
   // ---------------------------------------------------------------- 대기실
 

@@ -427,9 +427,13 @@ export class EntityRenderer {
     for (const sprite of this.players.values()) {
       const label = sprite.getByName('label') as Phaser.GameObjects.Text | null;
       label?.setResolution(zoom);
+      const speech = sprite.getByName('speech') as Phaser.GameObjects.Text | null;
+      speech?.setResolution(zoom);
     }
     const companionLabel = this.companion?.getByName('label') as Phaser.GameObjects.Text | null;
     companionLabel?.setResolution(zoom);
+    const companionSpeech = this.companion?.getByName('speech') as Phaser.GameObjects.Text | null;
+    companionSpeech?.setResolution(zoom);
   }
 
   sync(snapshot: WorldSnapshot): void {
@@ -583,6 +587,22 @@ export class EntityRenderer {
     // 닉네임도 지형 위에 그대로 얹힌다 — 풀·모래 무늬에 묻히지 않게 그림자를 준다.
     applyTextShadow(label);
 
+    // 채팅 말풍선. 티모시와 같은 패턴 — 평소엔 빈 텍스트로 자리를 차지하지 않다가
+    // 채팅이 오면 showPlayerSpeech가 채워 넣고 페이드아웃시킨다.
+    const speech = this.scene.add
+      .text(0, labelY - LABEL_FONT_SIZE - 2, '', {
+        fontFamily: FONT_SMALL,
+        fontSize: `${LABEL_FONT_SIZE}px`,
+        color: '#f2f5fa',
+        align: 'center',
+        wordWrap: { width: 200 },
+      })
+      .setOrigin(0.5, 1)
+      .setAlpha(0)
+      .setName('speech');
+    speech.setResolution(this.zoom);
+    applyTextShadow(speech);
+
     // 컨테이너 원점(0,0)이 곧 서버 좌표(player.x/y)이므로, 반경만 플레이어 자신의
     // 충돌 반경(HIT_RADIUS)과 맞추면 스프라이트 origin/오프셋과 무관하게 정확한
     // 판정 범위가 그려진다. 건축물 쪽 반경은 각 건축물에 따로 그린다(createBuilding).
@@ -593,7 +613,7 @@ export class EntityRenderer {
     collisionDebug.setVisible(this.collisionDebugVisible);
 
     // 순서는 매 프레임 orderWeaponAgainstBody가 다시 잡는다 — 여기선 전부 넣기만 한다.
-    const parts: Phaser.GameObjects.GameObject[] = [aim, ...hands, body, label];
+    const parts: Phaser.GameObjects.GameObject[] = [aim, ...hands, body, label, speech];
     if (flash) parts.push(flash);
     if (swingFx) parts.push(swingFx);
     parts.push(collisionDebug);
@@ -1568,7 +1588,59 @@ export class EntityRenderer {
     label.setResolution(this.zoom);
     applyTextShadow(label);
 
-    return this.scene.add.container(view.x, view.y, [body, label]);
+    // 대사 말풍선. 이름표보다 한 칸 위, 평소엔 빈 텍스트라 자리를 차지하지 않는다
+    // (showCompanionSpeech가 대사가 올 때만 채워 넣고 페이드아웃시킨다).
+    const speech = this.scene.add
+      .text(0, labelY - LABEL_FONT_SIZE - 2, '', {
+        fontFamily: FONT_SMALL,
+        fontSize: `${LABEL_FONT_SIZE}px`,
+        color: '#f2f5fa',
+        align: 'center',
+        wordWrap: { width: 160 },
+      })
+      .setOrigin(0.5, 1)
+      .setAlpha(0)
+      .setName('speech');
+    speech.setResolution(this.zoom);
+    applyTextShadow(speech);
+
+    return this.scene.add.container(view.x, view.y, [body, label, speech]);
+  }
+
+  /**
+   * 티모시가 새 대사를 말할 때 머리 위에 잠깐 띄운다(코어 AI 토스트와 달리 캐릭터
+   * 본인 옆에 붙어 나온다 — "애정 가는 캐릭터"라는 목적에 맞춰 화면 상단이 아니라
+   * 월드 안 캐릭터 옆에서 말하게 했다). 대사가 연달아 오면 진행 중인 페이드를
+   * 취소하고 새로 띄운다(HudScene.showAiToast와 동일한 규칙).
+   */
+  showCompanionSpeech(text: string): void {
+    const speech = this.companion?.getByName('speech') as Phaser.GameObjects.Text | null;
+    if (!speech) return; // 아직 첫 스냅샷을 못 받아 컨테이너가 없으면 조용히 무시한다.
+
+    this.scene.tweens.killTweensOf(speech);
+    speech.setText(text).setAlpha(1);
+    this.scene.tweens.add({
+      targets: speech,
+      alpha: 0,
+      duration: 600,
+      delay: 4000,
+    });
+  }
+
+  /** 플레이어 채팅 한 줄을 그 사람 머리 위에 잠깐 띄운다. showCompanionSpeech와 동일한 규칙. */
+  showPlayerSpeech(playerId: string, text: string): void {
+    const container = this.players.get(playerId);
+    const speech = container?.getByName('speech') as Phaser.GameObjects.Text | null;
+    if (!speech) return; // 아직 그 플레이어 스프라이트가 없으면(늦게 스냅샷 도착 등) 조용히 무시한다.
+
+    this.scene.tweens.killTweensOf(speech);
+    speech.setText(text).setAlpha(1);
+    this.scene.tweens.add({
+      targets: speech,
+      alpha: 0,
+      duration: 600,
+      delay: 4000,
+    });
   }
 
   private updateCompanionSprite(container: Phaser.GameObjects.Container, view: CompanionView): void {

@@ -39,4 +39,7 @@ pnpm test
 
 ```bash
 pnpm --filter @dropfall/shared exec vitest run tests/ai
+
+# AI 대사 테스트
+pnpm --filter @dropfall/server exec tsx src/dev/persona-smoke-test.ts
 ```

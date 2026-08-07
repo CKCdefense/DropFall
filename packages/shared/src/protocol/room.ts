@@ -7,6 +7,7 @@ export const NICKNAME_MAX_LENGTH = 12;
 export const ROOM_NAME_MAX_LENGTH = 16;
 export const ROOM_PASSWORD_MAX_LENGTH = 16;
 export const ROOM_CODE_LENGTH = 4;
+export const CHAT_MESSAGE_MAX_LENGTH = 200;
 
 /** 0/O, 1/I/L 처럼 눈으로 구분이 어려운 글자는 뺐다 — 코드를 구두로 불러줄 수 있어야 한다. */
 export const ROOM_CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
@@ -80,6 +81,13 @@ export function sanitizeRoomName(raw: unknown): string | null {
 export function sanitizePassword(raw: unknown): string {
   if (typeof raw !== 'string') return '';
   return raw.slice(0, ROOM_PASSWORD_MAX_LENGTH);
+}
+
+/** 유효하면 정규화된 채팅 문자열, 공백만 있거나 너무 길면 null. */
+export function sanitizeChatText(raw: unknown): string | null {
+  const value = normalizeText(raw);
+  if (value.length === 0 || value.length > CHAT_MESSAGE_MAX_LENGTH) return null;
+  return value;
 }
 
 /** 사용자가 소문자로 입력해도 통하게 한다 */
