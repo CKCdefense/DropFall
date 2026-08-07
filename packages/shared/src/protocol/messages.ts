@@ -92,3 +92,14 @@ export interface QuickMoveItemMessage {
   container: 'inventory' | 'storage';
   index: number;
 }
+
+/**
+ * 코어 AI 페르소나의 한 줄 대사. 웨이브 종료/콜로니 파괴/코어 상호작용 시 서버가
+ * LLM(또는 실패 시 폴백 대사)으로 생성해 방 전체에 broadcast한다.
+ */
+export interface CoreCommentaryMessage {
+  text: string;
+}
+
+/** server→client 브로드캐스트 메시지 이름. `room.broadcast(CORE_COMMENTARY_MESSAGE, ...)`. */
+export const CORE_COMMENTARY_MESSAGE = 'coreCommentary';

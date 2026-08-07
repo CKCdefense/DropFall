@@ -2,6 +2,7 @@ import { MAP_ORIGIN, MAP_SIZE_TILES, TILE_SIZE, cellCenterWorld, worldToCell } f
 import {
   buildingsData,
   coloniesData,
+  corePersonaData,
   coreUpgradesData,
   craftingData,
   itemsData,
@@ -24,6 +25,12 @@ import type { PlayerInputMessage } from '../protocol/messages';
 import { FlowField, type FlowFieldGrid } from './ai/flowField';
 import { BuildingRegistry, type BuildingEntity } from './building';
 import { COLONY_RADIUS, ColonyRegistry, colonyStageFor, type ColonyEntity } from './colony';
+import {
+  applyPersonaEvent,
+  createInitialPersonaTraits,
+  type CorePersonaTraits,
+  type PersonaEvent,
+} from './corePersona';
 import {
   HIT_RADIUS,
   WeaponCooldowns,
@@ -336,6 +343,13 @@ export class World {
   private readonly cooldowns = new WeaponCooldowns();
   private readonly waveManager = new WaveManager();
   private readonly buildings = new BuildingRegistry();
+  /** 코어 AI 페르소나 트레잇. 웨이브 종료/콜로니 파괴/코어 상호작용마다 조금씩 바뀐다. */
+  private personaTraits: CorePersonaTraits = createInitialPersonaTraits();
+  /** GameRoom이 매 틱 drainPersonaEvents()로 비워가는 큐 — LLM 호출은 여기서 하지 않는다
+   * (shared/sim은 fetch 등 Node/DOM API를 쓸 수 없다, docs/02-tech-spec.md §2.1). */
+  private pendingPersonaEvents: PersonaEvent[] = [];
+  /** 코어 상호작용 트리거의 마지막 발생 시각(elapsedSeconds 기준). 스팸 방지 쿨다운에 쓴다. */
+  private lastCoreInteractionAt = -Infinity;
   private readonly resourceNodes = new Map<string, ResourceNodeEntity>();
   private readonly droppedItems = new Map<string, DroppedItemEntity>();
   private readonly colonies = new ColonyRegistry();
@@ -1104,6 +1118,7 @@ export class World {
         // 정상 진행과 같은 함수로 처리한다.
         if (this.waveManager.debugEndNight() && this.waveManager.currentPhase === 'day') {
           this.onDayBegan();
+          this.enqueuePersonaEvent('waveEnd');
         }
       },
       spawnMonsters: (type, count) => {
@@ -1124,6 +1139,7 @@ export class World {
         this.core.hp = Math.min(this.core.maxHp, amount);
       },
       rerollShop: () => this.rollShopStock(),
+      forceCoreVoice: () => this.enqueuePersonaEvent('coreInteract'),
     };
   }
 
@@ -1152,6 +1168,13 @@ export class World {
     // 지난 낮의 스킵 투표를 초기화한다(docs/backend/11 §4.1).
     if (previousPhase !== 'day' && this.waveManager.currentPhase === 'day') {
       this.onDayBegan();
+    }
+    // 밤이 끝난 시점(다음 낮이든 최종 승리든) — 코어 AI 페르소나가 그 웨이브를 코멘트한다.
+    if (
+      previousPhase === 'night' &&
+      (this.waveManager.currentPhase === 'day' || this.waveManager.currentPhase === 'victory')
+    ) {
+      this.enqueuePersonaEvent('waveEnd');
     }
 
     this.tickMonsters(dtSeconds);
@@ -1214,6 +1237,40 @@ export class World {
   /** 현재 낮 스킵 투표에 동의한 인원 수. 필요 인원은 접속 중인 전원(getPlayers().size)이다. */
   getSkipVoteCount(): number {
     return this.skipVotes.size;
+  }
+
+  /** 트레잇을 갱신하고 큐에 이벤트를 적재한다. LLM 호출은 GameRoom 몫이라 여기선 하지 않는다. */
+  private enqueuePersonaEvent(kind: PersonaEvent['kind']): void {
+    this.personaTraits = applyPersonaEvent(this.personaTraits, kind, corePersonaData.eventWeights, {
+      min: corePersonaData.traitMin,
+      max: corePersonaData.traitMax,
+    });
+    this.pendingPersonaEvents.push({
+      kind,
+      traits: this.personaTraits,
+      wave: this.waveManager.currentWave,
+    });
+  }
+
+  /**
+   * 코어 모달을 연 플레이어의 상호작용 요청. 쿨다운(corePersonaData.coreInteractionCooldownSeconds)
+   * 안이면 조용히 무시한다 — 연타로 대사가 도배되는 걸 막는다(룸 전역 쿨다운, 플레이어별 아님).
+   * 성공하면 true.
+   */
+  requestCoreInteraction(_playerId: string): boolean {
+    const cooldown = corePersonaData.coreInteractionCooldownSeconds;
+    if (this.elapsedSeconds - this.lastCoreInteractionAt < cooldown) return false;
+    this.lastCoreInteractionAt = this.elapsedSeconds;
+    this.enqueuePersonaEvent('coreInteract');
+    return true;
+  }
+
+  /** 쌓인 페르소나 이벤트를 전부 꺼내고 큐를 비운다. GameRoom이 매 틱 폴링한다. */
+  drainPersonaEvents(): PersonaEvent[] {
+    if (this.pendingPersonaEvents.length === 0) return [];
+    const events = this.pendingPersonaEvents;
+    this.pendingPersonaEvents = [];
+    return events;
   }
 
   /** 코어 셀로 Flow Field를 다시 계산한다. 생성자, 건축물 설치/파괴 시에만 호출한다(매 틱 금지). */
@@ -1514,6 +1571,7 @@ export class World {
       this.rebuildColonyObstacleCells();
       this.recomputeFlowField();
       this.core.sharedEnergy += coloniesData.essenceReward;
+      this.enqueuePersonaEvent('colonyDestroyed');
       player.channelingColonyId = undefined;
       player.channelProgress = 0;
     }
