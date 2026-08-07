@@ -32,3 +32,11 @@ pnpm test
 
 - `main` — 시연 가능한 안정 버전
 - `develop` — 개발 기본 브랜치. 모든 작업은 여기서 분기해 PR로 머지
+
+## 테스트
+
+> AI 전용 테스트
+
+```bash
+pnpm --filter @dropfall/shared exec vitest run tests/ai
+```
