@@ -174,23 +174,45 @@
   },
 
   "boss_golem": {
-    "$comment": "4일차 보스 — 광역 특화. 느리지만 내려찍기가 넓고 아프다. 원거리 화력 점검 구간. (Flame Golem)",
+    "$comment": "4일차 보스 — 화염 골렘(Flame Golem). 넷 중 가장 크다(배율 4). 사거리·시점은 프레임 실측(애니 14fps)에 배율 4를 곱했다.",
     "hp": 750,
-    "hitRadius": 16,
+    "hitRadius": 60,
     "damage": 28,
-    "speed": 35,
-    "attackRange": 24,
+    "speed": 32,
+    "attackRange": 76,
     "attackInterval": 2.2,
-    "aggroRadius": 200,
-    "chargeAttack": {
-      "telegraphSeconds": 1.2,
-      "speed": 220,
-      "duration": 0.6,
-      "width": 56,
-      "damage": 35,
-      "cooldown": 10
-    },
-    "slamAttack": { "telegraphSeconds": 1.2, "radius": 90, "damage": 40, "cooldown": 8 },
+    "aggroRadius": 360,
+    "crushesObstacles": true,
+    "meleeAttacks": [
+      {
+        "$comment": "Attack01 평타 — 프레임6에 25px까지 뻗는 단순 후려치기(×4=100). 셋 중 가장 짧고 자주 나온다.",
+        "anim": 1,
+        "hits": [{ "atSeconds": 0.43, "range": 100, "arc": 90, "damage": 30 }],
+        "recoverSeconds": 0.25,
+        "cooldown": 3
+      },
+      {
+        "$comment": "Attack02 광역 찍기 — 프레임6에 앞 37px·뒤 -20px로 **양쪽으로 동시에** 퍼진다. 옆으로 피할 수 없어 전방향(arc 360, ×4=148)으로 잡았다.",
+        "anim": 2,
+        "hits": [{ "atSeconds": 0.43, "range": 148, "arc": 360, "damage": 46 }],
+        "recoverSeconds": 0.5,
+        "cooldown": 7
+      },
+      {
+        "$comment": "Attack03 광역 돌진 — 프레임4~7에 몸통 중심이 1→18px로 실제로 앞으로 나아간다. 그 구간을 돌진으로 옮기고(×4), 멈추는 순간 전방향 충격(arc 360)을 준다.",
+        "anim": 3,
+        "hits": [{ "atSeconds": 0.55, "range": 140, "arc": 360, "damage": 32 }],
+        "dash": {
+          "fromSeconds": 0.28,
+          "toSeconds": 0.55,
+          "speed": 300,
+          "radius": 76,
+          "damage": 34
+        },
+        "recoverSeconds": 0.6,
+        "cooldown": 10
+      }
+    ],
     "energyDrop": { "min": 5, "max": 8 },
     "itemDrops": [
       { "itemId": "drop_normal", "chance": 1, "min": 5, "max": 8 },

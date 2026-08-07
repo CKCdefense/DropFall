@@ -75,6 +75,25 @@ const MeleeAttackSchema = z.object({
   anim: z.number().int().positive(),
   /** 이 동작이 만드는 타격들. 시간순으로 넣는다. */
   hits: z.array(MeleeHitSchema).min(1),
+  /**
+   * 있으면 이 동작은 **앞으로 돌진하면서** 지나가는 것을 쓸어버린다(화염 골렘 3번).
+   *
+   * `hits`(특정 순간의 부채꼴 판정)와 성격이 다르다 — 이쪽은 창(window) 동안 계속
+   * 이동하며 몸에 닿는 대상을 **한 번씩만** 때린다. 순간 판정으로는 "지나가면서 밀어버린다"를
+   * 표현할 수 없고, 매 틱 판정하면 가만히 선 사람이 수십 번 맞는다.
+   */
+  dash: z
+    .object({
+      /** 동작 시작 후 돌진이 시작/종료되는 시점(초). 스프라이트가 실제로 나아가는 구간에 맞춘다. */
+      fromSeconds: z.number().nonnegative(),
+      toSeconds: z.number().positive(),
+      /** 돌진 이동 속도(px/s). 평상시 speed와 무관하다. */
+      speed: z.number().positive(),
+      /** 몸에 닿았다고 보는 반경(px). */
+      radius: z.number().positive(),
+      damage: z.number().nonnegative(),
+    })
+    .optional(),
   /** 마지막 타격 후 경직(초). 이 동안은 움직이지도 다음 공격을 하지도 않는다 — 반격할 틈이다. */
   recoverSeconds: z.number().nonnegative(),
   /** 이 기술을 다시 쓸 수 있게 되기까지의 시간(초). 기술마다 따로 돈다. */

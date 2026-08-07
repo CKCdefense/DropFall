@@ -259,3 +259,118 @@ describe('World — 3일차 보스(흑기사) 창술', () => {
     expect(monstersData.boss_knight.crushesObstacles).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------- 4일차 화염 골렘
+
+const GOLEM = monstersData.boss_golem.meleeAttacks!;
+const JAB = GOLEM[0]!; // Attack01 — 평타
+const STOMP = GOLEM[1]!; // Attack02 — 광역 찍기(전방향)
+const RUSH = GOLEM[2]!; // Attack03 — 광역 돌진
+
+function spawnGolem(world: World): MonsterEntity {
+  world.addPlayer('dev', 3000, 3000);
+  const result = world.runDevCommand('dev', 'spawn boss_golem 1');
+  if (!result.ok) throw new Error(`보스 스폰 실패: ${result.message}`);
+  const boss = [...world.getMonsters().values()].find((m) => m.type === 'boss_golem')!;
+  boss.x = 400;
+  boss.y = 0;
+  boss.facingX = -1;
+  boss.facingY = 0;
+  return boss;
+}
+
+/**
+ * 원하는 기술이 나올 때까지 다른 기술의 쿨다운을 태워 유도한다. 기술 선택은
+ * 무작위라 시드를 고정할 수 없어서, 나오지 않은 기술만 준비 상태로 남긴다.
+ */
+function forceGolemAttack(world: World, boss: MonsterEntity, index: number): void {
+  for (let attempt = 0; attempt < 600; attempt += 1) {
+    // 원하는 것만 쿨다운 0, 나머지는 막아 둔다.
+    boss.meleeCooldowns.forEach((_, i) => {
+      boss.meleeCooldowns[i] = i === index ? 0 : 99;
+    });
+    // 기술이 나올 때까지 기다리는 동안 평타를 맞는다. 체력이 0에 붙으면 이후 피해
+    // 측정이 뭉개지므로(clamp) 매번 되돌려 둔다 — 이 단계는 측정 대상이 아니다.
+    for (const p of world.getPlayers().values()) p.hp = 100;
+    world.tick(0.05);
+    if (boss.pattern.kind === 'meleeSwing' && (boss.pattern as { index: number }).index === index) {
+      return;
+    }
+    if (boss.pattern.kind === 'idle') {
+      boss.x = 400;
+      boss.y = 0;
+    }
+  }
+  throw new Error(`골렘 기술 ${index}가 나오지 않았다`);
+}
+
+describe('World — 4일차 보스(화염 골렘)', () => {
+  it('평타는 셋 중 가장 짧고, 광역 찍기와 돌진은 전방향이라 옆으로 못 피한다', () => {
+    expect(reachOf(JAB)).toBeLessThan(reachOf(STOMP));
+    expect(JAB.hits[0]!.arc).toBeLessThan(360);
+    expect(STOMP.hits[0]!.arc).toBe(360);
+    expect(RUSH.hits[0]!.arc).toBe(360);
+    // 돌진만 이동을 동반한다.
+    expect(JAB.dash).toBeUndefined();
+    expect(STOMP.dash).toBeUndefined();
+    expect(RUSH.dash).toBeDefined();
+  });
+
+  it('3번 기술은 실제로 앞으로 돌진한다 — 제자리 기술과 달리 위치가 바뀐다', () => {
+    const world = new World();
+    const boss = spawnGolem(world);
+    world.addPlayer('p1', boss.x - 200, boss.y); // 돌진 사거리 밖, 아그로 안
+
+    forceGolemAttack(world, boss, 2);
+    const startX = boss.x;
+    for (let i = 0; i < 80 && boss.pattern.kind === 'meleeSwing'; i += 1) world.tick(0.02);
+
+    // 돌진 창 0.27초 × 300px/s ≈ 80px 전진(코어 쪽 = -x).
+    expect(boss.x).toBeLessThan(startX - 40);
+  });
+
+  it('돌진에 쓸린 대상은 한 번만 맞는다 — 가만히 서 있어도 중복 피해가 없다', () => {
+    const world = new World();
+    const boss = spawnGolem(world);
+    world.addPlayer('p1', boss.x - 60, boss.y); // 돌진 경로 바로 앞
+    const player = world.getPlayers().get('p1')!;
+
+    forceGolemAttack(world, boss, 2);
+    player.hp = 500; // 합계를 재려면 0에 닿아 잘리면 안 된다
+    const hpBefore = player.hp;
+
+    // 돌진이 끝날 때까지 계속 몸에 붙여 둔다 — 매 틱 판정하는 구현이었다면
+    // 수십 번 맞았을 상황이다.
+    for (let i = 0; i < 300 && boss.pattern.kind === 'meleeSwing'; i += 1) {
+      world.tick(0.01);
+      player.x = boss.x - 20;
+      player.y = boss.y;
+    }
+
+    // 돌진 1회 + 착지 충격 1회. 그 이상이면 중복 판정이 새고 있다는 뜻이다.
+    expect(hpBefore - player.hp).toBe(RUSH.dash!.damage + RUSH.hits[0]!.damage);
+  });
+
+  it('광역 찍기는 등 뒤로 돌아가도 맞는다', () => {
+    const world = new World();
+    const boss = spawnGolem(world);
+    world.addPlayer('p1', boss.x - 60, boss.y);
+    const player = world.getPlayers().get('p1')!;
+
+    forceGolemAttack(world, boss, 1);
+    player.x = boss.x + 80; // 예고 방향(-x)의 정반대
+    player.y = boss.y;
+    const hpBefore = player.hp;
+
+    for (let i = 0; i < 80 && boss.pattern.kind === 'meleeSwing'; i += 1) world.tick(0.02);
+
+    expect(player.hp).toBe(hpBefore - STOMP.hits[0]!.damage);
+  });
+
+  it('넷 중 가장 큰 4배 체급이라 피격 반경도 가장 크다', () => {
+    // 배율(monsterSprite.ts SCALE)과 짝을 이루는 값 — 한쪽만 바뀌면 그림과 판정이 어긋난다.
+    expect(monstersData.boss_golem.hitRadius).toBeGreaterThan(monstersData.boss_demon.hitRadius);
+    expect(monstersData.boss_golem.hitRadius).toBeGreaterThan(monstersData.boss_knight.hitRadius);
+    expect(monstersData.boss_golem.crushesObstacles).toBe(true);
+  });
+});

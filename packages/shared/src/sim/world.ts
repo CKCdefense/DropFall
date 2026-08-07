@@ -291,6 +291,9 @@ export type BossPatternState =
       nextHit: number;
       dirX: number;
       dirY: number;
+      /** 돌진(dash)이 있는 기술에서 이미 쓸고 지나간 대상. 한 번의 돌진에 한 사람이
+       * 여러 번 맞지 않게 한다(매 틱 판정하면 가만히 선 사람이 수십 번 맞는다). */
+      dashHitIds: Set<string>;
     }
   /** 판정 후 경직. 이 동안은 이동도 다음 공격도 없다 — 플레이어가 반격할 틈이다. */
   | { kind: 'meleeRecover'; timer: number };
@@ -2375,8 +2378,13 @@ export class World {
       const ready: number[] = [];
       data.meleeAttacks.forEach((attack, index) => {
         if ((monster.meleeCooldowns[index] ?? 0) > 0) return;
-        // 타격이 여러 번인 기술은 그중 가장 먼 사거리로 후보를 가린다.
-        const reach = Math.max(...attack.hits.map((hit) => hit.range));
+        // 타격이 여러 번인 기술은 그중 가장 먼 사거리로 후보를 가린다. 돌진이 붙은
+        // 기술은 **돌진으로 좁히는 거리까지 더해서** 본다 — 간격을 메우는 게 돌진의
+        // 존재 이유인데, 최종 사거리만 보면 이미 붙어 있을 때만 나와서 무의미해진다.
+        const dashTravel = attack.dash
+          ? attack.dash.speed * (attack.dash.toSeconds - attack.dash.fromSeconds)
+          : 0;
+        const reach = Math.max(...attack.hits.map((hit) => hit.range)) + dashTravel;
         if (targetDistance > reach) return;
         ready.push(index);
       });
@@ -2388,7 +2396,15 @@ export class World {
         const dirY = targetDistance > 0 ? dyToTarget / targetDistance : monster.facingY;
         monster.facingX = dirX;
         monster.facingY = dirY;
-        monster.pattern = { kind: 'meleeSwing', elapsed: 0, index, nextHit: 0, dirX, dirY };
+        monster.pattern = {
+          kind: 'meleeSwing',
+          elapsed: 0,
+          index,
+          nextHit: 0,
+          dirX,
+          dirY,
+          dashHitIds: new Set(),
+        };
         return true;
       }
       // 쓸 수 있는 검술이 없으면(전부 쿨다운이거나 너무 멀다) 평소처럼 추격한다.
@@ -2451,6 +2467,15 @@ export class World {
     monster.facingY = pattern.dirY;
     pattern.elapsed += dtSeconds;
 
+    // 돌진 구간이면 앞으로 밀고 나가면서 닿는 대상을 한 번씩 쓸어버린다.
+    if (
+      attack.dash &&
+      pattern.elapsed >= attack.dash.fromSeconds &&
+      pattern.elapsed <= attack.dash.toSeconds
+    ) {
+      this.tickMeleeDash(monster, attack.dash, pattern, dtSeconds);
+    }
+
     while (
       pattern.nextHit < attack.hits.length &&
       pattern.elapsed >= attack.hits[pattern.nextHit]!.atSeconds
@@ -2464,6 +2489,36 @@ export class World {
     monster.meleeCooldowns[pattern.index] = attack.cooldown;
     monster.pattern = { kind: 'meleeRecover', timer: attack.recoverSeconds };
     return true;
+  }
+
+  /**
+   * 돌진 한 틱 — 고정된 방향으로 밀고 나가며 몸에 닿는 대상을 **한 번씩만** 때린다.
+   * 이동은 평소와 같은 `moveMonster`를 쓴다. 거구 보스는 crushesObstacles라 나무를
+   * 밟고 지나가고, 그렇지 않은 타입이면 장애물 앞에서 자연히 멈춘다.
+   */
+  private tickMeleeDash(
+    monster: MonsterEntity,
+    dash: NonNullable<MeleeAttackData['dash']>,
+    pattern: Extract<BossPatternState, { kind: 'meleeSwing' }>,
+    dtSeconds: number,
+  ): void {
+    this.moveMonster(monster, pattern.dirX, pattern.dirY, dash.speed, dtSeconds);
+
+    for (const player of this.players.values()) {
+      if (player.hp <= 0 || pattern.dashHitIds.has(player.id)) continue;
+      if (!circlesOverlap(monster.x, monster.y, player.x, player.y, dash.radius + HIT_RADIUS)) continue;
+      this.damagePlayer(player, dash.damage);
+      pattern.dashHitIds.add(player.id);
+    }
+
+    if (
+      this.companion.state !== 'downed' &&
+      !pattern.dashHitIds.has('companion') &&
+      circlesOverlap(monster.x, monster.y, this.companion.x, this.companion.y, dash.radius + HIT_RADIUS)
+    ) {
+      this.damageCompanion(dash.damage);
+      pattern.dashHitIds.add('companion');
+    }
   }
 
   /** 검을 휘두른 뒤 경직. 그냥 시간만 흘려보낸다(이동·공격 없음). */
