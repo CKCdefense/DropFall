@@ -8,6 +8,7 @@ import type {
   RoomPhase,
 } from '@dropfall/shared';
 import {
+  CORE_COMMENTARY_MESSAGE,
   LOBBY_ERROR_MESSAGE,
   LobbyMessage,
   RoomErrorCode,
@@ -275,6 +276,14 @@ export class ColyseusConnection implements GameConnection {
 
   upgradeCore(): void {
     this.room.send('upgradeCore', {});
+  }
+
+  coreInteract(): void {
+    this.room.send('coreInteract', {});
+  }
+
+  onCoreCommentary(callback: (text: string) => void): void {
+    this.room.onMessage(CORE_COMMENTARY_MESSAGE, (message: { text: string }) => callback(message.text));
   }
 
   placeBuilding(buildingType: string, cx: number, cy: number): void {

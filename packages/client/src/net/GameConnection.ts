@@ -214,6 +214,11 @@ export interface GameConnection {
    * 단계 여부를 판정한다.
    */
   upgradeCore(): void;
+  /**
+   * 코어 앞에서 상호작용(모달 열기)했음을 알린다. 서버가 쿨다운을 판단해 코어 AI
+   * 페르소나 대사를 새로 생성할지 정한다 — 여기선 그냥 요청만 보낸다.
+   */
+  coreInteract(): void;
   /** 제작 요청. 티어·재료 검증은 서버가 한다. */
   craft(recipeId: string): void;
   /** 창고의 재료를 상점에 판다(대금은 팀 자금으로). */
@@ -245,6 +250,13 @@ export interface GameConnection {
    */
   sendDevCommand(line: string): void;
   onDevResult(callback: (result: { ok: boolean; message: string }) => void): void;
+
+  /**
+   * 코어 AI 페르소나가 새 대사를 말할 때마다 호출된다(웨이브 종료/콜로니 파괴/코어
+   * 상호작용 시 서버가 broadcast). LocalConnection은 실제 LLM 호출 없이 폴백 대사만
+   * 돌려준다 — API 키를 클라이언트 번들에 넣지 않기 위해서다.
+   */
+  onCoreCommentary(callback: (text: string) => void): void;
 
   // ---------------------------------------------------------------- 대기실
 

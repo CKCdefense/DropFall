@@ -222,6 +222,7 @@ export class HudScene extends Phaser.Scene {
    */
   private createCoreModals(): void {
     this.coreModal = new CoreModal(this);
+    this.connection.onCoreCommentary((text) => this.coreModal.setCommentary(text));
     this.upgradeModal = new UpgradeModal(this);
     this.storeModal = new StoreModal(this);
     this.craftModal = new CraftModal(this);
@@ -303,6 +304,10 @@ export class HudScene extends Phaser.Scene {
       if (!this.nearCore) return false;
 
       this.coreModal.open();
+      // 코어 AI 페르소나 트리거. 서버가 쿨다운을 판단하므로 여기선 그냥 알리기만
+      // 한다(F키 쪽 단축 접근은 건드리지 않는다 — 그쪽은 선작업용 지름길일 뿐
+      // "진짜 상호작용"으로 치지 않아, 중복 트리거를 막는다).
+      this.connection.coreInteract();
       return true;
     });
   }
