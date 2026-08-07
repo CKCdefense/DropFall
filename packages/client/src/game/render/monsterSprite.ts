@@ -78,6 +78,7 @@ export const MONSTER_ORIGIN_Y = 0.6;
  */
 const SCALE: Record<string, number> = {
   boss_demon: 3,
+  boss_knight: 3,
 };
 const DEFAULT_SCALE = 1;
 

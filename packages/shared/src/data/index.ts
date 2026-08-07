@@ -44,28 +44,39 @@ const SlamAttackSchema = z.object({
 });
 
 /**
- * 보스 근접 검술 한 종류.
+ * 검술 한 동작 안의 **타격 한 번**.
+ *
+ * 동작 하나가 곧 타격 하나는 아니다 — 흑기사의 1번 기술은 내려베고 이어서 찌르는
+ * 2연타라, 애니메이션 한 번에 판정이 두 번 들어간다. 그래서 타격을 배열로 두고
+ * 각자 시점·사거리·각도·피해를 갖는다.
+ */
+const MeleeHitSchema = z.object({
+  /** 동작 시작 후 이 시점(초)에 판정이 들어간다. 검이 뻗는 프레임에 맞춘 값이다. */
+  atSeconds: z.number().nonnegative(),
+  /** 판정 사거리(px, 보스 중심 기준). */
+  range: z.number().positive(),
+  /** 부채꼴 각도(도). 140이면 좌우 ±70도, **360이면 전방향**(착지 광역 등). */
+  arc: z.number().positive().max(360),
+  damage: z.number().nonnegative(),
+});
+
+/**
+ * 보스 근접 검술 한 동작.
  *
  * 돌진(charge)/광역(slam)과 달리 **스프라이트에 실제로 그려진 동작**을 그대로 판정으로
- * 옮긴 것이다. 그래서 사거리·각도는 임의값이 아니라 프레임을 실측해서 넣는다 —
- * 검이 닿아 보이는 곳이 실제로 맞는 곳이어야 한다.
+ * 옮긴 것이다. 그래서 사거리·각도·타격 시점은 임의값이 아니라 프레임을 실측해서 넣는다 —
+ * 무기가 닿아 보이는 곳이 실제로 맞는 곳이어야 한다.
  *
- * 별도의 바닥 예고 표시가 없는 대신 **동작 자체가 예고**다. windupSeconds 동안 보스가
- * 멈춰서 칼을 치켜드는 그림이 재생되고, 그 시간이 끝나는 순간 판정이 한 번 들어간다.
- * 그래서 이 값은 애니메이션에서 검이 뻗는 프레임까지의 시간과 맞춰야 한다.
+ * 별도의 바닥 예고 표시가 없는 대신 **동작 자체가 예고**다. 무기를 치켜드는 그림이
+ * 재생되는 동안 보스는 멈춰 서 있고, 정해진 시점마다 판정이 들어간다.
  */
 const MeleeAttackSchema = z.object({
   /** 스프라이트 태그 번호(1=Attack01, 2=Attack02, 3=Attack03). 클라이언트가 어느 동작을 재생할지 고른다. */
   anim: z.number().int().positive(),
-  /** 예고(칼을 치켜드는) 시간(초). 이 시간이 끝나는 순간 판정이 들어간다. */
-  windupSeconds: z.number().positive(),
-  /** 판정 후 경직(초). 이 동안은 움직이지도 다음 공격을 하지도 않는다 — 반격할 틈이다. */
+  /** 이 동작이 만드는 타격들. 시간순으로 넣는다. */
+  hits: z.array(MeleeHitSchema).min(1),
+  /** 마지막 타격 후 경직(초). 이 동안은 움직이지도 다음 공격을 하지도 않는다 — 반격할 틈이다. */
   recoverSeconds: z.number().nonnegative(),
-  /** 판정 사거리(px, 보스 중심 기준). */
-  range: z.number().positive(),
-  /** 부채꼴 각도(도). 140이면 좌우 ±70도. */
-  arc: z.number().positive().max(360),
-  damage: z.number().nonnegative(),
   /** 이 기술을 다시 쓸 수 있게 되기까지의 시간(초). 기술마다 따로 돈다. */
   cooldown: z.number().positive(),
 });
@@ -142,6 +153,7 @@ export type MonsterType = keyof typeof monstersData;
 export type MonsterData = z.infer<typeof MonsterDataSchema>;
 export type DropRange = z.infer<typeof DropRangeSchema>;
 export type MeleeAttackData = z.infer<typeof MeleeAttackSchema>;
+export type MeleeHitData = z.infer<typeof MeleeHitSchema>;
 
 export const monstersData = loadData(MonstersDataSchema, monstersJson);
 

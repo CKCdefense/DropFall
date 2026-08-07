@@ -32,12 +32,13 @@ describe('data', () => {
     const demonMelee = monstersData.boss_demon.meleeAttacks!;
     expect(demonMelee).toHaveLength(3);
     expect(demonMelee.map((a) => a.anim)).toEqual([1, 2, 3]);
+    const reach = (a: (typeof demonMelee)[number]) => Math.max(...a.hits.map((h) => h.range));
     // 양손 베기(3번)가 가장 멀고 가장 넓다.
-    expect(demonMelee[2]!.range).toBeGreaterThan(demonMelee[1]!.range);
-    expect(demonMelee[2]!.arc).toBeGreaterThan(demonMelee[0]!.arc);
+    expect(reach(demonMelee[2]!)).toBeGreaterThan(reach(demonMelee[1]!));
+    expect(demonMelee[2]!.hits[0]!.arc).toBeGreaterThan(demonMelee[0]!.hits[0]!.arc);
     // 찌르기(1번)는 멀지만 좁다 — 각도로 성격이 갈린다.
-    expect(demonMelee[0]!.range).toBeGreaterThan(demonMelee[1]!.range);
-    expect(demonMelee[0]!.arc).toBeLessThan(demonMelee[1]!.arc);
+    expect(reach(demonMelee[0]!)).toBeGreaterThan(reach(demonMelee[1]!));
+    expect(demonMelee[0]!.hits[0]!.arc).toBeLessThan(demonMelee[1]!.hits[0]!.arc);
     // 그림이 3배로 커진 만큼 피격 반경도 같이 커져야 한다(보이는 크기 = 맞는 범위).
     expect(monstersData.boss_demon.hitRadius).toBeGreaterThan(30);
   });
