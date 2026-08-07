@@ -180,9 +180,16 @@ const HURT_FX_ANIM = 'fx_hurt_hit';
 const HURT_FX_PREFIX = 'fx_hurt_hit_';
 const HURT_FX_FRAMES = 6;
 const HURT_FX_RATE = 18;
-/** 내가 맞았을 때 카메라를 흔드는 시간(ms)과 세기. 팀원 피격에는 흔들지 않는다. */
-const HURT_SHAKE_MS = 90;
-const HURT_SHAKE_INTENSITY = 0.004;
+/**
+ * 피격 시 몸이 좌우로 떨리는 폭(px)과 왕복 시간(ms). 카메라 대신 **캐릭터만** 흔든다 —
+ * 화면 전체가 흔들리면 조준까지 흔들려서, 맞을수록 반격이 어려워지는 역효과가 났다.
+ * 자원 노드 타격(§playNodeHit)과 같은 yoyo 두 번 = 전체 약 180ms짜리 잔떨림이다.
+ */
+const HURT_BODY_SHAKE_PIXELS = 2;
+const HURT_BODY_SHAKE_MS = 45;
+/** 피격 아웃라인 색(눌린 빨강 — fx_hurt 팔레트와 동일)과 유지 시간(ms). */
+const HURT_OUTLINE_COLOR = 0xd95c4a;
+const HURT_OUTLINE_MS = 150;
 
 /** 타격 흔들림 — 미세하고 빠르게. 크면 우스꽝스럽고 느리면 얻어맞는 느낌이 안 난다. */
 const SHAKE_PIXELS = 1.5;
@@ -518,7 +525,7 @@ export class EntityRenderer {
       // 피격은 몬스터와 같은 방식으로 **체력이 줄었는지**로 안다 — 서버에 필드를
       // 새로 만들지 않아도 되고, 누가 때렸든(몬스터 평타·보스 검술·돌진) 똑같이 반응한다.
       const lastHp = sprite.getData('hp') as number | undefined;
-      if (lastHp !== undefined && player.hp < lastHp) this.playPlayerHurt(sprite, player);
+      if (lastHp !== undefined && player.hp < lastHp) this.playPlayerHurt(sprite);
       sprite.setData('hp', player.hp);
 
       // 정수 스냅 — roundPixels와 함께 서브픽셀 흔들림을 막는다.
@@ -557,17 +564,35 @@ export class EntityRenderer {
   }
 
   /**
-   * 플레이어 피격 연출 — 몬스터 피격(§flashSprite)과 같은 문법에 두 가지를 더한다.
+   * 플레이어 피격 연출 — 몬스터 피격(§flashSprite)과 같은 문법에 세 가지를 더한다.
    *
    *  1) 흰색 플래시: 실루엣 통째로. 어떤 직업 스프라이트든 똑같이 확실하게 읽힌다.
-   *  2) 피격 스파크(fx_hurt): 가슴 높이에서 붉은 파편이 터진다 — 플래시가 "맞았다"면
-   *     스파크는 "여기를 맞았다"다.
-   *  3) 카메라 흔들림: **내가** 맞았을 때만. 팀원이 맞을 때마다 흔들면 난전에서
-   *     화면이 멀미가 된다.
+   *  2) 붉은 아웃라인: 몸 실루엣을 4방향 1px로 복제해 뒤에 깐다 — 픽셀아트의 고전
+   *     외곽선 기법이다. 플래시(흰색)가 꺼진 뒤에도 잠깐 남아 "맞았다"의 여운을 만든다.
+   *  3) 몸 떨림: 캐릭터 스프라이트만 1~2px 좌우로 떤다. 카메라를 흔들지 않는 이유:
+   *     화면 전체가 흔들리면 조준까지 흔들려서 맞을수록 반격이 어려워졌다.
+   *
+   * 피격 스파크(fx_hurt)는 가슴 높이에 얹는다 — 플래시가 "맞았다"면 스파크는
+   * "여기를 맞았다"다.
    */
-  private playPlayerHurt(container: Phaser.GameObjects.Container, player: PlayerView): void {
+  private playPlayerHurt(container: Phaser.GameObjects.Container): void {
     const body = container.getByName('body');
-    if (body instanceof Phaser.GameObjects.Sprite) this.flashSprite(body);
+    if (body instanceof Phaser.GameObjects.Sprite) {
+      this.flashSprite(body);
+      this.spawnHurtOutline(container, body);
+
+      // 몸 떨림 — 컨테이너가 아니라 자식만 흔들어야 HP 바·라벨까지 같이 떨리지 않는다.
+      if (!this.scene.tweens.isTweening(body)) {
+        this.scene.tweens.add({
+          targets: body,
+          x: { from: 0, to: HURT_BODY_SHAKE_PIXELS },
+          duration: HURT_BODY_SHAKE_MS,
+          yoyo: true,
+          repeat: 1,
+          onComplete: () => body.setX(0),
+        });
+      }
+    }
 
     if (this.scene.anims.exists(HURT_FX_ANIM)) {
       const burst = this.scene.add
@@ -576,10 +601,52 @@ export class EntityRenderer {
       burst.play(HURT_FX_ANIM);
       burst.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => burst.destroy());
     }
+  }
 
-    if (player.id === this.ownSessionId) {
-      this.scene.cameras.main.shake(HURT_SHAKE_MS, HURT_SHAKE_INTENSITY);
-    }
+  /**
+   * 붉은 1px 아웃라인. 몸과 같은 프레임을 4방향(상하좌우)으로 1px씩 밀어 **몸 뒤에**
+   * 깔면 실루엣 가장자리만 삐져나와 외곽선처럼 보인다 — 셰이더 없이 픽셀아트 결을
+   * 유지하는 고전 기법이다. 잠깐 쓰고 버리는 스프라이트 4장이라 풀링은 과하다.
+   *
+   * 유지되는 동안 매 프레임 몸의 프레임/반전/좌표를 따라간다 — 안 따라가면 걷는 중에
+   * 아웃라인만 옛 포즈로 남아 유령처럼 어긋난다.
+   */
+  private spawnHurtOutline(
+    container: Phaser.GameObjects.Container,
+    body: Phaser.GameObjects.Sprite,
+  ): void {
+    const offsets: readonly (readonly [number, number])[] = [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+    ];
+    const clones = offsets.map(([dx, dy]) => {
+      const clone = this.scene.add
+        .sprite(body.x + dx, body.y + dy, GAME_ATLAS, body.frame.name)
+        .setOrigin(body.originX, body.originY)
+        .setTintFill(HURT_OUTLINE_COLOR);
+      container.addAt(clone, 0); // 몸보다 뒤에
+      return { clone, dx, dy };
+    });
+
+    const follow = this.scene.time.addEvent({
+      delay: 16,
+      loop: true,
+      callback: () => {
+        for (const { clone, dx, dy } of clones) {
+          if (!clone.active) continue;
+          clone.setFrame(body.frame.name);
+          clone.setFlipX(body.flipX);
+          clone.setPosition(body.x + dx, body.y + dy);
+        }
+      },
+    });
+
+    this.scene.time.delayedCall(HURT_OUTLINE_MS, () => {
+      follow.remove();
+      for (const { clone } of clones) clone.destroy();
+    });
   }
 
   private createPlayer(player: PlayerView): Phaser.GameObjects.Container {
