@@ -104,6 +104,25 @@ export interface ColonyView {
   destroyed: boolean;
 }
 
+/**
+ * AI 동반자("티모시"). 방(팀)당 1마리라 배열이 아니라 단일 객체다 — `id`는 보간기의
+ * `Positioned` 인터페이스(id로 짝을 찾음)를 그대로 재사용하려고 고정값 하나만 둔다.
+ */
+export interface CompanionView {
+  id: 'companion';
+  x: number;
+  y: number;
+  /** 렌더러가 보고 걷는 방향을 정한다(플레이어의 aimAngle과 같은 역할, 조준 대신 이동 방향). */
+  facingX: number;
+  facingY: number;
+  /** CompanionState('seeking'|'traveling'|'harvesting'|'returning'|'depositing'|'downed') */
+  state: string;
+  carriedWood: number;
+  carriedStone: number;
+  hp: number;
+  maxHp: number;
+}
+
 /** 위치가 없는 값들 — 보간 대상이 아니라 항상 최신값을 그대로 쓴다. */
 export interface WorldStatus {
   coreHp: number;
@@ -146,6 +165,7 @@ export interface WorldSnapshot {
   droppedItems: DroppedItemView[];
   buildings: BuildingView[];
   colonies: ColonyView[];
+  companion: CompanionView;
   status: WorldStatus;
   /**
    * 팀이 밝힌 지역(칸당 1비트, explored.ts). 미니맵 안개가 이걸 그대로 마스크로 쓴다.
@@ -219,6 +239,11 @@ export interface GameConnection {
    * 단계 여부를 판정한다.
    */
   upgradeCore(): void;
+  /**
+   * 코어 앞에서 상호작용(모달 열기)했음을 알린다. 서버가 쿨다운을 판단해 코어 AI
+   * 페르소나 대사를 새로 생성할지 정한다 — 여기선 그냥 요청만 보낸다.
+   */
+  coreInteract(): void;
   /** 제작 요청. 티어·재료 검증은 서버가 한다. */
   craft(recipeId: string): void;
   /** 창고의 재료를 상점에 판다(대금은 팀 자금으로). */
@@ -250,6 +275,13 @@ export interface GameConnection {
    */
   sendDevCommand(line: string): void;
   onDevResult(callback: (result: { ok: boolean; message: string }) => void): void;
+
+  /**
+   * 코어 AI 페르소나가 새 대사를 말할 때마다 호출된다(웨이브 종료/콜로니 파괴/코어
+   * 상호작용 시 서버가 broadcast). LocalConnection은 실제 LLM 호출 없이 폴백 대사만
+   * 돌려준다 — API 키를 클라이언트 번들에 넣지 않기 위해서다.
+   */
+  onCoreCommentary(callback: (text: string) => void): void;
 
   // ---------------------------------------------------------------- 대기실
 

@@ -2,6 +2,8 @@ import { MAP_ORIGIN, MAP_SIZE_TILES, TILE_SIZE, cellCenterWorld, worldToCell } f
 import {
   buildingsData,
   coloniesData,
+  companionData,
+  corePersonaData,
   coreUpgradesData,
   craftingData,
   itemsData,
@@ -24,6 +26,13 @@ import type { PlayerInputMessage } from '../protocol/messages';
 import { FlowField, type FlowFieldGrid } from './ai/flowField';
 import { BuildingRegistry, type BuildingEntity } from './building';
 import { COLONY_RADIUS, ColonyRegistry, colonyStageFor, type ColonyEntity } from './colony';
+import { createCompanion, type CompanionEntity } from './companion';
+import {
+  applyPersonaEvent,
+  createInitialPersonaTraits,
+  type CorePersonaTraits,
+  type PersonaEvent,
+} from './corePersona';
 import {
   HIT_RADIUS,
   WeaponCooldowns,
@@ -277,6 +286,14 @@ export interface MonsterEntity {
    * 시도한다(docs/backend/42) — 이게 없으면 그런 위치에서 영원히 못 움직인다.
    */
   stuckSeconds: number;
+  /**
+   * 티모시(AI 동반자) 공격 쿨다운(초). 플레이어 공격 쿨다운(attackCooldown)과 별도로 둔다 —
+   * 같은 틱에 플레이어와 티모시가 둘 다 사거리 안에 있어도 서로의 쿨다운에 영향을 주지
+   * 않게 하기 위해서다. 정식 추격 대상(targetPlayerId)과 달리 단순 근접 판정이라
+   * 히스테리시스/시야각 없이 매 틱 거리만 본다(docs/superpowers/specs/
+   * 2026-08-07-ai-companion-timothy-design.md).
+   */
+  companionAttackCooldown: number;
 }
 
 export interface CoreState {
@@ -337,9 +354,23 @@ export class World {
   private readonly cooldowns = new WeaponCooldowns();
   private readonly waveManager = new WaveManager();
   private readonly buildings = new BuildingRegistry();
+  /** 코어 AI 페르소나 트레잇. 웨이브 종료/콜로니 파괴/코어 상호작용마다 조금씩 바뀐다. */
+  private personaTraits: CorePersonaTraits = createInitialPersonaTraits();
+  /** GameRoom이 매 틱 drainPersonaEvents()로 비워가는 큐 — LLM 호출은 여기서 하지 않는다
+   * (shared/sim은 fetch 등 Node/DOM API를 쓸 수 없다, docs/02-tech-spec.md §2.1). */
+  private pendingPersonaEvents: PersonaEvent[] = [];
+  /** 코어 상호작용 트리거의 마지막 발생 시각(elapsedSeconds 기준). 스팸 방지 쿨다운에 쓴다. */
+  private lastCoreInteractionAt = -Infinity;
   private readonly resourceNodes = new Map<string, ResourceNodeEntity>();
   private readonly droppedItems = new Map<string, DroppedItemEntity>();
   private readonly colonies = new ColonyRegistry();
+  /**
+   * AI 동반자("티모시"). 방(팀)당 1마리라 players/monsters처럼 Map으로 관리하지 않는다
+   * (docs/superpowers/specs/2026-08-07-ai-companion-timothy-design.md). 코어는 항상
+   * 원점(0,0)이라 스폰 위치도 생성자에서 바로 정할 수 있다 — startColonies처럼 인원수를
+   * 기다릴 필요가 없다.
+   */
+  private companion: CompanionEntity = createCompanion(0, 0);
   /**
    * 파괴되지 않은 콜로니가 차지한 그리드 셀("cx,cy" 키) 집합. 콜로니는 위치가
    * 절대 안 바뀌지만(colony.ts), **존재 여부(파괴됐는지)는 바뀐다** — 파괴된
@@ -1073,9 +1104,21 @@ export class World {
    */
   private onDayBegan(): void {
     this.revivePlayers();
+    this.reviveCompanion();
     this.skipVotes.clear();
     // 하루가 지나면 상점 물건이 통째로 바뀐다. 오늘 못 산 전설은 오늘로 끝이다.
     this.rollShopStock();
+  }
+
+  /**
+   * 사람과 같은 타이밍에 티모시도 회복시킨다 — 새 부활 상호작용을 만들지 않고
+   * 기존 "낮 시작 시 전원 풀피" 훅에 얹는다(docs/superpowers/specs/
+   * 2026-08-07-ai-companion-timothy-design.md). 다운 중이 아니었으면(hp 이미 가득)
+   * 아무 효과 없다.
+   */
+  private reviveCompanion(): void {
+    this.companion.hp = this.companion.maxHp;
+    if (this.companion.state === 'downed') this.companion.state = 'seeking';
   }
 
   /**
@@ -1138,6 +1181,7 @@ export class World {
         // 정상 진행과 같은 함수로 처리한다.
         if (this.waveManager.debugEndNight() && this.waveManager.currentPhase === 'day') {
           this.onDayBegan();
+          this.enqueuePersonaEvent('waveEnd');
         }
       },
       spawnMonsters: (type, count) => {
@@ -1158,6 +1202,7 @@ export class World {
         this.core.hp = Math.min(this.core.maxHp, amount);
       },
       rerollShop: () => this.rollShopStock(),
+      forceCoreVoice: () => this.enqueuePersonaEvent('coreInteract'),
     };
   }
 
@@ -1187,10 +1232,20 @@ export class World {
     if (previousPhase !== 'day' && this.waveManager.currentPhase === 'day') {
       this.onDayBegan();
     }
+    // 밤이 끝난 시점(다음 낮이든 최종 승리든) — 코어 AI 페르소나가 그 웨이브를 코멘트한다.
+    if (
+      previousPhase === 'night' &&
+      (this.waveManager.currentPhase === 'day' || this.waveManager.currentPhase === 'victory')
+    ) {
+      this.enqueuePersonaEvent('waveEnd');
+    }
 
     this.revealAroundPlayers();
 
     this.tickMonsters(dtSeconds);
+    // tickMonsters() 다음에 불러야 몬스터들의 이번 틱 위치 기준으로 근접 판정한다.
+    this.tickCompanionDamage(dtSeconds);
+    this.tickCompanion(dtSeconds);
     this.tickResourceNodes(dtSeconds);
     // tickMonsters() 다음에 불러야 한다 — 이번 틱의 피격(tookDamageThisTick)이
     // 이미 반영된 뒤여야 "피격 시 채널 중단"이 정확히 판정된다.
@@ -1234,6 +1289,10 @@ export class World {
     return this.colonies.entries();
   }
 
+  getCompanion(): Readonly<CompanionEntity> {
+    return this.companion;
+  }
+
   getWavePhase(): GamePhase {
     return this.waveManager.currentPhase;
   }
@@ -1250,6 +1309,40 @@ export class World {
   /** 현재 낮 스킵 투표에 동의한 인원 수. 필요 인원은 접속 중인 전원(getPlayers().size)이다. */
   getSkipVoteCount(): number {
     return this.skipVotes.size;
+  }
+
+  /** 트레잇을 갱신하고 큐에 이벤트를 적재한다. LLM 호출은 GameRoom 몫이라 여기선 하지 않는다. */
+  private enqueuePersonaEvent(kind: PersonaEvent['kind']): void {
+    this.personaTraits = applyPersonaEvent(this.personaTraits, kind, corePersonaData.eventWeights, {
+      min: corePersonaData.traitMin,
+      max: corePersonaData.traitMax,
+    });
+    this.pendingPersonaEvents.push({
+      kind,
+      traits: this.personaTraits,
+      wave: this.waveManager.currentWave,
+    });
+  }
+
+  /**
+   * 코어 모달을 연 플레이어의 상호작용 요청. 쿨다운(corePersonaData.coreInteractionCooldownSeconds)
+   * 안이면 조용히 무시한다 — 연타로 대사가 도배되는 걸 막는다(룸 전역 쿨다운, 플레이어별 아님).
+   * 성공하면 true.
+   */
+  requestCoreInteraction(): boolean {
+    const cooldown = corePersonaData.coreInteractionCooldownSeconds;
+    if (this.elapsedSeconds - this.lastCoreInteractionAt < cooldown) return false;
+    this.lastCoreInteractionAt = this.elapsedSeconds;
+    this.enqueuePersonaEvent('coreInteract');
+    return true;
+  }
+
+  /** 쌓인 페르소나 이벤트를 전부 꺼내고 큐를 비운다. GameRoom이 매 틱 폴링한다. */
+  drainPersonaEvents(): PersonaEvent[] {
+    if (this.pendingPersonaEvents.length === 0) return [];
+    const events = this.pendingPersonaEvents;
+    this.pendingPersonaEvents = [];
+    return events;
   }
 
   /** 코어 셀로 Flow Field를 다시 계산한다. 생성자, 건축물 설치/파괴 시에만 호출한다(매 틱 금지). */
@@ -1375,6 +1468,7 @@ export class World {
       pattern: { kind: 'idle' },
       specialAttackCooldown: data.chargeAttack || data.slamAttack ? BOSS_FIRST_PATTERN_DELAY : 0,
       stuckSeconds: 0,
+      companionAttackCooldown: 0,
     });
   }
 
@@ -1505,6 +1599,162 @@ export class World {
     }
   }
 
+  /** 살아있는(hp>0) 자원 노드 중 (x,y)에서 가장 가까운 것. 없으면 undefined. */
+  private findNearestHarvestableNode(x: number, y: number): ResourceNodeEntity | undefined {
+    let nearest: ResourceNodeEntity | undefined;
+    let nearestDistance = Infinity;
+    for (const node of this.resourceNodes.values()) {
+      if (node.hp <= 0) continue;
+      const distance = Math.hypot(node.x - x, node.y - y);
+      if (distance < nearestDistance) {
+        nearest = node;
+        nearestDistance = distance;
+      }
+    }
+    return nearest;
+  }
+
+  /**
+   * 티모시를 (targetX, targetY) 방향으로 한 스텝 이동시킨다. `movePlayer`와 같은
+   * 3단계 폴백(전체 이동 → X축만 → Y축만)을 쓰고, 장애물 판정도 플레이어와 같은
+   * `isBlockedForPlayer`를 그대로 쓴다 — 몬스터 전용 판정/분리 벡터는 필요 없다(1마리뿐).
+   */
+  private moveCompanionToward(targetX: number, targetY: number, dtSeconds: number): void {
+    const companion = this.companion;
+    const dx = targetX - companion.x;
+    const dy = targetY - companion.y;
+    const distance = Math.hypot(dx, dy);
+    if (distance <= 0) return;
+
+    const dirX = dx / distance;
+    const dirY = dy / distance;
+    companion.facingX = dirX;
+    companion.facingY = dirY;
+
+    const step = companionData.moveSpeed * dtSeconds;
+    const full = { x: companion.x + dirX * step, y: companion.y + dirY * step };
+    if (!this.isBlockedForPlayer(full.x, full.y)) {
+      companion.x = full.x;
+      companion.y = full.y;
+      return;
+    }
+
+    const xOnly = { x: companion.x + dirX * step, y: companion.y };
+    if (!this.isBlockedForPlayer(xOnly.x, xOnly.y)) {
+      companion.x = xOnly.x;
+      return;
+    }
+
+    const yOnly = { x: companion.x, y: companion.y + dirY * step };
+    if (!this.isBlockedForPlayer(yOnly.x, yOnly.y)) {
+      companion.y = yOnly.y;
+    }
+  }
+
+  /**
+   * AI 동반자(티모시) 상태머신 — 자원 채집/운반만 한다(전투/대사 없음,
+   * docs/superpowers/specs/2026-08-07-ai-companion-timothy-design.md).
+   */
+  private tickCompanion(dtSeconds: number): void {
+    const companion = this.companion;
+    if (companion.state === 'downed') return;
+
+    if (companion.state === 'seeking') {
+      const node = this.findNearestHarvestableNode(companion.x, companion.y);
+      if (!node) return; // 캘 게 없으면 그 자리에서 대기
+      companion.targetNodeId = node.id;
+      companion.state = 'traveling';
+      return;
+    }
+
+    if (companion.state === 'traveling') {
+      const node = companion.targetNodeId ? this.resourceNodes.get(companion.targetNodeId) : undefined;
+      if (!node || node.hp <= 0) {
+        // 다른 사람이 먼저 캤을 수도 있다 — 노드가 사라졌으면 다시 찾는다.
+        companion.targetNodeId = undefined;
+        companion.state = 'seeking';
+        return;
+      }
+      const distance = Math.hypot(node.x - companion.x, node.y - companion.y);
+      if (distance <= companionData.harvestRange) {
+        companion.state = 'harvesting';
+      } else {
+        this.moveCompanionToward(node.x, node.y, dtSeconds);
+      }
+      return;
+    }
+
+    if (companion.state === 'harvesting') {
+      const node = companion.targetNodeId ? this.resourceNodes.get(companion.targetNodeId) : undefined;
+      if (!node || node.hp <= 0) {
+        companion.targetNodeId = undefined;
+        companion.state = 'seeking';
+        return;
+      }
+      companion.harvestTimer -= dtSeconds;
+      if (companion.harvestTimer > 0) return;
+      companion.harvestTimer = companionData.harvestIntervalSeconds;
+
+      const data = resourcesData[node.type];
+      node.hp = Math.max(0, node.hp - companionData.harvestDamage);
+      if (node.hp > 0) return;
+
+      // 사람이 캘 때와 같은 고갈 부수효과(리스폰 타이머/장애물 재계산) — 다른 점은
+      // 바닥에 드랍 아이템을 만들지 않고 바로 들고 간다는 것뿐이다(인벤토리/줍기 UI가
+      // 없는 봇이라 그 단계를 생략한다).
+      node.respawnTimer = data.respawnSeconds;
+      this.rebuildResourceObstacleCells();
+      this.recomputeFlowField();
+      if (node.type === 'wood') companion.carriedWood += data.yieldOnDeplete;
+      else companion.carriedStone += data.yieldOnDeplete;
+
+      companion.targetNodeId = undefined;
+      const carried = companion.carriedWood + companion.carriedStone;
+      companion.state = carried >= companionData.capacity ? 'returning' : 'seeking';
+      return;
+    }
+
+    if (companion.state === 'returning') {
+      if (isWithinCoreInteract(companion.x, companion.y)) {
+        companion.state = 'depositing';
+      } else {
+        this.moveCompanionToward(0, 0, dtSeconds);
+      }
+      return;
+    }
+
+    // depositing
+    if (companion.carriedWood > 0) this.core.storage.add('wood', companion.carriedWood);
+    if (companion.carriedStone > 0) this.core.storage.add('stone', companion.carriedStone);
+    companion.carriedWood = 0;
+    companion.carriedStone = 0;
+    companion.state = 'seeking';
+  }
+
+  /**
+   * 몬스터의 정교한 추격/리시 로직(resolveAggroTarget)은 건드리지 않고, 단순 근접
+   * 판정만으로 티모시를 노출시킨다 — 어떤 몬스터든 자기 공격 사거리 안에 티모시가
+   * 있으면 때린다(추격 대상인지와 무관하다). 플레이어 공격 쿨다운과는 별도
+   * 필드(`companionAttackCooldown`)를 써서 서로 간섭하지 않는다.
+   */
+  private tickCompanionDamage(dtSeconds: number): void {
+    if (this.companion.state === 'downed') return;
+    for (const monster of this.monsters.values()) {
+      monster.companionAttackCooldown = Math.max(0, monster.companionAttackCooldown - dtSeconds);
+      const data = monstersData[monster.type];
+      const distance = Math.hypot(this.companion.x - monster.x, this.companion.y - monster.y);
+      if (distance > data.attackRange) continue;
+      if (monster.companionAttackCooldown > 0) continue;
+      this.damageCompanion(data.damage);
+      monster.companionAttackCooldown = data.attackInterval;
+    }
+  }
+
+  private damageCompanion(amount: number): void {
+    this.companion.hp = Math.max(0, this.companion.hp - amount);
+    if (this.companion.hp <= 0) this.companion.state = 'downed';
+  }
+
   /** 이번 틱 기준으로 이 콜로니를 채널링 중인 플레이어가 있는지. */
   private isColonyBeingChanneled(colonyId: string): boolean {
     for (const player of this.players.values()) {
@@ -1550,6 +1800,7 @@ export class World {
       this.rebuildColonyObstacleCells();
       this.recomputeFlowField();
       this.core.sharedEnergy += coloniesData.essenceReward;
+      this.enqueuePersonaEvent('colonyDestroyed');
       player.channelingColonyId = undefined;
       player.channelProgress = 0;
     }

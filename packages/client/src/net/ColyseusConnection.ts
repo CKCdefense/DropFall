@@ -8,6 +8,7 @@ import type {
   RoomPhase,
 } from '@dropfall/shared';
 import {
+  CORE_COMMENTARY_MESSAGE,
   EXPLORED_BYTE_COUNT,
   LOBBY_ERROR_MESSAGE,
   LobbyMessage,
@@ -16,11 +17,11 @@ import {
   normalizeRoomCode,
 } from '@dropfall/shared';
 import { SERVER_HTTP_URL } from './config';
+import type { GameConnection, LobbyView, RoomInfo, WorldSnapshot } from './GameConnection';
+import { SnapshotInterpolator } from './SnapshotInterpolator';
 
 /** 서버 상태가 오기 전에 쓸 빈 안개 — 전부 미탐색. */
 const EMPTY_EXPLORED = new Uint8Array(EXPLORED_BYTE_COUNT);
-import type { GameConnection, LobbyView, RoomInfo, WorldSnapshot } from './GameConnection';
-import { SnapshotInterpolator } from './SnapshotInterpolator';
 
 /** 서버 Schema를 클라이언트 관점에서 본 모양. 서버의 GameRoomState와 1:1로 맞춘다. */
 interface RemotePlayerState {
@@ -126,6 +127,17 @@ interface RemoteGameState {
   };
   colonies: {
     forEach(callback: (value: RemoteColonyState, key: string) => void): void;
+  };
+  companion: {
+    x: number;
+    y: number;
+    facingX: number;
+    facingY: number;
+    state: string;
+    carriedWood: number;
+    carriedStone: number;
+    hp: number;
+    maxHp: number;
   };
 }
 
@@ -282,6 +294,14 @@ export class ColyseusConnection implements GameConnection {
     this.room.send('upgradeCore', {});
   }
 
+  coreInteract(): void {
+    this.room.send('coreInteract', {});
+  }
+
+  onCoreCommentary(callback: (text: string) => void): void {
+    this.room.onMessage(CORE_COMMENTARY_MESSAGE, (message: { text: string }) => callback(message.text));
+  }
+
   placeBuilding(buildingType: string, cx: number, cy: number): void {
     this.room.send('placeBuilding', { buildingType, cx, cy });
   }
@@ -380,6 +400,19 @@ export class ColyseusConnection implements GameConnection {
       colonies.push({ id, x: colony.x, y: colony.y, destroyed: colony.destroyed });
     });
 
+    const companion: WorldSnapshot['companion'] = {
+      id: 'companion',
+      x: state?.companion?.x ?? 0,
+      y: state?.companion?.y ?? 0,
+      facingX: state?.companion?.facingX ?? 0,
+      facingY: state?.companion?.facingY ?? 1,
+      state: state?.companion?.state ?? 'seeking',
+      carriedWood: state?.companion?.carriedWood ?? 0,
+      carriedStone: state?.companion?.carriedStone ?? 0,
+      hp: state?.companion?.hp ?? 0,
+      maxHp: state?.companion?.maxHp ?? 0,
+    };
+
     return {
       players,
       monsters,
@@ -388,6 +421,7 @@ export class ColyseusConnection implements GameConnection {
       droppedItems,
       buildings,
       colonies,
+      companion,
       explored: state?.explored ?? EMPTY_EXPLORED,
       status: {
         coreHp: state?.coreHp ?? 0,

@@ -4,6 +4,7 @@ import {
   HIT_RADIUS,
   TILE_SIZE,
   buildingsData,
+  companionData,
   itemOfSlot,
   monstersData,
   resourcesData,
@@ -13,6 +14,7 @@ import {
 import type {
   BuildingView,
   ColonyView,
+  CompanionView,
   DroppedItemView,
   MonsterView,
   PlayerView,
@@ -24,6 +26,7 @@ import {
   GAME_ATLAS,
   PLAYER_ORIGIN_Y,
   directionFromAngle,
+  hasJobSprite,
   hasPlayerSprite,
   idleFrame,
   registerPlayerAnimations,
@@ -95,6 +98,15 @@ const RESOURCE_COLOR: Record<string, number> = {
 };
 const RESOURCE_COLOR_FALLBACK = 0x8a8f99;
 const RESOURCE_HIT_RADIUS_FALLBACK = 14;
+
+/**
+ * AI 동반자("티모시") 비주얼. 전용 그림이 없는 동안은 기존 직업 스프라이트를
+ * 틴트 입혀 재사용한다 — 이 상수 하나만 바꾸면 나중에 전용 그림/색으로 교체된다
+ * (docs/superpowers/specs/2026-08-07-ai-companion-timothy-design.md).
+ */
+const COMPANION_SPRITE_JOB = spritePrefix('searchman');
+const COMPANION_TINT = 0xf2c14e;
+const COMPANION_PLACEHOLDER_COLOR = 0xf2c14e;
 
 /**
  * 스프라이트가 있는 건축물. 방향(h/v)은 이웃 배치에서 자동으로 고른다 —
@@ -292,6 +304,8 @@ export class EntityRenderer {
   private dropBobElapsed = 0;
   private readonly buildings = new Map<string, Phaser.GameObjects.Container>();
   private readonly colonies = new Map<string, Phaser.GameObjects.Container>();
+  /** AI 동반자("티모시"). 방(팀)당 1마리라 코어처럼 맵이 아니라 단일 필드다. */
+  private companion?: Phaser.GameObjects.Container;
   /** 코어(원점 고정). 스프라이트 + 반짝임 + 승급 이펙트를 한 컨테이너에 담는다. */
   private core?: Phaser.GameObjects.Container;
   /** 다음 반짝임까지 남은 시간(ms). */
@@ -306,6 +320,8 @@ export class EntityRenderer {
   /** 노드 타격 감지용 직전 체력. 스냅샷에는 "맞았다"는 이벤트가 없어서 체력 감소로 추론한다. */
   private readonly lastNodeHp = new Map<string, number>();
   private readonly hasSprite: boolean;
+  /** 티모시 전용 — 아틀라스는 있어도 재사용 대상 직업(searchman) 그림이 아직 없을 수 있다. */
+  private readonly hasCompanionSprite: boolean;
   private readonly hasWeapon: boolean;
   private readonly hasMuzzle: boolean;
   private readonly hasHands: boolean;
@@ -328,6 +344,7 @@ export class EntityRenderer {
   ) {
     this.hasSprite = hasPlayerSprite(scene);
     if (this.hasSprite) registerPlayerAnimations(scene);
+    this.hasCompanionSprite = this.hasSprite && hasJobSprite(scene, COMPANION_SPRITE_JOB);
 
     this.hasWeapon = hasWeaponSprites(scene);
     this.hasHands = hasHandSprite(scene);
@@ -389,6 +406,8 @@ export class EntityRenderer {
       const label = sprite.getByName('label') as Phaser.GameObjects.Text | null;
       label?.setResolution(zoom);
     }
+    const companionLabel = this.companion?.getByName('label') as Phaser.GameObjects.Text | null;
+    companionLabel?.setResolution(zoom);
   }
 
   sync(snapshot: WorldSnapshot): void {
@@ -401,6 +420,7 @@ export class EntityRenderer {
     this.syncBuildings(snapshot.buildings);
     this.syncColonies(snapshot.colonies);
     this.syncDroppedItems(snapshot.droppedItems);
+    this.syncCompanion(snapshot.companion);
   }
 
   getSprite(sessionId: string): Phaser.GameObjects.Container | undefined {
@@ -1324,6 +1344,68 @@ export class EntityRenderer {
     const body = this.scene.add.rectangle(0, 0, COLONY_SIZE, COLONY_SIZE, COLONY_COLOR);
     body.setStrokeStyle(2, 0x1a1c23);
     return this.scene.add.container(colony.x, colony.y, [body]);
+  }
+
+  // ---------------------------------------------------------------- 티모시(AI 동반자)
+
+  /** 방(팀)당 1마리, 항상 존재한다 — 코어처럼 diff-and-update 루프가 필요 없다. */
+  private syncCompanion(view: CompanionView): void {
+    if (!this.companion) {
+      this.companion = this.createCompanion(view);
+    }
+    const sprite = this.companion;
+
+    sprite.setPosition(Math.round(view.x), Math.round(view.y));
+    sprite.setDepth(view.y);
+    // 다운되면 흐리게 — 플레이어 다운 표현과 같은 신호를 쓴다.
+    sprite.setAlpha(view.state === 'downed' ? 0.35 : 1);
+
+    if (this.hasCompanionSprite) this.updateCompanionSprite(sprite, view);
+  }
+
+  private createCompanion(view: CompanionView): Phaser.GameObjects.Container {
+    const body: Phaser.GameObjects.GameObject = this.hasCompanionSprite
+      ? this.scene.add
+          .sprite(0, 0, GAME_ATLAS, idleFrame(COMPANION_SPRITE_JOB, 'front'))
+          .setOrigin(0.5, PLAYER_ORIGIN_Y)
+          .setTint(COMPANION_TINT)
+          .setName('body')
+      : this.scene.add
+          .rectangle(0, 0, 12, 16, COMPANION_PLACEHOLDER_COLOR)
+          .setStrokeStyle(1, 0x1a1c23)
+          .setName('body');
+
+    const labelY = this.hasCompanionSprite ? -LABEL_OFFSET_SPRITE : -LABEL_OFFSET_PLACEHOLDER;
+    const label = this.scene.add
+      .text(0, labelY, companionData.name, {
+        fontFamily: FONT_SMALL,
+        fontSize: `${LABEL_FONT_SIZE}px`,
+        color: '#f2c14e',
+      })
+      .setOrigin(0.5, 1)
+      .setName('label');
+    label.setResolution(this.zoom);
+    applyTextShadow(label);
+
+    return this.scene.add.container(view.x, view.y, [body, label]);
+  }
+
+  private updateCompanionSprite(container: Phaser.GameObjects.Container, view: CompanionView): void {
+    const body = container.getByName('body');
+    if (!(body instanceof Phaser.GameObjects.Sprite)) return;
+
+    const angle = Math.atan2(view.facingY, view.facingX);
+    const { direction, flipX } = directionFromAngle(angle);
+    body.setFlipX(flipX);
+
+    const moving = view.state === 'traveling' || view.state === 'returning';
+    if (moving) {
+      const key = walkAnimKey(COMPANION_SPRITE_JOB, direction);
+      if (body.anims.currentAnim?.key !== key || !body.anims.isPlaying) body.play(key, true);
+    } else {
+      body.anims.stop();
+      body.setFrame(idleFrame(COMPANION_SPRITE_JOB, direction));
+    }
   }
 
   /**

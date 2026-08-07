@@ -6,6 +6,16 @@ import type { NextFunction, Request, Response } from 'express';
 import type { RoomListItem } from '@dropfall/shared';
 import { GameRoom } from './rooms/GameRoom';
 
+// .env가 있으면 그 값들을 process.env에 얹는다(Node 20.6+ 내장 API — dotenv 패키지
+// 불필요). 없어도 그냥 넘어간다 — 프로덕션(systemd)은 환경변수를 직접 주입하므로
+// .env 파일 자체가 없는 게 정상이다. 코어 AI 페르소나 키(ANTHROPIC_API_KEY 등)를
+// 로컬에서 편하게 넣어두는 용도(packages/server/.env, .gitignore 처리됨).
+try {
+  process.loadEnvFile();
+} catch {
+  // .env 없음 — 무시
+}
+
 /**
  * 스키마 인코딩 버퍼. 기본값(8KB)은 탐색 안개(칸당 1비트 × 128×128 = 2KB)가 처음
  * 합류자에게 통째로 나갈 때 넘친다 — 그 순간 방이 죽는다. 안개 2KB + 기존 상태에

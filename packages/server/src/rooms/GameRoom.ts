@@ -1,5 +1,6 @@
 import { Client, Room, ServerError, matchMaker } from 'colyseus';
 import {
+  CORE_COMMENTARY_MESSAGE,
   LOBBY_ERROR_MESSAGE,
   LobbyMessage,
   MAX_CLIENTS_PER_ROOM,
@@ -10,14 +11,17 @@ import {
   StartRejectReason,
   TICK_RATE,
   World,
+  buildPersonaPrompt,
   describeBossTelegraph,
   generateRoomCode,
   isJobId,
   monstersData,
+  pickFallbackLine,
   sanitizeNickname,
   sanitizePassword,
   sanitizeRoomName,
   type BuildInputMessage,
+  type CoreCommentaryMessage,
   type CreateRoomOptions,
   type DemolishInputMessage,
   type SelectSlotMessage,
@@ -25,6 +29,7 @@ import {
   type DevCommandMessage,
   type DevResultMessage,
   type MoveItemMessage,
+  type PersonaEvent,
   type QuickMoveItemMessage,
   type ShopBuyMessage,
   type ShopSellMessage,
@@ -33,6 +38,7 @@ import {
   type SelectJobMessage,
   type SetReadyMessage,
 } from '@dropfall/shared';
+import { activePersonaProvider, generateCoreCommentary } from '../persona/corePersonaClient';
 import {
   BuildingSchema,
   ColonySchema,
@@ -136,6 +142,12 @@ export class GameRoom extends Room {
     upgradeCore: (client: Client) => {
       if (this.state.phase !== RoomPhase.PLAYING) return;
       this.world.upgradeCore(client.sessionId);
+    },
+    coreInteract: () => {
+      if (this.state.phase !== RoomPhase.PLAYING) return;
+      // 성공 여부(쿨다운 통과)는 World가 판단한다 — 여기선 그냥 요청만 넘긴다.
+      // 이벤트가 쌓였으면 다음 틱의 drainPersonaEvents() 폴링에서 자동으로 처리된다.
+      this.world.requestCoreInteraction();
     },
     placeBuilding: (client: Client, payload: BuildInputMessage) => {
       if (this.state.phase !== RoomPhase.PLAYING) return;
@@ -327,6 +339,7 @@ export class GameRoom extends Room {
     this.syncResourceNodes();
     this.syncBuildings();
     this.syncColonies();
+    this.syncCompanion();
     this.syncDroppedItems();
     this.syncCoreStorage();
 
@@ -367,6 +380,23 @@ export class GameRoom extends Room {
     this.state.currentWave = this.world.getCurrentWave();
     this.state.phaseTimeRemaining = this.world.getPhaseTimeRemaining();
     this.state.skipVoteCount = this.world.getSkipVoteCount();
+
+    // LLM 호출은 네트워크 왕복이 있어 이번 틱 안에 못 끝난다 — fire-and-forget으로
+    // 넘기고 응답이 오면 broadcast로 따로 알린다(시뮬레이션 틱을 막지 않는다).
+    for (const event of this.world.drainPersonaEvents()) {
+      void this.handlePersonaEvent(event);
+    }
+  }
+
+  /**
+   * 코어 AI 페르소나 대사 하나를 생성해 방 전체에 broadcast한다. LLM 호출이 실패하거나
+   * 타임아웃돼도 침묵하지 않는다 — 데모 중 API 장애가 "코어가 조용해짐"으로 보이는 걸
+   * 막기 위해 항상 폴백 대사로 대체한다.
+   */
+  private async handlePersonaEvent(event: PersonaEvent): Promise<void> {
+    const { system, user } = buildPersonaPrompt(event);
+    const text = (await generateCoreCommentary(activePersonaProvider(), system, user)) ?? pickFallbackLine(event.traits);
+    this.broadcast(CORE_COMMENTARY_MESSAGE, { text } satisfies CoreCommentaryMessage);
   }
 
   /** 몬스터는 스폰/처치로 매 틱 등장·소멸하므로, world와 schema를 매번 대조해 맞춘다. */
@@ -521,6 +551,21 @@ export class GameRoom extends Room {
       }
       schema.destroyed = colony.destroyed;
     }
+  }
+
+  /** 티모시는 콜로니처럼 항상 존재하는 단일 개체라 diff-and-update 루프가 필요 없다. */
+  private syncCompanion(): void {
+    const companion = this.world.getCompanion();
+    const schema = this.state.companion;
+    schema.x = companion.x;
+    schema.y = companion.y;
+    schema.facingX = companion.facingX;
+    schema.facingY = companion.facingY;
+    schema.state = companion.state;
+    schema.carriedWood = companion.carriedWood;
+    schema.carriedStone = companion.carriedStone;
+    schema.hp = companion.hp;
+    schema.maxHp = companion.maxHp;
   }
 }
 

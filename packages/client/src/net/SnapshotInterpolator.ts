@@ -11,6 +11,7 @@ import {
 import type {
   BuildingView,
   ColonyView,
+  CompanionView,
   MonsterView,
   PlayerView,
   ProjectileView,
@@ -71,6 +72,9 @@ interface BufferedSnapshot {
   droppedItems: DroppedItemView[];
   buildings: BuildingView[];
   colonies: ColonyView[];
+  /** 티모시는 1마리뿐이지만, id로 짝을 찾는 blendList/extrapolateList를 그대로 쓰려고
+   * 1개짜리 배열로 감싼다(§sample에서 다시 단일 객체로 풀어낸다). */
+  companion: CompanionView[];
   status: WorldStatus;
   /** 안개는 보간 대상이 아니라 그대로 실어 나른다 — 2KB라 복사하지 않고 참조만 든다. */
   explored: ArrayLike<number>;
@@ -169,6 +173,19 @@ function extrapolateList<T extends Positioned>(
 /** 서버 상태가 오기 전(첫 프레임)에 쓸 빈 안개 — 전부 미탐색. */
 const EMPTY_EXPLORED = new Uint8Array(EXPLORED_BYTE_COUNT);
 
+const EMPTY_COMPANION: CompanionView = {
+  id: 'companion',
+  x: 0,
+  y: 0,
+  facingX: 0,
+  facingY: 1,
+  state: 'seeking',
+  carriedWood: 0,
+  carriedStone: 0,
+  hp: 0,
+  maxHp: 0,
+};
+
 const EMPTY_STATUS: WorldStatus = {
   coreHp: 0,
   coreMaxHp: 0,
@@ -191,6 +208,8 @@ const EMPTY_STATUS: WorldStatus = {
 
 export class SnapshotInterpolator {
   private readonly buffer: BufferedSnapshot[] = [];
+  /** blendList/extrapolateList는 배열에 써야 해서, 단일 객체(companion)용 스크래치 버퍼를 하나 둔다. */
+  private readonly companionScratch: CompanionView[] = [];
   private readonly output: WorldSnapshot = {
     players: [],
     monsters: [],
@@ -199,6 +218,7 @@ export class SnapshotInterpolator {
   droppedItems: [],
     buildings: [],
     colonies: [],
+    companion: { ...EMPTY_COMPANION },
     explored: EMPTY_EXPLORED,
     status: { ...EMPTY_STATUS },
   };
@@ -212,6 +232,7 @@ export class SnapshotInterpolator {
       projectiles: snapshot.projectiles.map((projectile) => ({ ...projectile })),
       resourceNodes: snapshot.resourceNodes.map((node) => ({ ...node })),
       droppedItems: snapshot.droppedItems.map((drop) => ({ ...drop })),
+      companion: [{ ...snapshot.companion }],
       buildings: snapshot.buildings.map((building) => ({ ...building })),
       colonies: snapshot.colonies.map((colony) => ({ ...colony })),
       status: { ...snapshot.status },
@@ -276,6 +297,15 @@ export class SnapshotInterpolator {
       this.output.buildings = last.buildings;
       this.output.colonies = last.colonies;
       this.output.explored = last.explored;
+      extrapolateList(
+        previous?.companion,
+        last.companion,
+        dt,
+        overshootMs,
+        this.companionScratch,
+        (x, y) => wouldOverlapObstacle(x, y, HIT_RADIUS, last.resourceNodes, last.colonies),
+      );
+      this.output.companion = this.companionScratch[0] ?? EMPTY_COMPANION;
       return this.output;
     }
 
@@ -291,6 +321,8 @@ export class SnapshotInterpolator {
     this.output.buildings = to.buildings;
     this.output.colonies = to.colonies;
     this.output.explored = to.explored;
+    blendList(from.companion, to.companion, t, this.companionScratch);
+    this.output.companion = this.companionScratch[0] ?? EMPTY_COMPANION;
 
     // 조준각은 위치와 달리 최단 경로로 섞어야 한다.
     for (const player of this.output.players) {
