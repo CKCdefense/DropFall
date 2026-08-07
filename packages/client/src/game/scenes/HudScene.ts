@@ -48,6 +48,9 @@ import {
   barColor,
 } from '../ui/theme';
 
+/** 코어 피격 시 패널 테두리가 붉게 남아있는 시간(ms). */
+const CORE_HIT_PANEL_FLASH_MS = 300;
+
 /** 건축모드 표시용 한글 이름. InputController의 BUILD_MODES 값과 짝을 맞춘다. */
 const BUILD_MODE_LABEL: Record<string, string> = {
   off: '꺼짐',
@@ -101,6 +104,12 @@ export class HudScene extends Phaser.Scene {
   private coreBar!: Phaser.GameObjects.Rectangle;
   /** 코어에 입고된 팀 공유 자원(건축 비용이 여기서 나간다) — 개인 휴대량과는 다른 값이다. */
   private sharedResourceText!: Phaser.GameObjects.Text;
+  /** 직전 스냅샷의 코어 체력. 줄어든 순간에만 패널 테두리를 붉게 펄스한다 — 코어가
+   * 화면 밖(카메라 밖)이거나 몬스터에 가려도 "지금 맞고 있다"가 항상 보이게 하는
+   * 용도다(월드 쪽 연출은 EntityRenderer.playCoreHit 참고). */
+  private lastCoreHp: number | null = null;
+  /** 진행 중인 코어 패널 테두리 복구 타이머 — 연속으로 맞으면 새 타이머가 이전 걸 대체한다. */
+  private corePanelFlashTimer?: Phaser.Time.TimerEvent;
 
   private waveDial!: WaveDial;
   private minimap!: Minimap;
@@ -598,6 +607,26 @@ export class HudScene extends Phaser.Scene {
       `공유 나무 ${sharedWood} · 돌 ${sharedStone} · 부품 ${coreParts} · ${money} G`,
     );
     this.coreModal.setEnergy(sharedEnergy);
+
+    // 체력이 줄었다 = 맞았다(플레이어/몬스터 피격과 같은 추론, 스냅샷엔 타격
+    // 이벤트가 따로 없다). 처음 받은 값은 기준점으로만 쓴다.
+    if (this.lastCoreHp !== null && hp < this.lastCoreHp) this.flashCorePanel();
+    this.lastCoreHp = hp;
+  }
+
+  /**
+   * 코어 패널 테두리를 붉게 펄스한다 — 카메라가 코어에서 멀리 있거나 몬스터에
+   * 가려도(§EntityRenderer.updateCoreBlindZone) 이 HUD 패널은 항상 화면에 있어서
+   * "지금 코어가 맞고 있다"를 놓칠 수 없게 한다.
+   */
+  private flashCorePanel(): void {
+    // strokeColor는 숫자 하나가 아니라 색상+두께 조합이라 트윈으로 보간할 수 없다 —
+    // 즉시 붉게 바꾸고, 잠시 후 타이머로 원래 테두리로 되돌린다.
+    this.corePanel.setStrokeStyle(3, 0xff3b3b);
+    if (this.corePanelFlashTimer) this.corePanelFlashTimer.remove();
+    this.corePanelFlashTimer = this.time.delayedCall(CORE_HIT_PANEL_FLASH_MS, () => {
+      this.corePanel.setStrokeStyle(1, PANEL_STROKE);
+    });
   }
 
   private updateSelfBar(me: PlayerView | undefined): void {

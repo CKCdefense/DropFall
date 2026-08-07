@@ -272,6 +272,25 @@ const CORE_PULSE_DURATION_MS = 1600;
 /** 코어 플레이스홀더(아틀라스가 없을 때). 예전 GameScene이 그리던 그대로다. */
 const CORE_PLACEHOLDER_SIZE = TILE_SIZE * 2;
 const CORE_PLACEHOLDER_FILL = 0x3a4658;
+
+/**
+ * 코어 스프라이트의 "북쪽 사각지대". 앵커(CORE_ORIGIN_Y=0.68)가 받침대 중심에 있어서
+ * 그림이 앵커보다 위로(북쪽, y가 음수인 방향) 훨씬 더 뻗는다 — 8각 발자국(coreShape.ts)의
+ * 충돌 경계는 y≈-27에서 끝나지만 그림 꼭대기는 y≈-73까지 올라간다. 그 사이(발자국
+ * 바깥이라 몬스터가 설 수 있지만 그림에는 가려지는 구간)에 뭔가 있으면, 코어를
+ * 반투명하게 만들어 12시 방향에서 공격하는 몬스터가 뒤에 가려 안 보이던 문제
+ * (실제 제보)를 없앤다. 여유를 두어 발자국/그림 경계보다 살짝 넉넉하게 잡았다 —
+ * 안 보이는 것보다 조금 일찍 흐려지는 쪽이 낫다.
+ */
+const CORE_BLIND_ZONE_HALF_WIDTH = 55;
+const CORE_BLIND_ZONE_NORTH = -80;
+const CORE_BLIND_ZONE_SOUTH = -20;
+/** 사각지대에 뭔가 있을 때 코어 몸체가 흐려지는 정도/속도. */
+const CORE_FADE_ALPHA = 0.4;
+const CORE_FADE_TWEEN_MS = 150;
+
+/** 코어가 맞은 순간의 알림 연출 — 몸체 흰색 플래시 + 잠깐 남는 붉은 테두리 펄스. */
+const CORE_HIT_OUTLINE_MS = 550;
 const CORE_PLACEHOLDER_STROKE = 0x7f8fa6;
 
 const COLONY_SIZE = 28;
@@ -353,6 +372,11 @@ export class EntityRenderer {
   private glintTimer = CORE_GLINT_MIN_GAP_MS;
   /** 직전 스냅샷의 코어 티어. 늘어난 순간에만 승급 이펙트를 터뜨린다. */
   private lastCoreTier: number | null = null;
+  /** 직전 스냅샷의 코어 체력. 줄어든 순간에만 피격 연출을 터뜨린다(플레이어/몬스터와 같은 방식). */
+  private lastCoreHp: number | null = null;
+  /** 코어 사각지대(§CORE_BLIND_ZONE_*)가 지금 비어있는지 — 매번 트윈을 새로 걸지
+   * 않고 상태가 바뀔 때만 걸기 위한 플래그. */
+  private coreBlindZoneOccupied = false;
 
   /** 보스 공격 예고(텔레그래프) 표시. 몬스터 id별로 하나씩, 예고 중일 때만 존재한다. */
   private readonly telegraphs = new Map<string, Phaser.GameObjects.Graphics>();
@@ -457,7 +481,7 @@ export class EntityRenderer {
   }
 
   sync(snapshot: WorldSnapshot): void {
-    this.syncCore(snapshot.status.coreTier);
+    this.syncCore(snapshot.status.coreTier, snapshot.status.coreHp);
     this.syncPlayers(snapshot.players);
     this.syncMonsters(snapshot.monsters);
     this.syncTelegraphs(snapshot.monsters);
@@ -467,6 +491,8 @@ export class EntityRenderer {
     this.syncColonies(snapshot.colonies);
     this.syncDroppedItems(snapshot.droppedItems);
     this.syncCompanion(snapshot.companion);
+    // 몬스터 좌표가 필요해서(사각지대 판정) syncMonsters 다음에 한다.
+    this.updateCoreBlindZone(snapshot.monsters);
   }
 
   getSprite(sessionId: string): Phaser.GameObjects.Container | undefined {
@@ -1207,13 +1233,89 @@ export class EntityRenderer {
    * 생기면서 **깊이 정렬 대상**이 됐다 — 코어 앞에 선 플레이어는 코어보다 앞에
    * 그려져야 한다. 다른 물체와 같은 규칙(y 좌표 = depth)을 쓴다.
    */
-  private syncCore(coreTier: number): void {
+  private syncCore(coreTier: number, coreHp: number): void {
     if (!this.core) this.core = this.createCore();
 
     // 티어가 **늘어난** 순간에만 터뜨린다. 처음 받은 값은 기준점으로만 쓴다 —
     // 접속하자마자 이미 3티어인 방에 들어가도 이펙트가 터지면 안 된다.
     if (this.lastCoreTier !== null && coreTier > this.lastCoreTier) this.playCoreUpgrade();
     this.lastCoreTier = coreTier;
+
+    // 체력이 줄었다 = 맞았다. 플레이어/몬스터 피격과 같은 추론이다(스냅샷에 타격
+    // 이벤트가 따로 없다). 처음 받은 값은 기준점으로만 쓴다.
+    if (this.lastCoreHp !== null && coreHp < this.lastCoreHp) this.playCoreHit();
+    this.lastCoreHp = coreHp;
+  }
+
+  /**
+   * 코어 피격 연출 — "공격당하고 있다"는 게 눈에 안 띈다는 제보로 추가했다.
+   * 몸체를 한 번 흰색으로 플래시하고, 그보다 오래 남는 붉은 테두리 펄스를 더한다
+   * (플레이어 피격의 흰색+붉은 아웃라인 조합과 같은 문법 — §playPlayerHurt).
+   * 코어는 화면 중앙에 크게 있어서 카메라 흔들림 없이도 눈에 잘 들어온다.
+   */
+  private playCoreHit(): void {
+    if (!this.core) return;
+    const body = this.core.getByName('body');
+
+    if (body instanceof Phaser.GameObjects.Sprite) {
+      this.flashSprite(body);
+    } else if (body instanceof Phaser.GameObjects.Rectangle) {
+      // 아틀라스가 없을 때(플레이스홀더 사각형)도 같은 문법으로 반응한다.
+      const original = body.fillColor;
+      body.setFillStyle(0xffffff);
+      this.scene.time.delayedCall(HIT_FLASH_MS, () => {
+        if (body.active) body.setFillStyle(original);
+      });
+    }
+
+    let ring = this.core.getByName('hitRing') as Phaser.GameObjects.Arc | null;
+    if (!ring) {
+      ring = this.scene.add
+        .circle(0, 0, (CORE_SPRITE_SIZE * CORE_SCALE) / 2, 0xff3b3b, 0)
+        .setStrokeStyle(3, 0xff3b3b, 1)
+        .setName('hitRing');
+      this.core.add(ring);
+    }
+    this.scene.tweens.killTweensOf(ring);
+    ring.setAlpha(1).setScale(0.9);
+    this.scene.tweens.add({
+      targets: ring,
+      alpha: 0,
+      scale: 1.25,
+      duration: CORE_HIT_OUTLINE_MS,
+      ease: 'Cubic.easeOut',
+    });
+  }
+
+  /**
+   * 코어 스프라이트가 그려내는 "북쪽 사각지대"(§CORE_BLIND_ZONE_*)에 몬스터가
+   * 있으면 코어를 반투명하게 만든다 — 12시 방향에서 코어를 때리는 몬스터가 코어
+   * 그림에 완전히 가려져 안 보이던 문제(실제 제보)에 대한 대응이다. 판정은
+   * "지금 사각지대가 비었는지"만 매번 새로 계산하고, 상태가 실제로 바뀔 때만
+   * 트윈을 새로 건다(매 스냅샷 다시 걸면 트윈이 끊겨 흐려지다 마는 것처럼 보인다).
+   */
+  private updateCoreBlindZone(monsters: MonsterView[]): void {
+    if (!this.core) return;
+
+    const occupied = monsters.some(
+      (monster) =>
+        Math.abs(monster.x) <= CORE_BLIND_ZONE_HALF_WIDTH &&
+        monster.y >= CORE_BLIND_ZONE_NORTH &&
+        monster.y <= CORE_BLIND_ZONE_SOUTH,
+    );
+    if (occupied === this.coreBlindZoneOccupied) return;
+    this.coreBlindZoneOccupied = occupied;
+
+    const body = this.core.getByName('body');
+    if (!(body instanceof Phaser.GameObjects.Sprite || body instanceof Phaser.GameObjects.Rectangle))
+      return;
+
+    this.scene.tweens.killTweensOf(body);
+    this.scene.tweens.add({
+      targets: body,
+      alpha: occupied ? CORE_FADE_ALPHA : 1,
+      duration: CORE_FADE_TWEEN_MS,
+    });
   }
 
   /** 반짝임 타이머. 매 프레임 호출된다(sync가 아니라 update 쪽 흐름). */
