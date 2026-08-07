@@ -64,9 +64,18 @@ function modelFor(provider: PersonaProvider): string {
   return process.env.CORE_PERSONA_MODEL ?? 'claude-haiku-4-5';
 }
 
-/** 현재 서버가 쓸 provider. `direct`가 기본값 — 명시적으로 `hchat`을 켜야 그쪽을 탄다. */
+/**
+ * 현재 서버가 쓸 provider. **실제로 채워진 키를 보고 자동으로 고른다** — 예전엔
+ * `CORE_PERSONA_PROVIDER` 수동 토글이 따로 있었는데, 그 값이 실제 채운 키와
+ * 어긋나면(예: hchat 키만 채워놓고 토글은 `direct`로 남은 경우) 네트워크 호출
+ * 자체를 안 하고 조용히 폴백 대사만 나가는 사고가 났다. 토글을 없애고 "키가
+ * 있는 쪽을 쓴다"로 단순화해서 이 어긋남 자체가 불가능하게 한다.
+ * direct(CORE_PERSONA_ANTHROPIC_API_KEY)를 hchat(H_CHAT_API_KEY)보다 우선한다.
+ */
 export function activePersonaProvider(): PersonaProvider {
-  return process.env.CORE_PERSONA_PROVIDER === 'hchat' ? 'hchat' : 'direct';
+  if (process.env.CORE_PERSONA_ANTHROPIC_API_KEY) return 'direct';
+  if (process.env.H_CHAT_API_KEY) return 'hchat';
+  return 'direct';
 }
 
 /**
