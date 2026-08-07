@@ -27,6 +27,15 @@
 > 자체가 민감 정보는 아니지만, public 저장소라 굳이 실명을 문서에 남기지
 > 않는다).
 
+> **corepack 대신 standalone pnpm을 쓴다**: Ubuntu apt로 깔리는 corepack
+> (실측 0.24.0)이 Node 22.x와 조합되면 pnpm 실행 시
+> `ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING`으로 죽는다(corepack 내부의 VM
+> 샌드박스가 동적 import를 못 다룸 — corepack 최신판도 Node 22.22.2+를
+> 요구해서 이 문제를 피해가지 못했다). [get.pnpm.io](https://pnpm.io/installation#using-a-standalone-script)
+> 설치 스크립트로 corepack을 거치지 않는 독립 실행 pnpm을 쓴다 —
+> `package.json`의 `packageManager` 필드를 pnpm 스스로 읽어서 맞는
+> 버전으로 알아서 맞춰 준다.
+
 ```bash
 # 1) /srv/dropfall을 내 계정 소유로 만들고 저장소를 받는다
 #    (/srv는 기본적으로 root 소유라 clone 전에 소유권부터 넘겨받아야 한다)
@@ -34,7 +43,12 @@ sudo mkdir -p /srv/dropfall
 sudo chown "$USER":"$USER" /srv/dropfall
 git clone https://github.com/CKCdefense/DropFall.git /srv/dropfall
 cd /srv/dropfall
-corepack enable   # 이미 sudo corepack enable로 활성화했다면 생략해도 된다
+
+# corepack이 아니라 standalone pnpm — 위 안내 참고
+curl -fsSL https://get.pnpm.io/install.sh | sh -
+source ~/.bashrc   # PATH에 pnpm 반영 (비대화형 SSH 실행 시는
+                    # scripts/deploy-server.sh가 PATH를 직접 지정한다)
+
 pnpm install --frozen-lockfile
 pnpm --filter @dropfall/server build
 
@@ -56,7 +70,17 @@ sudo reboot
 민감/환경별 값(`CLIENT_ORIGIN`, `CORE_PERSONA_ANTHROPIC_API_KEY` 등)은
 서버의 `packages/server/.env`에 직접 적는다 — 이 파일은
 `.gitignore` 처리돼 있어 리포에 안 들어간다. `packages/server/src/index.ts`가
-기동 시 `process.loadEnvFile()`로 자동으로 읽는다.
+기동 시 `process.loadEnvFile()`로 자동으로 읽는다(systemd
+`EnvironmentFile=`도 같은 파일을 읽으므로 형식은 그대로 `KEY=VALUE`).
+
+> **`CLIENT_ORIGIN`은 프로덕션에서 사실상 필수다.** 코드
+> (`allowedOrigin = process.env.CLIENT_ORIGIN ?? (isProduction ? '' : '*')`)의
+> 의도는 "프로덕션 기본값은 전체 차단"이지만, 값이 없을 때 우리 미들웨어가
+> CORS 헤더 자체를 건드리지 않고 넘어가는 바람에 Express/Colyseus가 자체
+> 기본으로 붙이는 `Access-Control-Allow-Origin: *`가 그대로 노출된다(실제
+> 배포 중 `curl`로 확인된 문제 — 코드 로직 자체를 고치는 건 별도 후속
+> 작업으로 남겨 둠). `.env`에 `CLIENT_ORIGIN=https://<Pages 오리진>`
+> (경로 없이 scheme+host만)을 반드시 넣어서 막아 둔다.
 
 `scripts/deploy-server.sh`(이 리포에 커밋돼 있음)를 한 번 수동으로 실행해서
 정상 동작을 확인해 둔다 — 이후 CI가 실행하는 것과 완전히 같은 스크립트다.
