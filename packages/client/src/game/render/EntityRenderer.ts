@@ -105,6 +105,12 @@ const MONSTER_COLOR_FALLBACK = 0xa4576a;
  */
 const MONSTER_HIT_RADIUS_FALLBACK = 10;
 
+/**
+ * 피격 시 흰색으로 번쩍이는 시간(ms). 60ms면 60fps에서 서너 프레임이다 — 눈에는
+ * 확실히 걸리면서 잔상으로 남지는 않는 길이다. 더 길면 연사 중에 계속 하얗게 뜬다.
+ */
+const HIT_FLASH_MS = 60;
+
 /** 자원 노드 타입별 플레이스홀더 색상(docs/backend/24). 크기는 몬스터와 같은 이유로
  * resourcesData[type].hitRadius에서 그대로 뽑는다(그림-판정 어긋남 방지). */
 const RESOURCE_COLOR: Record<string, number> = {
@@ -686,9 +692,15 @@ export class EntityRenderer {
         this.monsters.set(monster.id, sprite);
       }
 
+      // 피격은 **체력이 줄었는지**로 안다. 서버에 필드를 새로 만들지 않아도 되고,
+      // 누가 때렸든(내 공격·팀원·포탑) 똑같이 반응한다는 장점이 덤으로 붙는다.
+      const lastHp = sprite.getData('hp') as number | undefined;
+      const tookDamage = lastHp !== undefined && monster.hp < lastHp;
+      sprite.setData('hp', monster.hp);
+
       const nextX = Math.round(monster.x);
       const nextY = Math.round(monster.y);
-      this.updateMonsterAnim(sprite, monster, nextX - sprite.x);
+      this.updateMonsterAnim(sprite, monster, nextX - sprite.x, tookDamage);
       sprite.setPosition(nextX, nextY);
       sprite.setDepth(monster.y);
 
@@ -730,11 +742,24 @@ export class EntityRenderer {
     container: Phaser.GameObjects.Container,
     monster: MonsterView,
     deltaX: number,
+    tookDamage: boolean,
   ): void {
     const body = container.getByName('body');
     if (!(body instanceof Phaser.GameObjects.Sprite)) return;
 
     body.setFlipX(monster.facingLeft);
+
+    // 피격은 무엇보다 우선한다 — 때린 쪽에 즉시 반응이 돌아와야 손맛이 산다.
+    // 공격 모션 중이어도 끊고 들어간다(연사로 계속 맞으면 계속 밀리는 게 맞다).
+    const hurtKey = monsterAnimKey(monster.type, 'hurt');
+    if (tookDamage) {
+      this.flashSprite(body);
+      if (this.scene.anims.exists(hurtKey)) {
+        body.play(hurtKey, true);
+        return;
+      }
+    }
+    if (body.anims.currentAnim?.key === hurtKey && body.anims.isPlaying) return;
 
     const attackKey = monsterAnimKey(monster.type, 'attack');
     const wasAttacking = (container.getData('attacking') as boolean | undefined) ?? false;
@@ -756,6 +781,22 @@ export class EntityRenderer {
 
     const key = monsterAnimKey(monster.type, moving || stillFrames < 6 ? 'walk' : 'idle');
     if (body.anims.currentAnim?.key !== key || !body.anims.isPlaying) body.play(key, true);
+  }
+
+  /**
+   * 맞은 순간 흰색으로 한 번 번쩍인다.
+   *
+   * 피격 모션만으로는 약하다 — 4프레임짜리라 난전에서는 눈에 안 들어오고, 몬스터마다
+   * 동작 크기도 제각각이다. 실루엣을 통째로 흰색으로 칠하는 건(setTintFill) 어떤
+   * 그림이든 똑같이 확실하게 읽히는 고전적인 피격 표현이다.
+   *
+   * 스프라이트가 그 사이에 사라질 수 있어서(처치) 콜백에서 살아있는지 확인한다.
+   */
+  private flashSprite(body: Phaser.GameObjects.Sprite): void {
+    body.setTintFill(0xffffff);
+    this.scene.time.delayedCall(HIT_FLASH_MS, () => {
+      if (body.active) body.clearTint();
+    });
   }
 
   /**

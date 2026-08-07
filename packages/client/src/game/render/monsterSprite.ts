@@ -77,10 +77,26 @@ export const MONSTER_SCALE = 1;
  * 공격은 팩마다 Attack01~03이 있는데 첫 번째만 쓴다 — 서버가 구분하는 건 "공격했다"
  * 하나뿐이라, 어느 변형을 쓸지 고를 근거가 없다. 나중에 패턴이 갈리면 그때 늘린다.
  */
-const TAG = { idle: 'Idle', walk: 'Walk', attack: 'Attack01', death: 'Death' } as const;
+const TAG = {
+  idle: 'Idle',
+  walk: 'Walk',
+  attack: 'Attack01',
+  hurt: 'Hurt',
+  death: 'Death',
+} as const;
 export type MonsterAnim = keyof typeof TAG;
 
-const FRAME_RATE: Record<MonsterAnim, number> = { idle: 6, walk: 10, attack: 14, death: 12 };
+/** 피격은 빠르게 지나가야 한다 — 4프레임을 18fps로 돌리면 0.22초로, 연사에도 안 밀린다. */
+const FRAME_RATE: Record<MonsterAnim, number> = {
+  idle: 6,
+  walk: 10,
+  attack: 14,
+  hurt: 18,
+  death: 12,
+};
+
+/** 한 번만 재생하고 멈추는 상태(반복하면 안 되는 것들). */
+const ONE_SHOT: ReadonlySet<MonsterAnim> = new Set<MonsterAnim>(['attack', 'hurt', 'death']);
 
 /** 아틀라스 로드를 예약한다. 파일이 없으면(에셋 미보유) 조용히 넘어간다. */
 export function queueMonsterAtlas(scene: Phaser.Scene): void {
@@ -147,9 +163,9 @@ export function registerMonsterAnimations(scene: Phaser.Scene): void {
         key,
         frames: frames.map((frame) => ({ key: MONSTER_ATLAS, frame })),
         frameRate: FRAME_RATE[anim],
-        // 죽음·공격은 한 번만 재생한다. 죽음은 마지막 장에서 멈춰 시체가 남고,
-        // 공격은 끝나는 즉시 렌더러가 이동/대기 상태로 되돌린다.
-        repeat: anim === 'death' || anim === 'attack' ? 0 : -1,
+        // 공격·피격·죽음은 한 번만 재생한다. 죽음은 마지막 장에서 멈춰 시체가 남고,
+        // 나머지는 끝나는 즉시 렌더러가 이동/대기 상태로 되돌린다.
+        repeat: ONE_SHOT.has(anim) ? 0 : -1,
       });
     }
   }
