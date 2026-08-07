@@ -2424,7 +2424,6 @@ export class World {
 
       if (ready.length > 0) {
         const index = ready[Math.floor(this.rng() * ready.length)]!;
-        const attack = data.meleeAttacks[index]!;
         const dirX = targetDistance > 0 ? dxToTarget / targetDistance : monster.facingX;
         const dirY = targetDistance > 0 ? dyToTarget / targetDistance : monster.facingY;
         monster.facingX = dirX;
