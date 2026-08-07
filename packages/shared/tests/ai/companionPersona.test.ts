@@ -149,12 +149,71 @@ describe('World — "@티모시 ..." 채팅 직접 말 걸기', () => {
     expect(world.sendCompanionMessage('p1', '밥 먹었냐')).toBe(true);
     expect(world.drainCompanionPersonaEvents()).toHaveLength(1);
 
-    // 반대로 방금 쓴 playerMessage 쿨다운 안에서는 두 번째 직접 말 걸기가 거절된다.
-    expect(world.sendCompanionMessage('p1', '또 물어봄')).toBe(false);
+    // 반대로 방금 쓴 playerMessage 쿨다운 안에서는 두 번째 직접 말 걸기가 "거절"이
+    // 아니라 큐에 쌓인다(true) — 쿨다운이 끝나면 자동으로 나간다(아래 describe 참고).
+    expect(world.sendCompanionMessage('p1', '또 물어봄')).toBe(true);
     expect(world.drainCompanionPersonaEvents()).toHaveLength(0);
 
     world.tick(companionData.persona.playerMessageCooldownSeconds + 0.1);
-    expect(world.sendCompanionMessage('p1', '다시 물어봄')).toBe(true);
+    expect(world.drainCompanionPersonaEvents().some((e) => e.message === '또 물어봄')).toBe(true);
+  });
+});
+
+describe('World — "@티모시 ..." 연속 질문 큐잉(쿨다운 중에도 놓치지 않는다)', () => {
+  it('쿨다운 중에 온 질문은 즉시 이벤트가 되지 않고 큐에 쌓인다', () => {
+    const world = createTestWorld();
+    world.addPlayer('p1', 0, 0);
+
+    world.sendCompanionMessage('p1', '질문1');
+    world.drainCompanionPersonaEvents();
+    expect(world.sendCompanionMessage('p1', '질문2')).toBe(true);
+
+    // 아직 쿨다운이 안 끝났으니 질문2는 이벤트로 나오지 않는다 — 버려진 것도 아니다.
+    expect(world.drainCompanionPersonaEvents()).toHaveLength(0);
+  });
+
+  it('쿨다운이 끝나면 tick()이 큐에서 하나를 꺼내 자동으로 내보낸다', () => {
+    const world = createTestWorld();
+    world.addPlayer('p1', 0, 0);
+
+    world.sendCompanionMessage('p1', '질문1');
+    world.drainCompanionPersonaEvents();
+    world.sendCompanionMessage('p1', '질문2');
+
+    world.tick(companionData.persona.playerMessageCooldownSeconds + 0.1);
+
+    const events = world.drainCompanionPersonaEvents();
+    expect(events).toHaveLength(1);
+    expect(events[0]!.message).toBe('질문2');
+  });
+
+  it('여러 개를 연달아 물어봐도 순서대로(FIFO) 하나씩 처리된다', () => {
+    const world = createTestWorld();
+    world.addPlayer('p1', 0, 0);
+    const cooldown = companionData.persona.playerMessageCooldownSeconds;
+
+    world.sendCompanionMessage('p1', '질문1');
+    world.drainCompanionPersonaEvents();
+    world.sendCompanionMessage('p1', '질문2');
+    world.sendCompanionMessage('p1', '질문3');
+
+    world.tick(cooldown + 0.1);
+    expect(world.drainCompanionPersonaEvents().map((e) => e.message)).toEqual(['질문2']);
+
+    world.tick(cooldown + 0.1);
+    expect(world.drainCompanionPersonaEvents().map((e) => e.message)).toEqual(['질문3']);
+  });
+
+  it('큐가 가득 차면(스팸) 더 이상은 진짜로 거절한다', () => {
+    const world = createTestWorld();
+    world.addPlayer('p1', 0, 0);
+
+    world.sendCompanionMessage('p1', '질문1'); // 즉시 처리(큐 아님)
+    world.drainCompanionPersonaEvents();
+    for (let i = 0; i < 3; i += 1) {
+      expect(world.sendCompanionMessage('p1', `대기${i}`)).toBe(true); // 큐 최대치까지는 받아준다
+    }
+    expect(world.sendCompanionMessage('p1', '넘치는 질문')).toBe(false); // 큐 꽉 참
   });
 });
 

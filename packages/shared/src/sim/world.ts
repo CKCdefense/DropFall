@@ -377,6 +377,14 @@ export class World {
   private lastCompanionMessageAt = -Infinity;
   /** "@티모시 ..." 대화 기록 — 플레이어별로 최근 몇 마디만(historyMessageLimit) 세션 동안 들고 있다. */
   private companionConversations = new Map<string, CompanionPersonaTurn[]>();
+  /**
+   * 쿨다운 중에 들어온 "@티모시 ..." 질문을 버리지 않고 쌓아두는 큐. 쿨다운이 끝나는
+   * 즉시(tick마다 확인) 가장 오래된 것부터 하나씩 꺼내 처리한다 — 연달아 두 번 물어보면
+   * 두 번째가 조용히 씹히던 문제(실제로 겪음)를 이렇게 고쳤다. 무한정 쌓이지 않게
+   * 개수를 제한한다(그래도 넘치면 그건 진짜 스팸으로 보고 거절한다).
+   */
+  private queuedCompanionMessages: { playerId: string; message: string }[] = [];
+  private static readonly MAX_QUEUED_COMPANION_MESSAGES = 3;
   private readonly resourceNodes = new Map<string, ResourceNodeEntity>();
   private readonly droppedItems = new Map<string, DroppedItemEntity>();
   private readonly colonies = new ColonyRegistry();
@@ -1238,6 +1246,7 @@ export class World {
     // tickMonsters() 다음에 불러야 몬스터들의 이번 틱 위치 기준으로 근접 판정한다.
     this.tickCompanionDamage(dtSeconds);
     this.tickCompanion(dtSeconds);
+    this.tickQueuedCompanionMessages();
     this.tickResourceNodes(dtSeconds);
     // tickMonsters() 다음에 불러야 한다 — 이번 틱의 피격(tookDamageThisTick)이
     // 이미 반영된 뒤여야 "피격 시 채널 중단"이 정확히 판정된다.
@@ -1404,15 +1413,26 @@ export class World {
   /**
    * 채팅으로 "@티모시 ..." 하고 직접 말을 걸었을 때. 거리 제한이 없다(채팅 자체가 방
    * 전체에 항상 보이는 것과 같은 맥락) — 대신 `enqueueCompanionPersonaEvent`의 방 전역
-   * 잡담 쿨다운과는 별개인 자체 쿨다운만 통과하면 된다. 명시적으로 건 말이 다른 이벤트
-   * (코어 납품 등)의 대사 뒤에 묻혀 조용히 씹히지 않게 하기 위해서다.
+   * 잡담 쿨다운과는 별개인 자체 쿨다운만 통과해야 한다. 쿨다운 중이면 버리지 않고
+   * 큐에 쌓아뒀다가 tick()에서 쿨다운이 끝나는 대로 순서대로 하나씩 내보낸다(연달아
+   * 두 번 물어보면 두 번째가 조용히 씹히던 문제를 이렇게 고쳤다) — 대신 큐가
+   * MAX_QUEUED_COMPANION_MESSAGES를 넘기면 그건 진짜 스팸으로 보고 거절한다.
    */
   sendCompanionMessage(playerId: string, message: string): boolean {
     if (!this.players.has(playerId)) return false;
     const cooldown = companionData.persona.playerMessageCooldownSeconds;
-    if (this.elapsedSeconds - this.lastCompanionMessageAt < cooldown) return false;
-    this.lastCompanionMessageAt = this.elapsedSeconds;
+    if (this.elapsedSeconds - this.lastCompanionMessageAt < cooldown) {
+      if (this.queuedCompanionMessages.length >= World.MAX_QUEUED_COMPANION_MESSAGES) return false;
+      this.queuedCompanionMessages.push({ playerId, message });
+      return true;
+    }
+    this.emitCompanionMessage(playerId, message);
+    return true;
+  }
 
+  /** sendCompanionMessage의 실제 처리부 — 쿨다운을 이미 통과했다고 가정한다. */
+  private emitCompanionMessage(playerId: string, message: string): void {
+    this.lastCompanionMessageAt = this.elapsedSeconds;
     const traits = applyCompanionPersonaEvent(this.companionTraitFor(playerId), 'playerMessage');
     this.companionTraits.set(playerId, traits);
     // 지금까지의 대화 기록(이번 메시지 이전까지)을 이벤트에 실어 보낸다 — 이번 메시지
@@ -1429,7 +1449,15 @@ export class World {
       history,
     });
     this.pushCompanionHistory(playerId, 'user', message);
-    return true;
+  }
+
+  /** 쿨다운이 끝났고 큐에 대기 중인 질문이 있으면 가장 오래된 것 하나를 내보낸다. tick()이 매 틱 부른다. */
+  private tickQueuedCompanionMessages(): void {
+    if (this.queuedCompanionMessages.length === 0) return;
+    const cooldown = companionData.persona.playerMessageCooldownSeconds;
+    if (this.elapsedSeconds - this.lastCompanionMessageAt < cooldown) return;
+    const next = this.queuedCompanionMessages.shift()!;
+    this.emitCompanionMessage(next.playerId, next.message);
   }
 
   /** "@티모시 ..." 대화 기록(이 플레이어와 나눈 최근 대화). GameRoom이 프롬프트에 이어 붙인다. */
