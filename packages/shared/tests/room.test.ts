@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
+  CHAT_MESSAGE_MAX_LENGTH,
   NICKNAME_MAX_LENGTH,
   ROOM_CODE_ALPHABET,
   ROOM_CODE_LENGTH,
   generateRoomCode,
   isValidRoomCode,
   normalizeRoomCode,
+  sanitizeChatText,
   sanitizeNickname,
   sanitizePassword,
   sanitizeRoomName,
@@ -45,6 +47,27 @@ describe('sanitizePassword', () => {
     expect(sanitizePassword('  pw  ')).toBe('  pw  ');
     expect(sanitizePassword('a'.repeat(20))).toHaveLength(16);
     expect(sanitizePassword(undefined)).toBe('');
+  });
+});
+
+describe('sanitizeChatText', () => {
+  it('앞뒤 공백을 정리하고 연속 공백을 하나로 줄인다', () => {
+    expect(sanitizeChatText('  안녕   다들   ')).toBe('안녕 다들');
+  });
+
+  it('빈 값과 공백뿐인 값을 거절한다', () => {
+    expect(sanitizeChatText('')).toBeNull();
+    expect(sanitizeChatText('   ')).toBeNull();
+  });
+
+  it('길이 제한을 넘으면 거절한다', () => {
+    expect(sanitizeChatText('a'.repeat(CHAT_MESSAGE_MAX_LENGTH))).not.toBeNull();
+    expect(sanitizeChatText('a'.repeat(CHAT_MESSAGE_MAX_LENGTH + 1))).toBeNull();
+  });
+
+  it('문자열이 아닌 입력을 거절한다', () => {
+    expect(sanitizeChatText(undefined)).toBeNull();
+    expect(sanitizeChatText(42)).toBeNull();
   });
 });
 

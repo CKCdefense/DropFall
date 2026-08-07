@@ -17,3 +17,4 @@ export { circlesOverlap } from './sim/combat';
 export { COLONY_RADIUS } from './sim/colony';
 export * from './sim/coreShape';
 export * from './sim/corePersona';
+export * from './sim/companionPersona';

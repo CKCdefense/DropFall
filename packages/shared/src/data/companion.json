@@ -1,10 +1,43 @@
 {
   "name": "티모시",
-  "moveSpeed": 90,
+  "moveSpeed": 110,
   "harvestRange": 32,
   "harvestDamage": 6,
-  "harvestIntervalSeconds": 0.8,
+  "harvestIntervalSeconds": 0.5,
   "capacity": 20,
   "maxHp": 40,
-  "spawnOffset": { "x": -80, "y": 0 }
+  "spawnOffset": { "x": -80, "y": 0 },
+  "interactRange": 48,
+  "persona": {
+    "traitMin": -10,
+    "traitMax": 10,
+    "moodThreshold": 3,
+    "interactionCooldownSeconds": 15,
+    "playerMessageCooldownSeconds": 8,
+    "eventWeights": {
+      "coreDeposit": { "trust": 1, "efficiency": 2, "recklessness": 0 },
+      "proximityInteract": { "trust": 2, "efficiency": 0, "recklessness": 0 },
+      "companionDowned": { "trust": -1, "efficiency": 0, "recklessness": 1 },
+      "companionRevived": { "trust": 1, "efficiency": 0, "recklessness": -1 },
+      "waveEnd": { "trust": 1, "efficiency": 1, "recklessness": 0 },
+      "playerMessage": { "trust": 2, "efficiency": 0, "recklessness": 0 }
+    },
+    "fallbackLines": {
+      "warm": [
+        "오늘도 같이 일할 수 있어서 좋아!",
+        "너랑 다니니까 든든하다니까.",
+        "다음 것도 금방 캐올게!"
+      ],
+      "cold": [
+        "왜 자꾸 위험한 데로 가는 거야...",
+        "나 혼자 다 하는 기분이야.",
+        "좀 도와줬으면 좋겠는데."
+      ],
+      "neutral": [
+        "오늘도 열심히 캐는 중이야.",
+        "자원 모으는 거 은근 재밌어.",
+        "다음 목표 찾으러 갈게."
+      ]
+    }
+  }
 }
