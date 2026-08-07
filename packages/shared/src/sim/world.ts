@@ -1316,8 +1316,10 @@ export class World {
       setPlayerHp: (playerId, amount) => {
         const player = this.players.get(playerId);
         if (!player) return 0;
-        // 최대치를 넘겨 설정하면 HP 바가 넘쳐 그려지므로 위쪽만 조인다.
-        player.hp = Math.min(wavesData.playerHp, amount);
+        // **상한을 두지 않는다.** 보스 한 방을 버티며 패턴을 끝까지 보는 게 이 커맨드의
+        // 용도라, 최대치로 잘라버리면 정작 쓸 데가 없어진다. 체력 바가 넘치는 문제는
+        // 그리는 쪽에서 비율을 1로 조여 막는다(HudScene/PartyPanel).
+        player.hp = amount;
         return player.hp;
       },
       setCoreHp: (amount) => {

@@ -601,7 +601,9 @@ export class HudScene extends Phaser.Scene {
   }
 
   private updateSelfBar(me: PlayerView | undefined): void {
-    const ratio = me ? Math.max(0, me.hp) / wavesData.playerHp : 0;
+    // 개발 커맨드(hp)로 최대치를 넘겨 설정할 수 있어서 위쪽도 조인다 — 안 그러면
+    // 바가 패널 밖으로 삐져나간다.
+    const ratio = me ? Math.min(1, Math.max(0, me.hp) / wavesData.playerHp) : 0;
     this.selfBar.width = Math.max(0, SELF_BAR_WIDTH * this.uiScale * ratio);
     this.selfBar.fillColor = barColor(ratio);
   }
