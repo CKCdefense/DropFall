@@ -1,5 +1,7 @@
 import { Client, Room, ServerError, matchMaker } from 'colyseus';
 import {
+  CHAT_MESSAGE,
+  COMPANION_COMMENTARY_MESSAGE,
   CORE_COMMENTARY_MESSAGE,
   LOBBY_ERROR_MESSAGE,
   LobbyMessage,
@@ -11,16 +13,23 @@ import {
   StartRejectReason,
   TICK_RATE,
   World,
+  buildCompanionPersonaPrompt,
   buildPersonaPrompt,
   describeBossTelegraph,
   generateRoomCode,
   isJobId,
   monstersData,
+  parseCompanionMention,
+  pickCompanionFallbackLine,
   pickFallbackLine,
+  sanitizeChatText,
   sanitizeNickname,
   sanitizePassword,
   sanitizeRoomName,
   type BuildInputMessage,
+  type ChatMessage,
+  type CompanionCommentaryMessage,
+  type CompanionPersonaEvent,
   type CoreCommentaryMessage,
   type CreateRoomOptions,
   type DemolishInputMessage,
@@ -148,6 +157,27 @@ export class GameRoom extends Room {
       // 성공 여부(쿨다운 통과)는 World가 판단한다 — 여기선 그냥 요청만 넘긴다.
       // 이벤트가 쌓였으면 다음 틱의 drainPersonaEvents() 폴링에서 자동으로 처리된다.
       this.world.requestCoreInteraction();
+    },
+    companionInteract: (client: Client) => {
+      if (this.state.phase !== RoomPhase.PLAYING) return;
+      // 사거리 판정(성공 여부)은 World가 한다 — 여기선 요청만 넘긴다.
+      this.world.requestCompanionInteraction(client.sessionId);
+    },
+    // 대기실에서도 협의(직업 배분 등)가 필요하니 페이즈 무관하게 항상 받는다.
+    chat: (client: Client, payload: { text?: unknown }) => {
+      const text = sanitizeChatText(payload?.text);
+      if (!text) return;
+      const nickname = this.state.players.get(client.sessionId)?.nickname ?? '';
+      this.broadcast(CHAT_MESSAGE, {
+        playerId: client.sessionId,
+        nickname,
+        text,
+      } satisfies ChatMessage);
+
+      // "@티모시 ..."로 시작하면 그 뒤 내용을 티모시에게 직접 건다(쿨다운 통과 시에만
+      // 응답 이벤트가 쌓이고, 다음 틱의 drainCompanionPersonaEvents() 폴링에서 처리된다).
+      const question = parseCompanionMention(text);
+      if (question) this.world.sendCompanionMessage(client.sessionId, question);
     },
     placeBuilding: (client: Client, payload: BuildInputMessage) => {
       if (this.state.phase !== RoomPhase.PLAYING) return;
@@ -371,6 +401,9 @@ export class GameRoom extends Room {
     for (const event of this.world.drainPersonaEvents()) {
       void this.handlePersonaEvent(event);
     }
+    for (const event of this.world.drainCompanionPersonaEvents()) {
+      void this.handleCompanionPersonaEvent(event);
+    }
   }
 
   /**
@@ -382,6 +415,22 @@ export class GameRoom extends Room {
     const { system, user } = buildPersonaPrompt(event);
     const text = (await generateCoreCommentary(activePersonaProvider(), system, user)) ?? pickFallbackLine(event.traits);
     this.broadcast(CORE_COMMENTARY_MESSAGE, { text } satisfies CoreCommentaryMessage);
+  }
+
+  /**
+   * 티모시 대사 하나를 생성해 방 전체에 broadcast한다. 코어 페르소나와 같은 LLM 파이프라인을
+   * 재사용하지만, 프롬프트/트레잇이 방 전체가 아니라 이 이벤트의 대상 플레이어(event.playerId)
+   * 개인 것이다.
+   */
+  private async handleCompanionPersonaEvent(event: CompanionPersonaEvent): Promise<void> {
+    const { system, user } = buildCompanionPersonaPrompt(event);
+    const text =
+      (await generateCoreCommentary(activePersonaProvider(), system, user)) ??
+      pickCompanionFallbackLine(event.traits);
+    this.broadcast(COMPANION_COMMENTARY_MESSAGE, {
+      text,
+      playerId: event.playerId,
+    } satisfies CompanionCommentaryMessage);
   }
 
   /** 몬스터는 스폰/처치로 매 틱 등장·소멸하므로, world와 schema를 매번 대조해 맞춘다. */
