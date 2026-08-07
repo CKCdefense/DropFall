@@ -111,13 +111,13 @@ describe('World — 코어 페르소나 이벤트 적재', () => {
     const world = new World({ rng: seededRng(1) });
     world.addPlayer('p1', 0, 0);
 
-    expect(world.requestCoreInteraction('p1')).toBe(true);
+    expect(world.requestCoreInteraction()).toBe(true);
     expect(world.drainPersonaEvents().some((e) => e.kind === 'coreInteract')).toBe(true);
 
-    expect(world.requestCoreInteraction('p1')).toBe(false);
+    expect(world.requestCoreInteraction()).toBe(false);
     expect(world.drainPersonaEvents()).toHaveLength(0);
 
     world.tick(corePersonaData.coreInteractionCooldownSeconds + 0.1);
-    expect(world.requestCoreInteraction('p1')).toBe(true);
+    expect(world.requestCoreInteraction()).toBe(true);
   });
 });

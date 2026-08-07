@@ -124,7 +124,7 @@ export class LocalConnection implements GameConnection {
   }
 
   coreInteract(): void {
-    this.world.requestCoreInteraction(LOCAL_SESSION_ID);
+    this.world.requestCoreInteraction();
   }
 
   onCoreCommentary(callback: (text: string) => void): void {

@@ -1257,7 +1257,7 @@ export class World {
    * 안이면 조용히 무시한다 — 연타로 대사가 도배되는 걸 막는다(룸 전역 쿨다운, 플레이어별 아님).
    * 성공하면 true.
    */
-  requestCoreInteraction(_playerId: string): boolean {
+  requestCoreInteraction(): boolean {
     const cooldown = corePersonaData.coreInteractionCooldownSeconds;
     if (this.elapsedSeconds - this.lastCoreInteractionAt < cooldown) return false;
     this.lastCoreInteractionAt = this.elapsedSeconds;

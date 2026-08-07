@@ -143,11 +143,11 @@ export class GameRoom extends Room {
       if (this.state.phase !== RoomPhase.PLAYING) return;
       this.world.upgradeCore(client.sessionId);
     },
-    coreInteract: (client: Client) => {
+    coreInteract: () => {
       if (this.state.phase !== RoomPhase.PLAYING) return;
       // 성공 여부(쿨다운 통과)는 World가 판단한다 — 여기선 그냥 요청만 넘긴다.
       // 이벤트가 쌓였으면 다음 틱의 drainPersonaEvents() 폴링에서 자동으로 처리된다.
-      this.world.requestCoreInteraction(client.sessionId);
+      this.world.requestCoreInteraction();
     },
     placeBuilding: (client: Client, payload: BuildInputMessage) => {
       if (this.state.phase !== RoomPhase.PLAYING) return;
