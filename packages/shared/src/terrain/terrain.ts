@@ -227,3 +227,35 @@ export function pavementTileAt(
   }
   return PAVEMENT_TILE_START + mask;
 }
+
+// ---------------------------------------------------------------- 미니맵
+
+/**
+ * 미니맵 한 칸의 지형 종류. `topFullTerrainAt`과 달리 **경계 칸에서도 반드시 하나를
+ * 돌려준다** — 미니맵은 한 칸이 1px이라 "경계"라는 중간 상태를 그릴 자리가 없다.
+ *
+ * 네 꼭짓점을 보는 대신 칸의 좌상단 꼭짓점 **한 점만** 본다. 그래서 경계가 반칸씩
+ * 걸치지 않고 칸 단위로 딱 떨어진다 — 축소된 지도에서는 이 편이 지형 덩어리를
+ * 읽기 쉽다(요청한 "미니멀라이즈된 경계"가 이것이다).
+ *
+ * 겹쳐 깔린 순서의 역순으로 훑어 **맨 위 지형**을 고른다(화면에 보이는 것과 같다).
+ */
+export function minimapTerrainAt(cx: number, cy: number, seed: number): TerrainKind {
+  for (let i = OVERLAY_TERRAINS.length - 1; i >= 0; i -= 1) {
+    const kind = OVERLAY_TERRAINS[i]!;
+    if (hasTerrainAtVertex(kind, cx, cy, seed)) return kind;
+  }
+  return BASE_TERRAIN;
+}
+
+/**
+ * 미니맵에 쓰는 지형 색. 타일 아트(tiles_terrain.lua)의 바탕색을 그대로 쓰되
+ * 한 단계 어둡게 눌렀다 — 지형은 배경이고, 그 위에 찍히는 엔티티 점이 주인공이라
+ * 배경이 밝으면 점이 묻힌다.
+ */
+export const MINIMAP_TERRAIN_COLOR: Record<TerrainKind, number> = {
+  grass: 0x2f4429,
+  dirt: 0x413124,
+  sand: 0x6b5f41,
+  stone: 0x434852,
+};

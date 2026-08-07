@@ -159,7 +159,8 @@ export class HudScene extends Phaser.Scene {
     // 상단 중앙 원형 — 웨이브 번호 + 남은 시간
     this.waveDial = new WaveDial(this);
     // 우상단 사각형 — 미니맵
-    this.minimap = new Minimap(this);
+    // 지형은 시드에서 결정된다 — 서버가 방 코드로 지형을 정하므로 같은 값을 넘긴다.
+    this.minimap = new Minimap(this, roomCode);
     // 좌측 세로 — 팀원(나를 제외한 인원) 체력
     this.party = new PartyPanel(this, MAX_CLIENTS_PER_ROOM - 1);
     // 하단 중앙 — 퀵슬롯
