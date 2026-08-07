@@ -36,6 +36,7 @@
 | [backend/45-work-report-monster-spatial-grid.md](backend/45-work-report-monster-spatial-grid.md) | 작업 보고서 — 몬스터 공간 분할 격자(SpatialGrid) 도입, 군집 분리/투사체 충돌 O(n²) → O(n) |
 | [backend/46-work-report-resource-node-position-sync.md](backend/46-work-report-resource-node-position-sync.md) | 작업 보고서 — 자원 노드 리스폰 시 서버가 새 좌표를 클라이언트에 재동기화 안 하던 버그 |
 | [backend/47-work-report-patch-rate-bandwidth.md](backend/47-work-report-patch-rate-bandwidth.md) | 작업 보고서 — PATCH_RATE 60→20Hz, 2인 이상 실접속 렉의 원인(대역폭이 인원수에 비례) |
+| [backend/48-work-report-cicd-deployment-pipeline.md](backend/48-work-report-cicd-deployment-pipeline.md) | 작업 보고서 — CI/CD 구축(GitHub Pages + 개인 서버 SSH), Node/corepack/sudoers/SSH키/Tailscale Funnel 전환 등 실서버 적용 과정 |
 
 ### 역할 C — 클라이언트/렌더/UI 작업 문서 ([frontend/](frontend/))
 
