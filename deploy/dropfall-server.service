@@ -1,0 +1,31 @@
+# 개인 서버에 최초 1회 수동 설치하는 systemd 유닛 템플릿(docs/07-deployment.md).
+# 설치:
+#   sudo cp deploy/dropfall-server.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now dropfall-server
+#
+# 백업 게임 서버를 두지 않기로 했으므로(docs/02-tech-spec.md §9.1) Restart=always가
+# 유일한 방어선이다 — 재부팅 테스트를 실제로 한 번 해 볼 것(§9.7 체크리스트).
+
+[Unit]
+Description=DropFall Colyseus game server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/srv/dropfall/packages/server
+ExecStart=/usr/bin/node dist/index.js
+Environment=NODE_ENV=production
+Environment=PORT=2567
+# CLIENT_ORIGIN, CORE_PERSONA_ANTHROPIC_API_KEY 등 민감/환경별 값은 여기(리포)가
+# 아니라 서버의 이 파일에 직접 넣는다 — 없어도(앞의 '-') 무시하고 그냥 뜬다.
+EnvironmentFile=-/srv/dropfall/packages/server/.env
+Restart=always
+RestartSec=3
+# 팀/서버 규모상 계정을 따로 안 나누고 로그인 계정 하나로 서비스도 돌리고
+# CI 배포 SSH도 받는다(docs/07-deployment.md) — 실제 서버 계정명으로 바꿀 것.
+User=dosl196122
+
+[Install]
+WantedBy=multi-user.target

@@ -10,6 +10,7 @@
 | [04-roadmap.md](04-roadmap.md) | 마일스톤, 역할 분담, 리스크 |
 | [05-team-notes.md](05-team-notes.md) | **팀 공유 노트 — 작업 시작 전에 알아야 할 것** (실행 방법, 통신 규격, 함정) |
 | [06-client-server-state-flow.md](06-client-server-state-flow.md) | 클라이언트 ↔ 서버 상태 통신 흐름 — 연결부터 렌더링까지 전체 시퀀스 |
+| [07-deployment.md](07-deployment.md) | 배포 — GitHub Pages(클라)/개인 서버 SSH(게임 서버) 최초 설정 + CI/CD 워크플로 |
 
 ### 역할 A — 서버/네트워크 작업 문서 ([backend/](backend/))
 

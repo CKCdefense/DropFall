@@ -1,0 +1,61 @@
+name: Deploy client to GitHub Pages
+
+# main에 머지(=push)되면 자동 배포. Actions 탭에서 수동 재실행도 가능하다.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Pages 배포에 필요한 최소 권한만 연다(OIDC로 배포 아티팩트에 서명한다).
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 같은 브랜치에서 배포가 겹치면 최신 것만 남긴다 — 옛 커밋이 새 커밋을 덮어쓰는 걸 막는다.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # packageManager 필드(package.json: pnpm@11.18.0)를 Corepack이 그대로 읽는다.
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # 배포 전 최소 검증 — 여기서 실패하면 배포하지 않는다.
+      - run: pnpm --filter @dropfall/shared test
+      - run: pnpm --filter @dropfall/client typecheck
+      - run: pnpm lint
+
+      # @dropfall/shared는 별도 빌드 산출물이 없는 순수 TS 소스라 vite가 직접
+      # 인라인한다 — "shared 먼저 빌드"가 필요 없다.
+      - run: pnpm --filter @dropfall/client build
+        env:
+          # 리포지토리 Settings → Secrets and variables → Actions → Variables에
+          # wss://game.<도메인> 형태로 등록해 둬야 한다(docs/07-deployment.md).
+          VITE_SERVER_URL: ${{ vars.VITE_SERVER_URL }}
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: packages/client/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
