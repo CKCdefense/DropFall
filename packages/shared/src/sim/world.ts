@@ -16,6 +16,7 @@ import {
   type BuildingType,
   type DropRange,
   type MeleeAttackData,
+  type MeleeHitData,
   type MonsterData,
   type CraftRecipe,
   type ItemKind,
@@ -276,15 +277,18 @@ export type BossPatternState =
   | { kind: 'charging'; timer: number; dirX: number; dirY: number; hitPlayerIds: Set<string> }
   | { kind: 'slamTelegraph'; timer: number; total: number; x: number; y: number }
   /**
-   * 근접 검술 예고. 바닥 표시 없이 **동작 자체가 예고**라(칼을 치켜드는 프레임),
+   * 근접 검술 진행 중. 바닥 표시 없이 **동작 자체가 예고**라(무기를 치켜드는 프레임),
    * 클라이언트가 어느 동작을 재생할지 알 수 있게 `index`(meleeAttacks 배열 위치)를
-   * 들고 있는다. timer가 0이 되는 순간 부채꼴 판정이 한 번 들어간다.
+   * 들고 있는다.
+   *
+   * 동작 하나가 타격 하나는 아니다 — 흑기사 1번 기술처럼 2연타가 있어서, 경과 시간
+   * (`elapsed`)을 재면서 아직 안 터진 타격(`nextHit`)의 시점을 넘길 때마다 판정한다.
    */
   | {
-      kind: 'meleeWindup';
-      timer: number;
-      total: number;
+      kind: 'meleeSwing';
+      elapsed: number;
       index: number;
+      nextHit: number;
       dirX: number;
       dirY: number;
     }
@@ -2333,8 +2337,8 @@ export class World {
     if (!data.chargeAttack && !data.slamAttack && !data.meleeAttacks) return false;
 
     switch (monster.pattern.kind) {
-      case 'meleeWindup':
-        return this.tickMeleeWindup(monster, data, dtSeconds);
+      case 'meleeSwing':
+        return this.tickMeleeSwing(monster, data, dtSeconds);
       case 'meleeRecover':
         return this.tickMeleeRecover(monster, dtSeconds);
       case 'chargeTelegraph':
@@ -2371,7 +2375,9 @@ export class World {
       const ready: number[] = [];
       data.meleeAttacks.forEach((attack, index) => {
         if ((monster.meleeCooldowns[index] ?? 0) > 0) return;
-        if (targetDistance > attack.range) return;
+        // 타격이 여러 번인 기술은 그중 가장 먼 사거리로 후보를 가린다.
+        const reach = Math.max(...attack.hits.map((hit) => hit.range));
+        if (targetDistance > reach) return;
         ready.push(index);
       });
 
@@ -2382,14 +2388,7 @@ export class World {
         const dirY = targetDistance > 0 ? dyToTarget / targetDistance : monster.facingY;
         monster.facingX = dirX;
         monster.facingY = dirY;
-        monster.pattern = {
-          kind: 'meleeWindup',
-          timer: attack.windupSeconds,
-          total: attack.windupSeconds,
-          index,
-          dirX,
-          dirY,
-        };
+        monster.pattern = { kind: 'meleeSwing', elapsed: 0, index, nextHit: 0, dirX, dirY };
         return true;
       }
       // 쓸 수 있는 검술이 없으면(전부 쿨다운이거나 너무 멀다) 평소처럼 추격한다.
@@ -2432,14 +2431,16 @@ export class World {
   }
 
   /**
-   * 근접 검술 예고 — 칼을 치켜드는 동안 멈춰 서 있는다. **방향은 예고 시작 시점에
-   * 고정한다**: 예고 내내 플레이어를 따라 돌면 미리 보고 피하는 것이 불가능해져서,
-   * "동작을 보고 옆으로 빠진다"는 이 기술의 유일한 대응 수단이 사라진다.
+   * 근접 검술 진행 — 무기를 휘두르는 동안 멈춰 서 있는다. **방향은 시작 시점에
+   * 고정한다**: 동작 내내 플레이어를 따라 돌면 "동작을 보고 옆으로 빠진다"는 이 기술의
+   * 유일한 대응 수단이 사라진다.
    *
-   * 타이머가 끝나면 그 방향으로 부채꼴 판정을 **한 번** 넣고 경직으로 넘어간다.
+   * 경과 시간을 재면서 각 타격의 시점을 넘길 때마다 판정을 넣는다. 한 틱이 여러 타격
+   * 시점을 한꺼번에 넘길 수도 있어서(느린 틱) `while`로 밀린 것까지 전부 처리한다 —
+   * 안 그러면 2연타 중 하나가 조용히 사라진다.
    */
-  private tickMeleeWindup(monster: MonsterEntity, data: MonsterData, dtSeconds: number): boolean {
-    const pattern = monster.pattern as Extract<BossPatternState, { kind: 'meleeWindup' }>;
+  private tickMeleeSwing(monster: MonsterEntity, data: MonsterData, dtSeconds: number): boolean {
+    const pattern = monster.pattern as Extract<BossPatternState, { kind: 'meleeSwing' }>;
     const attack = data.meleeAttacks?.[pattern.index];
     if (!attack) {
       monster.pattern = { kind: 'idle' };
@@ -2448,10 +2449,18 @@ export class World {
 
     monster.facingX = pattern.dirX;
     monster.facingY = pattern.dirY;
-    pattern.timer -= dtSeconds;
-    if (pattern.timer > 0) return true;
+    pattern.elapsed += dtSeconds;
 
-    this.resolveMeleeSwing(monster, attack, pattern.dirX, pattern.dirY);
+    while (
+      pattern.nextHit < attack.hits.length &&
+      pattern.elapsed >= attack.hits[pattern.nextHit]!.atSeconds
+    ) {
+      this.resolveMeleeHit(monster, attack, attack.hits[pattern.nextHit]!, pattern.dirX, pattern.dirY);
+      pattern.nextHit += 1;
+    }
+
+    if (pattern.nextHit < attack.hits.length) return true;
+
     monster.meleeCooldowns[pattern.index] = attack.cooldown;
     monster.pattern = { kind: 'meleeRecover', timer: attack.recoverSeconds };
     return true;
@@ -2470,9 +2479,10 @@ export class World {
    * 플레이어 무기와 **같은 함수**(withinMeleeArc)를 써서 "보이는 부채꼴 = 맞는 범위"
    * 규칙이 양쪽에서 어긋나지 않게 한다.
    */
-  private resolveMeleeSwing(
+  private resolveMeleeHit(
     monster: MonsterEntity,
     attack: MeleeAttackData,
+    swing: MeleeHitData,
     dirX: number,
     dirY: number,
   ): void {
@@ -2483,19 +2493,20 @@ export class World {
       ownerId: monster.id,
       originX: monster.x,
       originY: monster.y,
-      range: attack.range,
+      range: swing.range,
       aimAngle: Math.atan2(dirY, dirX),
-      halfArc: (attack.arc * Math.PI) / 360,
-      damage: attack.damage,
+      // 360도면 halfArc가 π가 되어 withinMeleeArc가 방향을 아예 안 본다(전방향 광역).
+      halfArc: (swing.arc * Math.PI) / 360,
+      damage: swing.damage,
     };
 
     for (const player of this.players.values()) {
       if (player.hp <= 0) continue;
       if (!withinMeleeArc(hit, player.x, player.y, HIT_RADIUS)) continue;
-      this.damagePlayer(player, attack.damage);
+      this.damagePlayer(player, swing.damage);
     }
     if (this.companion.state !== 'downed' && withinMeleeArc(hit, this.companion.x, this.companion.y, HIT_RADIUS)) {
-      this.damageCompanion(attack.damage);
+      this.damageCompanion(swing.damage);
     }
 
     this.markAttack(monster, attack.anim);

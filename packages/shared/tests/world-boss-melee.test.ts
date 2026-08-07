@@ -3,6 +3,9 @@ import { World, type MonsterEntity } from '../src/sim/world';
 import { monstersData, wavesData } from '../src/data';
 
 const MELEE = monstersData.boss_demon.meleeAttacks!;
+/** 기술의 도달 거리 = 타격들 중 가장 먼 사거리. 후보 판정도 이 값으로 한다. */
+const reachOf = (attack: { hits: { range: number }[] }): number =>
+  Math.max(...attack.hits.map((h) => h.range));
 const THRUST = MELEE[0]!; // Attack01 찌르기 — 멀지만 좁다
 const CHOP = MELEE[1]!; // Attack02 내려치기 — 짧고 중간 각도
 const SWEEP = MELEE[2]!; // Attack03 양손 베기 — 가장 멀고 가장 넓다
@@ -35,7 +38,7 @@ function addPlayerInFront(world: World, boss: MonsterEntity, distance: number): 
 
 /** 보스가 검술을 시작할 때까지 틱한다(첫 패턴 유예 3초를 넘겨야 한다). */
 function tickUntilWindup(world: World, boss: MonsterEntity, seconds = 6): void {
-  for (let i = 0; i < seconds * 20 && boss.pattern.kind !== 'meleeWindup'; i += 1) {
+  for (let i = 0; i < seconds * 20 && boss.pattern.kind !== 'meleeSwing'; i += 1) {
     world.tick(0.05);
   }
 }
@@ -45,11 +48,11 @@ describe('World — 2일차 보스(쌍검) 검술', () => {
     const world = new World();
     const boss = spawnBoss(world);
     // 가장 짧은 기술(내려치기)도 닿는 거리에 세운다.
-    addPlayerInFront(world, boss, CHOP.range - 10);
+    addPlayerInFront(world, boss, reachOf(CHOP) - 10);
 
     tickUntilWindup(world, boss);
 
-    expect(boss.pattern.kind).toBe('meleeWindup');
+    expect(boss.pattern.kind).toBe('meleeSwing');
     const x = boss.x;
     const y = boss.y;
     world.tick(0.05);
@@ -67,10 +70,11 @@ describe('World — 2일차 보스(쌍검) 검술', () => {
     tickUntilWindup(world, boss);
     const attack = MELEE[(boss.pattern as { index: number }).index]!;
     const hpBefore = player.hp;
+    const totalDamage = attack.hits.reduce((sum, h) => sum + h.damage, 0);
 
-    for (let i = 0; i < 60 && boss.pattern.kind === 'meleeWindup'; i += 1) world.tick(0.05);
+    for (let i = 0; i < 60 && boss.pattern.kind === 'meleeSwing'; i += 1) world.tick(0.05);
 
-    expect(player.hp).toBe(hpBefore - attack.damage);
+    expect(player.hp).toBe(hpBefore - totalDamage);
     expect(boss.pattern.kind).toBe('meleeRecover');
   });
 
@@ -85,10 +89,10 @@ describe('World — 2일차 보스(쌍검) 검술', () => {
     // 예고는 시작 시점 방향(-x)에 고정돼 있다. 그 방향에서 거의 90도 옆으로 빠지면
     // 가장 넓은 기술(140도 → 절반 70도)의 부채꼴에서도 벗어난다.
     player.x = boss.x - 20;
-    player.y = boss.y + attack.range;
+    player.y = boss.y + reachOf(attack);
     const hpBefore = player.hp;
 
-    for (let i = 0; i < 60 && boss.pattern.kind === 'meleeWindup'; i += 1) world.tick(0.05);
+    for (let i = 0; i < 60 && boss.pattern.kind === 'meleeSwing'; i += 1) world.tick(0.05);
 
     // 90도는 가장 넓은 기술(140도 → 절반 70도)의 부채꼴에서도 벗어난다.
     expect(player.hp).toBe(hpBefore);
@@ -101,7 +105,7 @@ describe('World — 2일차 보스(쌍검) 검술', () => {
 
     tickUntilWindup(world, boss);
     const first = (boss.pattern as { index: number }).index;
-    for (let i = 0; i < 60 && boss.pattern.kind === 'meleeWindup'; i += 1) world.tick(0.05);
+    for (let i = 0; i < 60 && boss.pattern.kind === 'meleeSwing'; i += 1) world.tick(0.05);
 
     expect(boss.meleeCooldowns[first]).toBeGreaterThan(0);
     // 나머지 기술은 여전히 준비 상태다(전부 같이 도는 게 아니다).
@@ -118,7 +122,7 @@ describe('World — 2일차 보스(쌍검) 검술', () => {
 
     for (let i = 0; i < 60; i += 1) world.tick(0.05);
 
-    expect(boss.pattern.kind).not.toBe('meleeWindup');
+    expect(boss.pattern.kind).not.toBe('meleeSwing');
     const player = world.getPlayers().get('p1')!;
     expect(Math.hypot(player.x - boss.x, player.y - boss.y)).toBeLessThan(startDistance);
   });
@@ -127,8 +131,8 @@ describe('World — 2일차 보스(쌍검) 검술', () => {
     // 렌더 배율(monsterSprite.ts의 SCALE)과 짝을 이루는 값이라, 한쪽만 바뀌면
     // "검이 닿아 보이는데 안 맞는다"가 된다. 여기서 최소한의 하한을 고정해 둔다.
     expect(monstersData.boss_demon.hitRadius).toBeGreaterThanOrEqual(36);
-    expect(SWEEP.range).toBeGreaterThan(THRUST.range);
-    expect(THRUST.range).toBeGreaterThan(CHOP.range);
+    expect(reachOf(SWEEP)).toBeGreaterThan(reachOf(THRUST));
+    expect(reachOf(THRUST)).toBeGreaterThan(reachOf(CHOP));
   });
 
   it('거구 보스는 자원 노드를 밟고 지나간다 — 나무에 걸려 멈추지 않는다', () => {
@@ -158,5 +162,100 @@ describe('World — 2일차 보스(쌍검) 검술', () => {
     const boss = spawnBoss(world);
     world.tick(wavesData.dayDuration); // 밤 진입
     expect(world.getMonsters().has(boss.id)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------- 3일차 흑기사
+
+const KNIGHT = monstersData.boss_knight.meleeAttacks!;
+const COMBO = KNIGHT[0]!; // Attack01 — 내려베기 + 찌르기 2연타
+const PIERCE = KNIGHT[1]!; // Attack02 — 회전 후 최장거리 찌르기
+const SLAM = KNIGHT[2]!; // Attack03 — 점프 후 착지 가시(전방향)
+
+function spawnKnight(world: World): MonsterEntity {
+  world.addPlayer('dev', 3000, 3000);
+  const result = world.runDevCommand('dev', 'spawn boss_knight 1');
+  if (!result.ok) throw new Error(`보스 스폰 실패: ${result.message}`);
+  const boss = [...world.getMonsters().values()].find((m) => m.type === 'boss_knight')!;
+  boss.x = 400;
+  boss.y = 0;
+  boss.facingX = -1;
+  boss.facingY = 0;
+  return boss;
+}
+
+/** 특정 기술이 나올 때까지 반복해서 상황을 만든다(기술 선택이 무작위라 시드를 못 고정한다). */
+function forceAttack(world: World, boss: MonsterEntity, animIndex: number): void {
+  for (let attempt = 0; attempt < 400; attempt += 1) {
+    world.tick(0.05);
+    if (boss.pattern.kind === 'meleeSwing') {
+      if ((boss.pattern as { index: number }).index === animIndex) return;
+      // 원하는 기술이 아니면 쿨다운을 태워 다음 기회를 만든다.
+      boss.pattern = { kind: 'idle' };
+      boss.meleeCooldowns[(boss.pattern as unknown as { index?: number }).index ?? 0] = 0;
+      boss.meleeCooldowns[animIndex] = 0;
+    }
+    boss.x = 400;
+    boss.y = 0;
+  }
+  throw new Error(`기술 ${animIndex}가 나오지 않았다`);
+}
+
+describe('World — 3일차 보스(흑기사) 창술', () => {
+  it('1번 기술은 한 동작에 두 번 때린다 — 각 타격이 따로 들어간다', () => {
+    expect(COMBO.hits).toHaveLength(2);
+    // 내려베기가 먼저, 찌르기가 나중. 찌르기가 더 멀리 더 좁게 나간다.
+    expect(COMBO.hits[0]!.atSeconds).toBeLessThan(COMBO.hits[1]!.atSeconds);
+    expect(COMBO.hits[1]!.range).toBeGreaterThan(COMBO.hits[0]!.range);
+    expect(COMBO.hits[1]!.arc).toBeLessThan(COMBO.hits[0]!.arc);
+
+    const world = new World();
+    const boss = spawnKnight(world);
+    world.addPlayer('p1', boss.x - 40, boss.y);
+    const player = world.getPlayers().get('p1')!;
+    forceAttack(world, boss, 0);
+
+    const hpBefore = player.hp;
+    // 첫 타격 시점만 넘기고 멈춰서, 아직 두 번째가 안 들어왔는지 본다.
+    for (let i = 0; i < 40; i += 1) {
+      world.tick(0.02);
+      const p = boss.pattern;
+      if (p.kind === 'meleeSwing' && p.nextHit === 1) break;
+    }
+    expect(player.hp).toBe(hpBefore - COMBO.hits[0]!.damage);
+
+    // 끝까지 진행하면 두 번째 타격까지 들어간다.
+    for (let i = 0; i < 80 && boss.pattern.kind === 'meleeSwing'; i += 1) world.tick(0.02);
+    expect(player.hp).toBe(hpBefore - COMBO.hits[0]!.damage - COMBO.hits[1]!.damage);
+  });
+
+  it('3번 기술(착지 가시)은 전방향이라 등 뒤로 돌아도 맞는다', () => {
+    expect(SLAM.hits[0]!.arc).toBe(360);
+
+    const world = new World();
+    const boss = spawnKnight(world);
+    world.addPlayer('p1', boss.x - 40, boss.y);
+    const player = world.getPlayers().get('p1')!;
+    forceAttack(world, boss, 2);
+
+    // 예고 방향(-x)의 정반대, 즉 완전히 등 뒤로 돌아간다.
+    player.x = boss.x + 60;
+    player.y = boss.y;
+    const hpBefore = player.hp;
+
+    for (let i = 0; i < 80 && boss.pattern.kind === 'meleeSwing'; i += 1) world.tick(0.02);
+
+    expect(player.hp).toBe(hpBefore - SLAM.hits[0]!.damage);
+  });
+
+  it('2번 기술은 가장 멀리 닿지만 가장 좁다', () => {
+    const reaches = KNIGHT.map(reachOf);
+    expect(Math.max(...reaches)).toBe(reachOf(PIERCE));
+    expect(PIERCE.hits[0]!.arc).toBeLessThanOrEqual(COMBO.hits[1]!.arc);
+  });
+
+  it('흑기사도 3배 크기에 맞춰 피격 반경이 커져 있고 장애물을 밟고 지나간다', () => {
+    expect(monstersData.boss_knight.hitRadius).toBeGreaterThanOrEqual(24);
+    expect(monstersData.boss_knight.crushesObstacles).toBe(true);
   });
 });

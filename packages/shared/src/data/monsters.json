@@ -104,31 +104,22 @@
       {
         "$comment": "Attack01 찌르기 — 검 끝이 프레임 기준 38px까지 뻗는다(×3배율=114). 길지만 매우 좁다.",
         "anim": 1,
-        "windupSeconds": 0.45,
+        "hits": [{ "atSeconds": 0.45, "range": 114, "arc": 40, "damage": 26 }],
         "recoverSeconds": 0.25,
-        "range": 114,
-        "arc": 40,
-        "damage": 26,
         "cooldown": 3.5
       },
       {
         "$comment": "Attack02 내려치기 — 앞으로는 28px(×3=84)로 짧고 아래로 내리찍는다. 대신 묵직하다.",
         "anim": 2,
-        "windupSeconds": 0.32,
+        "hits": [{ "atSeconds": 0.32, "range": 84, "arc": 80, "damage": 32 }],
         "recoverSeconds": 0.4,
-        "range": 84,
-        "arc": 80,
-        "damage": 32,
         "cooldown": 4.5
       },
       {
         "$comment": "Attack03 양손 베기 — 39px(×3=117)로 가장 멀리, 가장 넓게 쓸어낸다. 예고가 길어 피할 틈이 있다.",
         "anim": 3,
-        "windupSeconds": 0.6,
+        "hits": [{ "atSeconds": 0.6, "range": 117, "arc": 140, "damage": 40 }],
         "recoverSeconds": 0.45,
-        "range": 117,
-        "arc": 140,
-        "damage": 40,
         "cooldown": 7
       }
     ],
@@ -140,23 +131,41 @@
   },
 
   "boss_knight": {
-    "$comment": "3일차 보스 — 돌진 특화. 더 빠르고 더 자주 달려든다. (Black Knight_A)",
+    "$comment": "3일차 보스 — 창을 쓰는 흑기사(Black Knight_A). 사거리·타격 시점은 프레임 실측값(애니 14fps 기준)이고 배율 3을 곱했다.",
     "hp": 550,
-    "hitRadius": 13,
+    "hitRadius": 28,
     "damage": 24,
     "speed": 50,
-    "attackRange": 22,
+    "attackRange": 46,
     "attackInterval": 1.8,
-    "aggroRadius": 220,
-    "chargeAttack": {
-      "telegraphSeconds": 0.9,
-      "speed": 300,
-      "duration": 0.5,
-      "width": 40,
-      "damage": 30,
-      "cooldown": 6
-    },
-    "slamAttack": { "telegraphSeconds": 1.2, "radius": 60, "damage": 30, "cooldown": 12 },
+    "aggroRadius": 340,
+    "crushesObstacles": true,
+    "meleeAttacks": [
+      {
+        "$comment": "Attack01 — 내려베기(프레임5, 32px) 후 찌르기(프레임12, 41px)로 이어지는 2연타. 앞 타격을 맞아도 뒤 타격은 옆으로 빠지면 피할 수 있다.",
+        "anim": 1,
+        "hits": [
+          { "atSeconds": 0.36, "range": 96, "arc": 100, "damage": 18 },
+          { "atSeconds": 0.86, "range": 123, "arc": 45, "damage": 24 }
+        ],
+        "recoverSeconds": 0.3,
+        "cooldown": 5
+      },
+      {
+        "$comment": "Attack02 — 창을 한 바퀴 돌린 뒤(프레임2~5) 프레임11에 최장거리 찌르기 1회(50px). 예고가 길고 매우 좁다.",
+        "anim": 2,
+        "hits": [{ "atSeconds": 0.79, "range": 150, "arc": 40, "damage": 38 }],
+        "recoverSeconds": 0.3,
+        "cooldown": 6
+      },
+      {
+        "$comment": "Attack03 — 프레임4~9에 공중(머리높이 -59)으로 떴다가 프레임10에 착지. 바닥에서 가시가 솟아 전방향 광역(arc 360, 49px)이라 옆으로 못 피한다 — 거리를 벌려야 한다.",
+        "anim": 3,
+        "hits": [{ "atSeconds": 0.71, "range": 147, "arc": 360, "damage": 45 }],
+        "recoverSeconds": 0.45,
+        "cooldown": 9
+      }
+    ],
     "energyDrop": { "min": 4, "max": 6 },
     "itemDrops": [
       { "itemId": "drop_normal", "chance": 1, "min": 4, "max": 7 },
