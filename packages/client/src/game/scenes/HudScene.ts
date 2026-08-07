@@ -103,6 +103,12 @@ export class HudScene extends Phaser.Scene {
   private helpText!: Phaser.GameObjects.Text;
   /** 콜로니 채널링(파괴 작업) 진행률 표시. 채널링 중이 아니면 빈 문자열로 숨긴다. */
   private channelText!: Phaser.GameObjects.Text;
+  /**
+   * 코어 AI 페르소나 대사 토스트 — 웨이브 다이얼 아래에서 잠깐 떴다 사라진다.
+   * CoreModal을 안 열어도 보이게 하려고 추가했다(모달 안 대사는 그대로 유지 —
+   * 나중에 다시 열어서 확인할 수 있게).
+   */
+  private aiToastText!: Phaser.GameObjects.Text;
   /** 로컬 모드에서만 존재한다 — connection.debugJumpToWave가 없으면 아예 안 만든다. */
   private debugJumpButton?: Phaser.GameObjects.Text;
   /** 패널 배경 없이 지형 위에 바로 얹히는 글자들. 그림자를 넣어 대비를 준다. */
@@ -176,6 +182,10 @@ export class HudScene extends Phaser.Scene {
     this.channelText = this.add
       .text(0, 0, '', { fontFamily: FONT, fontSize: `${SIZE_BODY}px`, color: ACCENT })
       .setOrigin(0.5, 1);
+    this.aiToastText = this.add
+      .text(0, 0, '', { fontFamily: FONT, fontSize: `${SIZE_BODY}px`, color: ACCENT, align: 'center' })
+      .setOrigin(0.5, 0)
+      .setAlpha(0);
 
     // 로컬 모드 전용 테스트 버튼 — 웨이브 5(보스 웨이브)로 바로 점프해서 밸런스를
     // 테스트한다(docs/backend/23). 실제 멀티플레이(ColyseusConnection)에는
@@ -205,6 +215,7 @@ export class HudScene extends Phaser.Scene {
       this.debugText,
       this.helpText,
       this.channelText,
+      this.aiToastText,
     ];
 
     this.layout();
@@ -222,7 +233,10 @@ export class HudScene extends Phaser.Scene {
    */
   private createCoreModals(): void {
     this.coreModal = new CoreModal(this);
-    this.connection.onCoreCommentary((text) => this.coreModal.setCommentary(text));
+    this.connection.onCoreCommentary((text) => {
+      this.coreModal.setCommentary(text);
+      this.showAiToast(text);
+    });
     this.upgradeModal = new UpgradeModal(this);
     this.storeModal = new StoreModal(this);
     this.craftModal = new CraftModal(this);
@@ -313,6 +327,22 @@ export class HudScene extends Phaser.Scene {
   }
 
   /**
+   * 코어 AI 대사를 웨이브 다이얼 아래에 잠깐 띄운다 — CoreModal을 안 열어도 보이게
+   * 하려는 용도다(모달 쪽 대사는 계속 남아 있어 나중에 다시 열어 확인할 수 있다).
+   * 대사가 연달아 오면 진행 중인 페이드를 취소하고 새로 띄운다.
+   */
+  private showAiToast(text: string): void {
+    this.tweens.killTweensOf(this.aiToastText);
+    this.aiToastText.setText(`"${text}"`).setAlpha(1);
+    this.tweens.add({
+      targets: this.aiToastText,
+      alpha: 0,
+      duration: 600,
+      delay: 5000,
+    });
+  }
+
+  /**
    * 개발자 콘솔(`)과 아이템 도감(F9)을 붙인다.
    *
    * 둘 다 결국 같은 개발 커맨드로 내려간다 — 규칙이 shared 한 곳에만 있어야
@@ -388,6 +418,12 @@ export class HudScene extends Phaser.Scene {
     // --- 상단 중앙/우상단
     this.waveDial.layout(width / 2, pad, scale);
     this.minimap.layout(width - pad, pad, scale);
+
+    // 코어 AI 토스트 — 웨이브 다이얼(지름 52 + 안쪽 텍스트) 바로 아래, 가운데 정렬.
+    this.aiToastText
+      .setFontSize(SIZE_BODY * scale)
+      .setWordWrapWidth(220 * scale)
+      .setPosition(width / 2, pad + 68 * scale);
 
     // --- 좌측 세로: 팀원 체력. 코어 패널 아래에서 시작한다.
     this.party.layout(pad, pad + panelH + 10 * scale, scale);
