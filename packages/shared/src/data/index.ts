@@ -496,6 +496,12 @@ const CompanionDataSchema = z.object({
      * 반대로 직접 말 걸기 스팸이 다른 이벤트(코어 납품 등)의 대사까지 막아서도 안 된다.
      */
     playerMessageCooldownSeconds: z.number().positive(),
+    /**
+     * "@티모시 ..." 대화 기록을 플레이어별로 최근 몇 마디까지 들고 있다가 다음 프롬프트에
+     * 이어 붙일지(메시지 개수, user+assistant 합산 — 3왕복이면 6). 너무 크면 매 호출마다
+     * 토큰이 계속 불어난다.
+     */
+    historyMessageLimit: z.number().int().positive(),
     eventWeights: z.object({
       coreDeposit: PersonaTraitDeltaSchema,
       proximityInteract: PersonaTraitDeltaSchema,

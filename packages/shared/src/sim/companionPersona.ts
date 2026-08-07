@@ -12,6 +12,12 @@ export type CompanionPersonaEventKind =
   | 'waveEnd'
   | 'playerMessage';
 
+/** LLM에 주고받는 대화 한 마디. Anthropic Messages API의 role/content와 같은 모양이다. */
+export interface CompanionPersonaTurn {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
 /** GameRoom이 틱마다 드레인해서 소비하는 이벤트. */
 export interface CompanionPersonaEvent {
   kind: CompanionPersonaEventKind;
@@ -22,6 +28,8 @@ export interface CompanionPersonaEvent {
   wave: number;
   /** kind === 'playerMessage'일 때만 채워진다 — 채팅으로 실제 건넨 말 그대로. */
   message?: string;
+  /** kind === 'playerMessage'일 때만 채워진다 — 이 메시지 이전까지의 대화 기록(World가 관리). */
+  history?: readonly CompanionPersonaTurn[];
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -59,24 +67,41 @@ const EVENT_LABEL: Record<CompanionPersonaEventKind, string> = {
 };
 
 /**
- * GameRoom이 LLM에 보낼 system/user 프롬프트를 조립한다. corePersona.buildPersonaPrompt와
- * 같은 모양이지만 화자가 코어가 아니라 티모시고, 무드가 방 전체가 아니라 이 이벤트의
- * 대상 플레이어 개인 트레잇에서 나온다. playerMessage는 정해진 상황 설명 대신 채팅으로
- * 온 실제 문장을 그대로 질문/말로 건넨다(예: "@티모시 밥 먹었냐").
+ * GameRoom이 LLM에 보낼 system/messages를 조립한다. corePersona.buildPersonaPrompt와
+ * 비슷하지만 화자가 코어가 아니라 티모시고, 무드가 방 전체가 아니라 이 이벤트의 대상
+ * 플레이어 개인 트레잇에서 나온다. playerMessage는 두 가지가 다르다:
+ *  - 정해진 상황 설명 대신 채팅으로 온 실제 문장을 그대로 질문/말로 건넨다.
+ *  - 직전 대화 기록(event.history)을 그대로 이어 붙여서, "방금 뭐라고 했는지" 기억하는
+ *    것처럼 느껴지게 한다(World가 플레이어별로 최근 몇 마디만 들고 있다).
+ *  - 도구 조회(코어 창고/웨이브 상태 등)로 나온 구체적인 수치를 답할 수 있어야 해서
+ *    한 줄 글자 수 제한을 다른 이벤트보다 넉넉하게 둔다.
  */
-export function buildCompanionPersonaPrompt(event: CompanionPersonaEvent): { system: string; user: string } {
+export function buildCompanionPersonaPrompt(
+  event: CompanionPersonaEvent,
+): { system: string; messages: CompanionPersonaTurn[] } {
   const mood = moodBucketFor(event.traits, companionData.persona.moodThreshold);
+  const isPlayerMessage = event.kind === 'playerMessage' && Boolean(event.message);
+  const lengthHint = isPlayerMessage ? '15~50자' : '15~30자';
   const system =
     `너는 생존 디펜스 게임 DropFall의 AI 동반자 "${companionData.name}"다. 자원을 채집해 나르는 ` +
     '작은 로봇이자 팀의 마스코트다. 지금 말을 거는 대상 플레이어와의 관계에 따라 성격이 변한다 — ' +
     `지금 그 플레이어를 향한 무드는 "${mood}"(trust=${event.traits.trust.toFixed(1)}, ` +
     `efficiency=${event.traits.efficiency.toFixed(1)}, recklessness=${event.traits.recklessness.toFixed(1)}). ` +
-    '한국어로, 짧게 한 문장(15~30자)만 대사로 말해라. 설명이나 따옴표 없이 대사 자체만 출력해라.';
-  const user =
-    event.kind === 'playerMessage' && event.message
-      ? `이 플레이어가 채팅으로 너에게 직접 말을 걸었다: "${event.message}". 그 말에 대답해줘.`
-      : `${EVENT_LABEL[event.kind]}(현재 웨이브 ${event.wave}). 지금 심정을 한 줄로 말해줘.`;
-  return { system, user };
+    `한국어로, 짧게 한 문장(${lengthHint})만 대사로 말해라. 설명이나 따옴표 없이 대사 자체만 출력해라.`;
+
+  if (isPlayerMessage) {
+    const history = event.history ?? [];
+    return {
+      system,
+      messages: [
+        ...history,
+        { role: 'user', content: `이 플레이어가 채팅으로 너에게 직접 말을 걸었다: "${event.message}". 그 말에 대답해줘.` },
+      ],
+    };
+  }
+
+  const user = `${EVENT_LABEL[event.kind]}(현재 웨이브 ${event.wave}). 지금 심정을 한 줄로 말해줘.`;
+  return { system, messages: [{ role: 'user', content: user }] };
 }
 
 /** "@티모시 ..." 로 시작하는 채팅이면 그 뒤 내용을, 아니면 null을 돌려준다. */

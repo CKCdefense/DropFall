@@ -14,6 +14,7 @@
     "moodThreshold": 3,
     "interactionCooldownSeconds": 15,
     "playerMessageCooldownSeconds": 8,
+    "historyMessageLimit": 6,
     "eventWeights": {
       "coreDeposit": { "trust": 1, "efficiency": 2, "recklessness": 0 },
       "proximityInteract": { "trust": 2, "efficiency": 0, "recklessness": 0 },

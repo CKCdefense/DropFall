@@ -56,14 +56,15 @@ describe('pickCompanionFallbackLine — LLM 실패 시 대신 뽑는 대사', ()
 
 describe('buildCompanionPersonaPrompt — 코어와 달리 개인 트레잇/화자가 티모시다', () => {
   it('프롬프트에 티모시 이름과 이벤트 웨이브 번호가 들어간다', () => {
-    const { system, user } = buildCompanionPersonaPrompt({
+    const { system, messages } = buildCompanionPersonaPrompt({
       kind: 'coreDeposit',
       playerId: 'p1',
       traits: createInitialCompanionTraits(),
       wave: 3,
     });
     expect(system).toContain(companionData.name);
-    expect(user).toContain('3');
+    expect(messages).toHaveLength(1);
+    expect(messages[0]!.content).toContain('3');
   });
 });
 
@@ -83,15 +84,32 @@ describe('parseCompanionMention — "@티모시 ..." 채팅 파싱', () => {
 });
 
 describe('buildCompanionPersonaPrompt — playerMessage는 실제 문장을 그대로 건다', () => {
-  it('event.message가 있으면 프롬프트에 그 문장이 그대로 들어간다', () => {
-    const { user } = buildCompanionPersonaPrompt({
+  it('event.message가 있으면 마지막 메시지에 그 문장이 그대로 들어간다', () => {
+    const { messages } = buildCompanionPersonaPrompt({
       kind: 'playerMessage',
       playerId: 'p1',
       traits: createInitialCompanionTraits(),
       wave: 1,
       message: '밥 먹었냐',
     });
-    expect(user).toContain('밥 먹었냐');
+    expect(messages.at(-1)!.content).toContain('밥 먹었냐');
+  });
+
+  it('event.history가 있으면 그대로 앞에 이어 붙인다(대화 맥락 유지)', () => {
+    const history = [
+      { role: 'user' as const, content: '나 방금 나무 캤어' },
+      { role: 'assistant' as const, content: '오, 잘했어!' },
+    ];
+    const { messages } = buildCompanionPersonaPrompt({
+      kind: 'playerMessage',
+      playerId: 'p1',
+      traits: createInitialCompanionTraits(),
+      wave: 1,
+      message: '아까 내가 뭐 캤다고 했지?',
+      history,
+    });
+    expect(messages.slice(0, 2)).toEqual(history);
+    expect(messages.at(-1)!.content).toContain('아까 내가 뭐 캤다고 했지?');
   });
 });
 
@@ -137,6 +155,73 @@ describe('World — "@티모시 ..." 채팅 직접 말 걸기', () => {
 
     world.tick(companionData.persona.playerMessageCooldownSeconds + 0.1);
     expect(world.sendCompanionMessage('p1', '다시 물어봄')).toBe(true);
+  });
+});
+
+describe('World — "@티모시 ..." 대화 기록(메모리)', () => {
+  it('처음 말 걸 때는 history가 비어 있다', () => {
+    const world = createTestWorld();
+    world.addPlayer('p1', 0, 0);
+
+    world.sendCompanionMessage('p1', '밥 먹었냐');
+    const [event] = world.drainCompanionPersonaEvents();
+    expect(event!.history).toEqual([]);
+  });
+
+  it('sendCompanionMessage는 이번 메시지를 user 턴으로 기록에 남긴다', () => {
+    const world = createTestWorld();
+    world.addPlayer('p1', 0, 0);
+
+    world.sendCompanionMessage('p1', '밥 먹었냐');
+    expect(world.getCompanionHistory('p1')).toEqual([{ role: 'user', content: '밥 먹었냐' }]);
+  });
+
+  it('recordCompanionReply는 assistant 턴을 이어 붙인다 — 다음 메시지의 history에 둘 다 보인다', () => {
+    const world = createTestWorld();
+    world.addPlayer('p1', 0, 0);
+
+    world.sendCompanionMessage('p1', '밥 먹었냐');
+    world.recordCompanionReply('p1', '로봇이라 안 먹어');
+    world.tick(companionData.persona.playerMessageCooldownSeconds + 0.1);
+    world.sendCompanionMessage('p1', '진짜?');
+
+    const events = world.drainCompanionPersonaEvents();
+    const secondEvent = events.find((e) => e.message === '진짜?');
+    expect(secondEvent!.history).toEqual([
+      { role: 'user', content: '밥 먹었냐' },
+      { role: 'assistant', content: '로봇이라 안 먹어' },
+    ]);
+  });
+
+  it('플레이어별로 대화 기록이 따로 쌓인다', () => {
+    const world = createTestWorld();
+    world.addPlayer('p1', 0, 0);
+    world.addPlayer('p2', 0, 0);
+
+    world.sendCompanionMessage('p1', 'p1이 말함');
+    // playerMessageCooldownSeconds는 플레이어별이 아니라 방 전역이라(스팸 방지 공용 풀),
+    // 연달아 다른 플레이어가 말 걸어도 쿨다운을 넘겨야 한다.
+    world.tick(companionData.persona.playerMessageCooldownSeconds + 0.1);
+    world.sendCompanionMessage('p2', 'p2가 말함');
+
+    expect(world.getCompanionHistory('p1')).toEqual([{ role: 'user', content: 'p1이 말함' }]);
+    expect(world.getCompanionHistory('p2')).toEqual([{ role: 'user', content: 'p2가 말함' }]);
+  });
+
+  it('historyMessageLimit을 넘으면 오래된 것부터 잘려나간다', () => {
+    const world = createTestWorld();
+    world.addPlayer('p1', 0, 0);
+    const limit = companionData.persona.historyMessageLimit;
+
+    for (let i = 0; i < limit; i += 1) {
+      world.sendCompanionMessage('p1', `메시지${i}`);
+      world.recordCompanionReply('p1', `답${i}`);
+      world.tick(companionData.persona.playerMessageCooldownSeconds + 0.1);
+    }
+
+    expect(world.getCompanionHistory('p1').length).toBe(limit);
+    // 가장 최근 것들만 남아 있어야 한다 — 맨 처음 메시지는 잘려나갔다.
+    expect(world.getCompanionHistory('p1')[0]).not.toEqual({ role: 'user', content: '메시지0' });
   });
 });
 

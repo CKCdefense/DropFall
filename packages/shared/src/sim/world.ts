@@ -38,6 +38,7 @@ import {
   createInitialCompanionTraits,
   type CompanionPersonaEvent,
   type CompanionPersonaEventKind,
+  type CompanionPersonaTurn,
 } from './companionPersona';
 import {
   HIT_RADIUS,
@@ -374,6 +375,8 @@ export class World {
   private lastCompanionCommentaryAt = -Infinity;
   /** "@티모시 ..." 채팅 전용 쿨다운 시각. 위 잡담 쿨다운과 별개 풀이다(companionPersona.ts 참고). */
   private lastCompanionMessageAt = -Infinity;
+  /** "@티모시 ..." 대화 기록 — 플레이어별로 최근 몇 마디만(historyMessageLimit) 세션 동안 들고 있다. */
+  private companionConversations = new Map<string, CompanionPersonaTurn[]>();
   private readonly resourceNodes = new Map<string, ResourceNodeEntity>();
   private readonly droppedItems = new Map<string, DroppedItemEntity>();
   private readonly colonies = new ColonyRegistry();
@@ -1412,14 +1415,39 @@ export class World {
 
     const traits = applyCompanionPersonaEvent(this.companionTraitFor(playerId), 'playerMessage');
     this.companionTraits.set(playerId, traits);
+    // 지금까지의 대화 기록(이번 메시지 이전까지)을 이벤트에 실어 보낸다 — 이번 메시지
+    // 자체는 buildCompanionPersonaPrompt가 새 user 턴으로 따로 붙인다. 복사본을 넘겨야
+    // 한다 — 안 그러면 바로 아래 pushCompanionHistory가 같은 배열 객체를 이어서 밀어
+    // 넣어서, 이 이벤트에 실린 "이전까지의 기록"에 방금 보낸 메시지까지 같이 보이게 된다.
+    const history = [...this.getCompanionHistory(playerId)];
     this.pendingCompanionPersonaEvents.push({
       kind: 'playerMessage',
       playerId,
       traits,
       wave: this.waveManager.currentWave,
       message,
+      history,
     });
+    this.pushCompanionHistory(playerId, 'user', message);
     return true;
+  }
+
+  /** "@티모시 ..." 대화 기록(이 플레이어와 나눈 최근 대화). GameRoom이 프롬프트에 이어 붙인다. */
+  getCompanionHistory(playerId: string): readonly CompanionPersonaTurn[] {
+    return this.companionConversations.get(playerId) ?? [];
+  }
+
+  /** LLM이 실제로 뭐라고 답했는지 기록한다 — GameRoom이 응답을 받은 뒤 호출한다. */
+  recordCompanionReply(playerId: string, reply: string): void {
+    this.pushCompanionHistory(playerId, 'assistant', reply);
+  }
+
+  private pushCompanionHistory(playerId: string, role: CompanionPersonaTurn['role'], content: string): void {
+    const history = this.companionConversations.get(playerId) ?? [];
+    history.push({ role, content });
+    const limit = companionData.persona.historyMessageLimit;
+    while (history.length > limit) history.shift();
+    this.companionConversations.set(playerId, history);
   }
 
   /** 쌓인 티모시 대사 이벤트를 전부 꺼내고 큐를 비운다. GameRoom이 매 틱 폴링한다. */
