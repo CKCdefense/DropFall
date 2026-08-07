@@ -127,10 +127,11 @@ describe('World — 2일차 보스(쌍검) 검술', () => {
     expect(Math.hypot(player.x - boss.x, player.y - boss.y)).toBeLessThan(startDistance);
   });
 
-  it('보스 그림이 3배가 된 만큼 피격 반경도 커져 있다(보이는 크기 = 맞는 범위)', () => {
+  it('보스는 잡몹보다 훨씬 큰 피격 반경을 갖는다(보이는 크기 = 맞는 범위)', () => {
     // 렌더 배율(monsterSprite.ts의 SCALE)과 짝을 이루는 값이라, 한쪽만 바뀌면
-    // "검이 닿아 보이는데 안 맞는다"가 된다. 여기서 최소한의 하한을 고정해 둔다.
-    expect(monstersData.boss_demon.hitRadius).toBeGreaterThanOrEqual(36);
+    // "검이 닿아 보이는데 안 맞는다"가 된다. 배율은 밸런스에 따라 조정되므로
+    // 절대값이 아니라 "엘리트(미노타우르스)보다 확실히 크다"로 고정한다.
+    expect(monstersData.boss_demon.hitRadius).toBeGreaterThan(monstersData.minotaur.hitRadius * 2);
     expect(reachOf(SWEEP)).toBeGreaterThan(reachOf(THRUST));
     expect(reachOf(THRUST)).toBeGreaterThan(reachOf(CHOP));
   });
@@ -155,6 +156,30 @@ describe('World — 2일차 보스(쌍검) 검술', () => {
 
     // 10초면 speed 45로 450px를 간다 — 나무에 걸렸다면 60px 앞에서 멈췄을 것이다.
     expect(Math.hypot(boss.x, boss.y)).toBeLessThan(startDistance - 200);
+  });
+
+  it('공격 모션은 타격이 아니라 **동작 시작**에 켜진다 — 예고를 보고 피할 수 있어야 한다', () => {
+    // 회귀: 예전에는 피해가 들어가는 순간 모션을 켜서, 예고 내내 보스가 가만히 서
+    // 있다가 맞은 뒤에 칼을 휘둘렀다(실측 모션 지연 667ms = 피해 지연 667ms).
+    const world = new World();
+    const boss = spawnBoss(world);
+    world.addPlayer('p1', boss.x - 40, boss.y);
+    const player = world.getPlayers().get('p1')!;
+    player.hp = 500;
+
+    tickUntilWindup(world, boss);
+
+    // 아직 아무 타격도 안 들어간 시점인데 모션은 이미 켜져 있어야 한다.
+    expect((boss.pattern as { nextHit: number }).nextHit).toBe(0);
+    expect(boss.attackAnimTimer).toBeGreaterThan(0);
+    const attack = MELEE[(boss.pattern as { index: number }).index]!;
+    expect(boss.attackAnim).toBe(attack.anim);
+
+    // 모션이 켜진 뒤 실제 피해까지는 그 기술의 타격 시점만큼 여유가 있다.
+    const hpAtStart = player.hp;
+    const elapsedAtStart = (boss.pattern as { elapsed: number }).elapsed;
+    expect(elapsedAtStart).toBeLessThan(attack.hits[0]!.atSeconds);
+    expect(player.hp).toBe(hpAtStart);
   });
 
   it('보스가 살아있는 동안은 밤이 끝나지 않는다(레이드 게이트 회귀)', () => {
@@ -254,8 +279,8 @@ describe('World — 3일차 보스(흑기사) 창술', () => {
     expect(PIERCE.hits[0]!.arc).toBeLessThanOrEqual(COMBO.hits[1]!.arc);
   });
 
-  it('흑기사도 3배 크기에 맞춰 피격 반경이 커져 있고 장애물을 밟고 지나간다', () => {
-    expect(monstersData.boss_knight.hitRadius).toBeGreaterThanOrEqual(24);
+  it('흑기사도 커진 체급에 맞춰 피격 반경이 크고 장애물을 밟고 지나간다', () => {
+    expect(monstersData.boss_knight.hitRadius).toBeGreaterThan(monstersData.minotaur.hitRadius);
     expect(monstersData.boss_knight.crushesObstacles).toBe(true);
   });
 });
@@ -319,14 +344,18 @@ describe('World — 4일차 보스(화염 골렘)', () => {
   it('3번 기술은 실제로 앞으로 돌진한다 — 제자리 기술과 달리 위치가 바뀐다', () => {
     const world = new World();
     const boss = spawnGolem(world);
-    world.addPlayer('p1', boss.x - 200, boss.y); // 돌진 사거리 밖, 아그로 안
+    // 돌진은 "사거리 + 돌진으로 좁히는 거리"까지가 후보 범위다. 배율이 바뀌면 그
+    // 값도 바뀌므로 하드코딩하지 않고 데이터에서 계산한다.
+    const dashTravel = RUSH.dash!.speed * (RUSH.dash!.toSeconds - RUSH.dash!.fromSeconds);
+    world.addPlayer('p1', boss.x - (reachOf(RUSH) + dashTravel) * 0.85, boss.y);
 
     forceGolemAttack(world, boss, 2);
     const startX = boss.x;
     for (let i = 0; i < 80 && boss.pattern.kind === 'meleeSwing'; i += 1) world.tick(0.02);
 
-    // 돌진 창 0.27초 × 300px/s ≈ 80px 전진(코어 쪽 = -x).
-    expect(boss.x).toBeLessThan(startX - 40);
+    // 돌진 창(dash.fromSeconds~toSeconds) × 속도만큼 앞으로(코어 쪽 = -x) 나아간다.
+    // 배율이 바뀌면 절대값도 따라 바뀌므로 데이터에서 기대 이동량을 계산한다.
+    expect(boss.x).toBeLessThan(startX - dashTravel * 0.5);
   });
 
   it('돌진에 쓸린 대상은 한 번만 맞는다 — 가만히 서 있어도 중복 피해가 없다', () => {

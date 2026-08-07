@@ -1313,6 +1313,13 @@ export class World {
         const player = this.players.get(playerId);
         if (player) player.hp = wavesData.playerHp;
       },
+      setPlayerHp: (playerId, amount) => {
+        const player = this.players.get(playerId);
+        if (!player) return 0;
+        // 최대치를 넘겨 설정하면 HP 바가 넘쳐 그려지므로 위쪽만 조인다.
+        player.hp = Math.min(wavesData.playerHp, amount);
+        return player.hp;
+      },
       setCoreHp: (amount) => {
         this.core.hp = Math.min(this.core.maxHp, amount);
       },
@@ -1969,8 +1976,8 @@ export class World {
    * 공격 모션을 켠다. 피해가 실제로 들어간 자리마다 부른다(빗나간 시도에는 안 켠다).
    * `anim`은 재생할 동작 번호 — 검술이 여러 개인 보스만 1이 아닌 값을 넘긴다.
    */
-  private markAttack(monster: MonsterEntity, anim = 1): void {
-    monster.attackAnimTimer = ATTACK_ANIM_SECONDS;
+  private markAttack(monster: MonsterEntity, anim = 1, seconds = ATTACK_ANIM_SECONDS): void {
+    monster.attackAnimTimer = seconds;
     monster.attackAnim = anim;
   }
 
@@ -2301,6 +2308,7 @@ export class World {
             this.damagePlayer(target, data.damage);
             monster.attackCooldown = data.attackInterval;
             this.markAttack(monster);
+            this.clearAggroAfterAttack(monster);
           }
         } else {
           // 자원 노드/콜로니가 경로를 막아도 moveMonster가 축 슬라이딩으로 알아서
@@ -2422,6 +2430,7 @@ export class World {
 
       if (ready.length > 0) {
         const index = ready[Math.floor(this.rng() * ready.length)]!;
+        const chosen = data.meleeAttacks[index]!;
         const dirX = targetDistance > 0 ? dxToTarget / targetDistance : monster.facingX;
         const dirY = targetDistance > 0 ? dyToTarget / targetDistance : monster.facingY;
         monster.facingX = dirX;
@@ -2435,6 +2444,12 @@ export class World {
           dirY,
           dashHitIds: new Set(),
         };
+        // **동작이 곧 예고**이므로 모션은 지금 켠다. 타격 순간에 켜면 예고 내내 보스가
+        // 가만히 서 있다가 맞은 뒤에야 칼을 휘두른다(실측으로 확인: 모션 지연 667ms =
+        // 피해 지연 667ms). 판정 시점(atSeconds)은 재생 속도에 맞춰 잡혀 있어서,
+        // 여기서 켜야 "칼이 뻗는 프레임에 맞는다"가 성립한다.
+        const lastHitAt = chosen.hits[chosen.hits.length - 1]!.atSeconds;
+        this.markAttack(monster, chosen.anim, lastHitAt + chosen.recoverSeconds);
         return true;
       }
       // 쓸 수 있는 검술이 없으면(전부 쿨다운이거나 너무 멀다) 평소처럼 추격한다.
@@ -2523,7 +2538,11 @@ export class World {
   private tickMeleeRecover(monster: MonsterEntity, dtSeconds: number): boolean {
     const pattern = monster.pattern as Extract<BossPatternState, { kind: 'meleeRecover' }>;
     pattern.timer -= dtSeconds;
-    if (pattern.timer <= 0) monster.pattern = { kind: 'idle' };
+    if (pattern.timer <= 0) {
+      monster.pattern = { kind: 'idle' };
+      // 기술 하나가 끝났으니 다시 "가장 가까운 사람"을 고른다 — 보스도 같은 규칙이다.
+      this.clearAggroAfterAttack(monster);
+    }
     return true;
   }
 
@@ -2561,8 +2580,8 @@ export class World {
     if (this.companion.state !== 'downed' && withinMeleeArc(hit, this.companion.x, this.companion.y, HIT_RADIUS)) {
       this.damageCompanion(swing.damage);
     }
-
-    this.markAttack(monster, attack.anim);
+    // 여기서 markAttack을 다시 부르지 않는다 — 동작 시작 때 이미 켰고, 2연타에서
+    // 다시 켜면 애니메이션이 첫 장부터 재시작해 두 번째 타격이 어긋난다.
   }
 
   /** 공격 사거리 안의, 이동을 막는(blocksMovement) 건축물 중 가장 가까운 것을 찾는다. */
@@ -2733,10 +2752,19 @@ export class World {
   }
 
   /**
-   * 어그로 타겟에 히스테리시스(leash)를 둔다. 매 틱 "가장 가까운 플레이어"를 새로
-   * 계산하면 두 플레이어가 아그로 반경 경계 부근에 걸쳐 있을 때 타겟이 계속 바뀌면서
-   * 이동 방향이 떨린다. 한 번 잡은 타겟은 죽거나(hp 0) 아그로 반경의
-   * `AGGRO_LEASH_MULTIPLIER`배 밖으로 벗어나기 전까지 그대로 유지한다.
+   * 어그로 규칙(멀티/싱글 공통).
+   *
+   *   시야 안에서 가장 가까운 플레이어를 잡는다 → 사거리에 들어오면 **공격 1회** →
+   *   그 즉시 타겟을 놓고 다시 탐색한다. 시야 안에 아무도 없을 때만 코어로 향한다.
+   *
+   * 매 틱 새로 계산하지 않고 공격 사이에만 유지하는 이유: 매 틱 "가장 가까운 사람"을
+   * 다시 고르면 두 명이 경계 부근에 걸쳐 있을 때 타겟이 왔다 갔다 하며 이동 방향이
+   * 떨린다. 반대로 영원히 붙잡고 있으면 여럿이 둘러싼 상황에서 한 명만 계속 노려
+   * "가장 가까운 사람을 친다"는 규칙이 무너진다. 한 번 때릴 때까지만 유지하는 것이
+   * 두 문제를 동시에 피한다(§clearAggroAfterAttack).
+   *
+   * 추격 중에는 아그로 반경의 `AGGRO_LEASH_MULTIPLIER`배까지 따라붙는다 — 사거리
+   * 직전에서 반경을 살짝 벗어났다고 놓아주면 영원히 못 잡는다.
    */
   private resolveAggroTarget(monster: MonsterEntity, aggroRadius: number): PlayerEntity | undefined {
     const current = monster.targetPlayerId ? this.players.get(monster.targetPlayerId) : undefined;
@@ -2748,6 +2776,14 @@ export class World {
     const next = this.findNearestPlayer(monster, aggroRadius);
     monster.targetPlayerId = next?.id;
     return next;
+  }
+
+  /**
+   * 공격을 한 번 넣은 뒤 타겟을 놓는다. 다음 틱에 다시 "시야 안 가장 가까운 사람"을
+   * 고르므로, 여럿이 둘러싸면 실제로 번갈아 맞게 된다.
+   */
+  private clearAggroAfterAttack(monster: MonsterEntity): void {
+    monster.targetPlayerId = undefined;
   }
 
   /** 근처 몬스터가 겹치지 않도록 밀어내는 벡터(군집 분리, 기술명세 §5.3)를 계산한다. */

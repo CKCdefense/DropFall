@@ -77,10 +77,10 @@ export const MONSTER_ORIGIN_Y = 0.6;
  * 보이는 크기와 맞는 범위가 어긋나면 안 된다.
  */
 const SCALE: Record<string, number> = {
-  boss_demon: 3,
-  boss_knight: 3,
-  boss_golem: 4,
-  boss_dark_knight: 4,
+  boss_demon: 2.5,
+  boss_knight: 2.5,
+  boss_golem: 3,
+  boss_dark_knight: 3,
 };
 const DEFAULT_SCALE = 1;
 
@@ -112,6 +112,15 @@ export function monsterAttackAnim(index: number): MonsterAnim {
 }
 
 /** 피격은 빠르게 지나가야 한다 — 4프레임을 18fps로 돌리면 0.22초로, 연사에도 안 밀린다. */
+/**
+ * 재생 속도(fps).
+ *
+ * 공격 동작은 **잡몹 14 / 보스 9**로 나눈다. 보스 검술의 판정 시점(monsters.json의
+ * atSeconds)은 원래 프레임 번호 ÷ 14로 잡았는데, 그러면 동작이 프레임 속도 그대로
+ * 튀어나와 너무 빠르다 — 예고를 보고 반응할 틈이 없다. 판정 시점을 늘리면서
+ * 재생 속도도 같은 비율로 늦춰야 "칼이 뻗는 순간에 맞는다"가 유지된다.
+ */
+const BOSS_ATTACK_FRAME_RATE = 9;
 const FRAME_RATE: Record<MonsterAnim, number> = {
   idle: 6,
   walk: 10,
@@ -121,6 +130,13 @@ const FRAME_RATE: Record<MonsterAnim, number> = {
   hurt: 18,
   death: 12,
 };
+
+/** 이 타입의 이 동작을 몇 fps로 재생할지. 보스 공격만 느리게 간다. */
+function frameRateFor(type: string, anim: MonsterAnim): number {
+  const isAttack = anim === 'attack' || anim === 'attack2' || anim === 'attack3';
+  if (isAttack && type.startsWith('boss_')) return BOSS_ATTACK_FRAME_RATE;
+  return FRAME_RATE[anim];
+}
 
 /** 한 번만 재생하고 멈추는 상태(반복하면 안 되는 것들). */
 const ONE_SHOT: ReadonlySet<MonsterAnim> = new Set<MonsterAnim>([
@@ -196,7 +212,7 @@ export function registerMonsterAnimations(scene: Phaser.Scene): void {
       scene.anims.create({
         key,
         frames: frames.map((frame) => ({ key: MONSTER_ATLAS, frame })),
-        frameRate: FRAME_RATE[anim],
+        frameRate: frameRateFor(type, anim),
         // 공격·피격·죽음은 한 번만 재생한다. 죽음은 마지막 장에서 멈춰 시체가 남고,
         // 나머지는 끝나는 즉시 렌더러가 이동/대기 상태로 되돌린다.
         repeat: ONE_SHOT.has(anim) ? 0 : -1,

@@ -515,7 +515,9 @@ describe('World — 어그로 타겟 히스테리시스', () => {
 
     const [monster] = [...world.getMonsters().values()];
     (monster as { type: string }).type = 'hellhound'; // aggroRadius 240
-    monster!.x = 10;
+    // **공격 사거리(20) 밖**에 둔다 — 한 대 때리면 타겟을 놓고 다시 고르는 규칙이라
+    // (§clearAggroAfterAttack), 붙여 두면 leash가 아니라 그 규칙을 보게 된다.
+    monster!.x = 100;
     monster!.y = 0;
     monster!.facingX = -1; // 플레이어('near', 원점) 쪽을 바라보게 시야각 안에 둔다
     monster!.facingY = 0;
@@ -523,8 +525,8 @@ describe('World — 어그로 타겟 히스테리시스', () => {
     world.tick(0.05); // 타겟 획득
     expect(monster!.targetPlayerId).toBe('near');
 
-    // 아그로 반경(120) 밖이지만 leash(120*1.5=180) 안으로 플레이어를 이동시킨다.
-    world.getPlayers().get('near')!.x = 150;
+    // 아그로 반경(240) 밖이지만 leash(240*1.5=360) 안으로 플레이어를 이동시킨다.
+    world.getPlayers().get('near')!.x = monster!.x + 300;
     world.tick(0.05);
 
     expect(monster!.targetPlayerId).toBe('near');
@@ -538,7 +540,7 @@ describe('World — 어그로 타겟 히스테리시스', () => {
 
     const [monster] = [...world.getMonsters().values()];
     (monster as { type: string }).type = 'hellhound';
-    monster!.x = 10;
+    monster!.x = 100; // 공격 사거리 밖 = 추격 상태
     monster!.y = 0;
     monster!.facingX = -1; // 플레이어('near', 원점) 쪽을 바라보게 시야각 안에 둔다
     monster!.facingY = 0;
@@ -546,8 +548,8 @@ describe('World — 어그로 타겟 히스테리시스', () => {
     world.tick(0.05);
     expect(monster!.targetPlayerId).toBe('near');
 
-    // leash(180)보다 멀리 이동 — 더 이상 근처에 다른 플레이어도 없으므로 타겟이 사라져야 한다.
-    world.getPlayers().get('near')!.x = 1000;
+    // leash(360)보다 멀리 이동 — 더 이상 근처에 다른 플레이어도 없으므로 타겟이 사라져야 한다.
+    world.getPlayers().get('near')!.x = 2000;
     world.tick(0.05);
 
     expect(monster!.targetPlayerId).toBeUndefined();
@@ -555,9 +557,9 @@ describe('World — 어그로 타겟 히스테리시스', () => {
 
   it('타겟이 다운되면(hp 0) 다른 대상으로 넘어간다', () => {
     const world = new World();
-    world.addPlayer('down', 0, 0);
+    world.addPlayer('down', 60, 0);
     equipDefaultKit(world, 'down');
-    world.addPlayer('alive', 20, 0);
+    world.addPlayer('alive', 120, 0);
     equipDefaultKit(world, 'alive');
     startFirstWave(world);
 
@@ -565,8 +567,7 @@ describe('World — 어그로 타겟 히스테리시스', () => {
     (monster as { type: string }).type = 'hellhound';
     monster!.x = 0;
     monster!.y = 0;
-    // 'down'은 몬스터와 완전히 같은 좌표라 시야각 검사가 자동으로 건너뛰어지지만,
-    // 'alive'(x=20)를 나중에 잡으려면 그쪽을 바라보고 있어야 한다.
+    // 둘 다 공격 사거리(20) 밖에 둔다 — 때리는 순간 타겟을 놓는 규칙과 섞이지 않게.
     monster!.facingX = 1;
     monster!.facingY = 0;
 
@@ -625,7 +626,7 @@ describe('World — 어그로 시야각(120도)', () => {
 
     const [monster] = [...world.getMonsters().values()];
     (monster as { type: string }).type = 'hellhound';
-    monster!.x = 10;
+    monster!.x = 100; // 공격 사거리 밖 = 추격 상태
     monster!.y = 0;
     monster!.facingX = -1;
     monster!.facingY = 0;
@@ -635,7 +636,7 @@ describe('World — 어그로 시야각(120도)', () => {
 
     // 추격하다 타겟을 지나쳐(등 뒤로 두고) 반대편으로 이동한 상황을 흉내낸다 —
     // 시야각은 "처음 발견"에만 걸리고 추격 유지에는 걸리지 않아야 하므로 타겟을 유지해야 한다.
-    monster!.x = -5;
+    monster!.x = -60;
     monster!.facingX = -1; // 계속 -x로 나아가는 중이라 'near'(0,0)는 이제 등 뒤(+x쪽)다
     world.tick(0.05);
 
@@ -822,5 +823,71 @@ describe('World — 몬스터 처치 보상(부품/에너지)', () => {
       for (let i = 0; i < 60 && world.getProjectiles().size > 0; i += 1) world.tick(1 / 60);
     }).not.toThrow();
     expect(world.getMonsters().has(monster!.id)).toBe(false); // 판정 자체는 그대로 적용된다
+  });
+});
+
+describe('World — 어그로 규칙(공격 1회 → 재탐색)', () => {
+  /**
+   * 규칙: 시야 안 가장 가까운 플레이어를 잡고 → 사거리에서 한 번 때리고 → 다시 고른다.
+   * 시야 안에 아무도 없을 때만 코어로 향한다. 멀티/싱글 공통이다.
+   */
+  it('한 대 때리면 타겟을 놓고, 그 사이 더 가까워진 사람으로 갈아탄다', () => {
+    // 시야각(전방 120도) 안에 둘 다 세운다 — 등 뒤는 애초에 "시야 내"가 아니라
+    // 후보가 되지 않는다(그게 규칙이다).
+    const world = new World();
+    world.addPlayer('near', 15, 0);
+    world.addPlayer('far', 60, 0);
+    startFirstWave(world);
+    clearResourceNodes(world);
+
+    const monster = isolateMonster(world, 'hellhound');
+    monster.x = 0;
+    monster.y = 0;
+    (monster as unknown as { facingX: number; facingY: number }).facingX = 1;
+    (monster as unknown as { facingX: number; facingY: number }).facingY = 0;
+
+    // 가까운 쪽을 잡고 사거리(20) 안이라 때린다.
+    const nearPlayer = world.getPlayers().get('near')!;
+    for (let i = 0; i < 200 && nearPlayer.hp === 100; i += 1) {
+      world.tick(0.05);
+      monster.x = 0;
+      monster.y = 0;
+    }
+    expect(nearPlayer.hp).toBeLessThan(100);
+    // 때린 직후에는 타겟을 놓은 상태여야 한다.
+    expect(monster.targetPlayerId).toBeUndefined();
+
+    // 이제 거리를 뒤집는다 — 재탐색이 돌면 'far'가 새 타겟이 된다.
+    nearPlayer.x = 200;
+    world.getPlayers().get('far')!.x = 30;
+    world.tick(0.05);
+
+    expect(monster.targetPlayerId).toBe('far');
+  });
+
+  it('시야 안에 플레이어가 없을 때만 코어를 때린다', () => {
+    const world = new World();
+    world.addPlayer('far', 2000, 2000); // 아그로 밖
+    startFirstWave(world);
+    clearResourceNodes(world);
+
+    const monster = isolateMonster(world, 'hellhound');
+    // 코어 발자국 바로 앞(공격 사거리 안)에 세운다.
+    monster.x = 70;
+    monster.y = 0;
+    monster.attackCooldown = 0;
+
+    const coreBefore = world.getCore().hp;
+    world.tick(1.5);
+    expect(world.getCore().hp).toBeLessThan(coreBefore); // 아무도 없으니 코어를 친다
+
+    // 이제 플레이어가 시야 안에 들어오면 코어 대신 사람을 노린다.
+    world.getPlayers().get('far')!.x = monster.x - 40;
+    world.getPlayers().get('far')!.y = 0;
+    monster.facingX = -1;
+    monster.facingY = 0;
+    world.tick(0.05);
+
+    expect(monster.targetPlayerId).toBe('far');
   });
 });
