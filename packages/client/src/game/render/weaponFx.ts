@@ -340,58 +340,58 @@ export const WEAPON_VISUALS: Record<string, WeaponVisual> = {
   hammer_t2: toolVisual('hammer_iron_hammer_0'),
 
   // --- 근접(신규 시트). grip/axis는 원본의 불투명 픽셀에서 잰 값이다 ---
-  bat: packMelee('bat', { x: 27, y: 32 }, [{ x: 27, y: 32 }, { x: 201, y: 31 }], 0.131),
+  bat: packMelee('bat', { x: 27, y: 32 }, [{ x: 27, y: 32 }, { x: 201, y: 31 }], 0.262),
   stone_spear: packMelee(
     'stone_spear',
     { x: 58, y: 33 },
     [{ x: 58, y: 33 }, { x: 230, y: 32 }],
-    0.173,
+    0.346,
   ),
-  fire_axe: packMelee('fire_axe', { x: 38, y: 32 }, [{ x: 38, y: 32 }, { x: 172, y: 30 }], 0.148),
+  fire_axe: packMelee('fire_axe', { x: 38, y: 32 }, [{ x: 38, y: 32 }, { x: 172, y: 30 }], 0.296),
   // 나이프는 한 손 무기다 — 두 손을 그리면 짧은 칼자루에 손이 겹쳐 붙는다.
-  knife: packMelee('knife', { x: 19, y: 32 }, [{ x: 19, y: 32 }, { x: 147, y: 31 }], 0.102, 9, 1),
-  machete: packMelee('machete', { x: 31, y: 30 }, [{ x: 31, y: 30 }, { x: 210, y: 25 }], 0.137),
-  tomahauk: packMelee('tomahauk', { x: 25, y: 26 }, [{ x: 25, y: 26 }, { x: 150, y: 30 }], 0.162),
+  knife: packMelee('knife', { x: 19, y: 32 }, [{ x: 19, y: 32 }, { x: 147, y: 31 }], 0.204, 9, 1),
+  machete: packMelee('machete', { x: 31, y: 30 }, [{ x: 31, y: 30 }, { x: 210, y: 25 }], 0.274),
+  tomahauk: packMelee('tomahauk', { x: 25, y: 26 }, [{ x: 25, y: 26 }, { x: 150, y: 30 }], 0.324),
   beamsword: packMelee(
     'beamsword',
     { x: 28, y: 32 },
     [{ x: 28, y: 32 }, { x: 234, y: 32 }],
-    0.145,
+    0.29,
   ),
 
   // --- 원거리(신규 시트). 축은 총열 높이의 수평선이라 near.y = tip.y다 ---
   // 새총만 세로 구도(Y자가 위를 향한다) — 축도 그대로 위로 잡는다.
-  slingshot: packGun('slingshot', { x: 57, y: 45 }, [{ x: 57, y: 50 }, { x: 62, y: 6 }], 0.208),
-  crossbow: packGun('crossbow', { x: 62, y: 38 }, [{ x: 62, y: 35 }, { x: 189, y: 35 }], 0.143),
-  rifle: packGun('rifle', { x: 84, y: 38 }, [{ x: 84, y: 15 }, { x: 231, y: 15 }], 0.133),
-  revolver: packGun('revolver', { x: 14, y: 38 }, [{ x: 14, y: 11 }, { x: 94, y: 11 }], 0.163, 1),
-  handgun: packGun('handgun', { x: 22, y: 40 }, [{ x: 22, y: 15 }, { x: 85, y: 15 }], 0.171, 1),
-  smg: packGun('smg', { x: 39, y: 41 }, [{ x: 39, y: 14 }, { x: 115, y: 14 }], 0.149),
+  slingshot: packGun('slingshot', { x: 57, y: 45 }, [{ x: 57, y: 50 }, { x: 62, y: 6 }], 0.416),
+  crossbow: packGun('crossbow', { x: 62, y: 38 }, [{ x: 62, y: 35 }, { x: 189, y: 35 }], 0.286),
+  rifle: packGun('rifle', { x: 84, y: 38 }, [{ x: 84, y: 15 }, { x: 231, y: 15 }], 0.266),
+  revolver: packGun('revolver', { x: 14, y: 38 }, [{ x: 14, y: 11 }, { x: 94, y: 11 }], 0.326, 1),
+  handgun: packGun('handgun', { x: 22, y: 40 }, [{ x: 22, y: 15 }, { x: 85, y: 15 }], 0.342, 1),
+  smg: packGun('smg', { x: 39, y: 41 }, [{ x: 39, y: 14 }, { x: 115, y: 14 }], 0.298),
   double_barrel_shotgun: packGun(
     'double_barrel_shotgun',
     { x: 66, y: 40 },
     [{ x: 66, y: 16 }, { x: 223, y: 16 }],
-    0.127,
+    0.254,
   ),
   assault_rifle: packGun(
     'assault_rifle',
     { x: 82, y: 40 },
     [{ x: 82, y: 20 }, { x: 186, y: 20 }],
-    0.141,
+    0.282,
   ),
   pump_shotgun: packGun(
     'pump_shotgun',
     { x: 74, y: 40 },
     [{ x: 74, y: 15 }, { x: 208, y: 15 }],
-    0.14,
+    0.28,
   ),
   sniper_rifle: packGun(
     'sniper_rifle',
     { x: 76, y: 40 },
     [{ x: 76, y: 23 }, { x: 234, y: 23 }],
-    0.145,
+    0.29,
   ),
-  minigun: packGun('minigun', { x: 51, y: 45 }, [{ x: 51, y: 34 }, { x: 172, y: 34 }], 0.166),
+  minigun: packGun('minigun', { x: 51, y: 45 }, [{ x: 51, y: 34 }, { x: 172, y: 34 }], 0.332),
 
   /**
    * 표창은 팩에 없어서 생성기로 만들었다(assets/_generators/weapon_shuriken.lua).
@@ -402,7 +402,7 @@ export const WEAPON_VISUALS: Record<string, WeaponVisual> = {
     'weapon_shuriken_idle_0',
     { x: 32, y: 32 },
     [{ x: 32, y: 32 }, { x: 58, y: 32 }],
-    0.2,
+    0.4,
     { x: 32, y: 32 },
     1,
   ),

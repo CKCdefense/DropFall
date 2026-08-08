@@ -6,7 +6,7 @@
     "damage": 5,
     "speed": 60,
     "attackRange": 20,
-    "attackInterval": 1,
+    "attackInterval": 1.5,
     "attackWindupSeconds": 0.36,
     "aggroRadius": 110,
     "itemDrops": [
@@ -31,7 +31,7 @@
     "damage": 6,
     "speed": 130,
     "attackRange": 20,
-    "attackInterval": 0.8,
+    "attackInterval": 1.2,
     "attackWindupSeconds": 0.36,
     "aggroRadius": 240,
     "itemDrops": [
@@ -56,7 +56,7 @@
     "damage": 7,
     "speed": 60,
     "attackRange": 20,
-    "attackInterval": 1,
+    "attackInterval": 1.4,
     "attackWindupSeconds": 0.29,
     "aggroRadius": 36,
     "itemDrops": [
@@ -81,7 +81,7 @@
     "damage": 16,
     "speed": 70,
     "attackRange": 24,
-    "attackInterval": 1.2,
+    "attackInterval": 1.7,
     "attackWindupSeconds": 0.43,
     "aggroRadius": 130,
     "itemDrops": [
@@ -106,7 +106,7 @@
     "damage": 8,
     "speed": 28,
     "attackRange": 20,
-    "attackInterval": 1.5,
+    "attackInterval": 2.0,
     "attackWindupSeconds": 0.21,
     "aggroRadius": 120,
     "itemDrops": [
@@ -131,7 +131,7 @@
     "damage": 14,
     "speed": 75,
     "attackRange": 24,
-    "attackInterval": 1.2,
+    "attackInterval": 1.7,
     "attackWindupSeconds": 0.43,
     "aggroRadius": 180,
     "energyDrop": {

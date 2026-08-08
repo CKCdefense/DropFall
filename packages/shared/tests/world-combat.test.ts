@@ -1001,9 +1001,56 @@ describe('World — 어그로 규칙(공격 1회 → 재탐색)', () => {
     world.getPlayers().get('far')!.y = 0;
     monster.facingX = -1;
     monster.facingY = 0;
-    world.tick(0.05);
+    // 한 틱만 돌리면 하필 공격 예고·쿨다운 중일 때 탐색까지 가지 않는다 — 공격 주기가
+    // 바뀌어도 깨지지 않게, 타겟을 잡을 때까지 짧게 돌린다(한 주기면 충분하다).
+    for (let i = 0; i < 60 && monster.targetPlayerId === undefined; i += 1) world.tick(0.05);
 
     expect(monster.targetPlayerId).toBe('far');
+  });
+});
+
+describe('World — 공격 모션 신호(attackSeq)', () => {
+  /**
+   * 예전엔 "공격 중"(attacking) 불리언의 false→true 전이로 모션을 재생했다. 그런데
+   * 모션 길이(예고 + 0.4초)가 공격 주기와 거의 같은 몬스터는 꺼져 있는 구간이 수십 ms뿐이라,
+   * 20Hz 상태 동기화가 그 창을 통째로 건너뛰면 클라이언트 눈에는 플래그가 계속 켜져 있어
+   * 첫 공격 이후 모션이 영영 안 나왔다(코어를 쉬지 않고 때릴 때 실제로 그랬다).
+   */
+  it('공격할 때마다 번호가 올라간다 — 모션이 꺼지는 순간을 놓쳐도 재생 시점을 알 수 있다', () => {
+    const world = new World();
+    world.addPlayer('far', 2000, 2000); // 어그로 밖 — 몬스터가 코어를 노린다
+    world.runDevCommand('far', 'spawn demon 1');
+    const monster = [...world.getMonsters().values()][0]!;
+    monster.x = 60;
+    monster.y = 0;
+
+    const seqs = new Set<number>();
+    const coreBefore = world.getCore().hp;
+    // 20Hz(50ms)로만 관측한다 — 실제 클라이언트가 상태를 보는 주기와 같게.
+    for (let i = 0; i < 200; i += 1) {
+      world.tick(0.05);
+      seqs.add(monster.attackSeq);
+    }
+
+    expect(world.getCore().hp).toBeLessThan(coreBefore); // 실제로 계속 때리고 있다
+    expect(seqs.size).toBeGreaterThan(2); // 때린 횟수만큼 번호가 달라졌다
+  });
+
+  it('코어를 때릴 때도 공격 모션이 켜진다', () => {
+    const world = new World();
+    world.addPlayer('far', 2000, 2000);
+    world.runDevCommand('far', 'spawn demon 1');
+    const monster = [...world.getMonsters().values()][0]!;
+    monster.x = 60;
+    monster.y = 0;
+
+    let sawMotion = false;
+    for (let i = 0; i < 200; i += 1) {
+      world.tick(0.05);
+      if (monster.attackAnimTimer > 0) sawMotion = true;
+    }
+
+    expect(sawMotion).toBe(true);
   });
 });
 

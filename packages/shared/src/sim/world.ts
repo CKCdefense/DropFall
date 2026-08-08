@@ -395,6 +395,18 @@ export interface MonsterEntity {
    * 재생할 시점을 알려주기 위해서만 존재한다(그림 없이는 알 방법이 없다).
    */
   attackAnimTimer: number;
+  /**
+   * 공격을 시작할 때마다 1씩 오르는 번호. 클라이언트는 이 값이 **바뀌는 순간** 공격
+   * 애니메이션을 재생한다.
+   *
+   * 예전엔 "공격 중인가"(attackAnimTimer > 0) 불리언의 false→true 전이만 보고 재생했는데,
+   * 모션 길이(예고 0.36 + 0.4초)가 공격 주기(헬하운드 0.8초)와 거의 같아 **꺼져 있는
+   * 구간이 40ms**밖에 안 됐다. 상태 동기화는 20Hz(50ms)라 그 창을 통째로 건너뛰면
+   * 클라이언트 눈에는 플래그가 계속 켜져 있는 것처럼 보여서, 첫 공격 이후 모션이
+   * 영영 재생되지 않았다(코어처럼 쉬지 않고 때리는 상황에서 실제로 그랬다).
+   * 번호는 값이 달라진 사실만으로 판정되므로 샘플 타이밍과 무관하다.
+   */
+  attackSeq: number;
 }
 
 export interface CoreState {
@@ -1921,6 +1933,7 @@ export class World {
       stuckSeconds: 0,
       guardReturnTimer: 0,
       attackAnimTimer: 0,
+      attackSeq: 0,
       attackAnim: 0,
       meleeCooldowns: (data.meleeAttacks ?? []).map(() => 0),
     });
@@ -2249,6 +2262,8 @@ export class World {
   private markAttack(monster: MonsterEntity, anim = 1, seconds = ATTACK_ANIM_SECONDS): void {
     monster.attackAnimTimer = seconds;
     monster.attackAnim = anim;
+    // uint8로 실려 나가므로 한 바퀴 돌려 쓴다 — 클라이언트는 크기가 아니라 "달라졌는가"만 본다.
+    monster.attackSeq = (monster.attackSeq + 1) % 256;
   }
 
   /** 정화 처리: 단계 보상 지급 후 1단계 빈 껍데기로. 다음 낮에 재보급된다(onDayBegan). */

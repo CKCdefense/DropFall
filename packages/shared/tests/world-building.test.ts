@@ -1406,7 +1406,9 @@ describe('World — 고갈된 자원 노드는 아무것도 막지 않는다(doc
     world.fireWeapon('shooter');
     expect(world.getProjectiles().size).toBe(1);
 
-    for (let i = 0; i < 5; i += 1) world.tick(0.1); // 420px/s × 0.5s = 210px, 노드를 지나치기 충분
+    // 노드(60px 앞)를 지나칠 만큼만 날린다. 무기 사거리 안에서 끝나야 한다 —
+    // 사거리를 넘겨 소멸하면 "막혔다"와 구분이 안 된다.
+    for (let i = 0; i < 3; i += 1) world.tick(0.1);
 
     expect(world.getProjectiles().size).toBe(1); // 막혀서 소멸하지 않았다
     const [projectile] = [...world.getProjectiles().values()];
