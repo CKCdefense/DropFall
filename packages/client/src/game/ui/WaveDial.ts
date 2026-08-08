@@ -120,8 +120,16 @@ export class WaveDial {
     this.sun = textured ? scene.add.image(0, 0, HUD_ATLAS, SUN_FRAME).setOrigin(0, 0) : null;
     this.moon = textured ? scene.add.image(0, 0, HUD_ATLAS, MOON_FRAME).setOrigin(0, 0) : null;
 
+    // 날짜는 굵은 자체로 찍는다. Galmuri11-Bold(weight 700)가 등록돼 있어서
+    // fontStyle 'bold'가 실제로 다른 글꼴을 고른다 — 픽셀 폰트는 stroke로 굵게 만들면
+    // 획이 번지므로, 굵은 자체가 있을 때만 쓸 수 있는 방법이다.
     this.dayText = scene.add
-      .text(0, 0, '', { fontFamily: FONT, fontSize: `${DAY_SIZE}px`, color: DAY_INK })
+      .text(0, 0, '', {
+        fontFamily: FONT,
+        fontSize: `${DAY_SIZE}px`,
+        fontStyle: 'bold',
+        color: DAY_INK,
+      })
       .setOrigin(0.5, 0.5);
     this.phaseText = scene.add
       .text(0, 0, '', { fontFamily: FONT, fontSize: `${SIZE_BODY}px`, color: DIM_TEXT })

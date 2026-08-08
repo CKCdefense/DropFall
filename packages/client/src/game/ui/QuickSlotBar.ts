@@ -21,6 +21,7 @@ import {
   PANEL_STROKE,
   SIZE_BODY,
   SIZE_SMALL,
+  applyTextShadow,
   barColor,
 } from './theme';
 
@@ -62,6 +63,14 @@ const XP_GAP = 4;
 /** 체력·스태미나 막대 왼쪽에 붙는 아이콘의 여백(화면 px). */
 const BAR_ICON_INSET = 10;
 const XP_COLOR = 0xd7b45a;
+/**
+ * 막대 위에 얹히는 글자색.
+ *
+ * 예전엔 DIM_TEXT(흐린 회색)라 채워진 쪽에서는 게이지 색에, 빈 쪽에서는 어두운 트랙에
+ * 양쪽 다 묻혔다. 막대는 색이 계속 변하므로(초록↔빨강, 채움↔트랙) **어느 배경에도
+ * 통하는 조합**이 필요하다 — 밝은 글자 + 1px 검은 그림자가 그 답이다.
+ */
+const BAR_LABEL = '#f2f5fa';
 
 /** 바 아래쪽에 남기는 여백(HudScene이 slotsBottom을 잡을 때 쓰는 값과 같다). */
 const BOTTOM_MARGIN = 28;
@@ -145,26 +154,29 @@ export class QuickSlotBar {
     this.hpBar = new HudBar(scene, BAR_LARGE);
     this.hpIcon = hudIcon(scene, ICON_HEART);
     this.hpLabel = scene.add
-      .text(0, 0, '체력', { fontFamily: FONT_SMALL, fontSize: `${SIZE_SMALL}px`, color: DIM_TEXT })
+      .text(0, 0, '체력', { fontFamily: FONT_SMALL, fontSize: `${SIZE_SMALL}px`, color: BAR_LABEL })
       .setOrigin(0.5, 0.5);
+    applyTextShadow(this.hpLabel, HUD_BAR_SCALE);
     this.staminaBar = new HudBar(scene, BAR_LARGE);
     this.staminaIcon = hudIcon(scene, ICON_BOLT);
     this.staminaLabel = scene.add
       .text(0, 0, '스태미나', {
         fontFamily: FONT_SMALL,
         fontSize: `${SIZE_SMALL}px`,
-        color: DIM_TEXT,
+        color: BAR_LABEL,
       })
       .setOrigin(0.5, 0.5);
+    applyTextShadow(this.staminaLabel, HUD_BAR_SCALE);
 
     this.xpBar = new HudBar(scene, BAR_SMALL);
     this.xpLabel = scene.add
       .text(0, 0, 'Lv 1', {
         fontFamily: FONT_SMALL,
         fontSize: `${SIZE_SMALL}px`,
-        color: DIM_TEXT,
+        color: BAR_LABEL,
       })
       .setOrigin(0.5, 0.5);
+    applyTextShadow(this.xpLabel, HUD_BAR_SCALE);
 
     for (let index = 0; index < slotCount; index += 1) {
       this.boxes.push(

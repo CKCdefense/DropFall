@@ -29,6 +29,8 @@ const SECTION_FILL = 0x171a22;
  * 글자가 테두리 위로 올라타지 않는다.
  */
 const PAD = FRAME_INSET + 4;
+/** 닫기 버튼 글자 배율. 픽셀 폰트라 정수배만 쓴다(2배 = 획 두께도 2배). */
+const CLOSE_BUTTON_SCALE = 2;
 /** 제목 줄 아래에서 콘텐츠가 시작되는 y 오프셋(패널 기준). 제목 줄 = 드래그 손잡이. */
 const CONTENT_TOP = PAD + 18;
 
@@ -300,10 +302,13 @@ export class Modal {
     scene.input.on(Phaser.Input.Events.POINTER_MOVE, this.onDragMove, this);
     scene.input.on(Phaser.Input.Events.POINTER_UP, this.onDragEnd, this);
 
+    // 닫기 버튼. 픽셀 폰트는 굵기 옵션이 없어서 **크기를 정수배로 키우는 것이 곧
+    // 굵기**다 — 2배면 획이 1px에서 2px가 된다(1.5배 같은 값은 획이 뭉개진다).
+    // 커진 글자만큼 히트 영역도 같이 넓어져서 누르기도 쉬워진다.
     const closeButton = scene.add
       .text(this.panelWidth - PAD, PAD, 'X', {
         fontFamily: FONT,
-        fontSize: `${SIZE_BODY}px`,
+        fontSize: `${SIZE_BODY * CLOSE_BUTTON_SCALE}px`,
         color: DIM_TEXT,
       })
       .setOrigin(1, 0)
