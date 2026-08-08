@@ -26,13 +26,11 @@ import {
   sanitizeNickname,
   sanitizePassword,
   sanitizeRoomName,
-  type BuildInputMessage,
   type ChatMessage,
   type CompanionCommentaryMessage,
   type CompanionPersonaEvent,
   type CoreCommentaryMessage,
   type CreateRoomOptions,
-  type DemolishInputMessage,
   type SelectSlotMessage,
   type CraftMessage,
   type DevCommandMessage,
@@ -206,14 +204,6 @@ export class GameRoom extends Room {
       // 응답 이벤트가 쌓이고, 다음 틱의 drainCompanionPersonaEvents() 폴링에서 처리된다).
       const question = parseCompanionMention(text);
       if (question) this.world.sendCompanionMessage(client.sessionId, question);
-    },
-    placeBuilding: (client: Client, payload: BuildInputMessage) => {
-      if (this.state.phase !== RoomPhase.PLAYING) return;
-      this.world.placeBuilding(client.sessionId, payload?.buildingType, payload?.cx, payload?.cy);
-    },
-    demolishBuilding: (client: Client, payload: DemolishInputMessage) => {
-      if (this.state.phase !== RoomPhase.PLAYING) return;
-      this.world.demolishBuilding(client.sessionId, payload?.cx, payload?.cy);
     },
 
     // 대기실 메시지. 클라이언트 입력은 신뢰하지 않는다 — 값과 권한을 모두 여기서 검증한다.
@@ -475,6 +465,8 @@ export class GameRoom extends Room {
     this.state.currentWave = this.world.getCurrentWave();
     this.state.bossWarningRemaining = this.world.getBossWarningRemaining();
     this.state.phaseTimeRemaining = this.world.getPhaseTimeRemaining();
+    this.state.waveMonsterTotal = this.world.getWaveMonsterTotal();
+    this.state.waveMonsterRemaining = this.world.getWaveMonsterRemaining();
     this.state.skipVoteCount = this.world.getSkipVoteCount();
 
     // LLM 호출은 네트워크 왕복이 있어 이번 틱 안에 못 끝난다 — fire-and-forget으로

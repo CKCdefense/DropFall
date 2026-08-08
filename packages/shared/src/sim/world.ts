@@ -80,7 +80,7 @@ import {
   PLAYER_COLONY_COLLISION_RADIUS,
 } from './playerCollision';
 import { SpatialGrid } from './spatialGrid';
-import { WaveManager, type GamePhase } from './wave';
+import { WaveManager, isBossType, type GamePhase } from './wave';
 import { runDevCommand, type DevCommandResult, type DevWorldAccess } from './devCommands';
 
 /** moveItem이 받는 컨테이너 이름. 네트워크 경계를 넘어오므로 값부터 검증한다. */
@@ -91,6 +91,16 @@ interface SlotAccess {
   takeAt(index: number): InventorySlot | null;
   placeAt(index: number, incoming: InventorySlot): InventorySlot | null;
 }
+
+/**
+ * 건축물 종류 → 그것을 세우는 아이템. **items.json에서 거꾸로 만든다** — 손으로 적어 두면
+ * 아이템이 늘 때 한쪽만 고쳐져 조용히 어긋난다(해머로 뜯었는데 아무것도 안 나온다).
+ */
+const BUILDING_ITEM_OF: Record<string, string> = Object.fromEntries(
+  Object.entries(itemsData)
+    .filter(([, item]) => item.buildingType !== undefined)
+    .map(([itemId, item]) => [item.buildingType as string, itemId]),
+);
 
 function isContainerName(value: unknown): value is SlotContainer {
   return (
@@ -1177,6 +1187,7 @@ export class World {
       this.applyMeleeHit(result.meleeHit);
       this.applyMeleeHitToResourceNode(player, result.meleeHit, weaponId);
       this.applyMeleeHitToRepair(result.meleeHit, weaponId);
+      this.applyMeleeHitToBuilding(result.meleeHit, weaponId);
     }
   }
 
@@ -1209,6 +1220,51 @@ export class World {
     if (this.core.resource < data.repairCost) return;
     this.core.resource -= data.repairCost;
     target.hp = Math.min(target.maxHp, target.hp + data.repairPerHit);
+  }
+
+  /**
+   * 근접 타격이 건축물을 부순다. 주먹이든 무기든 때리면 깎인다 — 잘못 세운 벽을
+   * 치우려고 별도의 철거 모드를 켤 이유가 없어졌다(건축모드는 제거됐다).
+   *
+   * **해머만 아이템을 돌려준다.** 해머는 짓는 도구라 뜯어서 회수하는 게 자연스럽고,
+   * 그 외 무기로 때려 부수면 부서진 것이니 남는 게 없다. 그래서 해머는 멀쩡한
+   * 건축물을 **한 방에** 뜯는다 — 여러 번 때려야 하면 그 사이 타격이 수리로 읽혀
+   * (§applyMeleeHitToRepair) 영원히 못 뜯는다.
+   *
+   * 자원 노드와 같은 이유로 **가장 가까운 하나만** 때린다.
+   */
+  private applyMeleeHitToBuilding(hit: MeleeHit, weaponId: string): void {
+    const isHammer = weaponsData[weaponId]?.toolFamily === 'hammer';
+
+    let target: BuildingEntity | undefined;
+    let targetDistance = Infinity;
+    for (const building of this.buildings.values()) {
+      // 해머는 성한 것만 뜯는다. 상한 것은 수리 쪽이 가져간다.
+      if (isHammer && building.hp < building.maxHp) continue;
+      if (!withinMeleeArc(hit, building.x, building.y, TILE_SIZE / 2)) continue;
+      const distance = Math.hypot(building.x - hit.originX, building.y - hit.originY);
+      if (distance >= targetDistance) continue;
+      target = building;
+      targetDistance = distance;
+    }
+    if (!target) return;
+
+    if (isHammer) {
+      // 뜯은 자리에 아이템으로 떨군다 — 인벤토리가 꽉 차도 사라지지 않는다.
+      const itemId = BUILDING_ITEM_OF[target.type];
+      if (itemId) this.dropItem(itemId, 1, target.x, target.y);
+      this.removeBuilding(target);
+      return;
+    }
+
+    target.hp = Math.max(0, target.hp - hit.damage);
+    if (target.hp <= 0) this.removeBuilding(target);
+  }
+
+  /** 건축물을 지우고 길찾기를 다시 계산한다. 부순 경로가 여럿이라 한 곳에 모았다. */
+  private removeBuilding(building: BuildingEntity): void {
+    this.buildings.remove(building.id);
+    this.recomputeFlowField();
   }
 
   /** 진행 중인 점사의 후속탄을 발사한다. 무기를 바꾸거나 다운되면 남은 점사는 버린다. */
@@ -1840,26 +1896,6 @@ export class World {
       .some((tier) => tier.unlocksStatUpgrades);
   }
 
-  /**
-   * 건축 요청 처리. `buildingType`/`cx`/`cy`는 네트워크 경계를 넘어온 값이라 타입부터
-   * 검증한다. 배치 규칙(docs/backend/18 §3.5): 이미 다른 건축물/자원 노드/코어가 있는
-   * 셀, 플레이어가 서 있는 셀엔 지을 수 없다. 비용은 코어의 공유 자원 풀에서 차감한다
-   * (자원채집 도구 도입에 맞춘 재설계 — 예전엔 요청자 개인 지갑에서만 나갔다).
-   */
-  placeBuilding(playerId: string, buildingType: unknown, cx: unknown, cy: unknown): void {
-    if (typeof buildingType !== 'string') return;
-    const data = buildingsData[buildingType as BuildingType];
-    if (!data) return;
-    if (!this.canPlaceBuildingAt(playerId, cx, cy)) return;
-
-    // 비용은 코어 자원 게이지에서 나간다. 0인 건축물(철 계열)은 이 경로로 못 짓는다 —
-    // 제작으로만 얻는다.
-    if (data.resourceCost <= 0) return;
-    if (this.core.resource < data.resourceCost) return;
-    this.core.resource -= data.resourceCost;
-
-    this.spawnBuilding(buildingType as BuildingType, cx as number, cy as number);
-  }
 
   /**
    * 손에 든 건축 아이템으로 설치한다(아이템 한 개 = 비용).
@@ -1923,25 +1959,6 @@ export class World {
     const { x, y } = cellCenterWorld(cx, cy);
     const id = `building_${nextBuildingId++}`;
     this.buildings.place(id, type, cx, cy, x, y);
-    this.recomputeFlowField();
-  }
-
-  /**
-   * 철거 요청 처리(건설모드의 'demolish', docs/backend/43). 자원 환급은 없다 —
-   * 재배치/실수 정리용이지 자원 순환 수단이 아니다. 코어 건설 반경 검사는 안
-   * 한다 — 이미 지어진 건축물은 그 시점에 이미 반경 안이었고, 반경은 코어
-   * 티어가 오를수록만 넓어지므로(줄어들지 않으므로) 항상 유효하다.
-   */
-  demolishBuilding(playerId: string, cx: unknown, cy: unknown): void {
-    if (!isFiniteNumber(cx) || !isFiniteNumber(cy)) return;
-    if (!Number.isInteger(cx) || !Number.isInteger(cy)) return;
-    const player = this.players.get(playerId);
-    if (!player || player.hp <= 0) return;
-
-    const building = this.buildings.at(cx, cy);
-    if (!building) return;
-
-    this.buildings.remove(building.id);
     this.recomputeFlowField();
   }
 
@@ -2239,6 +2256,27 @@ export class World {
   /** 보스 등장까지 남은 예고 시간(초). 0이면 예고 중이 아니다. */
   getBossWarningRemaining(): number {
     return this.waveManager.bossWarningRemaining;
+  }
+
+  /**
+   * 이번 밤에 잡아야 할 **잡몹** 총 마릿수. 낮에는 0이라 HUD가 이 값만 보고
+   * 몬스터 표시를 켜고 끌 수 있다.
+   *
+   * 보스는 빼고 센다 — 잡몹을 전멸시켜야 나오는 별개의 국면이고, 그때부터는 보스
+   * 체력바가 진행도를 맡는다. 보스를 섞으면 "다 잡았는데 1마리 남음"으로 보인다.
+   */
+  getWaveMonsterTotal(): number {
+    return this.waveManager.currentPhase === 'night' ? this.waveManager.waveMonsterCount : 0;
+  }
+
+  /** 아직 남은 잡몹 수 = 살아있는 잡몹 + 아직 안 나온 스폰 큐. */
+  getWaveMonsterRemaining(): number {
+    if (this.waveManager.currentPhase !== 'night') return 0;
+    let alive = 0;
+    for (const monster of this.monsters.values()) {
+      if (!isBossType(monster.type)) alive += 1;
+    }
+    return alive + this.waveManager.pendingSpawnCount;
   }
 
   getCurrentWave(): number {
@@ -3663,10 +3701,7 @@ export class World {
       if (!buildingsData[building.type].blocksMovement) continue;
       if (!withinMeleeArc(hit, building.x, building.y, TILE_SIZE / 2)) continue;
       building.hp = Math.max(0, building.hp - swing.damage);
-      if (building.hp <= 0) {
-        this.buildings.remove(building.id);
-        this.recomputeFlowField();
-      }
+      if (building.hp <= 0) this.removeBuilding(building);
     }
     // 여기서 markAttack을 다시 부르지 않는다 — 동작 시작 때 이미 켰고, 2연타에서
     // 다시 켜면 애니메이션이 첫 장부터 재시작해 두 번째 타격이 어긋난다.

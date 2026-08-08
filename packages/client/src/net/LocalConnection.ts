@@ -194,14 +194,6 @@ export class LocalConnection implements GameConnection {
     this.chatCallback = callback;
   }
 
-  placeBuilding(buildingType: string, cx: number, cy: number): void {
-    this.world.placeBuilding(LOCAL_SESSION_ID, buildingType, cx, cy);
-  }
-
-  demolishBuilding(cx: number, cy: number): void {
-    this.world.demolishBuilding(LOCAL_SESSION_ID, cx, cy);
-  }
-
   /**
    * 로컬 모드는 개발 모드가 늘 켜져 있다 — 혼자 도는 시뮬레이션이라 치트로 망칠
    * 남의 판이 없다.
@@ -390,6 +382,8 @@ export class LocalConnection implements GameConnection {
         currentWave: this.world.getCurrentWave(),
         bossWarningRemaining: this.world.getBossWarningRemaining(),
         phaseTimeRemaining: this.world.getPhaseTimeRemaining(),
+        waveMonsterTotal: this.world.getWaveMonsterTotal(),
+        waveMonsterRemaining: this.world.getWaveMonsterRemaining(),
         skipVoteCount: this.world.getSkipVoteCount(),
       },
     };

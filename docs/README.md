@@ -45,6 +45,7 @@
 | [backend/57-work-report-speed-craft-output-charge-tier.md](backend/57-work-report-speed-craft-output-charge-tier.md) | 작업 보고서 — 이동속도 75%, 제작 결과 대기 칸(드래그 회수), 코어 티어별 충전 칸·쉬프트 클릭·거절 표시 |
 | [backend/58-work-report-golem-slam-alignment.md](backend/58-work-report-golem-slam-alignment.md) | 작업 보고서 — 몬스터 그림 가로 중심 보정(골렘 광역 찍기 정렬), 동작별 재생속도 지정 |
 | [backend/59-work-report-cinematics-and-boss-warning.md](backend/59-work-report-cinematics-and-boss-warning.md) | 작업 보고서 — 시작 암전·DAY N·보스 경고(심 구간 추가)·CLEAR 연출 |
+| [backend/60-work-report-melee-pose-and-building-destruction.md](backend/60-work-report-melee-pose-and-building-destruction.md) | 작업 보고서 — 근접 무기 사선 자세·사거리 조정, 건축모드 제거, 근접 타격으로 건축물 파괴(해머는 아이템 회수) |
 | [backend/58-work-report-session-handoff-verification.md](backend/58-work-report-session-handoff-verification.md) | 작업 보고서 — 세션 인계 확인(56↔55 충돌 없음), PATCH_RATE 문서 정합성 정리 + 60→50 실험 |
 
 ### 역할 C — 클라이언트/렌더/UI 작업 문서 ([frontend/](frontend/))

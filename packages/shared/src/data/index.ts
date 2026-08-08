@@ -414,8 +414,6 @@ export const toolsData = loadData(ToolsDataSchema, toolsJson);
 // --- buildings.json ------------------------------------------------------------
 
 const BuildingDataSchema = z.object({
-  /** 건축 모드(B)로 지을 때 코어 자원 게이지에서 나가는 양. 0이면 그 경로로는 못 짓는다. */
-  resourceCost: z.number().int().nonnegative(),
   /** 해머로 한 번 때릴 때 회복되는 체력과 그때 드는 자원. */
   repairPerHit: z.number().int().positive(),
   repairCost: z.number().int().positive(),

@@ -184,14 +184,30 @@ export class WaveDial {
   }
 
   /**
-   * 12시 방향에서 시계방향으로 남은 시간만큼 홈을 채운다.
-   * 총 길이는 페이즈마다 다르다 — 낮은 dayDuration이 상수지만 밤은 웨이브마다 달라서,
-   * 서버가 남은 시간만 내려준다. 그래서 "이번 페이즈에서 본 최대값"을 기준으로 잡는다.
+   * 12시 방향에서 시계방향으로 홈을 채운다. **무엇이 줄어드는지는 낮과 밤이 다르다.**
+   *
+   * - 낮: 남은 시간. 밤이 오기까지 얼마나 준비할 수 있는지가 유일한 관심사다.
+   * - 밤: 남은 잡몹 비율. 밤은 시간이 아니라 **전멸시켜야** 끝나므로 시간을 보여주면
+   *   거짓말이 된다. 링이 줄어드는 건 "끝이 가까워진다"는 같은 뜻으로 읽힌다.
+   *
+   * 낮의 총 길이는 페이즈마다 달라서(밤은 웨이브마다 다르다) 서버가 남은 시간만
+   * 내려준다. 그래서 "이번 페이즈에서 본 최대값"을 기준으로 잡는다.
    */
   private drawRing(status: WorldStatus, isNight: boolean, ended: boolean): void {
-    const total = this.trackDuration(status);
-    const ratio =
-      ended || total <= 0 ? 0 : Phaser.Math.Clamp(status.phaseTimeRemaining / total, 0, 1);
+    let ratio: number;
+    if (ended) {
+      ratio = 0;
+    } else if (isNight) {
+      // 총 마릿수가 0인 순간(보스만 남은 구간)에는 링을 비운다 — 그때부터는 화면
+      // 중앙의 보스 체력바가 진행도를 맡는다.
+      ratio =
+        status.waveMonsterTotal > 0
+          ? Phaser.Math.Clamp(status.waveMonsterRemaining / status.waveMonsterTotal, 0, 1)
+          : 0;
+    } else {
+      const total = this.trackDuration(status);
+      ratio = total > 0 ? Phaser.Math.Clamp(status.phaseTimeRemaining / total, 0, 1) : 0;
+    }
     const count = Math.round(RING_PIXELS.length * ratio);
     const color = isNight ? NIGHT_RING : DAY_RING;
 
@@ -215,6 +231,7 @@ export class WaveDial {
   private lastPhase = '';
   private phaseMaxSeconds = 0;
 
+  /** 낮 전용. 밤은 몬스터 비율을 쓰므로 여기 오지 않는다(drawRing 참고). */
   private trackDuration(status: WorldStatus): number {
     // 페이즈가 바뀌면 기준을 리셋한다. 안 그러면 긴 밤의 길이가 짧은 낮에 그대로 남는다.
     if (status.wavePhase !== this.lastPhase) {

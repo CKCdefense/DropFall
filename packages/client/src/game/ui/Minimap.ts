@@ -10,7 +10,9 @@ import {
 import type { WorldSnapshot } from '../../net/GameConnection';
 import { PANEL_FILL, PANEL_STROKE } from './theme';
 
-const SIZE = 168;
+/** 미니맵 한 변(px). 코어 패널이 같은 높이를 쓰려고 가져간다(HudScene). */
+export const MINIMAP_SIZE = 168;
+const SIZE = MINIMAP_SIZE;
 
 /**
  * 미니맵이 담는 월드 범위(코어 기준 ±px) = **맵 전체**.

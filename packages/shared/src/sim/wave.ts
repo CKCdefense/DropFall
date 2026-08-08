@@ -2,6 +2,14 @@ import { wavesData, type MonsterType, type WaveEntry } from '../data';
 
 export type GamePhase = 'day' | 'night' | 'victory' | 'defeat';
 
+/**
+ * 보스인가. 몬스터 종류 id의 `boss_` 접두사가 유일한 기준이다 — waves.json의
+ * bossType과 monsters.json의 키가 이 규칙을 지키고, 클라이언트 HUD도 같은 판정을 쓴다.
+ */
+export function isBossType(type: string): boolean {
+  return type.startsWith('boss_');
+}
+
 interface SpawnPoint {
   x: number;
   y: number;
@@ -47,6 +55,8 @@ export class WaveManager {
   private phaseTimer: number;
   private waveIndex = -1;
   private spawnQueue: MonsterType[] = [];
+  /** 이번 밤의 잡몹 총 마릿수(보스 제외). 밤이 시작될 때 확정된다. */
+  private waveMonsterTotal = 0;
   private spawnPoints: SpawnPoint[] = [];
   private spawnTimer = 0;
   /** 스폰 지점을 순서대로 도는 커서. 매번 무작위로 뽑으면 지점 하나에 몰릴 수 있다. */
@@ -79,6 +89,16 @@ export class WaveManager {
     return Math.max(0, this.phaseTimer);
   }
 
+  /** 이번 밤의 잡몹 총 마릿수(보스 제외). 낮이면 직전 밤의 값이 남아 있다. */
+  get waveMonsterCount(): number {
+    return this.waveMonsterTotal;
+  }
+
+  /** 아직 안 나온 잡몹 수. 살아있는 수는 World가 알고 있어서 여기서는 큐만 센다. */
+  get pendingSpawnCount(): number {
+    return this.spawnQueue.length;
+  }
+
   /** 보스 등장까지 남은 예고 시간(초). 0이면 예고 중이 아니다. */
   get bossWarningRemaining(): number {
     return Math.max(0, this.bossWarning);
@@ -107,6 +127,10 @@ export class WaveManager {
       }
     }
     this.spawnQueue = shuffle(flat, this.rng);
+    // 이번 밤에 잡아야 할 총 마릿수. 엘리트가 주사위로 정해지므로 큐를 다 만든 **뒤에야**
+    // 확정된다 — 클라이언트가 waves.json만 보고 계산할 수 없어서 여기서 들고 있는다.
+    // 보스는 포함하지 않는다(잡몹을 전멸시켜야 나오고, 그때부터는 보스 체력바가 맡는다).
+    this.waveMonsterTotal = flat.length;
     this.spawnPoints = buildSpawnPoints(entry.spawnPoints, wavesData.spawnRadius, this.rng);
     this.spawnTimer = 0;
     this.spawnPointCursor = 0;
