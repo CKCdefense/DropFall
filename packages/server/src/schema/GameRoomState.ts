@@ -159,6 +159,8 @@ export class GameRoomState extends Schema {
   @type('string') roomCode = '';
   @type('string') roomName = '';
   @type('boolean') hasPassword = false;
+  /** 방을 만들 때 정한 티모시 사용 여부. 대기실이 이걸 보고 "티모시 있음/없음"을 알린다. */
+  @type('boolean') companionEnabled = true;
   /** 'lobby' | 'playing' — RoomPhase */
   @type('string') phase: string = RoomPhase.LOBBY;
   /** 방장. 나가면 다음 사람에게 넘어간다 */

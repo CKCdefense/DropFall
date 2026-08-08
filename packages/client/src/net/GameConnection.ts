@@ -224,6 +224,11 @@ export interface LobbyView {
   phase: RoomPhase;
   players: LobbyPlayer[];
   amHost: boolean;
+  /**
+   * 이 방에 티모시가 있는지. 방을 만든 사람이 정한 값이라 참가자는 바꿀 수 없다 —
+   * 대기실이 이걸 읽어 "왜 티모시가 없는지"를 미리 알려준다.
+   */
+  companionEnabled: boolean;
 }
 
 export interface GameConnection {

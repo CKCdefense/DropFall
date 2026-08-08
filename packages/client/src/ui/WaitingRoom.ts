@@ -76,6 +76,11 @@ export class WaitingRoom {
         ]),
 
         this.renderJobPicker(me),
+        // 티모시는 방을 만들 때 정해져 참가자는 바꿀 수 없다 — 끈 방에서만 알려준다.
+        // 켜져 있는 건 기본값이라 굳이 한 줄을 쓰지 않는다.
+        view.companionEnabled
+          ? null
+          : el('p', { class: 'hint waiting-note' }, ['이 방은 티모시 없이 진행한다.']),
         this.errorMessage ? el('p', { class: 'msg msg-error' }, [this.errorMessage]) : null,
       ]),
     );

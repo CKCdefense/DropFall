@@ -2011,8 +2011,14 @@ export class EntityRenderer {
 
   // ---------------------------------------------------------------- 티모시(AI 동반자)
 
-  /** 방(팀)당 1마리, 항상 존재한다 — 코어처럼 diff-and-update 루프가 필요 없다. */
+  /**
+   * 방(팀)당 1마리라 코어처럼 diff-and-update 루프가 필요 없다.
+   *
+   * 방 설정으로 티모시를 껐으면(`absent`) 스프라이트를 아예 만들지 않는다 — 투명하게만
+   * 두면 이름표와 말풍선이 빈 자리에 계속 떠 있다.
+   */
   private syncCompanion(view: CompanionView): void {
+    if (view.state === 'absent') return;
     if (!this.companion) {
       this.companion = this.createCompanion(view);
     }
