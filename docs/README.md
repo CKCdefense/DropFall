@@ -49,6 +49,7 @@
 | [backend/61-work-report-session-handoff-verification.md](backend/61-work-report-session-handoff-verification.md) | 작업 보고서 — 세션 인계 확인(56↔55 충돌 없음), PATCH_RATE 문서 정합성 정리 + 60→50 실험, 공격 스탯 fireRate 정규화(피드백 #1) |
 | [backend/62-work-report-colony-trickle-spawn.md](backend/62-work-report-colony-trickle-spawn.md) | 작업 보고서 — 콜로니 저장분 소진 후 트리클 스폰 추가(아침 파밍 가능하게, 피드백 #3) |
 | [backend/63-work-report-wave-player-scaling.md](backend/63-work-report-wave-player-scaling.md) | 작업 보고서 — 몬스터 웨이브 인원수 스케일링 신규 구현(기본값 3배 + 인원당 +100%, 피드백 #2) |
+| [backend/64-work-report-terrain-resource-placement.md](backend/64-work-report-terrain-resource-placement.md) | 작업 보고서 — 자원 노드를 클러스터 배치에서 지형 기반 확률 배치로 전면 교체, 인원수 스케일링(피드백 #4) |
 
 ### 역할 C — 클라이언트/렌더/UI 작업 문서 ([frontend/](frontend/))
 

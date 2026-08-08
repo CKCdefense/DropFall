@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { cellCenterWorld } from '../src/constants';
-import { World } from '../src/sim/world';
+import { World, type MonsterEntity } from '../src/sim/world';
 import { coloniesData, coreUpgradesData, itemsData, monstersData, resourcesData, wavesData } from '../src/data';
 import { HIT_RADIUS } from '../src/sim/combat';
 import { COLONY_RADIUS } from '../src/sim/colony';
@@ -12,11 +12,33 @@ function startFirstWave(world: World): void {
   world.tick(0.001);
 }
 
-/** 몬스터가 최소 count마리 스폰될 때까지 잘게 쪼개 틱한다. */
+/**
+ * 웨이브 몬스터가 최소 count마리 스폰될 때까지 잘게 쪼개 틱한다.
+ *
+ * `world.getMonsters()`엔 웨이브 몬스터뿐 아니라 콜로니 수호대(`homeColonyId` 있음)도
+ * 섞여 나올 수 있다 — 트리클 스폰(피드백 #3)이 붙은 뒤로는 플레이어가 콜로니
+ * 트리거 반경(240px) 안에만 있어도 수호대가 계속 나온다. 콜로니는 코어에서
+ * 700~1000px 떨어진 무작위 위치라, 이 파일처럼 플레이어를 임의 좌표에 두는
+ * 테스트가 우연히 그 반경에 걸리면 "첫 몬스터"가 수호대가 되어 버려 코어 추격
+ * AI(tickGuard가 아니라 아래 core-direct 경로)를 검증하려던 테스트가 엉뚱한
+ * 개체를 붙잡는다. 그래서 웨이브 몬스터만 골라서 센다.
+ */
 function spawnAtLeast(world: World, count: number): void {
-  for (let i = 0; i < 5000 && world.getMonsters().size < count; i += 1) {
+  const isWaveMonster = (m: { homeColonyId?: string }) => !m.homeColonyId;
+  for (
+    let i = 0;
+    i < 5000 && [...world.getMonsters().values()].filter(isWaveMonster).length < count;
+    i += 1
+  ) {
     world.tick(0.1);
   }
+}
+
+/** spawnAtLeast로 확보한 웨이브 몬스터 중 하나를 집어 온다(§spawnAtLeast 주석 참고). */
+function firstWaveMonster(world: World): MonsterEntity {
+  const monster = [...world.getMonsters().values()].find((m) => !m.homeColonyId);
+  if (!monster) throw new Error('웨이브 몬스터가 없다 — spawnAtLeast를 먼저 불렀는지 확인');
+  return monster;
 }
 
 /**
@@ -70,6 +92,25 @@ function seededRng(seed: number): () => number {
  * 같은 이유의 같은 패턴이다. 반경 제한 자체는 별도 테스트(coreUpgrade.test.ts)에서
  * 검증한다.
  */
+/**
+ * 이 파일 안의 "코어 근처 빈 공간에 건물/몬스터를 딱 좌표로 박아 놓고 본다"는
+ * 소수의 건축/전투 테스트가, 지형 기반 확률 배치(피드백 #4)로 코어에서
+ * 260~500px 밖 어디든 설 수 있게 된 자원 노드와 우연히 겹쳐서 깨진 적이 있다
+ * (투사체가 우연히 낀 자원 노드에 맞아 사라짐, Flow Field가 자원 노드를 이미
+ * 피해 가고 있어서 건물 설치 전후 방향이 안 바뀜 등). 이 파일은 `isolateNode`로
+ * 자원 채집 자체를 테스트하는 케이스도 있어서 **전체를 다 치우면 안 된다** —
+ * 좌표 충돌이 실제로 문제였던 개별 테스트에서만 국소적으로 불러 쓴다.
+ */
+function clearResourceNodes(world: World): void {
+  const internal = world as unknown as {
+    rebuildResourceObstacleCells(): void;
+    recomputeFlowField(): void;
+  };
+  (world.getResourceNodes() as Map<string, unknown>).clear();
+  internal.rebuildResourceObstacleCells();
+  internal.recomputeFlowField();
+}
+
 function createTestWorld(): World {
   const world = new World({ rng: seededRng(1) });
   const core = world.getCore() as { tier: number };
@@ -843,23 +884,30 @@ describe('World — 건축물과 몬스터 상호작용', () => {
 
     // 코어(원점)와 대칭축(x=0 등) 위에 두면 장애물 하나가 좌우를 똑같이 막아서
     // 그라디언트의 수평 성분이 우연히 0으로 상쇄될 수 있다 — 일부러 비대칭 위치를 쓴다.
-    const [monster] = [...world.getMonsters().values()];
+    // 콜로니 수호대(homeColonyId 있음)는 코어 추격 AI를 아예 안 타므로 제외하고
+    // 웨이브 몬스터만 골라야 한다(§spawnAtLeast, §firstWaveMonster 주석).
+    const monster = firstWaveMonster(world);
     // 중간 지점에 벽을 지어야 하므로, 그 중간 지점이 코어 건축 금지 반경(코어가
     // 커지면서 48px) 밖에 오도록 몬스터를 충분히 멀리 둔다.
-    monster!.x = 160;
-    monster!.y = -120;
+    monster.x = 160;
+    monster.y = -120;
+    // spawnAtLeast()가 스폰 위치에서 이미 한두 틱 굴러가면서 'near' 플레이어를
+    // 타겟으로 붙잡아 놨을 수 있다(추격 리시 반경이 넓어 위치를 강제로 옮겨도
+    // 타겟이 안 풀린다) — 이 테스트는 "아무도 안 보여서 코어로 향한다"가
+    // 전제이므로, 좌표를 강제로 옮기는 김에 타겟도 명시적으로 리셋한다.
+    monster.targetPlayerId = undefined;
 
     world.tick(0.001);
-    const directionBefore = { x: monster!.facingX, y: monster!.facingY };
+    const directionBefore = { x: monster.facingX, y: monster.facingY };
 
     // 몬스터와 코어를 잇는 직선의 중간 지점에 벽을 짓는다.
     grantResource(world, 400);
-    const { cx, cy } = worldToCell(monster!.x / 2, monster!.y / 2);
+    const { cx, cy } = worldToCell(monster.x / 2, monster.y / 2);
     placeBuilding(world, 'builder', 'wall', cx, cy);
     expect(world.getBuildings().size).toBe(1);
 
     world.tick(0.001);
-    const directionAfter = { x: monster!.facingX, y: monster!.facingY };
+    const directionAfter = { x: monster.facingX, y: monster.facingY };
 
     // 방향이 눈에 띄게 바뀌었는지(내적이 1에서 충분히 멀어졌는지)로 판정한다 — 특정
     // 축의 부호를 못박지 않아야 배치를 조금 바꿔도 테스트가 깨지지 않는다.
@@ -1119,6 +1167,10 @@ describe('World — 건축물과 투사체', () => {
 
   it('울타리는 투사체를 막지 않고 통과시킨다', () => {
     const world = createTestWorld();
+    // 이 시나리오의 좌표(260,0)/(350,0)가 자원 배치 반경(260~500px) 안이라 자원
+    // 노드가 그 자리에 우연히 생겨 투사체를 가로챌 수 있다 — 울타리 통과 여부만
+    // 보려는 테스트라 자원 노드는 미리 치운다.
+    clearResourceNodes(world);
     // 코어(반경 40) 밖에서 쏜다 — 원점에서 쏘면 총구가 코어 안이라 투사체가 흡수된다.
     world.addPlayer('shooter', 200, 0);
     equipDefaultKit(world, 'shooter');

@@ -1,4 +1,5 @@
 import { MAP_ORIGIN, MAP_SIZE_TILES, TILE_SIZE, cellCenterWorld, worldToCell } from '../constants';
+import { topFullTerrainAt, type TerrainKind } from '../terrain/terrain';
 import {
   buildingsData,
   coloniesData,
@@ -237,39 +238,65 @@ const AGGRO_FOV_COS_HALF_ANGLE = Math.cos(Math.PI / 3);
  */
 const BOSS_FIRST_PATTERN_DELAY = 3;
 
+/** Fisher-Yates. 후보 타일을 훑는 순서를 섞어서, 앞쪽 지형/좌표에 자원이 쏠리지 않게 한다. */
+function shuffleInPlace<T>(items: T[], rng: () => number): void {
+  for (let i = items.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(rng() * (i + 1));
+    [items[i], items[j]] = [items[j], items[i]];
+  }
+}
+
 /**
- * 자원 노드 배치(플레이스홀더, docs/backend/26). 한 지점에 몰아서 "군집"으로 배치한다 —
- * 낮 시간에 "저 방향에 나무숲/채석장이 있었지" 하고 기억해서 찾아가는 경험을 노린다.
- * 클러스터 중심은 코어를 기준으로 [MIN,MAX] 반경 띠 안에서 무작위로 고르고, 그 중심
- * 주변 `CLUSTER_JITTER_RADIUS` 안에 노드를 흩뿌린다. 총 개수(클러스터 수 × 클러스터당
- * 개수)는 기존 고정 원 배치(나무 10/돌 6)와 같게 맞췄다 — 이번 변경은 "어디에 있는지"만
- * 바꾸고 "얼마나 있는지"(밸런스)는 건드리지 않는다.
- */
-const WOOD_CLUSTER_COUNT = 2;
-const WOOD_NODES_PER_CLUSTER = 5;
-const STONE_CLUSTER_COUNT = 2;
-const STONE_NODES_PER_CLUSTER = 3;
-/**
- * 클러스터 중심이 코어로부터 떨어져야 하는 최소/최대 거리(px). 맵 자체는 훨씬
- * 크지만(MAP_SIZE_TILES 기준 코어에서 최대 1024px), 그 전체를 다 쓰면 낮 시간
- * 안에 왕복하기엔 너무 멀다 — 밤 웨이브/콜로니 스폰 반경(900px, backend/35)
- * 안쪽으로만 좁혀서, 위험을 살짝 감수하는 정도의 거리로 맞췄다.
+ * 자원 노드 배치(데모 준비도 리뷰 피드백 #4로 클러스터 방식에서 교체). 지형
+ * (terrain.ts) 위에 타일 단위 확률로 흩뿌린다 — wood는 grass/dirt, stone은 stone
+ * 지형에만 선다. 지형 렌더링은 아직 안 붙었지만(2026-08 시점 client/server 어디서도
+ * 안 씀), 결정론적 순수 함수라 나중에 타일맵이 붙어도 같은 시드를 쓰는 한 자동으로
+ * 맞아떨어진다.
  *
- * 최소 거리는 **코어 업그레이드 전 기본 건설 가능 반경**(`coreUpgradesData.
- * baseBuildRadius`=250px, backend/38)보다 넉넉히 멀리 뒀다 — 안 그러면 자원
- * 군집이 코어 바로 코앞까지 파고들어서 건축은 물론 그냥 이동조차 불편해진다
- * (실제로 250 이하였을 때 이 문제가 보고됐다, docs/backend/39).
+ * 총 개수는 인원수 스케일링을 받는다(기존엔 고정값 10/6이었다) — `scaledResourceTarget`
+ * 참고. 이미 놓인 만큼은 건너뛰고 모자란 만큼만 채우는 멱등 구조라, 생성자(인원을
+ * 아직 모름, 1인 가정)와 `startColonies`(실제 인원 확정 시점) 양쪽에서 안전하게
+ * 호출할 수 있다 — 기존 `resourceNodes`에 의존하는 여러 테스트가 `startColonies`를
+ * 안 부르고도 그대로 동작해야 해서, "생성자 시점엔 최소 보장, 인원 확정되면 보충"
+ * 구조를 택했다(콜로니처럼 아예 생성자에서 빼면 그 테스트들을 전부 고쳐야 한다).
  */
-const CLUSTER_MIN_DISTANCE = 260;
-const CLUSTER_MAX_DISTANCE = 500;
-/** 클러스터 중심 주변으로 노드가 흩어지는 반경(px). */
-const CLUSTER_JITTER_RADIUS = 80;
+const RESOURCE_BASELINE_COUNT: Record<ResourceType, number> = { wood: 10, stone: 6 };
 /**
- * 같은 클러스터 안에서 노드끼리 이 거리보다 가깝게는 두지 않는다(완전히 겹치는 것
- * 방지). 자원 노드를 근접 타격 대상으로 바꾸면서 판정 반경(resourcesData.hitRadius,
- * 14px)에 맞춰 시각적으로도 커졌다 — 간격이 그보다 좁으면 옆 노드와 그림이 겹친다.
+ * 타일 하나가 자원 후보로 뽑힐 확률. 목표 개체수에 도달하면 배치를 멈추므로 이 값
+ * 자체가 최종 개수를 정하지는 않는다 — 너무 낮으면(후보 풀 대비) 셔플한 후보를 다
+ * 훑고도 목표에 못 미칠 수 있으니, 후보 수(수천 타일)에 비해 목표(10~20대)가 훨씬
+ * 작다는 걸 감안해 넉넉히 잡았다.
+ */
+const RESOURCE_TILE_CHANCE = 0.05;
+/** 자원 타입이 설 수 있는 지형. */
+const RESOURCE_TERRAIN: Record<ResourceType, ReadonlySet<TerrainKind>> = {
+  wood: new Set<TerrainKind>(['grass', 'dirt']),
+  stone: new Set<TerrainKind>(['stone']),
+};
+/**
+ * 자원 후보 타일이 코어로부터 떨어져야 하는 최소/최대 거리(px) — 기존 클러스터
+ * 배치가 쓰던 값을 그대로 물려받았다. 최소 거리는 코어 기본 건설 반경
+ * (`coreUpgradesData.baseBuildRadius`=250px, backend/38)보다 넉넉히 멀어야
+ * 건축·이동에 방해가 안 된다(backend/39). 최대 거리는 밤 웨이브/콜로니 스폰 반경
+ * (900px, backend/35) 안쪽으로 좁혀서, 낮 시간 안에 왕복 가능한 거리로 맞췄다.
+ */
+const RESOURCE_MIN_DISTANCE = 260;
+const RESOURCE_MAX_DISTANCE = 500;
+/**
+ * 새로 놓는 자원 노드끼리 이 거리보다 가깝게는 두지 않는다(완전히 겹치는 것 방지).
+ * 자원 노드를 근접 타격 대상으로 바꾸면서 판정 반경(resourcesData.hitRadius, 14px)에
+ * 맞춰 시각적으로도 커졌다 — 간격이 그보다 좁으면 옆 노드와 그림이 겹친다. 리스폰
+ * 재배치(§relocateRespawnedNode)의 지터 반경으로도 재사용한다.
  */
 const MIN_NODE_SPACING = 36;
+const CLUSTER_JITTER_RADIUS = 80;
+
+/** waves.json의 인원수 스케일링(0.6 + 0.4×인원)과 같은 공식 — 기획서(§10.2) 원안 그대로.
+ * 몬스터는 별도 피드백(#2)으로 더 가파르게 조정했지만, 자원 노드는 이 완만한 곡선을
+ * 그대로 쓴다(사용자가 "3배"라고 한 건 몬스터 드랍 자원이었지 채집 노드가 아니었다). */
+function scaledResourceTarget(type: ResourceType, playerCount: number): number {
+  return Math.round(RESOURCE_BASELINE_COUNT[type] * (0.6 + 0.4 * playerCount));
+}
 
 export interface PlayerEntity {
   id: string;
@@ -715,6 +742,22 @@ export class World {
    * 않는다 — 원형 시야 한 번이 ~450칸이라 매 틱 돌리면 낭비다.
    */
   private readonly lastRevealCell = new Map<string, number>();
+  /**
+   * 지형(terrain.ts) 노이즈에 쓰는 시드. 지금은 **고정 상수**다 — 두 가지를 다
+   * 시도해봤는데 둘 다 문제가 있었다:
+   *   - `this.rng()`에서 뽑으면 생성자 맨 앞에서 호출 하나가 더 소비되어, 그 뒤로
+   *     이어지는 모든 게임플레이 랜덤(몬스터 스폰 등)이 한 칸씩 밀려서 `seededRng(N)`을
+   *     쓰는 기존 테스트 다수가 깨졌다(지형과 무관한 Flow Field 테스트 등).
+   *   - `Math.random()`으로 매번 다르게 뽑으면, 실행마다 지형(=자원 노드 위치)이
+   *     달라져서 좌표를 하드코딩한 다른 테스트들과 **산발적으로**(실행할 때마다
+   *     다른 테스트가) 충돌해 플레이키해졌다 — 재현도 안 되고 디버깅이 더 어렵다.
+   * 지형 렌더링이 아직 아무 데도 안 붙어 있어서(클라·서버 어디서도 topFullTerrainAt을
+   * 안 씀) 지금은 "게임마다 달라야 한다"는 요구 자체가 없다 — 나중에 실제로 지형을
+   * 그리게 되면, 그때는 방마다 시드를 정하고 클라에 동기화하는 설계를 제대로
+   * 다시 해야 한다(랜덤/재현성 요구가 그때 비로소 생기기 때문). 그 전까지는 고정값이
+   * 제일 안전하다.
+   */
+  private readonly terrainSeed = 875_309;
 
   constructor(options: WorldOptions = {}) {
     this.rng = options.rng ?? Math.random;
@@ -723,8 +766,10 @@ export class World {
     if (options.companion === false) this.companion.state = 'absent';
     // 콜로니는 여기서 아직 안 만든다 — 접속 인원수가 몇 명일지는 생성 시점엔 알 수
     // 없다(서버는 로비가 끝나야 확정된다). 인원이 확정되면 호출자가 startColonies()를
-    // 명시적으로 불러야 한다(docs/backend/41).
-    this.seedResourceNodes();
+    // 명시적으로 불러야 한다(docs/backend/41). 자원 노드는 콜로니와 달리 인원을 몰라도
+    // 최소한은 있어야 하는 테스트/로컬 시나리오가 많아서(§seedResourceNodes 주석),
+    // 일단 1인 기준으로 깔아 두고 인원이 확정되면 startColonies가 모자란 만큼 보충한다.
+    this.seedResourceNodes(1);
     this.rebuildResourceObstacleCells();
     // 정적 장애물 표시가 끝난 뒤에 계산해야 최초 FlowField가 이미 이걸 반영한다.
     // 이 시점엔 콜로니가 없어 colonyObstacleCells도 비어 있다 — startColonies()가
@@ -748,10 +793,20 @@ export class World {
    * 분리했다 — 인원이 확정된 바로 그 시점에 호출자가 정확히 한 번 불러야 한다
    * (서버는 로비가 끝나 게임이 실제로 시작될 때, 로컬 모드는 유일한 플레이어를
    * 추가한 직후). 두 번 부르면 사분면당 1개 제약이 깨지므로 호출부가 책임진다.
+   *
+   * 자원 노드도 여기서 실제 인원수만큼 보충한다(§seedResourceNodes) — 생성자는
+   * 인원을 몰라 1인 기준으로만 깔아 뒀으므로, 2인 이상이면 여기서 모자란 만큼 더 놓는다.
+   * 순서가 중요하다: `colonies.seed`가 먼저다. `seedResourceNodes`는 후보 타일을
+   * `shuffleInPlace`로 섞느라 `this.rng()`를 더 소비하는데, 그걸 콜로니 배치보다
+   * 먼저 부르면 콜로니가 소비하는 rng 시퀀스가 (자원 배치량에 따라) 밀려서 같은
+   * 시드로도 콜로니 위치가 달라진다 — 좌표를 못박고 보는 테스트들이 실제로 이렇게
+   * 깨진 적이 있다. 자원 보충은 콜로니 위치와 무관하므로 뒤로 미뤄도 안전하다.
    */
   startColonies(count: number): void {
     this.colonies.seed(count, this.rng);
     this.rebuildColonyObstacleCells();
+    this.seedResourceNodes(count);
+    this.rebuildResourceObstacleCells();
     this.recomputeFlowField();
   }
 
@@ -2492,42 +2547,78 @@ export class World {
     this.flowField.recompute(coreCell.cx, coreCell.cy);
   }
 
-  /** 자원 노드를 코어 주변에 군집(클러스터)으로 배치한다. 클래스 상단 상수 주석 참고. */
-  private seedResourceNodes(): void {
-    this.seedResourceClusters('wood', WOOD_CLUSTER_COUNT, WOOD_NODES_PER_CLUSTER);
-    this.seedResourceClusters('stone', STONE_CLUSTER_COUNT, STONE_NODES_PER_CLUSTER);
+  /** 자원 노드를 지형 위에 확률적으로 채운다(부족분만). 클래스 상단 상수 주석 참고. */
+  private seedResourceNodes(playerCount: number): void {
+    this.seedResourceOnTerrain('wood', playerCount);
+    this.seedResourceOnTerrain('stone', playerCount);
   }
 
-  private seedResourceClusters(type: ResourceType, clusterCount: number, nodesPerCluster: number): void {
-    const data = resourcesData[type];
+  /**
+   * 지형 타일 후보를 모아 섞은 뒤, 하나씩 `RESOURCE_TILE_CHANCE`를 굴려서 성공하면
+   * 배치한다 — 목표 개체수(`scaledResourceTarget`)에 도달하면 중단한다. 이미 그
+   * 타입 노드가 목표만큼(또는 그 이상) 있으면 아무 일도 하지 않는다(멱등).
+   */
+  private seedResourceOnTerrain(type: ResourceType, playerCount: number): void {
+    const target = scaledResourceTarget(type, playerCount);
+    let existing = 0;
+    for (const node of this.resourceNodes.values()) {
+      if (node.type === type) existing += 1;
+    }
+    let needed = target - existing;
+    if (needed <= 0) return;
 
-    for (let i = 0; i < clusterCount; i += 1) {
-      const clusterAngle = this.rng() * Math.PI * 2;
-      const clusterDistance =
-        CLUSTER_MIN_DISTANCE + this.rng() * (CLUSTER_MAX_DISTANCE - CLUSTER_MIN_DISTANCE);
-      const clusterX = Math.cos(clusterAngle) * clusterDistance;
-      const clusterY = Math.sin(clusterAngle) * clusterDistance;
+    const eligibleTerrains = RESOURCE_TERRAIN[type];
+    const occupiedCells = new Set<string>();
+    for (const node of this.resourceNodes.values()) {
+      const { cx, cy } = worldToCell(node.x, node.y);
+      occupiedCells.add(`${cx},${cy}`);
+    }
 
-      const placed: { x: number; y: number }[] = [];
-      for (let n = 0; n < nodesPerCluster; n += 1) {
-        const position = this.pickClusterNodePosition(clusterX, clusterY, placed, data.hitRadius);
-        placed.push(position);
+    const candidates: { cx: number; cy: number }[] = [];
+    for (let cx = 0; cx < MAP_SIZE_TILES; cx += 1) {
+      for (let cy = 0; cy < MAP_SIZE_TILES; cy += 1) {
+        const key = `${cx},${cy}`;
+        if (occupiedCells.has(key)) continue;
 
-        const id = `resource_${nextResourceNodeId++}`;
-        this.resourceNodes.set(id, {
-          id,
-          type,
-          x: position.x,
-          y: position.y,
-          hp: data.hp,
-          maxHp: data.hp,
-          respawnTimer: 0,
-          clusterX,
-          clusterY,
-        });
-        // 셀 등록은 여기서 하지 않는다 — 생성자가 시딩이 다 끝난 뒤
-        // rebuildResourceObstacleCells()를 한 번만 불러 한꺼번에 계산한다.
+        const kind = topFullTerrainAt(cx, cy, this.terrainSeed);
+        if (!kind || !eligibleTerrains.has(kind)) continue;
+
+        const { x, y } = cellCenterWorld(cx, cy);
+        const distance = Math.hypot(x, y);
+        if (distance < RESOURCE_MIN_DISTANCE || distance > RESOURCE_MAX_DISTANCE) continue;
+
+        candidates.push({ cx, cy });
       }
+    }
+    shuffleInPlace(candidates, this.rng);
+
+    const data = resourcesData[type];
+    const placed: { x: number; y: number }[] = [];
+    for (const { cx, cy } of candidates) {
+      if (needed <= 0) break;
+      if (this.rng() >= RESOURCE_TILE_CHANCE) continue;
+
+      const { x, y } = cellCenterWorld(cx, cy);
+      if (placed.some((p) => Math.hypot(p.x - x, p.y - y) < MIN_NODE_SPACING)) continue;
+
+      const id = `resource_${nextResourceNodeId++}`;
+      this.resourceNodes.set(id, {
+        id,
+        type,
+        x,
+        y,
+        hp: data.hp,
+        maxHp: data.hp,
+        respawnTimer: 0,
+        // 클러스터가 없어졌으니 노드 자신이 곧 "군집 중심"이다 — 리스폰 재배치
+        // (§relocateRespawnedNode)가 이 자리 근처(CLUSTER_JITTER_RADIUS 안)로 되돌린다.
+        clusterX: x,
+        clusterY: y,
+      });
+      placed.push({ x, y });
+      needed -= 1;
+      // 셀 등록은 여기서 하지 않는다 — 호출자가 시딩이 다 끝난 뒤
+      // rebuildResourceObstacleCells()를 한 번만 불러 한꺼번에 계산한다.
     }
   }
 
