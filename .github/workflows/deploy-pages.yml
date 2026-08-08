@@ -21,10 +21,10 @@ jobs:
   build:
     runs-on: ubuntu-latest
     env:
-      # 비공개 에셋 저장소 키가 등록됐는지. 스텝의 if에서 secrets를 직접 못 읽어서
-      # 잡 레벨 env로 한 번 받아 내린다 — 키가 없으면 몬스터 주입만 건너뛰고
+      # 비공개 에셋 저장소 토큰이 등록됐는지. 스텝의 if에서 secrets를 직접 못 읽어서
+      # 잡 레벨 env로 한 번 받아 내린다 — 토큰이 없으면 몬스터 주입만 건너뛰고
       # (플레이스홀더로 배포) 나머지 배포는 평소대로 진행된다.
-      HAS_ASSETS_KEY: ${{ secrets.ASSETS_SSH_KEY != '' }}
+      HAS_ASSETS_KEY: ${{ secrets.ASSETS_TOKEN != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -32,17 +32,18 @@ jobs:
       # (assets/sprites/monsters/README.md). 비공개 저장소에서 빌드 시점에 주입한다 —
       # Aseprite는 필요 없다(완성된 아틀라스 산출물을 그대로 가져온다).
       #
-      # 준비물(한 번만):
-      #  1. 비공개 저장소 CKCdefense/dropfall-assets 생성, 루트에 atlas/monsters.png·json 커밋
-      #  2. ssh-keygen -t ed25519 로 키 쌍 생성 →
-      #     공개키: dropfall-assets Settings → Deploy keys (read-only)
-      #     개인키: 이 저장소 Settings → Secrets → Actions → ASSETS_SSH_KEY
+      # Deploy Key가 아니라 **Fine-grained PAT**를 쓴다 — organization 정책이
+      # Deploy Key를 막아뒀다. 준비물(한 번만):
+      #  1. GitHub 개인 Settings → Developer settings → Fine-grained tokens →
+      #     Generate: Resource owner=CKCdefense, Repository access=dropfall-assets만,
+      #     Permissions → Contents: Read-only
+      #  2. 이 저장소 Settings → Secrets → Actions → ASSETS_TOKEN 으로 등록
       - name: 비공개 에셋 체크아웃(몬스터 아틀라스)
         if: env.HAS_ASSETS_KEY == 'true'
         uses: actions/checkout@v4
         with:
           repository: CKCdefense/dropfall-assets
-          ssh-key: ${{ secrets.ASSETS_SSH_KEY }}
+          token: ${{ secrets.ASSETS_TOKEN }}
           path: .assets-private
 
       - name: 몬스터 아틀라스 주입
