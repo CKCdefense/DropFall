@@ -373,6 +373,8 @@ export class GameRoom extends Room {
       schema.attack = this.world.playerAttack(player);
       schema.speedMultiplier = this.world.playerSpeedMultiplier(player);
       schema.burstMode = player.burstMode;
+      schema.useFxKind = player.useFxKind;
+      schema.useFxSeq = player.useFxSeq;
       // 장착 무기의 탄약 상태. 근접/맨손이면 magazine 0으로 두고 HUD가 표시를 걷는다.
       const ammo = this.world.ammoView(id);
       schema.ammo = ammo?.loaded ?? 0;

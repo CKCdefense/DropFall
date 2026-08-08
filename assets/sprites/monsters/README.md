@@ -45,7 +45,10 @@ monsters.png   몬스터                      → 커밋 안 함 (각자 빌드)
    배포도 같은 저장소를 쓴다 — GitHub Pages 빌드가 여기서 완성된 아틀라스를
    주입한다(.github/workflows/deploy-pages.yml의 ASSETS_TOKEN 주석 참고).
 2. 압축을 풀어 이 디렉터리(`assets/sprites/monsters/`)에 넣는다
-3. `pnpm build:atlas`
+3. **리스타일 레시피를 적용한다** — 게임에 쓰는 몬스터는 원본 그대로가 아니라
+   `assets/_generators/monsters_restyle.lua`(그림자 어둡게 + 몬스터별 색 보정)를
+   거친 버전이다. 실행법은 스크립트 상단 주석 참고. 원본에 **1회만** 돌릴 것.
+4. `pnpm build:atlas`
 
 명명 규칙은 다른 스프라이트와 같다 — `mob_` 접두사, 태그 하나 이상
 ([assets/README.md](../../README.md) 참고).

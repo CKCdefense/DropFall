@@ -234,6 +234,8 @@ export class LocalConnection implements GameConnection {
         ammoMagazine: this.world.ammoView(id)?.magazine ?? 0,
         reloadRemaining: this.world.ammoView(id)?.reloadRemaining ?? 0,
         burstMode: player.burstMode,
+        useFxKind: player.useFxKind,
+        useFxSeq: player.useFxSeq,
         wood: player.inventory.countOf('wood'),
         stone: player.inventory.countOf('stone'),
         parts: player.inventory.countOf('drop_normal'),

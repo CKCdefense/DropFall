@@ -295,7 +295,7 @@ function packMelee(
       frame: `weapons_new_${weaponId}_0`,
       grip,
       axis,
-      scale,
+      scale: scale * MELEE_SHRINK,
       orbitRadius,
       center: WEAPON_SHEET_CENTER,
       handCount,
@@ -310,6 +310,18 @@ function packMelee(
  * 값과 같다 — 여기와 weapons.json의 range가 "그린 길이 ≈ 판정 사거리"로 맞물린다.
  */
 const MELEE_ORBIT_RADIUS = 9;
+
+/**
+ * 근접 무기 전체에 곱하는 축소 배율("일괄적으로 축소" 요청).
+ *
+ * 무기마다 배율을 따로 손대지 않고 여기 한 곳에서 곱하는 이유는, 아래 표의 숫자가
+ * **무기끼리의 비율**(방망이 대 나이프의 상대 크기)을 담고 있기 때문이다. 개별로
+ * 곱해 적어 두면 다음에 또 "조금만 줄여 줘" 소리를 들었을 때 비율이 흐트러진다.
+ *
+ * 이 값을 바꾸면 weapons.json의 근접 range도 같이 다시 계산해야 한다 —
+ * 그린 길이와 판정 사거리는 한 몸이다(tools/measure-weapons 참고).
+ */
+const MELEE_SHRINK = 0.75;
 
 export const WEAPON_VISUALS: Record<string, WeaponVisual> = {
   /**
@@ -725,6 +737,16 @@ export function layoutWeapon(
     // 부채꼴 이펙트는 무기가 아니라 **플레이어**를 중심으로 돈다 — 서버 판정과 같은 기준이다.
     swingFx.setScale(visual.melee.fxScale);
     swingFx.setRotation(aimAngle);
+    /*
+     * 궤적도 무기와 **같이** 뒤집는다.
+     *
+     * 부채꼴 그림은 위에서 아래로 쓸고 지나가게 그려져 있다. 무기는 왼쪽을 볼 때
+     * flipY로 뒤집히고 swingOffset의 부호까지 반대가 되는데, 이펙트만 그대로 두면
+     * 날은 아래로 내려오는데 궤적은 위로 올라가는 꼴이 된다("왼쪽 공격 이펙트가
+     * 이질적이다" 제보). 회전이 조준각 그대로이므로 flipY 한 줄이 곧 조준선을 축으로
+     * 삼은 거울상이다 — 무기에 쓴 것과 같은 규칙이다.
+     */
+    swingFx.setFlipY(facingLeft);
     swingFx.setPosition(0, ORBIT_CENTER_Y);
   }
 }

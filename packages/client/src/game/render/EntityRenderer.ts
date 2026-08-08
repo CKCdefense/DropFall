@@ -3,6 +3,7 @@ import {
   BARE_HANDS_WEAPON_ID,
   HIT_RADIUS,
   TILE_SIZE,
+  USE_FX,
   buildingsData,
   companionData,
   itemOfSlot,
@@ -202,6 +203,20 @@ const HURT_FX_RATE = 18;
  */
 const HURT_BODY_SHAKE_PIXELS = 2;
 const HURT_BODY_SHAKE_MS = 45;
+/**
+ * 소모품 사용 이펙트. 서버가 정해 준 종류(USE_FX)를 그림으로만 바꾼다 —
+ * 어떤 아이템이 어느 이펙트인지는 서버 판단이고, 여기서 아이템 표를 다시 읽지 않는다.
+ *
+ * 회복은 원래 루프용으로 그려진 10프레임이라 조금 느리게(14fps, 약 0.7초) 한 바퀴만 돌린다.
+ * 버프·스탯은 한 번 터지고 끝나는 8프레임이라 더 빠르게(18fps, 약 0.44초) 넘긴다.
+ */
+const USE_FX_ANIMS: Record<number, { anim: string; prefix: string; frames: number; rate: number }> =
+  {
+    [USE_FX.heal]: { anim: 'fx_use_heal', prefix: 'fx_heal_heal_', frames: 10, rate: 14 },
+    [USE_FX.buff]: { anim: 'fx_use_buff', prefix: 'fx_boost_buff_', frames: 8, rate: 18 },
+    [USE_FX.statup]: { anim: 'fx_use_statup', prefix: 'fx_boost_statup_', frames: 8, rate: 18 },
+  };
+
 /** 피격 아웃라인 색(눌린 빨강 — fx_hurt 팔레트와 동일)과 유지 시간(ms). */
 const HURT_OUTLINE_COLOR = 0xd95c4a;
 const HURT_OUTLINE_MS = 150;
@@ -639,6 +654,21 @@ export class EntityRenderer {
       sprite.setPosition(Math.round(renderX), Math.round(renderY));
       // 탑다운 깊이 정렬: 아래에 있을수록 앞에 그린다.
       sprite.setDepth(renderY);
+
+      /*
+       * 소모품 이펙트는 **번호가 바뀐 순간**에만 튼다.
+       *
+       * 회복을 체력 증가로 알아낼 수도 있지만 그러면 체력이 저절로 차는 자연회복까지
+       * 이펙트가 붙고, 진통제처럼 체력이 전혀 안 변하는 버프는 아예 잡히지 않는다.
+       * 처음 본 플레이어(값이 없을 때)는 재생하지 않는다 — 방에 들어서자마자 남이
+       * 예전에 먹은 게 터지면 안 된다.
+       */
+      const lastUseSeq = sprite.getData('useFxSeq') as number | undefined;
+      if (lastUseSeq !== undefined && lastUseSeq !== player.useFxSeq) {
+        this.playUseFx(sprite, player.useFxKind);
+      }
+      sprite.setData('useFxSeq', player.useFxSeq);
+
       // 다운된 플레이어는 흐리게 — 부활 대상임을 한눈에 보이게 한다.
       sprite.setAlpha(player.hp > 0 ? 1 : 0.35);
 
@@ -711,6 +741,25 @@ export class EntityRenderer {
       burst.play(HURT_FX_ANIM);
       burst.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => burst.destroy());
     }
+  }
+
+  /**
+   * 소모품 사용 이펙트. 캐릭터 **중심**에 겹쳐 놓는다 — 세 이펙트 모두 캔버스 가운데가
+   * 대상 중심이고 발밑 고리까지 포함해 그려져 있어서, 피격 스파크처럼 가슴 높이로
+   * 올리면 고리가 배 위에 뜬다.
+   *
+   * 깊이는 캐릭터보다 한 단계 위다. 회복 십자가는 몸을 가려도 되는 종류의 그림이고,
+   * 뒤로 깔면 캐릭터에 거의 다 먹힌다.
+   */
+  private playUseFx(container: Phaser.GameObjects.Container, kind: number): void {
+    const fx = USE_FX_ANIMS[kind];
+    if (!fx || !this.scene.anims.exists(fx.anim)) return;
+
+    const burst = this.scene.add
+      .sprite(container.x, container.y, GAME_ATLAS, `${fx.prefix}0`)
+      .setDepth(container.y + 1);
+    burst.play(fx.anim);
+    burst.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => burst.destroy());
   }
 
   /**
@@ -1623,6 +1672,21 @@ export class EntityRenderer {
           end: HURT_FX_FRAMES - 1,
         }),
         frameRate: HURT_FX_RATE,
+        repeat: 0,
+      });
+    }
+
+    for (const fx of Object.values(USE_FX_ANIMS)) {
+      if (this.scene.anims.exists(fx.anim)) continue;
+      if (!this.scene.textures.get(GAME_ATLAS).has(`${fx.prefix}0`)) continue;
+      this.scene.anims.create({
+        key: fx.anim,
+        frames: this.scene.anims.generateFrameNames(GAME_ATLAS, {
+          prefix: fx.prefix,
+          start: 0,
+          end: fx.frames - 1,
+        }),
+        frameRate: fx.rate,
         repeat: 0,
       });
     }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { World } from '../src/sim/world';
+import { USE_FX, World } from '../src/sim/world';
 import { itemsData, weaponsData } from '../src/data';
 import { SLOT_COUNT } from '../src/sim/inventory';
 
@@ -19,9 +19,9 @@ function worldWithPlayer(): World {
 }
 
 /** 무기를 0번 칸에 쥐여주고 선택한다. */
-function equip(world: World, itemId: string): void {
+function equip(world: World, itemId: string, count = 1): void {
   const inventory = world.getPlayers().get('p1')!.inventory;
-  inventory.add(itemId, 1);
+  inventory.add(itemId, count);
   world.selectSlot('p1', inventory.toView().slots.findIndex((slot) => slot?.itemId === itemId));
 }
 
@@ -332,6 +332,66 @@ describe('음식 — 영구 스탯', () => {
     world.runDevCommand('p1', 'heal');
 
     expect(player.hp).toBe(maxHp);
+  });
+});
+
+describe('소모품 사용 이펙트 신호', () => {
+  it('종류별로 다른 이펙트를 지목한다 — 치료/버프/음식', () => {
+    const cases: [string, number][] = [
+      ['bandage', USE_FX.heal],
+      ['adrenaline', USE_FX.buff],
+      ['painkiller', USE_FX.buff],
+      ['donut', USE_FX.statup],
+    ];
+
+    for (const [itemId, kind] of cases) {
+      const world = worldWithPlayer();
+      const player = world.getPlayers().get('p1')!;
+      player.hp = 1; // 붕대가 낭비로 판정돼 소모되지 않는 일을 막는다
+      equip(world, itemId);
+
+      world.useSelectedItem('p1');
+
+      expect(player.useFxKind).toBe(kind);
+      expect(player.useFxSeq).toBe(1);
+    }
+  });
+
+  it('음식은 체력도 같이 차지만 이펙트는 스탯 상승이다', () => {
+    // 도넛은 최대 체력을 올리며 그만큼 체력도 채운다. 회복으로 분류하면 "스탯이 올랐다"가
+    // 화면에서 사라진다 — 먹은 이유가 그것인데.
+    const world = worldWithPlayer();
+    const player = world.getPlayers().get('p1')!;
+    player.hp = 1;
+    equip(world, 'donut');
+
+    world.useSelectedItem('p1');
+
+    expect(player.hp).toBeGreaterThan(1);
+    expect(player.useFxKind).toBe(USE_FX.statup);
+  });
+
+  it('쓸 때마다 번호가 오른다 — 같은 아이템을 연달아 써도 이펙트가 다시 난다', () => {
+    const world = worldWithPlayer();
+    const player = world.getPlayers().get('p1')!;
+    equip(world, 'adrenaline', 3);
+
+    world.useSelectedItem('p1');
+    world.useSelectedItem('p1');
+
+    expect(player.useFxSeq).toBe(2);
+  });
+
+  it('효과가 없어 소모되지 않으면 번호도 그대로다', () => {
+    const world = worldWithPlayer();
+    const player = world.getPlayers().get('p1')!;
+    equip(world, 'bandage');
+
+    // 체력이 가득이라 붕대는 소모되지 않는다.
+    world.useSelectedItem('p1');
+
+    expect(player.useFxSeq).toBe(0);
+    expect(player.inventory.countOf('bandage')).toBe(1);
   });
 });
 

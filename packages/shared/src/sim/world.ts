@@ -292,7 +292,33 @@ export interface PlayerEntity {
   speedBuffMultiplier: number;
   /** 점사 모드(돌격소총 전용 토글). burst 스펙이 없는 무기를 들면 무시된다. */
   burstMode: boolean;
+  /**
+   * 마지막으로 쓴 소모품의 종류(USE_FX). 이펙트를 무엇으로 틀지 클라이언트에 알린다.
+   * 값이 남아 있어도 useFxSeq가 바뀌지 않으면 다시 재생하지 않는다.
+   */
+  useFxKind: number;
+  /**
+   * 소모품을 쓸 때마다 1씩 오르는 번호(255에서 0으로 되돌아간다).
+   *
+   * "지금 썼다"를 불리언으로 두면 20Hz 동기화에서 한 틱짜리 참을 놓쳐 이펙트가 통째로
+   * 사라진다 — 몬스터 공격 애니메이션에서 겪은 것과 같은 문제(attackSeq)라 같은 해법을 쓴다.
+   */
+  useFxSeq: number;
 }
+
+/**
+ * 소모품 사용 이펙트 종류. 서버가 무엇을 먹었는지 알고 클라이언트는 그림만 고르면 된다 —
+ * 아이템 표를 클라이언트가 다시 읽어 분류하면 규칙이 두 벌이 된다.
+ */
+export const USE_FX = {
+  none: 0,
+  /** 치료(붕대·알약·AID): 초록 십자 회복 이펙트 */
+  heal: 1,
+  /** 일시 버프(진통제·아드레날린): 청록빛이 몸으로 모여든다 */
+  buff: 2,
+  /** 영구 스탯(음식): 금빛 화살표가 위로 솟는다 */
+  statup: 3,
+} as const;
 
 export interface ResourceNodeEntity {
   id: string;
@@ -692,6 +718,8 @@ export class World {
       speedBuffTimer: 0,
       speedBuffMultiplier: 1,
       burstMode: false,
+      useFxKind: USE_FX.none,
+      useFxSeq: 0,
     });
   }
 
@@ -897,6 +925,25 @@ export class World {
     }
     if (item.energyAmount !== undefined) {
       this.core.sharedEnergy += item.energyAmount;
+    }
+
+    /*
+     * 이펙트 종류를 정한다. **음식이 우선**이다 — 음식은 최대 체력이 늘면서 체력도 같이
+     * 차므로 회복 조건에도 걸리는데, 도넛을 먹었을 때 보고 싶은 것은 "회복했다"가 아니라
+     * "스탯이 올랐다"이다. 코어 회복·에너지처럼 내 몸에 아무 일도 안 일어나는 아이템은
+     * 캐릭터 위에 띄울 그림이 없으니 none으로 둔다(이펙트를 안 튼다).
+     */
+    const kind =
+      item.statBonus !== undefined
+        ? USE_FX.statup
+        : item.hpFloorSeconds !== undefined || item.speedMultiplier !== undefined
+          ? USE_FX.buff
+          : item.healAmount !== undefined || item.healPercent !== undefined
+            ? USE_FX.heal
+            : USE_FX.none;
+    if (kind !== USE_FX.none) {
+      player.useFxKind = kind;
+      player.useFxSeq = (player.useFxSeq + 1) % 256;
     }
   }
 

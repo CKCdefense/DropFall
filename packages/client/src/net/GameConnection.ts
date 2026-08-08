@@ -38,6 +38,10 @@ export interface PlayerView {
   reloadRemaining: number;
   /** 점사 모드(돌격소총 토글) 상태. */
   burstMode: boolean;
+  /** 마지막으로 쓴 소모품의 이펙트 종류(USE_FX). */
+  useFxKind: number;
+  /** 소모품을 쓸 때마다 오르는 번호. 값이 바뀐 순간이 "방금 썼다"이다. */
+  useFxSeq: number;
   /** 아직 코어에 입고하지 않고 들고 있는 나무/돌. 코어 근처에서 deposit()하면 0이 된다. */
   wood: number;
   stone: number;
