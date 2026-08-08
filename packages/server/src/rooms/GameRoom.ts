@@ -138,7 +138,12 @@ export class GameRoom extends Room {
     },
     quickMoveItem: (client: Client, payload: QuickMoveItemMessage) => {
       if (this.state.phase !== RoomPhase.PLAYING) return;
-      this.world.quickMoveItem(client.sessionId, payload?.container, payload?.index);
+      this.world.quickMoveItem(
+        client.sessionId,
+        payload?.container,
+        payload?.index,
+        payload?.to,
+      );
     },
     placeHeldBuilding: (client: Client, payload: { cx?: unknown; cy?: unknown }) => {
       if (this.state.phase !== RoomPhase.PLAYING) return;
@@ -394,6 +399,8 @@ export class GameRoom extends Room {
       schema.levelUpSeq = player.levelUpSeq;
       schema.craftRecipeId = player.craftRecipeId;
       schema.craftRemaining = player.craftTimer;
+      schema.craftOutput.itemId = player.craftOutput?.itemId ?? '';
+      schema.craftOutput.count = player.craftOutput?.count ?? 0;
       // 장착 무기의 탄약 상태. 근접/맨손이면 magazine 0으로 두고 HUD가 표시를 걷는다.
       const ammo = this.world.ammoView(id);
       schema.ammo = ammo?.loaded ?? 0;
@@ -444,6 +451,7 @@ export class GameRoom extends Room {
     this.state.upgradeAvailable = nextUpgrade !== undefined;
     this.state.upgradeResourceCost = nextUpgrade?.cost.resource ?? 0;
     this.state.upgradeEnergyCost = nextUpgrade?.cost.energy ?? 0;
+    this.state.openChargeSlots = this.world.openChargeSlotCount();
     // 탐색 안개: 바뀐 바이트만 건드린다. 통째로 대입하면 Colyseus가 2048개 전부를
     // "바뀜"으로 보고 매 틱 2KB를 내보낸다.
     const explored = this.world.getExplored();

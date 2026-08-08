@@ -143,8 +143,8 @@ export class LocalConnection implements GameConnection {
     this.world.discardFromStorage(LOCAL_SESSION_ID, index);
   }
 
-  quickMoveItem(container: SlotContainer, index: number): void {
-    this.world.quickMoveItem(LOCAL_SESSION_ID, container, index);
+  quickMoveItem(container: SlotContainer, index: number, to?: 'storage' | 'charge'): void {
+    this.world.quickMoveItem(LOCAL_SESSION_ID, container, index, to);
   }
 
   craft(recipeId: string): void {
@@ -259,6 +259,7 @@ export class LocalConnection implements GameConnection {
         levelUpSeq: player.levelUpSeq,
         craftRecipeId: player.craftRecipeId,
         craftRemaining: player.craftTimer,
+        craftOutput: player.craftOutput ? { ...player.craftOutput } : null,
         wood: player.inventory.countOf('wood'),
         stone: player.inventory.countOf('stone'),
         parts: player.inventory.countOf('drop_normal'),
@@ -376,6 +377,7 @@ export class LocalConnection implements GameConnection {
         coreEnergy: core.energy,
         coreMaxEnergy: core.maxEnergy,
         coreCharge: core.chargeSlots.map((slot) => (slot ? { ...slot } : null)),
+        openChargeSlots: this.world.openChargeSlotCount(),
         upgradeAvailable: this.world.nextCoreUpgrade() !== undefined,
         upgradeResourceCost: this.world.nextCoreUpgrade()?.cost.resource ?? 0,
         upgradeEnergyCost: this.world.nextCoreUpgrade()?.cost.energy ?? 0,

@@ -84,7 +84,7 @@ import { WaveManager, type GamePhase } from './wave';
 import { runDevCommand, type DevCommandResult, type DevWorldAccess } from './devCommands';
 
 /** moveItem이 받는 컨테이너 이름. 네트워크 경계를 넘어오므로 값부터 검증한다. */
-export type SlotContainer = 'inventory' | 'storage' | 'charge';
+export type SlotContainer = 'inventory' | 'storage' | 'charge' | 'craft';
 
 /** moveItem이 컨테이너에게 요구하는 최소한의 계약. 창고·인벤토리·충전 슬롯이 모두 만족한다. */
 interface SlotAccess {
@@ -93,7 +93,9 @@ interface SlotAccess {
 }
 
 function isContainerName(value: unknown): value is SlotContainer {
-  return value === 'inventory' || value === 'storage' || value === 'charge';
+  return (
+    value === 'inventory' || value === 'storage' || value === 'charge' || value === 'craft'
+  );
 }
 
 function isFiniteNumber(value: unknown): value is number {
@@ -318,6 +320,12 @@ export interface PlayerEntity {
   /** 만드는 중인 레시피 id(없으면 빈 문자열)와 남은 시간(초). */
   craftRecipeId: string;
   craftTimer: number;
+  /**
+   * 다 만들어 **꺼내 가기를 기다리는** 물건. 창고로 바로 밀어 넣지 않는 이유는,
+   * 만든 사람이 결과를 눈으로 확인하고 직접 가져가야 "내가 만들었다"가 되기 때문이다.
+   * 여기가 차 있으면 다음 제작을 걸 수 없다 — 덮어쓰면 앞의 결과가 사라진다.
+   */
+  craftOutput: InventorySlot | null;
   /** 레벨과 다음 레벨까지 쌓인 경험치. 경험치는 몬스터 처치로만 오른다. */
   level: number;
   xp: number;
@@ -792,6 +800,7 @@ export class World {
       useFxSeq: 0,
       craftRecipeId: '',
       craftTimer: 0,
+      craftOutput: null,
       level: 1,
       xp: 0,
       statPoints: 0,
@@ -1419,6 +1428,18 @@ export class World {
   private container(player: PlayerEntity, name: SlotContainer): SlotAccess {
     if (name === 'storage') return this.core.storage;
     if (name === 'inventory') return player.inventory;
+    if (name === 'craft') {
+      // 제작 결과 칸은 한 칸짜리다 — **꺼내 가기만** 되고 넣을 수는 없다.
+      return {
+        takeAt: (index) => {
+          if (index !== 0) return null;
+          const slot = player.craftOutput;
+          player.craftOutput = null;
+          return slot;
+        },
+        placeAt: (_index, incoming) => incoming, // 되돌린다 = 여기엔 못 넣는다
+      };
+    }
     return {
       takeAt: (index) => {
         const slot = this.core.chargeSlots[index] ?? null;
@@ -1428,7 +1449,8 @@ export class World {
         return slot;
       },
       placeAt: (index, incoming) => {
-        if (index < 0 || index >= this.core.chargeSlots.length) return incoming;
+        // 티어로 잠긴 칸은 받지 않는다(되돌린다).
+        if (index < 0 || index >= this.openChargeSlotCount()) return incoming;
         const existing = this.core.chargeSlots[index] ?? null;
         // 같은 재료면 합치고, 다르면 자리를 바꾼다(창고 규칙과 같다).
         if (existing && existing.itemId === incoming.itemId) {
@@ -1476,14 +1498,25 @@ export class World {
     this.dropItem(itemId, count, player.x, player.y);
   }
 
-  quickMoveItem(playerId: string, container: unknown, index: unknown): void {
+  quickMoveItem(playerId: string, container: unknown, index: unknown, to?: unknown): void {
     const player = this.players.get(playerId);
     if (!player || player.hp <= 0) return;
     if (!isContainerName(container)) return;
     if (!Number.isInteger(index)) return;
 
-    // 인벤토리↔창고 중 한쪽은 항상 storage라 창고 근접 검사는 매번 적용된다.
+    // 인벤토리↔창고 중 한쪽은 항상 코어 것이라 근접 검사는 매번 적용된다.
     if (!this.isNearCore(player)) return;
+
+    /*
+     * 목적지를 **화면이 정한다.** 예전엔 "반대편"이 항상 창고였는데, 코어 탭에 충전
+     * 슬롯이 생기면서 같은 쉬프트 클릭이 두 곳을 가리키게 됐다. 눈에 보이는 곳으로
+     * 가는 게 가장 덜 놀랍다 — 그래서 클라이언트가 지금 열린 탭을 실어 보낸다.
+     * 안 보내면 예전 그대로 창고로 간다.
+     */
+    if (to === 'charge' && container === 'inventory') {
+      this.quickChargeFromInventory(player, index as number);
+      return;
+    }
 
     const source = container === 'storage' ? this.core.storage : player.inventory;
     const target = container === 'storage' ? player.inventory : this.core.storage;
@@ -1496,6 +1529,44 @@ export class World {
 
     source.removeAt(index as number, slot.count - leftover);
     if (target === this.core.storage) this.enqueueCompanionPersonaEvent('coreDeposit', playerId);
+  }
+
+  /**
+   * 인벤토리 한 칸을 충전 슬롯으로 밀어 넣는다(쉬프트 클릭).
+   *
+   * 같은 재료가 이미 타고 있으면 거기에 합치고, 없으면 **열려 있는 빈 슬롯**을 쓴다.
+   * 태울 수 없는 물건이거나 자리가 없으면 아무 일도 안 일어난다 — 거절을 눈에 보이게
+   * 하는 건 화면 몫이다(붉은 테두리).
+   */
+  private quickChargeFromInventory(player: PlayerEntity, index: number): void {
+    const slot = player.inventory.slotAt(index);
+    if (!slot || !World.canCharge(slot.itemId)) return;
+
+    const open = this.openChargeSlotCount();
+    let targetIndex = -1;
+    for (let i = 0; i < open; i += 1) {
+      if (this.core.chargeSlots[i]?.itemId === slot.itemId) {
+        targetIndex = i;
+        break;
+      }
+      if (targetIndex < 0 && !this.core.chargeSlots[i]) targetIndex = i;
+    }
+    if (targetIndex < 0) return;
+
+    const taken = player.inventory.takeAt(index);
+    if (!taken) return;
+    const existing = this.core.chargeSlots[targetIndex];
+    if (existing) existing.count += taken.count;
+    else this.core.chargeSlots[targetIndex] = taken;
+  }
+
+  /**
+   * 지금 쓸 수 있는 충전 슬롯 수 = **코어 티어**. 배열 자체는 최대 개수로 잡아 두고
+   * 앞에서부터 티어만큼만 연다 — 티어가 오를 때 배열을 늘리면 이미 담긴 재료의
+   * 칸 번호가 흔들린다.
+   */
+  openChargeSlotCount(): number {
+    return Math.max(0, Math.min(this.core.chargeSlots.length, this.core.tier));
   }
 
   /** 코어 상호작용(창고 열기 등)이 가능한 거리인지. 클라이언트도 같은 판정을 보여준다. */
@@ -1557,6 +1628,7 @@ export class World {
     if (!player || player.hp <= 0 || !this.isNearCore(player)) return;
     if (typeof recipeId !== 'string') return;
     if (player.craftRecipeId) return; // 이미 만드는 중
+    if (player.craftOutput) return; // 앞서 만든 걸 아직 안 가져갔다
 
     const recipe = craftingData.recipes.find((entry) => entry.id === recipeId);
     if (!recipe) return;
@@ -1592,17 +1664,13 @@ export class World {
       if (!recipe) continue;
 
       /*
-       * 창고가 꽉 차면 **비용을 돌려준다.** 비용을 미리 받았으니 여기서 조용히
-       * 버리면 자원이 사라진다. 여러 개 나오는 레시피(울타리)는 일부만 들어가도
-       * 통째로 되돌린다 — "여섯 개 만들었는데 두 개만 생겼다"를 설명할 방법이 없다.
+       * 결과는 **제작 칸에 그대로 둔다.** 창고로 바로 보내면 만든 물건이 스무 칸
+       * 어딘가에 섞여 들어가 무엇이 새로 생겼는지 알 수 없다. 꺼내 가는 건 드래그
+       * 한 번이면 된다.
+       *
+       * 시작할 때 결과 칸이 비어 있음을 이미 확인했으므로 여기서 덮어쓸 걱정은 없다.
        */
-      const produced = recipe.count ?? 1;
-      const leftover = this.core.storage.add(recipe.itemId, produced);
-      if (leftover > 0) {
-        this.core.storage.consume(recipe.itemId, produced - leftover);
-        this.core.resource = Math.min(this.core.maxResource, this.core.resource + recipe.cost.resource);
-        this.addEnergy(recipe.cost.energy ?? 0);
-      }
+      player.craftOutput = { itemId: recipe.itemId, count: recipe.count ?? 1 };
     }
   }
 
@@ -1654,7 +1722,9 @@ export class World {
    */
   private tickCoreCharge(dtSeconds: number): void {
     const perSlot = chargingData.itemsPerSecond * dtSeconds;
-    for (let index = 0; index < this.core.chargeSlots.length; index += 1) {
+    // 잠긴 슬롯(티어보다 뒤)은 돌지 않는다 — 애초에 넣을 수도 없다.
+    const open = this.openChargeSlotCount();
+    for (let index = 0; index < open; index += 1) {
       const slot = this.core.chargeSlots[index];
       if (!slot) {
         this.chargeProgress[index] = 0;

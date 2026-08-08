@@ -3,8 +3,12 @@
  * (docs/02-tech-spec.md §2.1 — shared/sim은 Phaser/DOM/Node에 의존하지 않는다).
  */
 
-/** px/sec, placeholder — 밸런스 확정 전까지 임의값 */
-export const PLAYER_SPEED = 100;
+/**
+ * px/sec. 2026-08에 전원(플레이어·몬스터·티모시) 절반으로 낮췄다 — 맵을 가로지르는
+ * 시간이 너무 짧아 낮의 채집 동선과 밤의 방어 배치가 둘 다 의미를 잃었다.
+ * 보스 돌진(attacks[].dash.speed)은 이동이 아니라 공격이라 그대로 뒀다.
+ */
+export const PLAYER_SPEED = 50;
 
 /**
  * 입력 벡터를 -1~1로 clamp하고, 대각선 정규화까지 적용한다.

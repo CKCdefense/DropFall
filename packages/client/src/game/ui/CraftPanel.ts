@@ -1,5 +1,10 @@
 import Phaser from 'phaser';
-import { craftingData, itemsData, type CraftRecipe } from '@dropfall/shared';
+import {
+  craftingData,
+  itemsData,
+  type CraftRecipe,
+  type InventorySlot,
+} from '@dropfall/shared';
 import {
   ACCENT,
   BODY_TEXT,
@@ -144,10 +149,11 @@ export class CraftPanel {
   /** 지금 만드는 중인 레시피와 남은 시간(초). 버튼 라벨이 진행 상황을 그대로 보여준다. */
   private craftingId = '';
   private craftRemaining = 0;
-  /** 직전 프레임의 제작 중 레시피. 비었다가 → 채워짐 → 다시 빔이 곧 "완성"이다. */
-  private lastCraftingId = '';
+  /** 꺼내 가기를 기다리는 결과물(서버 값). */
+  private output: InventorySlot | null = null;
 
   private readonly arrow: ProgressArrow;
+  /** 결과 칸. SlotDrag가 여기서 인벤토리로 끌어갈 수 있게 손잡이로 내보낸다. */
   private readonly resultBox: Phaser.GameObjects.Rectangle;
   private readonly resultIcon: SlotIcon;
   private readonly resultCount: Phaser.GameObjects.Text;
@@ -261,7 +267,10 @@ export class CraftPanel {
     this.resultBox = scene.add
       .rectangle(resultX, rowMidY - RESULT_BOX / 2, RESULT_BOX, RESULT_BOX, PANEL_FILL, 0.9)
       .setOrigin(0, 0)
-      .setStrokeStyle(1, PANEL_STROKE);
+      .setStrokeStyle(1, PANEL_STROKE)
+      // 여기서 끌어다 인벤토리로 꺼낸다 — SlotDrag는 pointerdown을 받으려면
+      // 칸이 이미 interactive여야 한다.
+      .setInteractive({ useHandCursor: true });
     builder.add(this.resultBox);
 
     this.resultIcon = new SlotIcon(scene, RESULT_BOX - 14);
@@ -315,12 +324,14 @@ export class CraftPanel {
     energy: number;
     craftingId: string;
     craftRemaining: number;
+    output: InventorySlot | null;
   }): void {
     this.coreTier = context.coreTier;
     this.resource = context.resource;
     this.energy = context.energy;
     this.craftingId = context.craftingId;
     this.craftRemaining = context.craftRemaining;
+    this.output = context.output;
     this.refreshProgress();
     this.refreshTiers();
     this.refreshDetail();
@@ -333,26 +344,30 @@ export class CraftPanel {
    * 따로 보내지 않지만, 비용을 미리 받는 구조라 진행 중에는 반드시 값이 들어 있다.
    * 결과는 다음 제작을 걸 때까지 남겨 둔다(바로 지우면 눈 깜빡할 사이에 사라진다).
    */
+  /**
+   * 화살표를 채우고 결과 칸을 그린다.
+   *
+   * 결과는 **서버가 들고 있는 값**(craftOutput)을 그대로 비춘다 — 예전엔 "제작 중이던
+   * 레시피가 사라진 순간"으로 클라가 추측했는데, 이제 결과가 꺼내 갈 때까지 남아 있어서
+   * 추측할 이유가 없다. 남이 꺼내 가도(같은 칸을 쓰지 않지만) 화면이 바로 따라온다.
+   */
   private refreshProgress(): void {
     if (this.craftingId) {
       const total = craftingData.craftSeconds;
       this.arrow.set(total > 0 ? 1 - this.craftRemaining / total : 0);
-      // 새로 걸었으면 지난 결과를 치운다 — 지금 만드는 것과 헷갈린다.
-      if (this.lastCraftingId !== this.craftingId) this.showResult(null);
-    } else if (this.lastCraftingId) {
-      // 방금 끝났다 — 화살표를 가득 채운 채로 두고 결과를 띄운다.
-      this.arrow.set(1);
-      const done = craftingData.recipes.find((entry) => entry.id === this.lastCraftingId);
-      this.showResult(done ?? null);
+    } else {
+      // 꺼내 갈 물건이 남아 있으면 화살표를 가득 채운 채로 둔다.
+      this.arrow.set(this.output ? 1 : 0);
     }
-    this.lastCraftingId = this.craftingId;
+
+    this.resultIcon.setItem(this.output?.itemId ?? null);
+    this.resultCount.setText(this.output && this.output.count > 1 ? `${this.output.count}` : '');
+    this.resultBox.setStrokeStyle(1, this.output ? SELECTED_STROKE : PANEL_STROKE);
   }
 
-  private showResult(recipe: CraftRecipe | null): void {
-    this.resultIcon.setItem(recipe?.itemId ?? null);
-    this.resultCount.setText(recipe && (recipe.count ?? 1) > 1 ? `${recipe.count}` : '');
-    this.resultBox.setStrokeStyle(1, recipe ? SELECTED_STROKE : PANEL_STROKE);
-    if (!recipe) this.arrow.set(0);
+  /** 결과 칸 손잡이. SlotDrag가 드래그 시작점으로 등록한다. */
+  get craftOutputCell(): Phaser.GameObjects.Rectangle {
+    return this.resultBox;
   }
 
   private selectTier(tier: number): void {

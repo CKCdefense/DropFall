@@ -55,6 +55,8 @@ export interface PlayerView {
   /** 제작 중인 레시피와 남은 시간(초). 빈 문자열이면 제작 중이 아니다. */
   craftRecipeId: string;
   craftRemaining: number;
+  /** 다 만들어 꺼내 가기를 기다리는 물건(없으면 null). */
+  craftOutput: InventorySlot | null;
   /** 아직 코어에 입고하지 않고 들고 있는 나무/돌. 코어 근처에서 deposit()하면 0이 된다. */
   wood: number;
   stone: number;
@@ -183,6 +185,8 @@ export interface WorldStatus {
   coreMaxEnergy: number;
   /** 코어 충전 슬롯(빈 칸은 null). 여기 올린 재료가 시간에 걸쳐 게이지가 된다. */
   coreCharge: (InventorySlot | null)[];
+  /** 지금 열려 있는 충전 슬롯 수(= 코어 티어). 뒤쪽 칸은 잠겨 있다. */
+  openChargeSlots: number;
   /** 다음 강화가 남아 있는지와 그 비용. 최고 티어면 false에 비용 0이다. */
   upgradeAvailable: boolean;
   upgradeResourceCost: number;
@@ -290,7 +294,7 @@ export interface GameConnection {
    * 쉬프트 클릭 빠른 이동(docs/backend/44). 목적지 칸은 안 정한다 — 항상 반대편
    * 컨테이너에, 서버가 알아서 쌓거나 빈 칸을 골라 넣는다.
    */
-  quickMoveItem(container: SlotContainer, index: number): void;
+  quickMoveItem(container: SlotContainer, index: number, to?: 'storage' | 'charge'): void;
   /**
    * 창고 칸 하나를 비운다(폐기). 지우지 않고 발밑에 떨어뜨리므로 잘못 눌러도 되돌릴 수 있다.
    */

@@ -77,6 +77,8 @@ export class PlayerSchema extends Schema {
   /** 제작 중인 레시피와 남은 시간(초). 빈 문자열이면 제작 중이 아니다. */
   @type('string') craftRecipeId = '';
   @type('number') craftRemaining = 0;
+  /** 다 만들어 꺼내 가기를 기다리는 물건. itemId가 비면 없는 것이다. */
+  @type(ItemSlotSchema) craftOutput = new ItemSlotSchema();
 }
 
 export class MonsterSchema extends Schema {
@@ -204,6 +206,8 @@ export class GameRoomState extends Schema {
   /** 에너지 게이지 — 드랍 충전·콜로니 정화·보스로 채우고 강화·상점이 여기서 나간다. */
   @type('number') coreEnergy = 0;
   @type('number') coreMaxEnergy = 0;
+  /** 지금 열려 있는 충전 슬롯 수(= 코어 티어). 뒤쪽 칸은 잠겨 있다. */
+  @type('uint8') openChargeSlots = 0;
   /** 코어 충전 슬롯. 창고와 같은 슬롯 구조라 ItemSlotSchema를 재사용한다. */
   @type([ItemSlotSchema]) coreCharge = new ArraySchema<ItemSlotSchema>(
     ...Array.from({ length: chargingData.slotCount }, () => new ItemSlotSchema()),

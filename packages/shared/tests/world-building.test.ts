@@ -945,7 +945,13 @@ describe('World — 건축물과 몬스터 상호작용', () => {
     for (let i = 0; i < 100; i += 1) world.tick(0.02); // 예고 → 정산
 
     expect(building!.hp).toBeLessThan(hpBefore);
-    expect(monster!.x).toBe(xBefore); // 플레이어를 향해 이동하지 않고 벽을 공격했다
+    /*
+     * 타겟(200,0)은 몬스터(213)의 **왼쪽**이다 — 플레이어를 향해 갔다면 x가 줄어든다.
+     * 벽 쪽으로 한 걸음 다가서는 건(x 증가) 벽을 때리러 가는 것이라 정상이다.
+     * 예전엔 "제자리 그대로"로 못 박았는데, 이동속도를 절반으로 낮추자 사거리 안까지
+     * 붙는 데 한 걸음이 더 필요해져 깨졌다 — 보려는 건 "플레이어를 쫓지 않는다"이다.
+     */
+    expect(monster!.x).toBeGreaterThanOrEqual(xBefore);
   });
 
   it('코어를 건축물로 완전히 둘러싸도 몬스터가 멈추지 않고 결국 건축물을 공격한다', () => {

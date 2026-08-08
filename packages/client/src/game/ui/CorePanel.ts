@@ -36,6 +36,10 @@ const ENERGY_COLOR = 0x5cc6e8;
 const GAUGE_BACK = 0x14161d;
 
 const SELECTED_STROKE = 0x6fd08c;
+/** 거절 신호: 붉은 테두리가 몇 번, 얼마 간격으로 깜빡이는지. */
+const REJECT_STROKE = 0xd9756b;
+const REJECT_BLINKS = 3;
+const REJECT_BLINK_MS = 110;
 
 export interface ChargeCellHandle {
   index: number;
@@ -120,6 +124,10 @@ export class CorePanel {
   private readonly icons: SlotIcon[] = [];
   private readonly counts: Phaser.GameObjects.Text[] = [];
   private readonly labels: Phaser.GameObjects.Text[] = [];
+  /** 지금 열려 있는 칸 수(코어 티어). */
+  private openCount = 0;
+  /** 거절 깜빡임이 도는 중인 칸. 그동안은 스냅샷이 테두리를 덮어쓰지 않는다. */
+  private readonly rejecting = new Set<number>();
 
   constructor(private readonly builder: PanelBuilder) {
     const scene = builder.scene;
@@ -185,7 +193,9 @@ export class CorePanel {
       const box = scene.add
         .rectangle(x, cellY, CHARGE_CELL, CHARGE_CELL, GAUGE_BACK, 0.9)
         .setOrigin(0, 0)
-        .setStrokeStyle(1, PANEL_STROKE);
+        .setStrokeStyle(1, PANEL_STROKE)
+        // 넣는 것뿐 아니라 **도로 빼는 것**도 드래그다 — 그러려면 칸이 interactive여야 한다.
+        .setInteractive({ useHandCursor: true });
       const icon = new SlotIcon(scene, CHARGE_CELL - ICON_INSET * 2);
       icon.place(x + CHARGE_CELL / 2, cellY + CHARGE_CELL / 2 - 4, CHARGE_CELL - ICON_INSET * 2);
       const count = scene.add
@@ -258,15 +268,55 @@ export class CorePanel {
     this.upgradeBox.setInteractive({ useHandCursor: true });
   }
 
-  setChargeSlots(slots: (InventorySlot | null)[]): void {
+  /**
+   * @param openCount 코어 티어만큼 열려 있는 칸 수. 그 뒤 칸은 잠겨 있다 —
+   *   지우지 않고 흐리게 남겨서 "강화하면 늘어난다"를 계속 보여준다.
+   */
+  setChargeSlots(slots: (InventorySlot | null)[], openCount: number): void {
+    this.openCount = openCount;
     this.cells.forEach((cell, index) => {
-      const slot = slots[index] ?? null;
+      const locked = index >= openCount;
+      const slot = locked ? null : (slots[index] ?? null);
       const item = itemOfSlot(slot);
+
       this.icons[index]?.setItem(slot?.itemId ?? null);
       this.counts[index]?.setText(slot && slot.count > 1 ? String(slot.count) : '');
-      this.labels[index]?.setText(item ? '' : '비었음');
+      this.labels[index]?.setText(locked ? '잠김' : item ? '' : '비었음');
+      cell.box.setAlpha(locked ? 0.35 : 1);
+      // 거절 깜빡임 중에는 테두리를 건드리지 않는다 — 다음 스냅샷이 바로 덮어쓴다.
+      if (this.rejecting.has(index)) return;
       cell.box.setStrokeStyle(1, item ? SELECTED_STROKE : PANEL_STROKE);
     });
+  }
+
+  /** 이 칸이 지금 아이템을 받을 수 있는가(티어로 열려 있는가). */
+  isChargeSlotOpen(index: number): boolean {
+    return index < this.openCount;
+  }
+
+  /**
+   * 받을 수 없는 물건을 넣으려 했을 때 붉게 깜빡인다.
+   *
+   * 서버에 보내 보고 거절당하길 기다리지 않는다 — 아무 일도 안 일어나는 것과
+   * 거절당한 것을 화면에서 구분할 수 없기 때문이다. 판정은 서버와 같은 규칙
+   * (World.canCharge)이라 어긋나지 않는다.
+   */
+  rejectCharge(index: number): void {
+    const cell = this.cells[index];
+    if (!cell || this.rejecting.has(index)) return;
+    this.rejecting.add(index);
+
+    let remaining = REJECT_BLINKS * 2;
+    const blink = () => {
+      remaining -= 1;
+      cell.box.setStrokeStyle(1, remaining % 2 === 1 ? REJECT_STROKE : PANEL_STROKE);
+      if (remaining > 0) {
+        this.builder.scene.time.delayedCall(REJECT_BLINK_MS, blink);
+      } else {
+        this.rejecting.delete(index);
+      }
+    };
+    blink();
   }
 
   setCommentary(text: string): void {

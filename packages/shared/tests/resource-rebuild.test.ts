@@ -18,6 +18,11 @@ function putInCharge(world: World, index: number, itemId: string, count: number)
   world.getCore().chargeSlots[index] = { itemId, count };
 }
 
+/** 충전 칸은 코어 티어만큼 열린다 — 두 칸 이상 쓰는 테스트는 티어를 올려 둔다. */
+function setTier(world: World, tier: number): void {
+  (world.getCore() as { tier: number }).tier = tier;
+}
+
 /** world.ts의 격자 상수를 테스트에서 재구성한다(world-building.test.ts와 같은 방식). */
 function worldToCell(x: number, y: number): { cx: number; cy: number } {
   const TILE = 16;
@@ -28,6 +33,7 @@ function worldToCell(x: number, y: number): { cx: number; cy: number } {
 describe('코어 충전', () => {
   it('나무는 자원으로, 몬스터 드랍은 에너지로 들어간다', () => {
     const world = worldAtCore();
+    setTier(world, 2); // 두 칸을 동시에 쓰려면 티어 2가 필요하다
     putInCharge(world, 0, 'wood', 4);
     putInCharge(world, 1, 'drop_normal', 4);
 
@@ -91,6 +97,60 @@ describe('코어 충전', () => {
     expect(world.getCore().chargeSlots[0]).toBeNull();
     // 거절돼도 아이템은 원래 자리에 남는다 — 조용히 사라지면 안 된다.
     expect(player.inventory.slotAt(from)?.itemId).toBe('handgun');
+  });
+
+  it('열린 칸 수는 코어 티어를 따라간다 — 잠긴 칸은 받지도, 타지도 않는다', () => {
+    const world = worldAtCore();
+    expect(world.openChargeSlotCount()).toBe(1); // 티어 1
+
+    // 잠긴 두 번째 칸에 억지로 밀어 넣어도 들어가지 않는다.
+    const player = world.getPlayers().get('p1')!;
+    player.inventory.add('wood', 5);
+    const from = player.inventory.toView().slots.findIndex((slot) => slot?.itemId === 'wood');
+    world.moveItem('p1', 'inventory', from, 'charge', 1);
+    expect(world.getCore().chargeSlots[1]).toBeNull();
+    expect(player.inventory.slotAt(from)?.itemId).toBe('wood');
+
+    setTier(world, 3);
+    expect(world.openChargeSlotCount()).toBe(3);
+    world.moveItem('p1', 'inventory', from, 'charge', 1);
+    expect(world.getCore().chargeSlots[1]?.itemId).toBe('wood');
+  });
+
+  it('쉬프트 클릭으로 인벤토리에서 충전 칸에 바로 넣는다', () => {
+    const world = worldAtCore();
+    const player = world.getPlayers().get('p1')!;
+    player.inventory.add('wood', 5);
+    const from = player.inventory.toView().slots.findIndex((slot) => slot?.itemId === 'wood');
+
+    world.quickMoveItem('p1', 'inventory', from, 'charge');
+
+    expect(world.getCore().chargeSlots[0]).toEqual({ itemId: 'wood', count: 5 });
+    expect(player.inventory.slotAt(from)).toBeNull();
+  });
+
+  it('쉬프트 클릭도 태울 수 없는 물건은 거절한다', () => {
+    const world = worldAtCore();
+    const player = world.getPlayers().get('p1')!;
+    player.inventory.add('handgun', 1);
+    const from = player.inventory.toView().slots.findIndex((slot) => slot?.itemId === 'handgun');
+
+    world.quickMoveItem('p1', 'inventory', from, 'charge');
+
+    expect(world.getCore().chargeSlots[0]).toBeNull();
+    expect(player.inventory.slotAt(from)?.itemId).toBe('handgun');
+  });
+
+  it('같은 재료를 쉬프트 클릭하면 타고 있는 칸에 합친다', () => {
+    const world = worldAtCore();
+    putInCharge(world, 0, 'wood', 3);
+    const player = world.getPlayers().get('p1')!;
+    player.inventory.add('wood', 4);
+    const from = player.inventory.toView().slots.findIndex((slot) => slot?.itemId === 'wood');
+
+    world.quickMoveItem('p1', 'inventory', from, 'charge');
+
+    expect(world.getCore().chargeSlots[0]?.count).toBe(7);
   });
 
   it('나무는 받는다', () => {

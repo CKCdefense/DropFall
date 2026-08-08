@@ -54,6 +54,7 @@ interface RemotePlayerState {
   levelUpSeq: number;
   craftRecipeId: string;
   craftRemaining: number;
+  craftOutput: { itemId: string; count: number };
   wood: number;
   stone: number;
   parts: number;
@@ -124,6 +125,7 @@ interface RemoteGameState {
   coreEnergy: number;
   coreMaxEnergy: number;
   coreCharge: ArrayLike<{ itemId: string; count: number }>;
+  openChargeSlots: number;
   upgradeAvailable: boolean;
   upgradeResourceCost: number;
   upgradeEnergyCost: number;
@@ -316,8 +318,8 @@ export class ColyseusConnection implements GameConnection {
     this.room.send('discardStorageItem', { index });
   }
 
-  quickMoveItem(container: SlotContainer, index: number): void {
-    this.room.send('quickMoveItem', { container, index });
+  quickMoveItem(container: SlotContainer, index: number, to?: 'storage' | 'charge'): void {
+    this.room.send('quickMoveItem', { container, index, to });
   }
 
   craft(recipeId: string): void {
@@ -421,6 +423,9 @@ export class ColyseusConnection implements GameConnection {
         levelUpSeq: player.levelUpSeq,
         craftRecipeId: player.craftRecipeId,
         craftRemaining: player.craftRemaining,
+        craftOutput: player.craftOutput?.itemId
+          ? { itemId: player.craftOutput.itemId, count: player.craftOutput.count }
+          : null,
         wood: player.wood,
         stone: player.stone,
         parts: player.parts,
@@ -539,6 +544,7 @@ export class ColyseusConnection implements GameConnection {
         coreCharge: Array.from(state?.coreCharge ?? [], (slot) =>
           slot.itemId ? { itemId: slot.itemId, count: slot.count } : null,
         ),
+        openChargeSlots: state?.openChargeSlots ?? 0,
         upgradeAvailable: state?.upgradeAvailable ?? false,
         upgradeResourceCost: state?.upgradeResourceCost ?? 0,
         upgradeEnergyCost: state?.upgradeEnergyCost ?? 0,

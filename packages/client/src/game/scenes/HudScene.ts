@@ -6,6 +6,7 @@ import {
   MAX_CLIENTS_PER_ROOM,
   PICKUP_RADIUS,
   SLOT_COUNT,
+  World,
   computeCameraZoom,
 } from '@dropfall/shared';
 import type { GameConnection, PlayerView, WorldSnapshot } from '../../net/GameConnection';
@@ -30,8 +31,15 @@ import { PartyPanel } from '../ui/PartyPanel';
 import { BOTTOM_BAR_RESERVED, QuickSlotBar } from '../ui/QuickSlotBar';
 import { WaveDial } from '../ui/WaveDial';
 import {
+  BAR_BOSS,
+  BAR_SMALL,
+  HudBar,
+  ICON_CORE,
+  ICON_SKULL_LARGE,
+  hudIcon,
+} from '../ui/hudBar';
+import {
   ACCENT,
-  BAR_BACK,
   BODY_TEXT,
   DIM_TEXT,
   DOWN_COLOR,
@@ -65,11 +73,18 @@ const SMALL_STYLE = { fontFamily: FONT_SMALL, fontSize: `${SIZE_SMALL}px`, color
 const PAD = 12;
 const CORE_PANEL_WIDTH = 190;
 const CORE_PANEL_HEIGHT = 60;
-const CORE_BAR_HEIGHT = 8;
 /** 자기 체력 바 — 퀵슬롯 바로 위에 붙인다. */
-/** 보스 HP바(상단 중앙, 웨이브 다이얼 아래) 규격. */
-const BOSS_BAR_WIDTH = 200;
-const BOSS_BAR_HEIGHT = 8;
+/**
+ * 보스 HP바(상단 중앙, 웨이브 다이얼 아래) 규격.
+ *
+ * 보스전은 밤의 마지막 국면이고 이 바가 그 국면의 전부다 — 코어·팀원 게이지와 같은
+ * 얇은 띠로 두면 "그냥 또 하나의 몹"으로 읽힌다. 그래서 **화면 중앙 상단의 주역**이
+ * 되도록 폭·높이를 키우고 전용 그림(BAR_BOSS: 양끝 강철 캡 + 크림슨 젬)을 쓴다.
+ */
+const BOSS_BAR_WIDTH = 260;
+const BOSS_BAR_HEIGHT = BAR_BOSS.height;
+/** 보스 체력은 색으로 상태를 알리지 않는다 — 처음부터 끝까지 위협적인 크림슨이다. */
+const BOSS_BAR_COLOR = 0xd94f4f;
 /** 보스 타입(monsters.json 키) → 표시 이름. 아직 데이터에 이름 필드가 없어 클라이언트 표만 둔다. */
 const BOSS_NAME: Record<string, string> = {
   boss_demon: '악마 군주',
@@ -95,8 +110,8 @@ export class HudScene extends Phaser.Scene {
 
   private corePanel!: Phaser.GameObjects.Rectangle;
   private coreLabel!: Phaser.GameObjects.Text;
-  private coreBarBack!: Phaser.GameObjects.Rectangle;
-  private coreBar!: Phaser.GameObjects.Rectangle;
+  private coreIcon!: Phaser.GameObjects.Image | null;
+  private coreBar!: HudBar;
   /** 코어에 입고된 팀 공유 자원(건축 비용이 여기서 나간다) — 개인 휴대량과는 다른 값이다. */
   private sharedResourceText!: Phaser.GameObjects.Text;
   /** 직전 스냅샷의 코어 체력. 줄어든 순간에만 패널 테두리를 붉게 펄스한다 — 코어가
@@ -114,9 +129,12 @@ export class HudScene extends Phaser.Scene {
   private ammoText!: Phaser.GameObjects.Text;
 
   /** 보스 레이드 표시 — 보스가 살아있는 동안만 보인다. */
-  private bossBarBack!: Phaser.GameObjects.Rectangle;
-  private bossBar!: Phaser.GameObjects.Rectangle;
+  private bossBar!: HudBar;
+  private bossIcon!: Phaser.GameObjects.Image | null;
   private bossNameText!: Phaser.GameObjects.Text;
+  /** 보스 이름표의 중심/아랫선(화면 좌표). 해골 아이콘을 글자 옆에 붙일 때 쓴다. */
+  private bossNameCenter = 0;
+  private bossNameBaseline = 0;
   private bossWarnText!: Phaser.GameObjects.Text;
   /** 직전 프레임에 보인 보스 몬스터 id. 새 보스 등장(경고 연출) 감지용. */
   private lastBossId: string | undefined;
@@ -145,6 +163,7 @@ export class HudScene extends Phaser.Scene {
   private latestInventory: (InventorySlot | null)[] = [];
   private latestStorage: (InventorySlot | null)[] = [];
   private latestCharge: (InventorySlot | null)[] = [];
+  private latestCraftOutput: InventorySlot | null = null;
   /** 코어 상호작용 반경 안에 있는지. update가 매 프레임 갱신한다. */
   private nearCore = false;
   /** 주울 수 있는 드롭이 발밑에 있는지. 코어 앞에서 E가 무엇을 할지 가른다. */
@@ -181,23 +200,18 @@ export class HudScene extends Phaser.Scene {
       `${roomName} [${roomCode}]${this.connection.isLocal ? ' · 오프라인' : ''}`,
       SMALL_STYLE,
     );
+    this.coreIcon = hudIcon(this, ICON_CORE);
     this.coreLabel = this.add.text(0, 0, 'CORE', TEXT_STYLE);
     this.sharedResourceText = this.add.text(0, 0, '공유 나무 0 · 돌 0 · 부품 0', SMALL_STYLE);
-    this.coreBarBack = this.add.rectangle(0, 0, 10, CORE_BAR_HEIGHT, BAR_BACK).setOrigin(0, 0);
-    this.coreBar = this.add.rectangle(0, 0, 10, CORE_BAR_HEIGHT, 0x6fd08c).setOrigin(0, 0);
+    this.coreBar = new HudBar(this, BAR_SMALL);
 
     // 상단 중앙 원형 — 웨이브 번호 + 남은 시간
     this.waveDial = new WaveDial(this);
 
     // 보스 레이드 바 — 잡몹을 전멸시키면 보스가 나오고, 이 바가 남은 밤의 전부다.
-    this.bossBarBack = this.add
-      .rectangle(0, 0, BOSS_BAR_WIDTH, BOSS_BAR_HEIGHT, BAR_BACK)
-      .setOrigin(0.5, 0)
-      .setVisible(false);
-    this.bossBar = this.add
-      .rectangle(0, 0, BOSS_BAR_WIDTH, BOSS_BAR_HEIGHT, 0xd94f4f)
-      .setOrigin(0, 0)
-      .setVisible(false);
+    this.bossBar = new HudBar(this, BAR_BOSS);
+    this.bossBar.setVisible(false);
+    this.bossIcon = hudIcon(this, ICON_SKULL_LARGE)?.setVisible(false) ?? null;
     this.bossNameText = this.add
       .text(0, 0, '', { fontFamily: FONT, fontSize: `${SIZE_BODY}px`, color: '#f2b8b8' })
       .setOrigin(0.5, 1)
@@ -291,14 +305,39 @@ export class HudScene extends Phaser.Scene {
     this.slotDrag = new SlotDrag(this);
     this.slotDrag.onMove = (from, fromIndex, to, toIndex) =>
       this.connection.moveItem(from, fromIndex, to, toIndex);
-    this.slotDrag.onQuickMove = (container, index) =>
+    /*
+     * 쉬프트 클릭의 목적지는 **지금 열려 있는 탭**이 정한다. 코어 탭이면 충전 칸,
+     * 그 밖에는 예전대로 창고다 — 눈에 보이는 곳으로 가는 게 가장 덜 놀랍다.
+     * 태울 수 없는 물건이면 보내지 않고 그 자리에서 거절을 보여준다.
+     */
+    this.slotDrag.onQuickMove = (container, index) => {
+      if (container === 'inventory' && this.coreModal.isCoreTabVisible()) {
+        const itemId = this.latestInventory[index]?.itemId;
+        if (itemId && !World.canCharge(itemId)) {
+          this.coreModal.rejectCharge(0);
+          return;
+        }
+        this.connection.quickMoveItem(container, index, 'charge');
+        return;
+      }
       this.connection.quickMoveItem(container, index);
+    };
+
+    // 충전 칸에 못 넣는 물건을 끌어다 놓으면 그 칸이 붉게 깜빡인다.
+    this.slotDrag.isRejected = (to, toIndex, itemId) => {
+      if (to !== 'charge') return false;
+      if (this.coreModal.isChargeSlotOpen(toIndex) && World.canCharge(itemId)) return false;
+      this.coreModal.rejectCharge(toIndex);
+      return true;
+    };
     this.slotDrag.getSlot = (container, index) =>
       (container === 'storage'
         ? this.latestStorage
         : container === 'charge'
           ? this.latestCharge
-          : this.latestInventory)[index] ?? null;
+          : container === 'craft'
+            ? [this.latestCraftOutput]
+            : this.latestInventory)[index] ?? null;
 
     for (const cell of this.coreModal.storageCells) {
       // 창고 칸은 **창고 탭이 보일 때만** 살아 있다. 다른 탭에 가려진 칸은 Phaser의
@@ -320,6 +359,14 @@ export class HudScene extends Phaser.Scene {
         isActive: () => this.coreModal.isCoreTabVisible(),
       });
     }
+    // 제작 결과 칸 — 여기서 인벤토리로 끌어다 꺼낸다(넣는 쪽은 서버가 거절한다).
+    this.slotDrag.register({
+      container: 'craft',
+      index: 0,
+      box: this.coreModal.craftOutputCell,
+      isActive: () => this.coreModal.isCraftTabVisible(),
+    });
+
     this.quickSlots.cells.forEach((box, index) => {
       this.slotDrag.register({ container: 'inventory', index, box, isActive: () => true });
     });
@@ -464,17 +511,18 @@ export class HudScene extends Phaser.Scene {
     const panelH = CORE_PANEL_HEIGHT * scale;
     this.corePanel.setSize(panelW, panelH).setPosition(pad, pad);
     this.roomText.setFontSize(SIZE_SMALL * scale).setPosition(pad + 8 * scale, pad + 5 * scale);
-    this.coreLabel.setFontSize(SIZE_BODY * scale).setPosition(pad + 8 * scale, pad + 17 * scale);
+    // 코어 아이콘 → 'CORE' 글자 순으로 한 줄. 아이콘이 없으면(에셋 미로드) 글자가
+    // 원래 자리(패널 왼쪽 여백)에서 시작한다.
+    const coreLabelX = pad + 8 * scale + (this.coreIcon ? 15 * scale : 0);
+    this.coreIcon?.setScale(scale).setPosition(pad + 8 * scale, pad + 23 * scale);
+    this.coreLabel.setFontSize(SIZE_BODY * scale).setPosition(coreLabelX, pad + 17 * scale);
     this.sharedResourceText
       .setFontSize(SIZE_SMALL * scale)
       .setPosition(pad + 8 * scale, pad + 30 * scale);
 
     const coreBarW = panelW - 16 * scale;
     const coreBarY = pad + panelH - 14 * scale;
-    this.coreBarBack
-      .setSize(coreBarW, CORE_BAR_HEIGHT * scale)
-      .setPosition(pad + 8 * scale, coreBarY);
-    this.coreBar.setSize(coreBarW, CORE_BAR_HEIGHT * scale).setPosition(pad + 8 * scale, coreBarY);
+    this.coreBar.layout(pad + 8 * scale, coreBarY, coreBarW, scale);
 
     // --- 상단 중앙/우상단
     this.waveDial.layout(width / 2, pad, scale);
@@ -483,18 +531,23 @@ export class HudScene extends Phaser.Scene {
     // 보스 바 — 웨이브 다이얼(지름 52) 바로 아래 중앙. 경고 문구는 화면 중앙 상단 1/3.
     const bossBarY = pad + 64 * scale;
     const bossBarW = BOSS_BAR_WIDTH * scale;
-    this.bossNameText.setFontSize(SIZE_BODY * scale).setPosition(width / 2, bossBarY - 2 * scale);
-    this.bossBarBack.setSize(bossBarW, BOSS_BAR_HEIGHT * scale).setPosition(width / 2, bossBarY);
-    this.bossBar
-      .setSize(bossBarW, BOSS_BAR_HEIGHT * scale)
-      .setPosition(width / 2 - bossBarW / 2, bossBarY);
+    this.bossNameCenter = width / 2;
+    this.bossNameBaseline = bossBarY - 3 * scale;
+    this.bossNameText
+      .setFontSize(SIZE_BODY * scale)
+      .setPosition(this.bossNameCenter, this.bossNameBaseline);
+    this.bossBar.layout(width / 2 - bossBarW / 2, bossBarY, bossBarW, scale);
+    // 해골은 이름표 왼쪽에 붙는다. 글자 폭이 보스마다 달라서 최종 자리는 이름을 넣은
+    // 뒤에 잡는다(placeBossIcon) — 여기서는 배율만 맞춰 둔다.
+    this.bossIcon?.setScale(scale);
+    this.placeBossIcon();
     this.bossWarnText.setFontSize((SIZE_BODY + 4) * scale).setPosition(width / 2, height / 3);
 
-    // 코어 AI 토스트 — 웨이브 다이얼(지름 52 + 안쪽 텍스트) 바로 아래, 가운데 정렬.
+    // 코어 AI 토스트 — 보스 바 아래. 보스전 중에도 겹치지 않게 바 높이만큼 내려 둔다.
     this.aiToastText
       .setFontSize(SIZE_BODY * scale)
       .setWordWrapWidth(220 * scale)
-      .setPosition(width / 2, pad + 68 * scale);
+      .setPosition(width / 2, bossBarY + (BOSS_BAR_HEIGHT + 6) * scale);
 
     // --- 좌측 세로: 팀원 체력. 코어 패널 아래에서 시작한다.
     this.party.layout(pad, pad + panelH + 10 * scale, scale);
@@ -540,7 +593,7 @@ export class HudScene extends Phaser.Scene {
       status.coreParts,
     );
     this.coreModal.setCoreStatus(status);
-    this.coreModal.setChargeSlots(status.coreCharge);
+    this.coreModal.setChargeSlots(status.coreCharge, status.openChargeSlots);
     this.waveDial.update(status);
     this.updateBossBar(snapshot);
     // GameScene의 예측 좌표(있으면) — 없으면(로컬 모드 초기 프레임 등) 미니맵이
@@ -560,7 +613,9 @@ export class HudScene extends Phaser.Scene {
       energy: status.coreEnergy,
       craftingId: me?.craftRecipeId ?? '',
       craftRemaining: me?.craftRemaining ?? 0,
+      output: me?.craftOutput ?? null,
     });
+    this.latestCraftOutput = me?.craftOutput ?? null;
     this.coreModal.setStoreContext(status.shopStock, status.coreEnergy);
     this.quickSlots.update(me, this.slotDrag.hoverCellOf('inventory'));
     this.characterModal.setPlayer(me);
@@ -593,9 +648,8 @@ export class HudScene extends Phaser.Scene {
     coreParts: number,
   ): void {
     const ratio = maxHp > 0 ? hp / maxHp : 1;
-    this.coreBar.width = Math.max(0, this.coreBarBack.width * ratio);
     // 코어가 위험하면 색으로 먼저 알린다 — 숫자를 읽기 전에 눈에 들어와야 한다.
-    this.coreBar.fillColor = barColor(ratio);
+    this.coreBar.setValue(ratio, barColor(ratio), this.uiScale);
     this.coreLabel.setText(`CORE ${Math.ceil(hp)}`);
     // 창고에 쌓인 **충전 재료** 수량이다(게이지가 아니라). 사냥 중에 "얼마나 모았나"를
     // 보고 코어로 돌아갈지 정하게 된다 — 게이지 자체는 코어 탭에서 본다.
@@ -655,8 +709,8 @@ export class HudScene extends Phaser.Scene {
     const boss = snapshot.monsters.find((monster) => monster.type.startsWith('boss_'));
 
     const visible = boss !== undefined;
-    this.bossBarBack.setVisible(visible);
     this.bossBar.setVisible(visible);
+    this.bossIcon?.setVisible(visible);
     this.bossNameText.setVisible(visible);
 
     if (!boss) {
@@ -678,8 +732,24 @@ export class HudScene extends Phaser.Scene {
     }
 
     this.bossNameText.setText(BOSS_NAME[boss.type] ?? '보스');
+    this.placeBossIcon();
     const ratio = boss.maxHp > 0 ? Math.max(0, boss.hp / boss.maxHp) : 0;
-    this.bossBar.width = this.bossBarBack.width * ratio;
+    this.bossBar.setValue(ratio, BOSS_BAR_COLOR, this.uiScale);
+  }
+
+  /**
+   * 보스 이름표 왼쪽에 해골을 붙인다. 이름표가 가운데 정렬이라 글자 폭이 바뀌면
+   * 왼쪽 끝도 같이 움직인다 — 그래서 이름을 넣은 **뒤에** 부른다.
+   */
+  private placeBossIcon(): void {
+    const icon = this.bossIcon;
+    if (!icon) return;
+    const left = this.bossNameCenter - this.bossNameText.width / 2;
+    // 아이콘은 origin(0, 0.5)라 세로는 이름표 중간에 맞춘다(이름표는 origin y=1).
+    icon.setPosition(
+      left - icon.displayWidth - 4 * this.uiScale,
+      this.bossNameBaseline - this.bossNameText.height / 2,
+    );
   }
 
   private updateTexts(snapshot: WorldSnapshot, me: PlayerView | undefined): void {

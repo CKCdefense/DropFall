@@ -2,9 +2,9 @@ import Phaser from 'phaser';
 import { itemOfSlot, xpToNextLevel } from '@dropfall/shared';
 import type { PlayerView } from '../../net/GameConnection';
 import { SlotIcon } from '../render/itemSprite';
+import { BAR_LARGE, BAR_SMALL, HudBar, ICON_BOLT, ICON_HEART, hudIcon } from './hudBar';
 import {
   ACCENT,
-  BAR_BACK,
   BODY_TEXT,
   DIM_TEXT,
   FONT,
@@ -32,17 +32,27 @@ const SELECTED_STROKE = 0x6fd08c;
 /** 드래그로 놓을 대상일 때의 강조색. */
 const HOVER_STROKE = 0x6fd08c;
 
-/** 칸 위에 얹히는 체력·스태미나 막대의 높이와 칸과의 간격. */
-const BAR_HEIGHT = 24;
+/**
+ * 칸 위에 얹히는 체력·스태미나 막대의 높이와 칸과의 간격.
+ *
+ * 높이는 **그림에 박혀 있다**(hudBar의 BAR_LARGE.height) — 임의로 늘이면 테두리와
+ * 안쪽 홈이 뭉개진다. 여기 상수는 그 값을 레이아웃 쪽에서 쓰기 위한 사본이다.
+ */
+const BAR_HEIGHT = BAR_LARGE.height;
 const BAR_GAP = 8;
 /**
  * 경험치 막대. 체력·스태미나 바로 아래에 줄 전체 폭으로 얇게 깔린다.
  *
  * 얇은 이유는 급하지 않은 정보라서다 — 체력은 죽고 사는 문제라 두껍게, 경험치는
  * 곁눈질로 "얼마나 남았나"만 보면 된다. 대신 줄 전체를 가로질러서 진행도가 한눈에 읽힌다.
+ *
+ * 높이도 그림(BAR_SMALL)에 맞춘다 — 코어·팀원 게이지와 같은 규격이라 화면 안에서
+ * "얇은 게이지"가 전부 같은 모양으로 읽힌다.
  */
-const XP_HEIGHT = 10;
+const XP_HEIGHT = BAR_SMALL.height;
 const XP_GAP = 4;
+/** 체력·스태미나 막대 왼쪽에 붙는 아이콘의 여백. */
+const BAR_ICON_INSET = 6;
 const XP_COLOR = 0xd7b45a;
 
 /** 바 아래쪽에 남기는 여백(HudScene이 slotsBottom을 잡을 때 쓰는 값과 같다). */
@@ -85,14 +95,13 @@ export class QuickSlotBar {
   private readonly profileBox: Phaser.GameObjects.Rectangle;
   private readonly profileLabel: Phaser.GameObjects.Text;
 
-  private readonly hpBack: Phaser.GameObjects.Rectangle;
-  private readonly hpFill: Phaser.GameObjects.Rectangle;
+  private readonly hpBar: HudBar;
+  private readonly hpIcon: Phaser.GameObjects.Image | null;
   private readonly hpLabel: Phaser.GameObjects.Text;
-  private readonly staminaBack: Phaser.GameObjects.Rectangle;
-  private readonly staminaFill: Phaser.GameObjects.Rectangle;
+  private readonly staminaBar: HudBar;
+  private readonly staminaIcon: Phaser.GameObjects.Image | null;
   private readonly staminaLabel: Phaser.GameObjects.Text;
-  private readonly xpBack: Phaser.GameObjects.Rectangle;
-  private readonly xpFill: Phaser.GameObjects.Rectangle;
+  private readonly xpBar: HudBar;
   private readonly xpLabel: Phaser.GameObjects.Text;
 
   /** 레이아웃 후 실제 높이(px). 다른 요소를 이 위에 얹을 때 쓴다. */
@@ -124,15 +133,14 @@ export class QuickSlotBar {
       .setOrigin(0.5, 0.5);
 
     // 막대 둘. 체력은 왼쪽 절반, 스태미나는 오른쪽 절반을 덮는다(와이어프레임).
-    this.hpBack = scene.add.rectangle(0, 0, 10, BAR_HEIGHT, BAR_BACK).setOrigin(0, 0);
-    this.hpFill = scene.add.rectangle(0, 0, 10, BAR_HEIGHT, 0x6fd08c).setOrigin(0, 0);
+    // 아이콘·글자는 막대보다 **나중에** 만든다 — 먼저 만든 쪽이 아래에 깔린다.
+    this.hpBar = new HudBar(scene, BAR_LARGE);
+    this.hpIcon = hudIcon(scene, ICON_HEART);
     this.hpLabel = scene.add
       .text(0, 0, '체력', { fontFamily: FONT_SMALL, fontSize: `${SIZE_SMALL}px`, color: DIM_TEXT })
       .setOrigin(0.5, 0.5);
-    this.staminaBack = scene.add.rectangle(0, 0, 10, BAR_HEIGHT, BAR_BACK).setOrigin(0, 0);
-    this.staminaFill = scene.add
-      .rectangle(0, 0, 10, BAR_HEIGHT, STAMINA_COLOR)
-      .setOrigin(0, 0);
+    this.staminaBar = new HudBar(scene, BAR_LARGE);
+    this.staminaIcon = hudIcon(scene, ICON_BOLT);
     this.staminaLabel = scene.add
       .text(0, 0, '스태미나', {
         fontFamily: FONT_SMALL,
@@ -141,8 +149,7 @@ export class QuickSlotBar {
       })
       .setOrigin(0.5, 0.5);
 
-    this.xpBack = scene.add.rectangle(0, 0, 10, XP_HEIGHT, BAR_BACK).setOrigin(0, 0);
-    this.xpFill = scene.add.rectangle(0, 0, 10, XP_HEIGHT, XP_COLOR).setOrigin(0, 0);
+    this.xpBar = new HudBar(scene, BAR_SMALL);
     this.xpLabel = scene.add
       .text(0, 0, 'Lv 1', {
         fontFamily: FONT_SMALL,
@@ -239,29 +246,30 @@ export class QuickSlotBar {
     this.barsTop = barTop;
     this.barsRight = startX + totalWidth;
 
-    this.hpBack.setSize(barWidth, barHeight).setPosition(startX, barTop);
-    this.hpFill.setSize(barWidth, barHeight).setPosition(startX, barTop);
+    this.hpBar.layout(startX, barTop, barWidth, scale);
+    this.hpIcon
+      ?.setScale(scale)
+      .setPosition(startX + BAR_ICON_INSET * scale, barTop + barHeight / 2);
     this.hpLabel.setFontSize(SIZE_SMALL * scale).setPosition(startX + barWidth / 2, barTop + barHeight / 2);
 
     const staminaX = startX + barWidth + gap;
-    this.staminaBack.setSize(barWidth, barHeight).setPosition(staminaX, barTop);
-    this.staminaFill.setSize(barWidth, barHeight).setPosition(staminaX, barTop);
+    this.staminaBar.layout(staminaX, barTop, barWidth, scale);
+    this.staminaIcon
+      ?.setScale(scale)
+      .setPosition(staminaX + BAR_ICON_INSET * scale, barTop + barHeight / 2);
     this.staminaLabel
       .setFontSize(SIZE_SMALL * scale)
       .setPosition(staminaX + barWidth / 2, barTop + barHeight / 2);
-    this.barWidth = barWidth;
 
-    this.xpBack.setSize(totalWidth, xpHeight).setPosition(startX, xpTop);
-    this.xpFill.setSize(totalWidth, xpHeight).setPosition(startX, xpTop);
+    this.xpBar.layout(startX, xpTop, totalWidth, scale);
     this.xpLabel
       .setFontSize(SIZE_SMALL * scale)
       .setPosition(startX + totalWidth / 2, xpTop + xpHeight / 2);
-    this.xpWidth = totalWidth;
+    this.scale = scale;
   }
 
-  /** 마지막 레이아웃의 막대 한 개 폭. 채움 비율을 여기에 곱한다. */
-  private barWidth = 0;
-  private xpWidth = 0;
+  /** 마지막 레이아웃의 UI 배율. 게이지 채움을 갱신할 때 다시 넘겨야 한다. */
+  private scale = 1;
 
   /** 드래그 컨트롤러(SlotDrag)에 등록할 칸 목록. */
   get cells(): readonly Phaser.GameObjects.Rectangle[] {
@@ -297,7 +305,7 @@ export class QuickSlotBar {
     // 안 보낸다 — levels.json이 양쪽에 있으니 같은 함수로 구하면 된다.
     const need = me ? xpToNextLevel(me.level) : Infinity;
     const xpRatio = me && Number.isFinite(need) && need > 0 ? Math.min(1, me.xp / need) : 1;
-    this.xpFill.width = this.xpWidth * xpRatio;
+    this.xpBar.setValue(xpRatio, XP_COLOR, this.scale);
     this.xpLabel.setText(
       me
         ? Number.isFinite(need)
@@ -307,13 +315,12 @@ export class QuickSlotBar {
     );
 
     const hpRatio = me && me.maxHp > 0 ? Math.min(1, Math.max(0, me.hp) / me.maxHp) : 0;
-    this.hpFill.width = this.barWidth * hpRatio;
-    this.hpFill.fillColor = barColor(hpRatio);
+    this.hpBar.setValue(hpRatio, barColor(hpRatio), this.scale);
     this.hpLabel.setText(me ? `체력 ${Math.ceil(Math.max(0, me.hp))} / ${Math.round(me.maxHp)}` : '체력');
 
     const staminaRatio =
       me && me.maxStamina > 0 ? Math.min(1, Math.max(0, me.stamina) / me.maxStamina) : 0;
-    this.staminaFill.width = this.barWidth * staminaRatio;
+    this.staminaBar.setValue(staminaRatio, STAMINA_COLOR, this.scale);
     this.staminaLabel.setText(
       me ? `스태미나 ${Math.ceil(Math.max(0, me.stamina))} / ${Math.round(me.maxStamina)}` : '스태미나',
     );

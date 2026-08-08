@@ -90,6 +90,8 @@ export interface DevResultMessage {
  * 컨테이너(인벤토리↔창고)이고, 그 안 어느 칸에 넣을지는 서버가 자동으로 고른다.
  */
 export interface QuickMoveItemMessage {
+  /** 목적지. 없으면 예전 규칙(인벤토리↔창고)대로 반대편으로 간다. */
+  to?: 'storage' | 'charge';
   container: 'inventory' | 'storage';
   index: number;
 }

@@ -197,6 +197,7 @@ const EMPTY_STATUS: WorldStatus = {
   coreEnergy: 0,
   coreMaxEnergy: 0,
   coreCharge: [],
+  openChargeSlots: 0,
   upgradeAvailable: false,
   upgradeResourceCost: 0,
   upgradeEnergyCost: 0,

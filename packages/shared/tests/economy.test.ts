@@ -72,18 +72,52 @@ function finishCraft(world: World): void {
 }
 
 describe('World — 제작', () => {
-  it('게이지가 충분하고 티어가 맞으면 자원이 줄고 결과물이 창고에 생긴다', () => {
+  it('게이지가 충분하고 티어가 맞으면 자원이 줄고 결과물이 제작 칸에 놓인다', () => {
     const world = worldWithPlayerAtCore();
     const recipe = craftingData.recipes.find((entry) => entry.id === 'axe_t1')!;
     grantGauges(world, recipe.cost.resource, recipe.cost.energy ?? 0);
+    const storedBefore = stored(world, recipe.itemId);
 
-    const made = countChange(world, recipe.itemId, () => {
-      world.craftItem('p1', recipe.id);
-      finishCraft(world);
-    });
+    world.craftItem('p1', recipe.id);
+    finishCraft(world);
 
-    expect(made).toBe(1);
+    // 창고로 바로 가지 않는다 — 만든 사람이 꺼내 가야 한다.
+    expect(world.getPlayers().get('p1')!.craftOutput).toEqual({ itemId: recipe.itemId, count: 1 });
+    expect(stored(world, recipe.itemId)).toBe(storedBefore);
     expect(world.getCore().resource).toBe(0); // 정확히 다 썼다
+  });
+
+  it('꺼내 가기 전에는 다음 제작을 걸 수 없다', () => {
+    const world = worldWithPlayerAtCore();
+    const recipe = craftingData.recipes.find((entry) => entry.id === 'axe_t1')!;
+    grantGauges(world, recipe.cost.resource * 2, 0);
+
+    world.craftItem('p1', recipe.id);
+    finishCraft(world);
+    world.craftItem('p1', recipe.id); // 결과가 남아 있어 거절된다
+
+    expect(world.getCore().resource).toBe(recipe.cost.resource);
+    expect(world.getPlayers().get('p1')!.craftRecipeId).toBe('');
+  });
+
+  it('제작 칸에서 인벤토리로 꺼내 갈 수 있다(넣는 건 안 된다)', () => {
+    const world = worldWithPlayerAtCore();
+    const recipe = craftingData.recipes.find((entry) => entry.id === 'axe_t1')!;
+    grantGauges(world, recipe.cost.resource, 0);
+    world.craftItem('p1', recipe.id);
+    finishCraft(world);
+
+    const inventory = world.getPlayers().get('p1')!.inventory;
+    const empty = inventory.toView().slots.findIndex((slot) => slot === null);
+    world.moveItem('p1', 'craft', 0, 'inventory', empty);
+
+    expect(inventory.slotAt(empty)?.itemId).toBe(recipe.itemId);
+    expect(world.getPlayers().get('p1')!.craftOutput).toBeNull();
+
+    // 반대 방향은 막힌다 — 제작 칸은 꺼내 가는 곳이지 보관함이 아니다.
+    world.moveItem('p1', 'inventory', empty, 'craft', 0);
+    expect(world.getPlayers().get('p1')!.craftOutput).toBeNull();
+    expect(inventory.slotAt(empty)?.itemId).toBe(recipe.itemId);
   });
 
   it('제작에는 시간이 든다 — 걸자마자 결과물이 생기지는 않는다', () => {
@@ -92,19 +126,19 @@ describe('World — 제작', () => {
     grantGauges(world, recipe.cost.resource, 0);
 
     // 시작 지급품이 이미 창고에 있으므로 절대 개수가 아니라 증감으로 본다.
-    const before = stored(world, recipe.itemId);
+    const player = world.getPlayers().get('p1')!;
 
     world.craftItem('p1', recipe.id);
     // 비용은 먼저 나간다 — 진행 중에 남이 같은 자원을 써 버리면 완성 순간에 실패해야 하는데,
     // 그때는 이미 기다린 뒤라 설명할 방법이 없다.
     expect(world.getCore().resource).toBe(0);
-    expect(stored(world, recipe.itemId)).toBe(before);
+    expect(player.craftOutput).toBeNull();
 
     world.tick(craftingData.craftSeconds * 0.5);
-    expect(stored(world, recipe.itemId)).toBe(before); // 아직 만드는 중
+    expect(player.craftOutput).toBeNull(); // 아직 만드는 중
 
     finishCraft(world);
-    expect(stored(world, recipe.itemId)).toBe(before + 1);
+    expect(player.craftOutput?.itemId).toBe(recipe.itemId);
   });
 
   it('만드는 중에는 또 걸 수 없다(자원도 안 나간다)', () => {
@@ -112,13 +146,12 @@ describe('World — 제작', () => {
     const recipe = craftingData.recipes.find((entry) => entry.id === 'axe_t1')!;
     grantGauges(world, recipe.cost.resource * 2, 0);
 
-    const before = stored(world, recipe.itemId);
     world.craftItem('p1', recipe.id);
     world.craftItem('p1', recipe.id); // 두 번째는 무시된다
 
     expect(world.getCore().resource).toBe(recipe.cost.resource);
     finishCraft(world);
-    expect(stored(world, recipe.itemId)).toBe(before + 1);
+    expect(world.getPlayers().get('p1')!.craftOutput?.count).toBe(1);
   });
 
   it('자원이 모자라면 아무것도 소비되지 않는다(부분 차감 금지)', () => {
@@ -141,11 +174,10 @@ describe('World — 제작', () => {
     (world.getCore() as { tier: number }).tier = recipe.requiresTier;
     grantGauges(world, recipe.cost.resource, 0);
 
-    const before = stored(world, recipe.itemId);
     world.craftItem('p1', recipe.id);
     finishCraft(world);
 
-    expect(stored(world, recipe.itemId)).toBe(before);
+    expect(world.getPlayers().get('p1')!.craftOutput).toBeNull();
     expect(world.getCore().resource).toBe(recipe.cost.resource);
   });
 
@@ -154,11 +186,10 @@ describe('World — 제작', () => {
     const recipe = craftingData.recipes.find((entry) => entry.id === 'fence')!;
     grantGauges(world, recipe.cost.resource, 0);
 
-    const before = stored(world, 'fence');
     world.craftItem('p1', recipe.id);
     finishCraft(world);
 
-    expect(stored(world, 'fence')).toBe(before + 6);
+    expect(world.getPlayers().get('p1')!.craftOutput).toEqual({ itemId: 'fence', count: 6 });
   });
 
   it('코어 티어가 모자란 레시피는 자원이 넘쳐도 만들 수 없다', () => {
@@ -166,11 +197,10 @@ describe('World — 제작', () => {
     const recipe = craftingData.recipes.find((entry) => entry.requiresTier > world.getCore().tier)!;
     grantGauges(world, 999999, 999999);
 
-    const before = stored(world, recipe.itemId);
     world.craftItem('p1', recipe.id);
     finishCraft(world);
 
-    expect(stored(world, recipe.itemId)).toBe(before);
+    expect(world.getPlayers().get('p1')!.craftOutput).toBeNull();
   });
 
   it('만들 수 있는 목록은 현재 티어까지만 나온다', () => {
@@ -190,12 +220,10 @@ describe('World — 제작', () => {
     const recipe = craftingData.recipes.find((entry) => entry.id === 'axe_t1')!;
     grantGauges(world, 999999, 0);
 
-    const made = countChange(world, recipe.itemId, () => {
-      world.craftItem('far', recipe.id);
-      finishCraft(world);
-    });
+    world.craftItem('far', recipe.id);
+    finishCraft(world);
 
-    expect(made).toBe(0);
+    expect(world.getPlayers().get('far')!.craftOutput).toBeNull();
   });
 });
 

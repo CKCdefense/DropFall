@@ -1,12 +1,15 @@
 {
   "name": "티모시",
-  "moveSpeed": 110,
+  "moveSpeed": 55,
   "harvestRange": 32,
   "harvestDamage": 6,
   "harvestIntervalSeconds": 0.5,
   "capacity": 20,
   "maxHp": 40,
-  "spawnOffset": { "x": -80, "y": 0 },
+  "spawnOffset": {
+    "x": -80,
+    "y": 0
+  },
   "interactRange": 48,
   "persona": {
     "traitMin": -10,
@@ -16,12 +19,36 @@
     "playerMessageCooldownSeconds": 8,
     "historyMessageLimit": 6,
     "eventWeights": {
-      "coreDeposit": { "trust": 1, "efficiency": 2, "recklessness": 0 },
-      "proximityInteract": { "trust": 2, "efficiency": 0, "recklessness": 0 },
-      "companionDowned": { "trust": -1, "efficiency": 0, "recklessness": 1 },
-      "companionRevived": { "trust": 1, "efficiency": 0, "recklessness": -1 },
-      "waveEnd": { "trust": 1, "efficiency": 1, "recklessness": 0 },
-      "playerMessage": { "trust": 2, "efficiency": 0, "recklessness": 0 }
+      "coreDeposit": {
+        "trust": 1,
+        "efficiency": 2,
+        "recklessness": 0
+      },
+      "proximityInteract": {
+        "trust": 2,
+        "efficiency": 0,
+        "recklessness": 0
+      },
+      "companionDowned": {
+        "trust": -1,
+        "efficiency": 0,
+        "recklessness": 1
+      },
+      "companionRevived": {
+        "trust": 1,
+        "efficiency": 0,
+        "recklessness": -1
+      },
+      "waveEnd": {
+        "trust": 1,
+        "efficiency": 1,
+        "recklessness": 0
+      },
+      "playerMessage": {
+        "trust": 2,
+        "efficiency": 0,
+        "recklessness": 0
+      }
     },
     "fallbackLines": {
       "warm": [

@@ -61,8 +61,26 @@ export class CoreModal extends Modal {
     this.core.setStatus(status);
   }
 
-  setChargeSlots(slots: (InventorySlot | null)[]): void {
-    this.core.setChargeSlots(slots);
+  setChargeSlots(slots: (InventorySlot | null)[], openCount: number): void {
+    this.core.setChargeSlots(slots, openCount);
+  }
+
+  isChargeSlotOpen(index: number): boolean {
+    return this.core.isChargeSlotOpen(index);
+  }
+
+  rejectCharge(index: number): void {
+    this.core.rejectCharge(index);
+  }
+
+  /** 제작 결과 칸. SlotDrag가 드래그 시작점으로 등록한다. */
+  get craftOutputCell(): Phaser.GameObjects.Rectangle {
+    return this.craft.craftOutputCell;
+  }
+
+  /** 제작 탭이 보이는 상태인가. 결과 칸의 드래그 판정에 쓴다. */
+  isCraftTabVisible(): boolean {
+    return this.isOpen() && this.currentTab === CORE_TAB.CRAFT;
   }
 
   /** 코어 AI 페르소나의 새 대사를 반영한다. HudScene이 onCoreCommentary 콜백에서 호출한다. */

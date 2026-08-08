@@ -28,6 +28,7 @@ import {
 import { DayNightOverlay } from '../render/DayNightOverlay';
 import { EntityRenderer } from '../render/EntityRenderer';
 import { queueGameAtlas } from '../render/playerSprite';
+import { queueHudAtlas } from '../ui/hudBar';
 import { queueUiFrames } from '../ui/uiFrame';
 import { PlacementPreview, holdsBuilding } from '../render/PlacementPreview';
 import { queueMonsterAtlas } from '../render/monsterSprite';
@@ -93,6 +94,8 @@ export class GameScene extends Phaser.Scene {
     // HUD 모달의 돌 테두리. 텍스처는 게임 전체가 공유하므로 여기서 한 번 올리면
     // 나중에 뜨는 HudScene에서도 그대로 쓴다.
     queueUiFrames(this);
+    // HUD 게이지 껍데기(체력·코어·보스 바)와 라벨 아이콘. 없으면 단색 사각형으로 떨어진다.
+    queueHudAtlas(this);
   }
 
   create(): void {
