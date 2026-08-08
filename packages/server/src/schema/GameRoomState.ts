@@ -1,5 +1,11 @@
 import { ArraySchema, MapSchema, Schema, type } from '@colyseus/schema';
-import { EXPLORED_BYTE_COUNT, RoomPhase, SLOT_COUNT, STORAGE_SLOT_COUNT } from '@dropfall/shared';
+import {
+  EXPLORED_BYTE_COUNT,
+  RoomPhase,
+  SLOT_COUNT,
+  STORAGE_SLOT_COUNT,
+  chargingData,
+} from '@dropfall/shared';
 
 /**
  * 퀵슬롯 한 칸. 빈 칸은 배열에서 빼지 않고 itemId를 ''로 둔다 —
@@ -58,6 +64,21 @@ export class PlayerSchema extends Schema {
   /** 마지막으로 쓴 소모품의 이펙트 종류(USE_FX)와 사용 횟수. 값이 바뀌면 클라가 이펙트를 튼다. */
   @type('uint8') useFxKind = 0;
   @type('uint8') useFxSeq = 0;
+  /** 레벨/경험치. xpToNext는 클라가 levels.json으로 직접 구할 수 있어 안 보낸다. */
+  @type('uint16') level = 1;
+  @type('uint32') xp = 0;
+  /** 아직 안 쓴 스탯 포인트와 스탯별로 찍은 횟수. */
+  @type('uint16') statPoints = 0;
+  @type('uint16') spentHp = 0;
+  @type('uint16') spentAttack = 0;
+  @type('uint16') spentStamina = 0;
+  /** 레벨이 오를 때마다 오르는 번호. 값이 바뀌면 클라가 레벨업 이펙트를 튼다. */
+  @type('uint8') levelUpSeq = 0;
+  /** 제작 중인 레시피와 남은 시간(초). 빈 문자열이면 제작 중이 아니다. */
+  @type('string') craftRecipeId = '';
+  @type('number') craftRemaining = 0;
+  /** 다 만들어 꺼내 가기를 기다리는 물건. itemId가 비면 없는 것이다. */
+  @type(ItemSlotSchema) craftOutput = new ItemSlotSchema();
 }
 
 export class MonsterSchema extends Schema {
@@ -159,6 +180,8 @@ export class GameRoomState extends Schema {
   @type('string') roomCode = '';
   @type('string') roomName = '';
   @type('boolean') hasPassword = false;
+  /** 방을 만들 때 정한 티모시 사용 여부. 대기실이 이걸 보고 "티모시 있음/없음"을 알린다. */
+  @type('boolean') companionEnabled = true;
   /** 'lobby' | 'playing' — RoomPhase */
   @type('string') phase: string = RoomPhase.LOBBY;
   /** 방장. 나가면 다음 사람에게 넘어간다 */
@@ -177,10 +200,22 @@ export class GameRoomState extends Schema {
   @type('number') coreSharedStone = 0;
   /** 창고에 쌓인 부품(drop_normal). 상점 판매의 주 수입원이다. */
   @type('number') coreParts = 0;
-  /** 콜로니 파괴 또는 보스 처치로만 얻는 희귀 자원. 코어 업그레이드/상점 구입 전용(아직 소비처 미구현). */
-  @type('number') coreSharedEnergy = 0;
-  /** 팀 공용 자금. 몬스터 드랍을 상점에 팔아 번다. */
-  @type('number') coreMoney = 0;
+  /** 자원 게이지 — 나무·돌을 충전해 채우고 건축·제작·수리가 여기서 나간다. */
+  @type('number') coreResource = 0;
+  @type('number') coreMaxResource = 0;
+  /** 에너지 게이지 — 드랍 충전·콜로니 정화·보스로 채우고 강화·상점이 여기서 나간다. */
+  @type('number') coreEnergy = 0;
+  @type('number') coreMaxEnergy = 0;
+  /** 지금 열려 있는 충전 슬롯 수(= 코어 티어). 뒤쪽 칸은 잠겨 있다. */
+  @type('uint8') openChargeSlots = 0;
+  /** 코어 충전 슬롯. 창고와 같은 슬롯 구조라 ItemSlotSchema를 재사용한다. */
+  @type([ItemSlotSchema]) coreCharge = new ArraySchema<ItemSlotSchema>(
+    ...Array.from({ length: chargingData.slotCount }, () => new ItemSlotSchema()),
+  );
+  /** 다음 강화 단계 비용. 없으면(최고 티어) 둘 다 0이고 upgradeAvailable이 false다. */
+  @type('boolean') upgradeAvailable = false;
+  @type('number') upgradeResourceCost = 0;
+  @type('number') upgradeEnergyCost = 0;
   /** 오늘의 상점 진열(아이템 id). 낮이 될 때마다 통째로 바뀐다. */
   @type(['string']) shopStock = new ArraySchema<string>();
   /**
@@ -210,8 +245,13 @@ export class GameRoomState extends Schema {
   /** 'day' | 'night' | 'victory' | 'defeat' (shared/sim의 GamePhase) */
   @type('string') wavePhase = 'day';
   @type('number') currentWave = 0;
+  /** 보스 등장까지 남은 예고 시간(초). 0보다 크면 화면에 경고가 뜬다. */
+  @type('number') bossWarningRemaining = 0;
   /** 현재 페이즈가 끝나기까지 남은 시간(초) */
   @type('number') phaseTimeRemaining = 0;
+  /** 이번 밤의 잡몹 총 마릿수와 남은 수(보스 제외). 낮에는 둘 다 0이다. */
+  @type('number') waveMonsterTotal = 0;
+  @type('number') waveMonsterRemaining = 0;
   /** 낮 스킵 투표 동의 인원. 만장일치 기준이라 필요 인원은 players.size다. */
   @type('number') skipVoteCount = 0;
 }

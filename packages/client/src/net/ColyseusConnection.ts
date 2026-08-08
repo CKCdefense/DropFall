@@ -45,6 +45,16 @@ interface RemotePlayerState {
   burstMode: boolean;
   useFxKind: number;
   useFxSeq: number;
+  level: number;
+  xp: number;
+  statPoints: number;
+  spentHp: number;
+  spentAttack: number;
+  spentStamina: number;
+  levelUpSeq: number;
+  craftRecipeId: string;
+  craftRemaining: number;
+  craftOutput: { itemId: string; count: number };
   wood: number;
   stone: number;
   parts: number;
@@ -101,6 +111,8 @@ interface RemoteGameState {
   roomCode: string;
   roomName: string;
   hasPassword: boolean;
+  /** 방을 만들 때 정한 티모시 사용 여부(GameRoomState.companionEnabled). */
+  companionEnabled: boolean;
   phase: string;
   hostSessionId: string;
   coreHp: number;
@@ -108,8 +120,15 @@ interface RemoteGameState {
   coreSharedWood: number;
   coreSharedStone: number;
   coreParts: number;
-  coreSharedEnergy: number;
-  coreMoney: number;
+  coreResource: number;
+  coreMaxResource: number;
+  coreEnergy: number;
+  coreMaxEnergy: number;
+  coreCharge: ArrayLike<{ itemId: string; count: number }>;
+  openChargeSlots: number;
+  upgradeAvailable: boolean;
+  upgradeResourceCost: number;
+  upgradeEnergyCost: number;
   shopStock: ArrayLike<string>;
   explored: ArrayLike<number>;
   coreTier: number;
@@ -118,7 +137,10 @@ interface RemoteGameState {
   statUpgradesUnlocked: boolean;
   wavePhase: string;
   currentWave: number;
+  bossWarningRemaining: number;
   phaseTimeRemaining: number;
+  waveMonsterTotal: number;
+  waveMonsterRemaining: number;
   skipVoteCount: number;
   players: {
     size: number;
@@ -299,16 +321,16 @@ export class ColyseusConnection implements GameConnection {
     this.room.send('discardStorageItem', { index });
   }
 
-  quickMoveItem(container: SlotContainer, index: number): void {
-    this.room.send('quickMoveItem', { container, index });
+  quickMoveItem(container: SlotContainer, index: number, to?: 'storage' | 'charge'): void {
+    this.room.send('quickMoveItem', { container, index, to });
   }
 
   craft(recipeId: string): void {
     this.room.send('craft', { recipeId });
   }
 
-  shopSell(itemId: string, count: number): void {
-    this.room.send('shopSell', { itemId, count });
+  spendStatPoint(stat: 'maxHp' | 'attack' | 'stamina'): void {
+    this.room.send('spendStatPoint', { stat });
   }
 
   shopBuy(itemId: string): void {
@@ -355,14 +377,6 @@ export class ColyseusConnection implements GameConnection {
     this.room.onMessage(CHAT_MESSAGE, callback);
   }
 
-  placeBuilding(buildingType: string, cx: number, cy: number): void {
-    this.room.send('placeBuilding', { buildingType, cx, cy });
-  }
-
-  demolishBuilding(cx: number, cy: number): void {
-    this.room.send('demolishBuilding', { cx, cy });
-  }
-
   /** 화면 렌더링용. TICK_RATE 상태를 60fps에 맞게 보간한, 몇 ms 지연된 스냅샷을 돌려준다. */
   getSnapshot(): WorldSnapshot {
     return this.interpolator.sample();
@@ -395,6 +409,18 @@ export class ColyseusConnection implements GameConnection {
         burstMode: player.burstMode,
         useFxKind: player.useFxKind,
         useFxSeq: player.useFxSeq,
+        level: player.level,
+        xp: player.xp,
+        statPoints: player.statPoints,
+        spentHp: player.spentHp,
+        spentAttack: player.spentAttack,
+        spentStamina: player.spentStamina,
+        levelUpSeq: player.levelUpSeq,
+        craftRecipeId: player.craftRecipeId,
+        craftRemaining: player.craftRemaining,
+        craftOutput: player.craftOutput?.itemId
+          ? { itemId: player.craftOutput.itemId, count: player.craftOutput.count }
+          : null,
         wood: player.wood,
         stone: player.stone,
         parts: player.parts,
@@ -506,8 +532,17 @@ export class ColyseusConnection implements GameConnection {
         coreSharedWood: state?.coreSharedWood ?? 0,
         coreSharedStone: state?.coreSharedStone ?? 0,
         coreParts: state?.coreParts ?? 0,
-        coreSharedEnergy: state?.coreSharedEnergy ?? 0,
-        coreMoney: state?.coreMoney ?? 0,
+        coreResource: state?.coreResource ?? 0,
+        coreMaxResource: state?.coreMaxResource ?? 0,
+        coreEnergy: state?.coreEnergy ?? 0,
+        coreMaxEnergy: state?.coreMaxEnergy ?? 0,
+        coreCharge: Array.from(state?.coreCharge ?? [], (slot) =>
+          slot.itemId ? { itemId: slot.itemId, count: slot.count } : null,
+        ),
+        openChargeSlots: state?.openChargeSlots ?? 0,
+        upgradeAvailable: state?.upgradeAvailable ?? false,
+        upgradeResourceCost: state?.upgradeResourceCost ?? 0,
+        upgradeEnergyCost: state?.upgradeEnergyCost ?? 0,
         shopStock: Array.from(state?.shopStock ?? []),
         coreTier: state?.coreTier ?? 0,
         coreBuildRadius: state?.coreBuildRadius ?? 0,
@@ -515,7 +550,10 @@ export class ColyseusConnection implements GameConnection {
         statUpgradesUnlocked: state?.statUpgradesUnlocked ?? false,
         wavePhase: state?.wavePhase ?? 'day',
         currentWave: state?.currentWave ?? 0,
+        bossWarningRemaining: state?.bossWarningRemaining ?? 0,
         phaseTimeRemaining: state?.phaseTimeRemaining ?? 0,
+        waveMonsterTotal: state?.waveMonsterTotal ?? 0,
+        waveMonsterRemaining: state?.waveMonsterRemaining ?? 0,
         skipVoteCount: state?.skipVoteCount ?? 0,
         // 서버는 빈 칸을 itemId ''로 내려보낸다(길이 고정). 클라이언트 표현은 null이다.
         coreStorage: Array.from(state?.coreStorage ?? [], (slot) =>
@@ -547,6 +585,8 @@ export class ColyseusConnection implements GameConnection {
       phase: (state?.phase as RoomPhase) ?? RoomPhaseValue.LOBBY,
       players,
       amHost: hostId === this.room.sessionId,
+      // 스키마가 아직 안 왔을 때는 켜져 있다고 본다 — 기본값이 켬이라 그 편이 덜 놀랍다.
+      companionEnabled: state?.companionEnabled !== false,
     };
   }
 

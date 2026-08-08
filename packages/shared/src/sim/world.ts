@@ -4,8 +4,12 @@ import {
   coloniesData,
   companionData,
   corePersonaData,
+  chargeMaterialOf,
+  chargingData,
   coreUpgradesData,
   craftingData,
+  levelsData,
+  xpToNextLevel,
   itemsData,
   jobStats,
   shopData,
@@ -19,6 +23,7 @@ import {
   type MeleeAttackData,
   type MeleeHitData,
   type MonsterData,
+  type CoreUpgradeTier,
   type CraftRecipe,
   type ItemKind,
   type ItemRarity,
@@ -64,7 +69,7 @@ import {
   type MeleeHit,
   type ProjectileEntity,
 } from './combat';
-import { Inventory } from './inventory';
+import { Inventory, type InventorySlot } from './inventory';
 import { CoreStorage, STORAGE_SLOT_COUNT } from './storage';
 import { coreDistance, isWithinCoreInteract } from './coreShape';
 import { ExploredMap } from './explored';
@@ -75,14 +80,32 @@ import {
   PLAYER_COLONY_COLLISION_RADIUS,
 } from './playerCollision';
 import { SpatialGrid } from './spatialGrid';
-import { WaveManager, type GamePhase } from './wave';
+import { WaveManager, isBossType, type GamePhase } from './wave';
 import { runDevCommand, type DevCommandResult, type DevWorldAccess } from './devCommands';
 
 /** moveItem이 받는 컨테이너 이름. 네트워크 경계를 넘어오므로 값부터 검증한다. */
-export type SlotContainer = 'inventory' | 'storage';
+export type SlotContainer = 'inventory' | 'storage' | 'charge' | 'craft';
+
+/** moveItem이 컨테이너에게 요구하는 최소한의 계약. 창고·인벤토리·충전 슬롯이 모두 만족한다. */
+interface SlotAccess {
+  takeAt(index: number): InventorySlot | null;
+  placeAt(index: number, incoming: InventorySlot): InventorySlot | null;
+}
+
+/**
+ * 건축물 종류 → 그것을 세우는 아이템. **items.json에서 거꾸로 만든다** — 손으로 적어 두면
+ * 아이템이 늘 때 한쪽만 고쳐져 조용히 어긋난다(해머로 뜯었는데 아무것도 안 나온다).
+ */
+const BUILDING_ITEM_OF: Record<string, string> = Object.fromEntries(
+  Object.entries(itemsData)
+    .filter(([, item]) => item.buildingType !== undefined)
+    .map(([itemId, item]) => [item.buildingType as string, itemId]),
+);
 
 function isContainerName(value: unknown): value is SlotContainer {
-  return value === 'inventory' || value === 'storage';
+  return (
+    value === 'inventory' || value === 'storage' || value === 'charge' || value === 'craft'
+  );
 }
 
 function isFiniteNumber(value: unknown): value is number {
@@ -304,6 +327,29 @@ export interface PlayerEntity {
    * 사라진다 — 몬스터 공격 애니메이션에서 겪은 것과 같은 문제(attackSeq)라 같은 해법을 쓴다.
    */
   useFxSeq: number;
+  /** 만드는 중인 레시피 id(없으면 빈 문자열)와 남은 시간(초). */
+  craftRecipeId: string;
+  craftTimer: number;
+  /**
+   * 다 만들어 **꺼내 가기를 기다리는** 물건. 창고로 바로 밀어 넣지 않는 이유는,
+   * 만든 사람이 결과를 눈으로 확인하고 직접 가져가야 "내가 만들었다"가 되기 때문이다.
+   * 여기가 차 있으면 다음 제작을 걸 수 없다 — 덮어쓰면 앞의 결과가 사라진다.
+   */
+  craftOutput: InventorySlot | null;
+  /** 레벨과 다음 레벨까지 쌓인 경험치. 경험치는 몬스터 처치로만 오른다. */
+  level: number;
+  xp: number;
+  /** 아직 안 쓴 스탯 포인트. 레벨업 때마다 levelsData.spPerLevel만큼 쌓인다. */
+  statPoints: number;
+  /**
+   * SP로 찍은 횟수. 스탯별로 나눠 두는 이유는 화면에 "무엇에 몇 점 썼는지"를 그대로
+   * 보여줄 수 있어서다 — 합계 하나만 두면 되돌리기도 표시도 못 한다.
+   */
+  spentHp: number;
+  spentAttack: number;
+  spentStamina: number;
+  /** 레벨이 오를 때마다 1씩 오르는 번호. 클라이언트가 레벨업 이펙트를 틀 신호다(useFxSeq와 같은 방식). */
+  levelUpSeq: number;
 }
 
 /**
@@ -486,17 +532,27 @@ export interface CoreState {
    */
   storage: CoreStorage;
   /**
-   * 팀 공용 자금. 몬스터 드랍을 상점에 팔아 번다 — 재료(창고)와 돈을 나눈 이유는
-   * "짓는 자원"과 "사는 자원"의 쓰임이 달라서다. 건축은 창고에서, 구매는 여기서 나간다.
+   * 자원 게이지. 나무·돌을 **충전**해서 채우고 건축·제작·수리가 여기서 나간다.
+   *
+   * 창고에 든 나무 개수를 그대로 비용으로 쓰지 않는 이유는, 그러면 "무엇을 몇 개
+   * 갖고 있나"가 곧 전력이 되어 창고 20칸이 사실상 상한이 되기 때문이다. 게이지로
+   * 바꾸면 상한이 코어 강화로 자라고, 재료 종류가 늘어도 비용 표는 숫자 하나다.
    */
-  money: number;
+  resource: number;
+  maxResource: number;
   /**
-   * 콜로니 파괴 또는 보스 처치로만 얻는 희귀 자원. 나무/돌과 달리 "채집 후 입고"
-   * 단계가 없다 — 획득 즉시 팀 전체 몫으로 귀속된다(누가 잡았든 팀 보상). 코어
-   * 업그레이드/상점 구입 전용으로 쓸 예정(아직 그 소비처는 미구현 — CoreModal/
-   * UpgradeModal의 "에너지" 플레이스홀더 행이 이 값을 보여줄 자리다).
+   * 에너지 게이지. 몬스터 드랍을 충전하거나 콜로니 정화·보스 처치로 채우고,
+   * 코어 강화와 상점 구매가 여기서 나간다. 예전의 `money`(돈)를 대체한다 —
+   * 돈과 에너지가 따로 있으면 "판 돈으로 산다"와 "모아서 강화한다"가 서로 무관해져서,
+   * 밤에 번 것이 무엇에 쓰이는지가 두 갈래로 흩어졌다.
    */
-  sharedEnergy: number;
+  energy: number;
+  maxEnergy: number;
+  /**
+   * 코어 충전 슬롯. 여기 올려둔 재료가 시간에 걸쳐 게이지로 바뀐다.
+   * 게이지가 가득 차면 소화가 멈추고 재료는 슬롯에 그대로 남는다.
+   */
+  chargeSlots: (InventorySlot | null)[];
   /**
    * 구매한 코어 업그레이드 단계(0부터 시작, 미구매 상태). `coreUpgradesData.tiers[tier]`가
    * "다음에 살 단계"를 가리킨다 — `upgradeCore()`가 이 인덱스로 다음 단계 비용/보너스를
@@ -518,6 +574,12 @@ let nextDropId = 1;
 export interface WorldOptions {
   /** 자원 노드 군집 배치에 쓰는 RNG. 테스트에서 결정론적으로 검증하려고 주입한다(wave.ts와 동일 패턴). */
   rng?: () => number;
+  /**
+   * AI 동반자(티모시)를 둘지. 방을 만들 때 정하고 도중에 바뀌지 않는다 —
+   * 게임이 시작된 뒤 티모시가 생기거나 사라지면 자원 수급과 어그로가 통째로 달라진다.
+   * 기본값은 켬(기존 동작).
+   */
+  companion?: boolean;
 }
 
 export class World {
@@ -583,6 +645,26 @@ export class World {
    * 기다릴 필요가 없다.
    */
   private companion: CompanionEntity = createCompanion(0, 0);
+
+  /**
+   * 충전 슬롯별 소수점 진행분. 틱마다 내림하면 60Hz에서 "초당 2개"가 매번 0개로
+   * 잘려 영원히 아무것도 안 탄다 — 남는 몫을 여기 모아 둔다.
+   */
+  private readonly chargeProgress: number[] = Array.from(
+    { length: chargingData.slotCount },
+    () => 0,
+  );
+
+  /**
+   * 티모시가 지금 "거기 있는가". 몬스터 표적·피해·수확·상호작용이 전부 이 하나를 본다.
+   *
+   * 예전엔 자리마다 `state !== 'downed'`를 직접 적었는데, 방 설정으로 끄는 기능이
+   * 생기면서 확인할 것이 둘이 됐다. 한 곳이라도 빠지면 없는 티모시를 몬스터가 때리러
+   * 가는 식으로 조용히 어긋난다.
+   */
+  private companionActive(): boolean {
+    return this.companion.state !== 'downed' && this.companion.state !== 'absent';
+  }
   /**
    * 콜로니가 차지한 그리드 셀("cx,cy" 키) 집합. 콜로니는 위치가 절대 안 바뀌고,
    * 정화돼도 구조물은 남으므로(재설계 후 "파괴" 개념이 없다) 배치 시점
@@ -615,8 +697,11 @@ export class World {
     hp: wavesData.coreHp,
     maxHp: wavesData.coreHp,
     storage: new CoreStorage(),
-    money: 0,
-    sharedEnergy: 0,
+    resource: 0,
+    maxResource: coreUpgradesData.baseMaxResource,
+    energy: 0,
+    maxEnergy: coreUpgradesData.baseMaxEnergy,
+    chargeSlots: Array.from({ length: chargingData.slotCount }, () => null),
     tier: coreUpgradesData.startTier,
     shopStock: [],
   };
@@ -633,6 +718,9 @@ export class World {
 
   constructor(options: WorldOptions = {}) {
     this.rng = options.rng ?? Math.random;
+    // 티모시를 끈 방에서는 'absent'로 세워 둔다. 이 상태는 게임 내내 바뀌지 않으므로
+    // 이후 모든 판정이 companionActive() 하나로 걸러진다.
+    if (options.companion === false) this.companion.state = 'absent';
     // 콜로니는 여기서 아직 안 만든다 — 접속 인원수가 몇 명일지는 생성 시점엔 알 수
     // 없다(서버는 로비가 끝나야 확정된다). 인원이 확정되면 호출자가 startColonies()를
     // 명시적으로 불러야 한다(docs/backend/41).
@@ -720,6 +808,16 @@ export class World {
       burstMode: false,
       useFxKind: USE_FX.none,
       useFxSeq: 0,
+      craftRecipeId: '',
+      craftTimer: 0,
+      craftOutput: null,
+      level: 1,
+      xp: 0,
+      statPoints: 0,
+      spentHp: 0,
+      spentAttack: 0,
+      spentStamina: 0,
+      levelUpSeq: 0,
     });
   }
 
@@ -779,12 +877,16 @@ export class World {
 
   /** 직업 기초 체력 + 음식 보너스. 회복 상한·부활·HP바가 전부 이 값을 쓴다. */
   playerMaxHp(player: PlayerEntity): number {
-    return jobStats(player.job).maxHp + player.maxHpBonus;
+    return (
+      jobStats(player.job).maxHp +
+      player.maxHpBonus +
+      player.spentHp * levelsData.statPerPoint.maxHp
+    );
   }
 
   /** 직업 기초 스태미나. 음식의 "스태미나" 보너스는 이동속도로 가고 최대치는 안 건드린다. */
   playerMaxStamina(player: PlayerEntity): number {
-    return jobStats(player.job).maxStamina;
+    return jobStats(player.job).maxStamina + player.spentStamina * levelsData.statPerPoint.stamina;
   }
 
   /**
@@ -792,7 +894,67 @@ export class World {
    * 배율(attackBonus)과 달리 약한 무기일수록 체감이 크다.
    */
   playerAttack(player: PlayerEntity): number {
-    return jobStats(player.job).attack + player.attackFlatBonus;
+    return (
+      jobStats(player.job).attack +
+      player.attackFlatBonus +
+      player.spentAttack * levelsData.statPerPoint.attack
+    );
+  }
+
+  // ---------------------------------------------------------------- 레벨/경험치
+
+  /**
+   * 경험치를 **살아 있는 모두**에게 나눠 준다(나누지 않고 같은 양을 각자 받는다).
+   *
+   * 막타를 친 사람만 주려면 투사체마다 쏜 사람을 실어 날라야 하고, 그 사람이 죽거나
+   * 나가면 경험치가 증발한다. 무엇보다 드랍을 바닥에 떨어뜨린 것과 같은 이유다 —
+   * 막타로 보상이 갈리면 협동이 아니라 킬 경쟁이 된다.
+   *
+   * 쓰러진 사람은 못 받는다. 뒤에 누워만 있어도 크는 건 곤란하다.
+   */
+  private grantXp(amount: number): void {
+    if (amount <= 0) return;
+    for (const player of this.players.values()) {
+      if (player.hp <= 0) continue;
+      player.xp += amount;
+      // 한 번에 두 레벨이 오를 수도 있다(보스). while로 남는 경험치까지 흘려보낸다.
+      while (player.xp >= xpToNextLevel(player.level)) {
+        player.xp -= xpToNextLevel(player.level);
+        player.level += 1;
+        player.statPoints += levelsData.spPerLevel;
+        player.levelUpSeq = (player.levelUpSeq + 1) % 256;
+      }
+      // 최대 레벨에서는 xpToNextLevel이 Infinity라 위 루프가 돌지 않는다 —
+      // 그대로 두면 경험치만 무한히 쌓이므로 게이지가 가득 찬 상태로 고정한다.
+      if (player.level >= levelsData.maxLevel) player.xp = 0;
+    }
+  }
+
+  /**
+   * 스탯 포인트를 하나 쓴다. 되돌릴 수는 없다 — 되돌리기를 넣으면 밤마다 최적으로
+   * 갈아끼우는 게 정답이 되어 선택이 선택이 아니게 된다.
+   *
+   * 체력·스태미나는 최대치가 오른 만큼 현재치도 같이 채운다. 안 그러면 "찍었는데
+   * 아무 일도 안 일어난다"로 보인다(음식의 최대 체력 증가와 같은 규칙).
+   */
+  spendStatPoint(playerId: string, stat: unknown): void {
+    const player = this.players.get(playerId);
+    if (!player || player.statPoints <= 0) return;
+    if (stat !== 'maxHp' && stat !== 'attack' && stat !== 'stamina') return;
+
+    player.statPoints -= 1;
+    if (stat === 'maxHp') {
+      player.spentHp += 1;
+      player.hp = Math.min(this.playerMaxHp(player), player.hp + levelsData.statPerPoint.maxHp);
+    } else if (stat === 'attack') {
+      player.spentAttack += 1;
+    } else {
+      player.spentStamina += 1;
+      player.stamina = Math.min(
+        this.playerMaxStamina(player),
+        player.stamina + levelsData.statPerPoint.stamina,
+      );
+    }
   }
 
   /**
@@ -924,7 +1086,7 @@ export class World {
       this.core.hp = Math.min(this.core.maxHp, this.core.hp + item.coreHealAmount);
     }
     if (item.energyAmount !== undefined) {
-      this.core.sharedEnergy += item.energyAmount;
+      this.addEnergy(item.energyAmount);
     }
 
     /*
@@ -1005,7 +1167,13 @@ export class World {
 
     // 공격력 스탯은 **한 번의 공격**에 더한다. 산탄은 펠릿마다 더하면 6배로 불어나므로
     // 나눠 싣는다 — "한 발의 총 위력 = 무기 위력 + 공격력"이 어느 무기에서나 같아야 한다.
-    const attack = this.playerAttack(player);
+    //
+    // 그런데 "한 발당 고정값"을 그대로 두면 연사속도(fireRate)가 빠른 무기일수록
+    // 초당 챙기는 보너스가 커진다 — 스탯을 공격력에 몰빵하고 연사 무기를 들면 DPS가
+    // 몇 배로 뛰어 보스가 무의미해지는 원인이었다(docs/backend 데모 준비도 리뷰 피드백
+    // #1). fireRate로 나눠서 **초당 보너스**를 무기 종류와 무관하게 고정한다 — 위
+    // 펠릿 나누기와 같은 원칙을 시간 축에도 적용한 것.
+    const attack = this.playerAttack(player) / (weaponsData[weaponId]?.fireRate || 1);
     const pellets = result.projectiles?.length ?? 1;
     for (const projectile of result.projectiles ?? []) {
       projectile.damage += attack / pellets;
@@ -1024,7 +1192,85 @@ export class World {
       result.meleeHit.damage += attack;
       this.applyMeleeHit(result.meleeHit);
       this.applyMeleeHitToResourceNode(player, result.meleeHit, weaponId);
+      this.applyMeleeHitToRepair(result.meleeHit, weaponId);
+      this.applyMeleeHitToBuilding(result.meleeHit, weaponId);
     }
+  }
+
+  /**
+   * 해머로 때리면 건축물이 **수리된다.**
+   *
+   * 별도의 수리 모드나 키를 만들지 않은 이유는, 해머는 이미 "짓는 도구"라 벽을 향해
+   * 휘두르는 동작이 곧 고치는 것으로 읽히기 때문이다. 다른 무기로는 아무 일도
+   * 일어나지 않는다(아군 건축물은 원래 공격 대상이 아니다).
+   *
+   * 자원 노드와 같은 이유로 **가장 가까운 하나만** 고친다 — 한 번 휘둘러 벽 다섯 개가
+   * 같이 차오르면 수리에 드는 자원이 의미를 잃는다.
+   */
+  private applyMeleeHitToRepair(hit: MeleeHit, weaponId: string): void {
+    if (weaponsData[weaponId]?.toolFamily !== 'hammer') return;
+
+    let target: BuildingEntity | undefined;
+    let targetDistance = Infinity;
+    for (const building of this.buildings.values()) {
+      if (building.hp >= building.maxHp) continue; // 멀쩡한 건 건너뛴다
+      if (!withinMeleeArc(hit, building.x, building.y, TILE_SIZE / 2)) continue;
+      const distance = Math.hypot(building.x - hit.originX, building.y - hit.originY);
+      if (distance >= targetDistance) continue;
+      target = building;
+      targetDistance = distance;
+    }
+    if (!target) return;
+
+    const data = buildingsData[target.type];
+    if (this.core.resource < data.repairCost) return;
+    this.core.resource -= data.repairCost;
+    target.hp = Math.min(target.maxHp, target.hp + data.repairPerHit);
+  }
+
+  /**
+   * 근접 타격이 건축물을 부순다. 주먹이든 무기든 때리면 깎인다 — 잘못 세운 벽을
+   * 치우려고 별도의 철거 모드를 켤 이유가 없어졌다(건축모드는 제거됐다).
+   *
+   * **해머만 아이템을 돌려준다.** 해머는 짓는 도구라 뜯어서 회수하는 게 자연스럽고,
+   * 그 외 무기로 때려 부수면 부서진 것이니 남는 게 없다. 그래서 해머는 멀쩡한
+   * 건축물을 **한 방에** 뜯는다 — 여러 번 때려야 하면 그 사이 타격이 수리로 읽혀
+   * (§applyMeleeHitToRepair) 영원히 못 뜯는다.
+   *
+   * 자원 노드와 같은 이유로 **가장 가까운 하나만** 때린다.
+   */
+  private applyMeleeHitToBuilding(hit: MeleeHit, weaponId: string): void {
+    const isHammer = weaponsData[weaponId]?.toolFamily === 'hammer';
+
+    let target: BuildingEntity | undefined;
+    let targetDistance = Infinity;
+    for (const building of this.buildings.values()) {
+      // 해머는 성한 것만 뜯는다. 상한 것은 수리 쪽이 가져간다.
+      if (isHammer && building.hp < building.maxHp) continue;
+      if (!withinMeleeArc(hit, building.x, building.y, TILE_SIZE / 2)) continue;
+      const distance = Math.hypot(building.x - hit.originX, building.y - hit.originY);
+      if (distance >= targetDistance) continue;
+      target = building;
+      targetDistance = distance;
+    }
+    if (!target) return;
+
+    if (isHammer) {
+      // 뜯은 자리에 아이템으로 떨군다 — 인벤토리가 꽉 차도 사라지지 않는다.
+      const itemId = BUILDING_ITEM_OF[target.type];
+      if (itemId) this.dropItem(itemId, 1, target.x, target.y);
+      this.removeBuilding(target);
+      return;
+    }
+
+    target.hp = Math.max(0, target.hp - hit.damage);
+    if (target.hp <= 0) this.removeBuilding(target);
+  }
+
+  /** 건축물을 지우고 길찾기를 다시 계산한다. 부순 경로가 여럿이라 한 곳에 모았다. */
+  private removeBuilding(building: BuildingEntity): void {
+    this.buildings.remove(building.id);
+    this.recomputeFlowField();
   }
 
   /** 진행 중인 점사의 후속탄을 발사한다. 무기를 바꾸거나 다운되면 남은 점사는 버린다. */
@@ -1209,14 +1455,22 @@ export class World {
     if (!Number.isInteger(fromIndex) || !Number.isInteger(toIndex)) return;
     if (from === to && fromIndex === toIndex) return;
 
-    const touchesStorage = from === 'storage' || to === 'storage';
-    if (touchesStorage && !this.isNearCore(player)) return;
+    // 창고와 충전 슬롯은 둘 다 코어의 것이라 코어 앞에서만 만질 수 있다.
+    const touchesCore = from !== 'inventory' || to !== 'inventory';
+    if (touchesCore && !this.isNearCore(player)) return;
 
-    const source = from === 'storage' ? this.core.storage : player.inventory;
-    const target = to === 'storage' ? this.core.storage : player.inventory;
+    const source = this.container(player, from);
+    const target = this.container(player, to);
 
     const taken = source.takeAt(fromIndex as number);
     if (!taken) return;
+
+    // 충전 슬롯은 태울 수 있는 것만 받는다. 무기를 던져 넣어도 아무 일이 안 일어나면
+    // "왜 안 타지"가 되므로, 아예 들어가지 않게 해서 화면에서 거절이 보이게 한다.
+    if (to === 'charge' && !World.canCharge(taken.itemId)) {
+      source.placeAt(fromIndex as number, taken);
+      return;
+    }
 
     // 목적지에서 밀려난 것(자리 바꾸기)이나 다 못 들어간 것(스택 초과)은 원래 자리로
     // 되돌린다. 안 그러면 아이템이 조용히 사라진다.
@@ -1226,6 +1480,50 @@ export class World {
     // 창고로 들어간 이동이면 티모시가 반응한다(스왑으로 밀려난 아이템이 있어도
     // taken 자체는 목적지에 자리 잡았으므로 "납품"으로 친다).
     if (to === 'storage') this.enqueueCompanionPersonaEvent('coreDeposit', playerId);
+  }
+
+  /**
+   * 이름을 실제 컨테이너로 바꾼다. 충전 슬롯은 Inventory가 아니라 배열이라 같은
+   * 인터페이스(takeAt/placeAt)만 흉내 내는 얇은 어댑터를 씌운다 — moveItem이
+   * 컨테이너 종류마다 분기하지 않게 하려는 것이다.
+   */
+  private container(player: PlayerEntity, name: SlotContainer): SlotAccess {
+    if (name === 'storage') return this.core.storage;
+    if (name === 'inventory') return player.inventory;
+    if (name === 'craft') {
+      // 제작 결과 칸은 한 칸짜리다 — **꺼내 가기만** 되고 넣을 수는 없다.
+      return {
+        takeAt: (index) => {
+          if (index !== 0) return null;
+          const slot = player.craftOutput;
+          player.craftOutput = null;
+          return slot;
+        },
+        placeAt: (_index, incoming) => incoming, // 되돌린다 = 여기엔 못 넣는다
+      };
+    }
+    return {
+      takeAt: (index) => {
+        const slot = this.core.chargeSlots[index] ?? null;
+        if (!slot) return null;
+        this.core.chargeSlots[index] = null;
+        this.chargeProgress[index] = 0;
+        return slot;
+      },
+      placeAt: (index, incoming) => {
+        // 티어로 잠긴 칸은 받지 않는다(되돌린다).
+        if (index < 0 || index >= this.openChargeSlotCount()) return incoming;
+        const existing = this.core.chargeSlots[index] ?? null;
+        // 같은 재료면 합치고, 다르면 자리를 바꾼다(창고 규칙과 같다).
+        if (existing && existing.itemId === incoming.itemId) {
+          existing.count += incoming.count;
+          return null;
+        }
+        this.core.chargeSlots[index] = incoming;
+        this.chargeProgress[index] = 0;
+        return existing;
+      },
+    };
   }
 
   /**
@@ -1262,26 +1560,89 @@ export class World {
     this.dropItem(itemId, count, player.x, player.y);
   }
 
-  quickMoveItem(playerId: string, container: unknown, index: unknown): void {
+  quickMoveItem(playerId: string, container: unknown, index: unknown, to?: unknown): void {
     const player = this.players.get(playerId);
     if (!player || player.hp <= 0) return;
     if (!isContainerName(container)) return;
     if (!Number.isInteger(index)) return;
 
-    // 인벤토리↔창고 중 한쪽은 항상 storage라 창고 근접 검사는 매번 적용된다.
+    // 인벤토리↔창고 중 한쪽은 항상 코어 것이라 근접 검사는 매번 적용된다.
     if (!this.isNearCore(player)) return;
 
-    const source = container === 'storage' ? this.core.storage : player.inventory;
-    const target = container === 'storage' ? player.inventory : this.core.storage;
+    /*
+     * 목적지를 **화면이 정한다.** 예전엔 "반대편"이 항상 창고였는데, 코어 탭에 충전
+     * 슬롯이 생기면서 같은 쉬프트 클릭이 두 곳을 가리키게 됐다. 눈에 보이는 곳으로
+     * 가는 게 가장 덜 놀랍다 — 그래서 클라이언트가 지금 열린 탭을 실어 보낸다.
+     * 안 보내면 예전 그대로 창고로 간다.
+     */
+    if (to === 'charge' && container === 'inventory') {
+      this.quickChargeFromInventory(player, index as number);
+      return;
+    }
 
-    const slot = source.slotAt(index as number);
-    if (!slot) return;
+    // 인벤토리는 창고로 보내고, **코어 쪽 칸(창고·충전·제작)은 전부 인벤토리로 꺼낸다.**
+    //
+    // 예전엔 "storage면 창고, 아니면 인벤토리"로 뭉뚱그렸는데, isContainerName이
+    // charge/craft도 통과시키므로 충전 칸이나 제작 결과 칸을 쉬프트 클릭하면 그 이름이
+    // 인벤토리로 오인됐다 — 누른 적도 없는 **같은 번호의 인벤토리 칸**이 창고로 딸려
+    // 들어갔다. 컨테이너마다 목적지를 명시해서 이름이 늘어도 조용히 새지 않게 한다.
+    if (container === 'inventory') {
+      const slot = player.inventory.slotAt(index as number);
+      if (!slot) return;
 
-    const leftover = target.add(slot.itemId, slot.count);
-    if (leftover === slot.count) return; // 하나도 못 옮겼다 — 원래 칸 그대로 둔다
+      const leftover = this.core.storage.add(slot.itemId, slot.count);
+      if (leftover === slot.count) return; // 하나도 못 옮겼다 — 원래 칸 그대로 둔다
 
-    source.removeAt(index as number, slot.count - leftover);
-    if (target === this.core.storage) this.enqueueCompanionPersonaEvent('coreDeposit', playerId);
+      player.inventory.removeAt(index as number, slot.count - leftover);
+      this.enqueueCompanionPersonaEvent('coreDeposit', playerId);
+      return;
+    }
+
+    const source = this.container(player, container);
+    const taken = source.takeAt(index as number);
+    if (!taken) return;
+
+    const leftover = player.inventory.add(taken.itemId, taken.count);
+    // 인벤토리가 꽉 차 다 못 받으면 남은 만큼 원래 자리로 되돌린다 — 조용히 사라지면 안 된다.
+    if (leftover > 0) source.placeAt(index as number, { itemId: taken.itemId, count: leftover });
+  }
+
+  /**
+   * 인벤토리 한 칸을 충전 슬롯으로 밀어 넣는다(쉬프트 클릭).
+   *
+   * 같은 재료가 이미 타고 있으면 거기에 합치고, 없으면 **열려 있는 빈 슬롯**을 쓴다.
+   * 태울 수 없는 물건이거나 자리가 없으면 아무 일도 안 일어난다 — 거절을 눈에 보이게
+   * 하는 건 화면 몫이다(붉은 테두리).
+   */
+  private quickChargeFromInventory(player: PlayerEntity, index: number): void {
+    const slot = player.inventory.slotAt(index);
+    if (!slot || !World.canCharge(slot.itemId)) return;
+
+    const open = this.openChargeSlotCount();
+    let targetIndex = -1;
+    for (let i = 0; i < open; i += 1) {
+      if (this.core.chargeSlots[i]?.itemId === slot.itemId) {
+        targetIndex = i;
+        break;
+      }
+      if (targetIndex < 0 && !this.core.chargeSlots[i]) targetIndex = i;
+    }
+    if (targetIndex < 0) return;
+
+    const taken = player.inventory.takeAt(index);
+    if (!taken) return;
+    const existing = this.core.chargeSlots[targetIndex];
+    if (existing) existing.count += taken.count;
+    else this.core.chargeSlots[targetIndex] = taken;
+  }
+
+  /**
+   * 지금 쓸 수 있는 충전 슬롯 수 = **코어 티어**. 배열 자체는 최대 개수로 잡아 두고
+   * 앞에서부터 티어만큼만 연다 — 티어가 오를 때 배열을 늘리면 이미 담긴 재료의
+   * 칸 번호가 흔들린다.
+   */
+  openChargeSlotCount(): number {
+    return Math.max(0, Math.min(this.core.chargeSlots.length, this.core.tier));
   }
 
   /** 코어 상호작용(창고 열기 등)이 가능한 거리인지. 클라이언트도 같은 판정을 보여준다. */
@@ -1307,48 +1668,85 @@ export class World {
     // tiers는 "다음 티어로 올리는" 목록이라, 티어 1이 0번 항목을 산다.
     const tier = coreUpgradesData.tiers[this.core.tier - coreUpgradesData.startTier];
     if (!tier) return; // 이미 최고 티어
-    if (this.core.sharedEnergy < tier.cost) return;
+    if (this.core.resource < tier.cost.resource) return;
+    if (this.core.energy < tier.cost.energy) return;
 
-    this.core.sharedEnergy -= tier.cost;
+    this.core.resource -= tier.cost.resource;
+    this.core.energy -= tier.cost.energy;
     this.core.tier += 1;
     this.core.maxHp += tier.coreHpBonus;
     this.core.hp += tier.coreHpBonus;
+    // 상한만 늘린다 — 채워 주지 않는다. 강화 직후 게이지가 비는 게 "다시 모아야
+    // 다음 단계"라는 리듬을 만든다.
+    this.core.maxResource += tier.maxResourceBonus;
+    this.core.maxEnergy += tier.maxEnergyBonus;
+  }
+
+  /** 다음 강화 단계(비용/효과). 최고 티어면 undefined — UI가 버튼을 잠근다. */
+  nextCoreUpgrade(): CoreUpgradeTier | undefined {
+    return coreUpgradesData.tiers[this.core.tier - coreUpgradesData.startTier];
   }
 
   /**
-   * 제작. 재료는 코어 창고에서 나가고 결과물은 **창고로** 들어간다 — 만든 사람이
-   * 바로 손에 쥐지 않는 이유는, 인벤토리가 꽉 찼을 때 결과물이 증발하는 경로를
-   * 아예 만들지 않기 위해서다. 꺼내 쓰는 건 드래그 한 번이면 된다.
+   * 제작 시작. 재료는 코어 게이지에서 **즉시** 나가고 결과물은 craftSeconds 뒤에
+   * 창고로 들어간다.
    *
-   * 코어 티어가 레시피 요구치에 못 미치거나 재료가 모자라면 조용히 무시한다 —
-   * 어느 쪽도 소비가 일어나지 않는다.
+   * 비용을 먼저 받는 이유는, 제작 중에 남이 같은 자원으로 다른 걸 만들어 버리면
+   * 완성 순간에 "돈이 없다"로 실패해야 하는데 그때는 이미 2초를 기다린 뒤라서다.
+   * 결과물이 창고가 아니라 손에 들어가지 않는 것은 예전과 같다 — 가방이 꽉 찼을 때
+   * 결과물이 증발하는 경로를 아예 만들지 않는다.
+   *
+   * 한 사람이 동시에 두 개를 걸 수는 없다. 코어 앞을 떠나도 진행은 계속된다 —
+   * 코어가 만드는 것이지 사람이 들고 만드는 게 아니다.
    */
   craftItem(playerId: string, recipeId: unknown): void {
     const player = this.players.get(playerId);
     if (!player || player.hp <= 0 || !this.isNearCore(player)) return;
     if (typeof recipeId !== 'string') return;
+    if (player.craftRecipeId) return; // 이미 만드는 중
+    if (player.craftOutput) return; // 앞서 만든 걸 아직 안 가져갔다
 
     const recipe = craftingData.recipes.find((entry) => entry.id === recipeId);
     if (!recipe) return;
     if (this.core.tier < recipe.requiresTier) return;
+    if (!this.spendCoreCost(recipe.cost)) return;
 
-    const storage = this.core.storage;
-    // 하나라도 모자라면 아무것도 소비하지 않는다(부분 차감 방지).
-    for (const [itemId, count] of Object.entries(recipe.cost)) {
-      if (storage.countOf(itemId) < count) return;
-    }
-    for (const [itemId, count] of Object.entries(recipe.cost)) {
-      storage.consume(itemId, count);
-    }
+    player.craftRecipeId = recipe.id;
+    player.craftTimer = craftingData.craftSeconds;
+  }
 
-    // 창고가 꽉 차 결과물이 못 들어가면 재료만 날아간다 — 미리 자리를 확인한다.
-    // 한 번에 여러 개 나오는 레시피(울타리 등)는 **일부만 들어가도 실패로 되돌린다** —
-    // "다섯 개 만들었는데 두 개만 생겼다"를 설명할 방법이 없다.
-    const produced = recipe.count ?? 1;
-    const leftover = storage.add(recipe.itemId, produced);
-    if (leftover > 0) {
-      storage.consume(recipe.itemId, produced - leftover);
-      for (const [itemId, count] of Object.entries(recipe.cost)) storage.add(itemId, count);
+  /**
+   * 자원/에너지를 한꺼번에 차감한다. **하나라도 모자라면 아무것도 쓰지 않는다** —
+   * 자원만 깎이고 실패하면 그만큼이 조용히 증발한다.
+   */
+  private spendCoreCost(cost: { resource: number; energy?: number }): boolean {
+    const energy = cost.energy ?? 0;
+    if (this.core.resource < cost.resource || this.core.energy < energy) return false;
+    this.core.resource -= cost.resource;
+    this.core.energy -= energy;
+    return true;
+  }
+
+  /** 제작 진행. 완성되면 결과물이 창고로 들어간다. */
+  private tickCrafting(dtSeconds: number): void {
+    for (const player of this.players.values()) {
+      if (!player.craftRecipeId) continue;
+      player.craftTimer -= dtSeconds;
+      if (player.craftTimer > 0) continue;
+
+      const recipe = craftingData.recipes.find((entry) => entry.id === player.craftRecipeId);
+      player.craftRecipeId = '';
+      player.craftTimer = 0;
+      if (!recipe) continue;
+
+      /*
+       * 결과는 **제작 칸에 그대로 둔다.** 창고로 바로 보내면 만든 물건이 스무 칸
+       * 어딘가에 섞여 들어가 무엇이 새로 생겼는지 알 수 없다. 꺼내 가는 건 드래그
+       * 한 번이면 된다.
+       *
+       * 시작할 때 결과 칸이 비어 있음을 이미 확인했으므로 여기서 덮어쓸 걱정은 없다.
+       */
+      player.craftOutput = { itemId: recipe.itemId, count: recipe.count ?? 1 };
     }
   }
 
@@ -1358,25 +1756,12 @@ export class World {
   }
 
   /**
-   * 창고의 재료를 상점에 판다. 팔 수 있는 것(sellPrice가 있는 것)만 팔리고,
-   * 대금은 팀 공용 자금으로 들어간다.
+   * 상점에서 산다. 대금은 **에너지**로 나가고 물건은 창고로 들어간다.
+   *
+   * 판매는 없앴다. 드랍템은 코어 충전을 거쳐 에너지가 되므로, 판매까지 두면 같은
+   * 일을 하는 경로가 둘이 되고 "충전은 시간이 드는데 판매는 즉시"라 아무도 충전하지
+   * 않게 된다.
    */
-  sellToShop(playerId: string, itemId: unknown, count: unknown): void {
-    const player = this.players.get(playerId);
-    if (!player || player.hp <= 0 || !this.isNearCore(player)) return;
-    if (typeof itemId !== 'string' || !Number.isInteger(count)) return;
-
-    const amount = count as number;
-    if (amount <= 0) return;
-
-    const price = itemsData[itemId]?.sellPrice;
-    if (price === undefined) return; // 팔 수 없는 물건
-
-    if (!this.core.storage.consume(itemId, amount)) return;
-    this.core.money += price * amount;
-  }
-
-  /** 상점에서 산다. 대금은 팀 자금에서 나가고 물건은 창고로 들어간다. */
   buyFromShop(playerId: string, itemId: unknown): void {
     const player = this.players.get(playerId);
     if (!player || player.hp <= 0 || !this.isNearCore(player)) return;
@@ -1385,13 +1770,66 @@ export class World {
     if (!this.core.shopStock.includes(itemId)) return;
 
     const price = itemsData[itemId]?.buyPrice;
-    if (price === undefined || this.core.money < price) return;
+    if (price === undefined || this.core.energy < price) return;
 
-    // 창고에 자리가 없으면 돈만 나가는 일이 없도록 먼저 넣어보고 판단한다.
+    // 창고에 자리가 없으면 에너지만 나가는 일이 없도록 먼저 넣어보고 판단한다.
     const leftover = this.core.storage.add(itemId, 1);
     if (leftover > 0) return;
 
-    this.core.money -= price;
+    this.core.energy -= price;
+  }
+
+  // ---------------------------------------------------------------- 코어 충전
+
+  /** 에너지를 상한까지만 더한다. 콜로니 정화·보스 처치·충전이 모두 이 문을 지난다. */
+  private addEnergy(amount: number): void {
+    this.core.energy = Math.min(this.core.maxEnergy, this.core.energy + amount);
+  }
+
+  /**
+   * 충전 슬롯을 한 틱 돌린다 — 재료를 조금씩 먹어 게이지로 바꾼다.
+   *
+   * **게이지가 가득 차면 멈추고 재료는 슬롯에 남는다.** 넘치는 만큼을 버리면
+   * "언제 다 탔는지" 모른 채 재료가 사라지고, 자동으로 되돌려주면 슬롯이 비어
+   * 무엇을 넣었는지 잊는다. 남겨 두면 화면만 봐도 "가득 차서 멈췄다"가 읽힌다.
+   *
+   * 소수점 진행분(chargeProgress)을 슬롯마다 들고 있는 이유는, 틱마다 내림하면
+   * 60Hz에서 초당 2개가 0개로 사라지기 때문이다.
+   */
+  private tickCoreCharge(dtSeconds: number): void {
+    const perSlot = chargingData.itemsPerSecond * dtSeconds;
+    // 잠긴 슬롯(티어보다 뒤)은 돌지 않는다 — 애초에 넣을 수도 없다.
+    const open = this.openChargeSlotCount();
+    for (let index = 0; index < open; index += 1) {
+      const slot = this.core.chargeSlots[index];
+      if (!slot) {
+        this.chargeProgress[index] = 0;
+        continue;
+      }
+      const material = chargeMaterialOf(slot.itemId);
+      if (!material) continue; // 넣을 수 없는 물건이 어쩌다 들어갔다면 그냥 둔다
+
+      const gauge = material.gauge === 'resource' ? 'resource' : 'energy';
+      const max = gauge === 'resource' ? this.core.maxResource : this.core.maxEnergy;
+      if (this.core[gauge] >= max) continue; // 가득 참 — 재료를 그대로 남긴다
+
+      this.chargeProgress[index] += perSlot;
+      const eaten = Math.min(slot.count, Math.floor(this.chargeProgress[index]));
+      if (eaten <= 0) continue;
+      this.chargeProgress[index] -= eaten;
+
+      slot.count -= eaten;
+      this.core[gauge] = Math.min(max, this.core[gauge] + material.amount * eaten);
+      if (slot.count <= 0) {
+        this.core.chargeSlots[index] = null;
+        this.chargeProgress[index] = 0;
+      }
+    }
+  }
+
+  /** 충전 슬롯이 이 아이템을 받는가. 클라이언트 미리보기도 같은 규칙을 쓴다. */
+  static canCharge(itemId: string): boolean {
+    return chargeMaterialOf(itemId) !== undefined;
   }
 
   /**
@@ -1478,29 +1916,6 @@ export class World {
       .some((tier) => tier.unlocksStatUpgrades);
   }
 
-  /**
-   * 건축 요청 처리. `buildingType`/`cx`/`cy`는 네트워크 경계를 넘어온 값이라 타입부터
-   * 검증한다. 배치 규칙(docs/backend/18 §3.5): 이미 다른 건축물/자원 노드/코어가 있는
-   * 셀, 플레이어가 서 있는 셀엔 지을 수 없다. 비용은 코어의 공유 자원 풀에서 차감한다
-   * (자원채집 도구 도입에 맞춘 재설계 — 예전엔 요청자 개인 지갑에서만 나갔다).
-   */
-  placeBuilding(playerId: string, buildingType: unknown, cx: unknown, cy: unknown): void {
-    if (typeof buildingType !== 'string') return;
-    const data = buildingsData[buildingType as BuildingType];
-    if (!data) return;
-    if (!this.canPlaceBuildingAt(playerId, cx, cy)) return;
-
-    // 비용은 코어 창고에서 나간다. 둘 중 하나라도 모자라면 아무것도 소비하지 않는다 —
-    // 나무만 깎이고 실패하면 자원이 조용히 증발한다.
-    const storage = this.core.storage;
-    if (storage.countOf('wood') < data.woodCost) return;
-    if (storage.countOf('stone') < data.stoneCost) return;
-
-    storage.consume('wood', data.woodCost);
-    storage.consume('stone', data.stoneCost);
-
-    this.spawnBuilding(buildingType as BuildingType, cx as number, cy as number);
-  }
 
   /**
    * 손에 든 건축 아이템으로 설치한다(아이템 한 개 = 비용).
@@ -1568,25 +1983,6 @@ export class World {
   }
 
   /**
-   * 철거 요청 처리(건설모드의 'demolish', docs/backend/43). 자원 환급은 없다 —
-   * 재배치/실수 정리용이지 자원 순환 수단이 아니다. 코어 건설 반경 검사는 안
-   * 한다 — 이미 지어진 건축물은 그 시점에 이미 반경 안이었고, 반경은 코어
-   * 티어가 오를수록만 넓어지므로(줄어들지 않으므로) 항상 유효하다.
-   */
-  demolishBuilding(playerId: string, cx: unknown, cy: unknown): void {
-    if (!isFiniteNumber(cx) || !isFiniteNumber(cy)) return;
-    if (!Number.isInteger(cx) || !Number.isInteger(cy)) return;
-    const player = this.players.get(playerId);
-    if (!player || player.hp <= 0) return;
-
-    const building = this.buildings.at(cx, cy);
-    if (!building) return;
-
-    this.buildings.remove(building.id);
-    this.recomputeFlowField();
-  }
-
-  /**
    * 테스트용: 특정 웨이브(1-based)로 즉시 이동한다(docs/backend/23). 이전 웨이브의
    * 몬스터가 필드에 남아 있으면 새 웨이브 몬스터와 섞여 테스트 결과가 헷갈리니
    * 함께 정리한다 — 코어/플레이어 HP는 건드리지 않는다(그건 테스트하려는 대상일 수
@@ -1647,6 +2043,7 @@ export class World {
    * 아무 효과 없다.
    */
   private reviveCompanion(): void {
+    if (this.companion.state === 'absent') return;
     const wasDowned = this.companion.state === 'downed';
     this.companion.hp = this.companion.maxHp;
     if (!wasDowned) return;
@@ -1692,11 +2089,24 @@ export class World {
         for (let index = 0; index < STORAGE_SLOT_COUNT; index += 1) this.core.storage.takeAt(index);
       },
 
-      setMoney: (amount) => {
-        this.core.money = amount;
+      setResource: (amount) => {
+        this.core.resource = Math.max(0, Math.min(this.core.maxResource, amount));
+        return this.core.resource;
       },
       setEnergy: (amount) => {
-        this.core.sharedEnergy = amount;
+        this.core.energy = Math.max(0, Math.min(this.core.maxEnergy, amount));
+        return this.core.energy;
+      },
+      setLevel: (playerId, level) => {
+        const player = this.players.get(playerId);
+        if (!player) return 0;
+        const target = Math.max(1, Math.min(levelsData.maxLevel, level));
+        // 올라간 만큼 SP도 같이 준다 — 레벨만 올려 두면 정작 확인하려던 SP가 없다.
+        if (target > player.level) player.statPoints += (target - player.level) * levelsData.spPerLevel;
+        player.level = target;
+        player.xp = 0;
+        player.levelUpSeq = (player.levelUpSeq + 1) % 256;
+        return player.level;
       },
       setTier: (tier) => {
         const maxTier = coreUpgradesData.startTier + coreUpgradesData.tiers.length;
@@ -1765,6 +2175,8 @@ export class World {
     }
     this.ammo.tick(dtSeconds);
     this.tickBursts(dtSeconds);
+    this.tickCoreCharge(dtSeconds);
+    this.tickCrafting(dtSeconds);
 
     for (const [id, player] of this.players) {
       const input = this.inputs.get(id);
@@ -1861,6 +2273,32 @@ export class World {
     return this.waveManager.phaseTimeRemaining;
   }
 
+  /** 보스 등장까지 남은 예고 시간(초). 0이면 예고 중이 아니다. */
+  getBossWarningRemaining(): number {
+    return this.waveManager.bossWarningRemaining;
+  }
+
+  /**
+   * 이번 밤에 잡아야 할 **잡몹** 총 마릿수. 낮에는 0이라 HUD가 이 값만 보고
+   * 몬스터 표시를 켜고 끌 수 있다.
+   *
+   * 보스는 빼고 센다 — 잡몹을 전멸시켜야 나오는 별개의 국면이고, 그때부터는 보스
+   * 체력바가 진행도를 맡는다. 보스를 섞으면 "다 잡았는데 1마리 남음"으로 보인다.
+   */
+  getWaveMonsterTotal(): number {
+    return this.waveManager.currentPhase === 'night' ? this.waveManager.waveMonsterCount : 0;
+  }
+
+  /** 아직 남은 잡몹 수 = 살아있는 잡몹 + 아직 안 나온 스폰 큐. */
+  getWaveMonsterRemaining(): number {
+    if (this.waveManager.currentPhase !== 'night') return 0;
+    let alive = 0;
+    for (const monster of this.monsters.values()) {
+      if (!isBossType(monster.type)) alive += 1;
+    }
+    return alive + this.waveManager.pendingSpawnCount;
+  }
+
   getCurrentWave(): number {
     return this.waveManager.currentWave;
   }
@@ -1939,6 +2377,7 @@ export class World {
    * 플레이어를 향해 말한다. 정상 진행(tick)과 개발 커맨드(day)가 같은 함수를 쓴다.
    */
   private enqueueCompanionWaveEndEvent(): void {
+    if (!this.companionActive()) return;
     const nearestId = this.findNearestPlayerId(this.companion.x, this.companion.y);
     if (nearestId) this.enqueueCompanionPersonaEvent('waveEnd', nearestId);
   }
@@ -1962,6 +2401,7 @@ export class World {
   requestCompanionInteraction(playerId: string): boolean {
     const player = this.players.get(playerId);
     if (!player || player.hp <= 0) return false;
+    if (!this.companionActive()) return false;
     const distance = Math.hypot(player.x - this.companion.x, player.y - this.companion.y);
     if (distance > companionData.interactRange) return false;
     this.enqueueCompanionPersonaEvent('proximityInteract', playerId);
@@ -1978,6 +2418,8 @@ export class World {
    */
   sendCompanionMessage(playerId: string, message: string): boolean {
     if (!this.players.has(playerId)) return false;
+    // 없는 티모시에게 말을 걸면 조용히 무시한다 — 답이 돌아오지 않는 게 맞다.
+    if (this.companion.state === 'absent') return false;
     const cooldown = companionData.persona.playerMessageCooldownSeconds;
     if (this.elapsedSeconds - this.lastCompanionMessageAt < cooldown) {
       if (this.queuedCompanionMessages.length >= World.MAX_QUEUED_COMPANION_MESSAGES) return false;
@@ -2461,7 +2903,7 @@ export class World {
       }
       case 'companion': {
         if (
-          this.companion.state !== 'downed' &&
+          this.companionActive() &&
           inRange(this.companion.x, this.companion.y, HIT_RADIUS)
         ) {
           this.damageCompanion(data.damage);
@@ -2490,7 +2932,7 @@ export class World {
     // 휘두른 자리에 티모시가 서 있으면 함께 맞는다 — 노린 대상은 아니지만 칼이 지나간다.
     if (
       target.kind !== 'companion' &&
-      this.companion.state !== 'downed' &&
+      this.companionActive() &&
       inRange(this.companion.x, this.companion.y, HIT_RADIUS)
     ) {
       this.damageCompanion(data.damage);
@@ -2510,7 +2952,7 @@ export class World {
 
   /** 정화 처리: 단계 보상 지급 후 1단계 빈 껍데기로. 다음 낮에 재보급된다(onDayBegan). */
   private purifyColony(colony: ColonyEntity): void {
-    this.core.sharedEnergy += colonyStageData(colony.stage).purifyEnergy;
+    this.addEnergy(colonyStageData(colony.stage).purifyEnergy);
     colony.stage = 1;
     colony.stored = 0;
     colony.purified = true;
@@ -2725,7 +3167,7 @@ export class World {
    */
   private tickCompanion(dtSeconds: number): void {
     const companion = this.companion;
-    if (companion.state === 'downed') return;
+    if (!this.companionActive()) return;
 
     if (companion.state === 'seeking') {
       const node = this.findNearestHarvestableNode(companion.x, companion.y);
@@ -2800,6 +3242,7 @@ export class World {
   }
 
   private damageCompanion(amount: number): void {
+    if (!this.companionActive()) return;
     this.companion.hp = Math.max(0, this.companion.hp - amount);
     if (this.companion.hp <= 0) {
       this.companion.state = 'downed';
@@ -2900,7 +3343,7 @@ export class World {
       // (resolveAggroTarget) 여기서 따로 봐 주지 않으면, 몬스터가 티모시를 그대로
       // 지나쳐 코어만 때리게 된다.
       if (
-        this.companion.state !== 'downed' &&
+        this.companionActive() &&
         Math.hypot(this.companion.x - monster.x, this.companion.y - monster.y) <=
           data.attackRange + HIT_RADIUS
       ) {
@@ -3068,7 +3511,7 @@ export class World {
     // 티모시는 **이미 검이 닿는 거리에 있을 때만** 노린다. 아그로 반경(수백 px)으로
     // 잡으면, 멀리 있는 티모시를 겨눈 채 사거리 밖이라 아무 기술도 못 쓰고, 그렇다고
     // 코어 앞이라 움직이지도 않는 교착에 빠진다(실제로 그랬다). 쫓아갈 대상은 사람뿐이다.
-    if (this.companion.state !== 'downed') {
+    if (this.companionActive()) {
       const distance = Math.hypot(this.companion.x - monster.x, this.companion.y - monster.y);
       const reach = Math.max(
         ...(data.meleeAttacks ?? []).flatMap((attack) => attack.hits.map((h) => h.range)),
@@ -3174,7 +3617,7 @@ export class World {
     }
 
     if (
-      this.companion.state !== 'downed' &&
+      this.companionActive() &&
       !pattern.dashHitIds.has('companion') &&
       hits(this.companion.x, this.companion.y)
     ) {
@@ -3260,7 +3703,7 @@ export class World {
       if (!withinMeleeArc(hit, player.x, player.y, HIT_RADIUS)) continue;
       this.damagePlayer(player, swing.damage);
     }
-    if (this.companion.state !== 'downed' && withinMeleeArc(hit, this.companion.x, this.companion.y, HIT_RADIUS)) {
+    if (this.companionActive() && withinMeleeArc(hit, this.companion.x, this.companion.y, HIT_RADIUS)) {
       this.damageCompanion(swing.damage);
     }
 
@@ -3278,10 +3721,7 @@ export class World {
       if (!buildingsData[building.type].blocksMovement) continue;
       if (!withinMeleeArc(hit, building.x, building.y, TILE_SIZE / 2)) continue;
       building.hp = Math.max(0, building.hp - swing.damage);
-      if (building.hp <= 0) {
-        this.buildings.remove(building.id);
-        this.recomputeFlowField();
-      }
+      if (building.hp <= 0) this.removeBuilding(building);
     }
     // 여기서 markAttack을 다시 부르지 않는다 — 동작 시작 때 이미 켰고, 2연타에서
     // 다시 켜면 애니메이션이 첫 장부터 재시작해 두 번째 타격이 어긋난다.
@@ -3899,11 +4339,13 @@ export class World {
   private grantMonsterDrop(monster: MonsterEntity): void {
     const data = monstersData[monster.type];
 
+    this.grantXp(data.xpReward);
+
     // 에너지와 바닥 드랍은 배타가 아니다 — 보스/엘리트는 팀 에너지도 주고 부품도
     // 떨군다(예전엔 에너지가 있으면 드랍을 건너뛰었는데, 보스 레이드를 잡았는데
     // 바닥에 아무것도 안 떨어지는 건 보상 체감이 밋밋했다).
     if (data.energyDrop) {
-      this.core.sharedEnergy += this.rollDropRange(data.energyDrop);
+      this.addEnergy(this.rollDropRange(data.energyDrop));
     }
 
     // 드랍 테이블은 항목마다 독립 판정이다 — 한 마리가 부품과 희귀부품을 함께 줄 수 있다.

@@ -250,3 +250,65 @@ describe('World — 티모시 피격/다운/리셋', () => {
     expect(world.getCompanion().hp).toBe(companionData.maxHp);
   });
 });
+
+describe('티모시 끄기 — 방 설정', () => {
+  function worldWithoutCompanion(): World {
+    return new World({ rng: seededRng(1), companion: false });
+  }
+
+  it("끈 방의 티모시는 'absent'로 서고 자원을 모으지 않는다", () => {
+    const world = worldWithoutCompanion();
+    const companion = mutableCompanion(world);
+    const storageBefore = world.getCore().storage.countOf('wood');
+
+    expect(companion.state).toBe('absent');
+    // 넉넉히 돌려도 상태가 그대로다 — 수확 루프가 아예 안 돈다.
+    for (let i = 0; i < 600; i += 1) world.tick(1 / 60);
+
+    expect(companion.state).toBe('absent');
+    expect(companion.carriedWood + companion.carriedStone).toBe(0);
+    expect(world.getCore().storage.countOf('wood')).toBe(storageBefore);
+  });
+
+  it('없는 티모시는 낮이 와도 되살아나지 않는다', () => {
+    // 'absent'를 'downed'와 같은 취급으로 두면 첫 아침에 티모시가 생겨난다.
+    const world = worldWithoutCompanion();
+    const companion = mutableCompanion(world);
+
+    world.runDevCommand('nobody', 'day');
+
+    expect(companion.state).toBe('absent');
+  });
+
+  it('없는 티모시에게 말을 걸면 거절한다', () => {
+    const world = worldWithoutCompanion();
+    world.addPlayer('p1', 0, 0);
+
+    expect(world.sendCompanionMessage('p1', '안녕')).toBe(false);
+    // 바로 옆에 서 있어도 상호작용 대상이 아니다.
+    expect(world.requestCompanionInteraction('p1')).toBe(false);
+  });
+
+  it('몬스터가 없는 티모시를 때리지 않는다', () => {
+    // 판정 자리가 여섯 군데라 한 곳만 빠뜨려도 없는 티모시가 표적이 된다.
+    // 같은 상황(겹쳐 세우고 60틱)에서 켠 방은 다운되는 것이 위 테스트로 확인돼 있다.
+    const world = worldWithoutCompanion();
+    world.addPlayer('tester', 400, 400); // 몬스터가 사람 대신 티모시를 노리게 멀리 둔다
+    world.runDevCommand('tester', 'spawn demon 1');
+    const [monster] = [...world.getMonsters().values()];
+    const companion = mutableCompanion(world);
+
+    for (let i = 0; i < 60; i += 1) {
+      companion.x = monster.x;
+      companion.y = monster.y;
+      world.tick(0.02);
+    }
+
+    expect(world.getCompanion().hp).toBe(companionData.maxHp);
+    expect(world.getCompanion().state).toBe('absent');
+  });
+
+  it('기본값은 켬이다 — 옵션을 안 주면 기존과 같이 티모시가 있다', () => {
+    expect(mutableCompanion(createTestWorld()).state).not.toBe('absent');
+  });
+});

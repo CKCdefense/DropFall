@@ -6,6 +6,7 @@ import {
   USE_FX,
   buildingsData,
   companionData,
+  isWithinCoreInteract,
   itemOfSlot,
   monstersData,
   resourcesData,
@@ -69,6 +70,7 @@ import {
   monsterScale,
   hasMonsterSprite,
   monsterAnimKey,
+  monsterArtOffsetX,
   monsterIdleFrame,
   monsterSpriteHeight,
   registerMonsterAnimations,
@@ -210,12 +212,48 @@ const HURT_BODY_SHAKE_MS = 45;
  * 회복은 원래 루프용으로 그려진 10프레임이라 조금 느리게(14fps, 약 0.7초) 한 바퀴만 돌린다.
  * 버프·스탯은 한 번 터지고 끝나는 8프레임이라 더 빠르게(18fps, 약 0.44초) 넘긴다.
  */
-const USE_FX_ANIMS: Record<number, { anim: string; prefix: string; frames: number; rate: number }> =
-  {
-    [USE_FX.heal]: { anim: 'fx_use_heal', prefix: 'fx_heal_heal_', frames: 10, rate: 14 },
-    [USE_FX.buff]: { anim: 'fx_use_buff', prefix: 'fx_boost_buff_', frames: 8, rate: 18 },
-    [USE_FX.statup]: { anim: 'fx_use_statup', prefix: 'fx_boost_statup_', frames: 8, rate: 18 },
-  };
+const USE_FX_ANIMS: Record<
+  number,
+  { anim: string; prefix: string; frames: number; rate: number }
+> = {
+  [USE_FX.heal]: { anim: 'fx_use_heal', prefix: 'fx_heal_heal_', frames: 10, rate: 14 },
+  [USE_FX.buff]: { anim: 'fx_use_buff', prefix: 'fx_boost_buff_', frames: 8, rate: 18 },
+  [USE_FX.statup]: { anim: 'fx_use_statup', prefix: 'fx_boost_statup_', frames: 8, rate: 18 },
+};
+
+/**
+ * 소모품 이펙트의 **바닥선 비율**(캔버스 높이 대비). 원점을 여기로 잡아야 이펙트의
+ * 발밑 고리가 캐릭터 발밑에 놓인다.
+ *
+ * 예전엔 원점을 캔버스 한가운데(0.5)로 두고 캐릭터 위치에 놓았는데, 이펙트 그림은
+ * 가운데가 아니라 y=33(40px 캔버스)에 바닥이 그려져 있어서 **13px 아래로 밀렸다** —
+ * 고리가 발밑이 아니라 정강이 아래 땅에 떠 있었다. 세 이펙트 모두 같은 규격이라 값이
+ * 하나다(생성기의 GROUND / 캔버스 높이 = 33 / 40).
+ */
+const USE_FX_GROUND_Y = 33 / 40;
+
+/**
+ * 레벨업 이펙트(fx_levelup.lua) — 하얀 빛기둥이 한 번 번쩍한다. 6프레임을 14fps로,
+ * 약 0.43초짜리 짧은 섬광이다.
+ *
+ * 예전엔 금빛 기둥에 고리·불티·별 광채까지 얹은 10프레임이었는데, 레벨업은 캐릭터에게
+ * 일어나는 일이지 화면에 일어나는 일이라 거창한 연출이 정작 캐릭터를 가렸다.
+ */
+const LEVEL_UP_ANIM = 'fx_levelup';
+const LEVEL_UP_PREFIX = 'fx_levelup_levelup_';
+const LEVEL_UP_FRAMES = 6;
+const LEVEL_UP_RATE = 14;
+/** 그림의 바닥선 비율(생성기의 GROUND 40 / 캔버스 높이 48). 소모품 이펙트와 같은 규약이다. */
+const LEVEL_UP_GROUND_Y = 40 / 48;
+/**
+ * 레벨업 때 캐릭터가 하얗게 점멸하는 횟수와 간격(ms), 그리고 시작을 늦추는 시간.
+ *
+ * 기둥과 **겹치지 않게 늦춘다.** 동시에 터뜨렸더니 하얘진 캐릭터와 흰 기둥이 한 덩어리로
+ * 뭉쳐서 실루엣이 통째로 사라졌다 — 기둥이 번쩍한 뒤에 캐릭터가 깜빡여야 둘 다 읽힌다.
+ */
+const LEVEL_UP_BLINKS = 3;
+const LEVEL_UP_BLINK_GAP_MS = 130;
+const LEVEL_UP_BLINK_DELAY_MS = 160;
 
 /** 피격 아웃라인 색(눌린 빨강 — fx_hurt 팔레트와 동일)과 유지 시간(ms). */
 const HURT_OUTLINE_COLOR = 0xd95c4a;
@@ -247,6 +285,20 @@ const DROP_BOB_PERIOD_MS = 1400;
  * 눈으로 찾는 랜드마크가 먼저고, 부딪히는 크기는 그대로다.
  */
 const CORE_FRAME = 'core__0';
+/**
+ * 코어 위에 뜨는 "E" 키 안내. 원점이 아래쪽(0.5, 1)이라 화살표 끝이 이 y를 가리킨다 —
+ * 코어 몸통 꼭대기보다 조금 위에 둔다.
+ */
+const KEY_PROMPT_FRAME = 'ui_keyprompt_e_0';
+/**
+ * 코어 스프라이트 꼭대기(원점 0.68 기준 -73px) 바로 위. 더 띄우면 화살표가 무엇을
+ * 가리키는지 흐려진다 — 실제로 -96에서는 코어와 한 덩어리로 안 읽혔다.
+ */
+const KEY_PROMPT_Y = -80;
+/** 둥둥 뜨는 폭(px)과 한 번 오르내리는 시간(ms). */
+const KEY_PROMPT_BOB = 5;
+const KEY_PROMPT_BOB_MS = 900;
+
 const CORE_SPRITE_SIZE = 128;
 /** 원래 0.42였고, 랜드마크로 잘 보이도록 2배로 키웠다. */
 const CORE_SCALE = 0.84;
@@ -342,6 +394,11 @@ const COLONY_SCALE = 0.45;
 
 /** 이 거리보다 적게 움직였으면 정지로 본다(보간 지터로 걷기 애니메이션이 떨리는 것 방지) */
 const MOVE_EPSILON = 0.15;
+/**
+ * 좌표가 안 변해도 걷기를 유지하는 프레임 수. 20Hz 스냅샷을 60fps로 그리면 세 프레임에
+ * 한 번꼴로만 좌표가 갱신되므로, 그보다 넉넉해야 한다(몬스터도 같은 값을 쓴다).
+ */
+const STILL_GRACE_FRAMES = 6;
 
 /** 닉네임 라벨을 머리 위로 띄우는 거리(월드 단위). 캐릭터 32px 중 그림은 y 2~29에 있다. */
 const LABEL_OFFSET_SPRITE = 30;
@@ -421,6 +478,8 @@ export class EntityRenderer {
   private companion?: Phaser.GameObjects.Container;
   /** 코어(원점 고정). 스프라이트 + 반짝임 + 승급 이펙트를 한 컨테이너에 담는다. */
   private core?: Phaser.GameObjects.Container;
+  /** 코어 위 "E" 안내. 상호작용 사거리 안에 들어왔을 때만 보인다. */
+  private corePrompt?: Phaser.GameObjects.Sprite;
   /** 다음 반짝임까지 남은 시간(ms). */
   private glintTimer = CORE_GLINT_MIN_GAP_MS;
   /** 직전 스냅샷의 코어 티어. 늘어난 순간에만 승급 이펙트를 터뜨린다. */
@@ -573,6 +632,7 @@ export class EntityRenderer {
    */
   sync(snapshot: WorldSnapshot, localOverride?: { id: string; x: number; y: number }): void {
     this.syncCore(snapshot.status.coreTier, snapshot.status.coreHp);
+    this.syncCorePrompt(snapshot.players);
     this.syncPlayers(snapshot.players, localOverride);
     this.syncMonsters(snapshot.monsters);
     this.syncTelegraphs(snapshot.monsters);
@@ -669,6 +729,13 @@ export class EntityRenderer {
       }
       sprite.setData('useFxSeq', player.useFxSeq);
 
+      // 레벨업도 같은 규칙 — 번호가 바뀐 순간에만 튼다.
+      const lastLevelSeq = sprite.getData('levelUpSeq') as number | undefined;
+      if (lastLevelSeq !== undefined && lastLevelSeq !== player.levelUpSeq) {
+        this.playLevelUpFx(sprite);
+      }
+      sprite.setData('levelUpSeq', player.levelUpSeq);
+
       // 다운된 플레이어는 흐리게 — 부활 대상임을 한눈에 보이게 한다.
       sprite.setAlpha(player.hp > 0 ? 1 : 0.35);
 
@@ -744,9 +811,9 @@ export class EntityRenderer {
   }
 
   /**
-   * 소모품 사용 이펙트. 캐릭터 **중심**에 겹쳐 놓는다 — 세 이펙트 모두 캔버스 가운데가
-   * 대상 중심이고 발밑 고리까지 포함해 그려져 있어서, 피격 스파크처럼 가슴 높이로
-   * 올리면 고리가 배 위에 뜬다.
+   * 소모품 사용 이펙트. **그림의 바닥선을 캐릭터 발밑에 맞춰** 겹쳐 놓는다 — 세 이펙트
+   * 모두 발밑 고리를 포함해 그려져 있어서, 피격 스파크처럼 가슴 높이로 올리면 고리가
+   * 배 위에 뜬다.
    *
    * 깊이는 캐릭터보다 한 단계 위다. 회복 십자가는 몸을 가려도 되는 종류의 그림이고,
    * 뒤로 깔면 캐릭터에 거의 다 먹힌다.
@@ -757,8 +824,45 @@ export class EntityRenderer {
 
     const burst = this.scene.add
       .sprite(container.x, container.y, GAME_ATLAS, `${fx.prefix}0`)
+      // 그림의 바닥선을 캐릭터 발밑에 맞춘다(§USE_FX_GROUND_Y).
+      .setOrigin(0.5, USE_FX_GROUND_Y)
       .setDepth(container.y + 1);
     burst.play(fx.anim);
+    burst.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => burst.destroy());
+  }
+
+  /**
+   * 레벨업 — **캐릭터가 하얗게 몇 번 점멸하고 빛기둥이 번쩍한다.**
+   *
+   * 점멸은 그림이 아니라 스프라이트 틴트로 낸다(피격 플래시와 같은 문법) — 어떤 직업이든
+   * 같은 실루엣으로 반응하고, 직업마다 이펙트를 그릴 필요가 없다.
+   *
+   * 기둥은 **캐릭터 뒤에** 깐다. 앞에 두면 정작 레벨이 오른 사람이 가려진다.
+   * 사라짐은 프레임이 아니라 알파로 처리한다 — 그림에서 밝기를 디더로 표현하면
+   * 기둥이 얼룩덜룩해져 "빛"이 아니라 "무늬"로 보인다.
+   */
+  private playLevelUpFx(container: Phaser.GameObjects.Container): void {
+    const body = container.getByName('body');
+    if (body instanceof Phaser.GameObjects.Sprite) {
+      for (let i = 0; i < LEVEL_UP_BLINKS; i += 1) {
+        this.scene.time.delayedCall(LEVEL_UP_BLINK_DELAY_MS + i * LEVEL_UP_BLINK_GAP_MS, () => {
+          if (body.active) this.flashSprite(body);
+        });
+      }
+    }
+
+    if (!this.scene.anims.exists(LEVEL_UP_ANIM)) return;
+    const burst = this.scene.add
+      .sprite(container.x, container.y, GAME_ATLAS, `${LEVEL_UP_PREFIX}0`)
+      .setOrigin(0.5, LEVEL_UP_GROUND_Y)
+      .setDepth(container.y - 1);
+    burst.play(LEVEL_UP_ANIM);
+    this.scene.tweens.add({
+      targets: burst,
+      alpha: 0,
+      duration: (LEVEL_UP_FRAMES / LEVEL_UP_RATE) * 1000,
+      ease: 'Quad.easeIn',
+    });
     burst.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => burst.destroy());
   }
 
@@ -989,7 +1093,21 @@ export class EntityRenderer {
     const moved = previous ? Math.hypot(x - previous.x, y - previous.y) > MOVE_EPSILON : false;
     this.lastPositions.set(player.id, { x, y });
 
-    if (moved && player.hp > 0) {
+    /*
+     * **한 프레임 안 움직였다고 바로 멈추지 않는다.**
+     *
+     * 좌표는 매 렌더 프레임 바뀌지 않는다 — 서버 스냅샷은 20Hz고, 보간기가 다음
+     * 스냅샷을 기다리는 동안 두 프레임이 같은 좌표로 나올 수 있다. 그때마다
+     * `anims.stop()`을 걸면 다음 프레임에 다시 play가 걸리면서 **애니메이션이 영원히
+     * 첫 프레임에 머문다** — 실제로 걷는데 캐릭터가 뻣뻣하게 미끄러지던 원인이다.
+     *
+     * 몬스터(§syncMonsters)가 이미 같은 방식으로 유예를 두고 있어 규칙을 맞췄다.
+     */
+    const stillFrames = (container.getData('still') as number | undefined) ?? 0;
+    container.setData('still', moved ? 0 : stillFrames + 1);
+    const walking = (moved || stillFrames < STILL_GRACE_FRAMES) && player.hp > 0;
+
+    if (walking) {
       const key = walkAnimKey(job, direction);
       // 같은 애니메이션이 이미 돌고 있으면 재시작하지 않는다(계속 첫 프레임에 머무는 것 방지).
       if (body.anims.currentAnim?.key !== key || !body.anims.isPlaying) body.play(key, true);
@@ -1093,6 +1211,9 @@ export class EntityRenderer {
     if (!(body instanceof Phaser.GameObjects.Sprite)) return;
 
     body.setFlipX(monster.facingLeft);
+    // 그림이 캔버스 중앙에서 치우친 만큼 되돌린다 — 안 하면 판정 원의 한가운데에
+    // 서 있지 않은 것처럼 보인다(§monsterArtOffsetX). 반전하면 치우침도 뒤집힌다.
+    body.setX(monsterArtOffsetX(monster.type, monster.facingLeft));
 
     // 피격은 무엇보다 우선한다 — 때린 쪽에 즉시 반응이 돌아와야 손맛이 산다.
     // 공격 모션 중이어도 끊고 들어간다(연사로 계속 맞으면 계속 밀리는 게 맞다).
@@ -1131,7 +1252,7 @@ export class EntityRenderer {
     const stillFrames = (container.getData('still') as number | undefined) ?? 0;
     container.setData('still', moving ? 0 : stillFrames + 1);
 
-    const key = monsterAnimKey(monster.type, moving || stillFrames < 6 ? 'walk' : 'idle');
+    const key = monsterAnimKey(monster.type, moving || stillFrames < STILL_GRACE_FRAMES ? 'walk' : 'idle');
     if (body.anims.currentAnim?.key !== key || !body.anims.isPlaying) body.play(key, true);
   }
 
@@ -1440,6 +1561,38 @@ export class EntityRenderer {
   }
 
   /**
+   * 코어 위 "E" 안내를 켜고 끈다.
+   *
+   * **판정은 서버와 같은 함수(isWithinCoreInteract)를 쓴다.** HUD의 하단 안내 문구도
+   * 같은 값을 보므로, 글자는 떴는데 키캡은 안 뜨는 어긋남이 생기지 않는다.
+   *
+   * 둥둥 뜨는 트윈은 만들 때 한 번만 건다 — 보일 때마다 새로 걸면 트윈이 쌓인다.
+   */
+  private syncCorePrompt(players: PlayerView[]): void {
+    const me = players.find((player) => player.id === this.ownSessionId);
+    const visible = me !== undefined && me.hp > 0 && isWithinCoreInteract(me.x, me.y);
+
+    if (!this.corePrompt) {
+      if (!visible) return; // 필요해지기 전까지는 만들지 않는다
+      if (!this.scene.textures.get(GAME_ATLAS).has(KEY_PROMPT_FRAME)) return;
+      this.corePrompt = this.scene.add
+        .sprite(0, KEY_PROMPT_Y, GAME_ATLAS, KEY_PROMPT_FRAME)
+        // 화살표 끝이 원점이라, 이 좌표가 곧 "가리키는 지점"이다.
+        .setOrigin(0.5, 1)
+        .setDepth(KEY_PROMPT_Y);
+      this.scene.tweens.add({
+        targets: this.corePrompt,
+        y: KEY_PROMPT_Y - KEY_PROMPT_BOB,
+        duration: KEY_PROMPT_BOB_MS,
+        ease: 'Sine.easeInOut',
+        yoyo: true,
+        repeat: -1,
+      });
+    }
+    this.corePrompt.setVisible(visible);
+  }
+
+  /**
    * 코어 피격 연출 — "공격당하고 있다"는 게 눈에 안 띈다는 제보로 추가했다.
    * 몸체를 한 번 흰색으로 플래시하고, 그보다 오래 남는 붉은 테두리 펄스를 더한다
    * (플레이어 피격의 흰색+붉은 아웃라인 조합과 같은 문법 — §playPlayerHurt).
@@ -1672,6 +1825,22 @@ export class EntityRenderer {
           end: HURT_FX_FRAMES - 1,
         }),
         frameRate: HURT_FX_RATE,
+        repeat: 0,
+      });
+    }
+
+    if (
+      !this.scene.anims.exists(LEVEL_UP_ANIM) &&
+      this.scene.textures.get(GAME_ATLAS).has(`${LEVEL_UP_PREFIX}0`)
+    ) {
+      this.scene.anims.create({
+        key: LEVEL_UP_ANIM,
+        frames: this.scene.anims.generateFrameNames(GAME_ATLAS, {
+          prefix: LEVEL_UP_PREFIX,
+          start: 0,
+          end: LEVEL_UP_FRAMES - 1,
+        }),
+        frameRate: LEVEL_UP_RATE,
         repeat: 0,
       });
     }
@@ -2011,8 +2180,14 @@ export class EntityRenderer {
 
   // ---------------------------------------------------------------- 티모시(AI 동반자)
 
-  /** 방(팀)당 1마리, 항상 존재한다 — 코어처럼 diff-and-update 루프가 필요 없다. */
+  /**
+   * 방(팀)당 1마리라 코어처럼 diff-and-update 루프가 필요 없다.
+   *
+   * 방 설정으로 티모시를 껐으면(`absent`) 스프라이트를 아예 만들지 않는다 — 투명하게만
+   * 두면 이름표와 말풍선이 빈 자리에 계속 떠 있다.
+   */
   private syncCompanion(view: CompanionView): void {
+    if (view.state === 'absent') return;
     if (!this.companion) {
       this.companion = this.createCompanion(view);
     }

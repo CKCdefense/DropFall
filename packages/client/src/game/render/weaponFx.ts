@@ -95,12 +95,31 @@ export const ORBIT_CENTER_Y = ACTION_PLANE_Y;
 /** 이펙트 스프라이트에서 호의 바깥 반지름(px). 원본 캔버스 64 기준 값이다. */
 const SWING_FX_RADIUS = 30;
 
+/**
+ * 근접 무기를 **가만히 들고 있을 때** 조준선에서 위로 젖히는 각(rad).
+ *
+ * 예전엔 조준선과 정확히 일직선이라 언제나 찌를 자세로 보였다 — 도끼든 방망이든
+ * 창처럼 뻗고 있어서 어색했다. 어깨에 걸치듯 비스듬히 들면 "휘두르기 직전"으로 읽힌다.
+ *
+ * 이 값이 곧 **휘두르기의 시작점**이기도 하다(아래 windup). 둘이 다르면 좌클릭한 순간
+ * 무기가 툭 튀었다가 내려온다.
+ */
+export const MELEE_REST_TILT = (40 * Math.PI) / 180;
+
+/**
+ * 근접 무기를 쥔 손이 몸 중심에서 커서 쪽으로 뻗는 거리(px).
+ *
+ * 원거리(orbitRadius 기본 9)보다 멀리 잡는다 — 팔을 뻗어야 "무기를 들이대고 있다"로
+ * 읽힌다. 무기 그림은 이 지점에서 시작하므로 이 값이 곧 그려지는 사거리의 일부다.
+ */
+const MELEE_HAND_REACH = 15;
+
 function meleeSwingFrom(weapon: WeaponData): MeleeSwing {
   const halfArc = ((weapon.arc ?? 360) * Math.PI) / 360;
   return {
     halfArc,
-    // 부채꼴이 넓을수록 크게 당긴다. 좁은 무기가 크게 젖히면 판정 밖까지 나가 보인다.
-    windup: halfArc * 0.6,
+    // 들고 있는 자세에서 그대로 내려친다 — 젖히는 각이 곧 평소 자세다.
+    windup: MELEE_REST_TILT,
     /**
      * 이펙트 바깥 호를 무기 사거리에 맞춘다. 여기에 몬스터 히트박스(10px)까지 더하면
      * 판정 최대 거리와는 일치하지만, 화면에서는 호가 캐릭터 발밑까지 내려와 몸집을 압도한다.
@@ -683,9 +702,24 @@ export function layoutWeapon(
    * 궤적도 같이 뒤집혀야 날이 앞서 나간다.
    */
   const swingOffset = (pose?.offset ?? 0) * (facingLeft ? -1 : 1);
-  // 휘두르는 동안에는 무기가 조준선에서 벗어나 궤도를 따라 훑고 지나간다.
-  const angle = aimAngle + swingOffset;
-  const radius = visual.orbitRadius + (pose?.thrust ?? 0);
+
+  /*
+   * **손과 무기를 따로 둔다.**
+   *
+   * 예전엔 기울인 각도로 손 위치까지 같이 돌려서, 무기가 몸 중심을 축으로 빙 돈 것처럼
+   * 보였다 — 왼쪽을 볼 때 방망이가 몸을 가로질러 어깨 위에 얹혔다("캐릭터 중심으로
+   * 사선으로 잡는 것 같다" 제보).
+   *
+   * 손은 **커서 쪽으로 뻗고**(handAngle), 무기는 그 손에서 위로 기울여 잡는다(angle).
+   * 팔을 뻗어 무기를 비스듬히 든 자세가 된다. 휘두르는 동안엔 손도 궤도를 따라 도니
+   * 무기는 손과 같은 각도차를 유지한 채 함께 쓸고 지나간다.
+   */
+  const handAngle = aimAngle + swingOffset;
+  const tilt = visual.melee ? -MELEE_REST_TILT * (facingLeft ? -1 : 1) : 0;
+  const angle = handAngle + tilt;
+  // 근접은 팔을 뻗은 만큼 손이 몸에서 더 멀다. 원거리는 예전 궤도 반경 그대로다.
+  const radius =
+    (visual.melee ? MELEE_HAND_REACH : visual.orbitRadius) + (pose?.thrust ?? 0);
 
   /*
    * 왼쪽을 볼 때의 반전은 **조준선을 거울로 삼는다.**
@@ -704,8 +738,9 @@ export function layoutWeapon(
   const cos = Math.cos(rotation);
   const sin = Math.sin(rotation);
 
-  const pivotX = Math.cos(angle) * radius;
-  const pivotY = Math.sin(angle) * radius + ORBIT_CENTER_Y;
+  // 손(=무기를 쥔 지점)은 **조준 방향**에 있다. 기울기는 무기 회전에만 들어간다.
+  const pivotX = Math.cos(handAngle) * radius;
+  const pivotY = Math.sin(handAngle) * radius + ORBIT_CENTER_Y;
 
   const toContainer = (point: Point): Point =>
     weaponPointToContainer(point, visual, pivotX, pivotY, cos, sin, flipX, flipY);

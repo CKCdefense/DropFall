@@ -285,7 +285,7 @@ describe('음식 — 영구 스탯', () => {
     expect(player.hp).toBe(beforeHp + bonus);
   });
 
-  it('너겟은 공격력 스탯을 올려 무기 데미지에 그대로 더해진다', () => {
+  it('너겟은 공격력 스탯을 올리고, 무기 데미지엔 fireRate로 나눈 만큼만 더해진다', () => {
     const world = worldWithPlayer();
     const player = world.getPlayers().get('p1')!;
     const attackBefore = world.playerAttack(player);
@@ -297,11 +297,41 @@ describe('음식 — 영구 스탯', () => {
     equip(world, 'handgun');
     world.fireWeapon('p1');
 
+    // 공격력 스탯은 "초당 보너스"가 고정이지 "한 발당 보너스"가 고정이 아니다 —
+    // fireRate로 나눠서 실은 만큼만 한 발에 붙는다(연사 무기가 스탯을 몇 배로
+    // 챙기지 않게 하는 장치, 데모 준비도 리뷰 피드백 #1).
     const projectile = [...world.getProjectiles().values()][0]!;
     expect(projectile.damage).toBeCloseTo(
-      weaponsData.handgun.damage + world.playerAttack(player),
+      weaponsData.handgun.damage + world.playerAttack(player) / weaponsData.handgun.fireRate,
       5,
     );
+  });
+
+  it('같은 공격력 스탯이면 무기 fireRate와 무관하게 초당 딜량 기여가 같다', () => {
+    // 회귀 방지용 — #1 피드백의 핵심 버그(빠른 무기일수록 스탯 보너스가 몇 배로
+    // 뻥튀기됨)가 재발하면 이 테스트가 깨진다. 실제로 두 무기를 쏴서 결과 투사체
+    // 데미지로 검증한다(공식을 다시 베껴 계산하면 버그가 그대로 통과해버린다).
+    const slow = weaponsData.sniper_rifle;
+    const fast = weaponsData.minigun;
+    expect(slow.fireRate).toBeLessThan(fast.fireRate);
+
+    function fireOnceWithNuggets(weaponId: string) {
+      const world = worldWithPlayer();
+      equip(world, 'nuggets', 10);
+      for (let i = 0; i < 10; i += 1) world.useSelectedItem('p1');
+      equip(world, weaponId);
+      world.fireWeapon('p1');
+      return [...world.getProjectiles().values()][0]!.damage;
+    }
+
+    const slowDamage = fireOnceWithNuggets('sniper_rifle');
+    const fastDamage = fireOnceWithNuggets('minigun');
+
+    const slowBonusPerShot = slowDamage - slow.damage;
+    const fastBonusPerShot = fastDamage - fast.damage;
+    expect(slowBonusPerShot).toBeGreaterThan(0);
+    // 한 발당 보너스는 다르지만(느린 무기가 더 큼), 초당 보너스(보너스×fireRate)는 같다.
+    expect(slowBonusPerShot * slow.fireRate).toBeCloseTo(fastBonusPerShot * fast.fireRate, 5);
   });
 
   it('초콜릿은 이동속도를 영구히 올린다(아드레날린과 곱해진다)', () => {

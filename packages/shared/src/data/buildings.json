@@ -1,43 +1,43 @@
 {
-  "$comment": "건축물. 나무(티어1) → 돌(티어2) → 철(티어3)로 갈수록 튼튼하다. woodCost/stoneCost는 **건축 모드(B)로 코어 창고에서 바로 지을 때**만 쓰인다 — 아이템으로 들고 설치할 때는 아이템 한 개가 곧 비용이라 여기 값을 보지 않는다. 철은 창고 자원으로는 못 짓고(비용 0) 제작으로만 얻는다.",
+  "$comment": "건축물. 나무(티어1) → 돌(티어2) → 철(티어3)로 갈수록 튼튼하다. 설치는 **제작한 아이템을 들고** 하는 경로 하나뿐이다(건축 모드는 제거됐다) — 아이템 한 개가 곧 비용이라 여기엔 비용 항목이 없다. repairPerHit/repairCost는 해머로 한 번 때릴 때 회복되는 체력과 그때 드는 자원이다.",
   "fence": {
-    "woodCost": 5,
-    "stoneCost": 0,
+    "repairPerHit": 6,
+    "repairCost": 2,
     "hp": 50,
     "blocksMovement": true,
     "blocksProjectile": false
   },
   "wall": {
-    "woodCost": 5,
-    "stoneCost": 10,
+    "repairPerHit": 24,
+    "repairCost": 8,
     "hp": 200,
     "blocksMovement": true,
     "blocksProjectile": true
   },
   "stone_fence": {
-    "woodCost": 0,
-    "stoneCost": 8,
+    "repairPerHit": 14,
+    "repairCost": 5,
     "hp": 120,
     "blocksMovement": true,
     "blocksProjectile": false
   },
   "stone_wall": {
-    "woodCost": 0,
-    "stoneCost": 18,
+    "repairPerHit": 50,
+    "repairCost": 11,
     "hp": 420,
     "blocksMovement": true,
     "blocksProjectile": true
   },
   "iron_fence": {
-    "woodCost": 0,
-    "stoneCost": 0,
+    "repairPerHit": 31,
+    "repairCost": 13,
     "hp": 260,
     "blocksMovement": true,
     "blocksProjectile": false
   },
   "iron_wall": {
-    "woodCost": 0,
-    "stoneCost": 0,
+    "repairPerHit": 108,
+    "repairCost": 45,
     "hp": 900,
     "blocksMovement": true,
     "blocksProjectile": true

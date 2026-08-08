@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { monstersData } from '@dropfall/shared';
 import { resolveAssetUrl } from '../../ui/assets';
 
 /**
@@ -89,6 +90,40 @@ export function monsterScale(type: string): number {
 }
 
 /**
+ * 그림이 100×100 캔버스의 **가로 중앙(50)에서 치우친 양**(스프라이트 px, 오른쪽이 +).
+ * Idle/Walk 프레임의 불투명 픽셀 범위를 재서 넣었다 — 팩 그림이 캔버스 정중앙에
+ * 그려져 있지 않다.
+ *
+ * 이걸 보정하지 않으면 **그림과 판정이 어긋나 보인다.** 판정(부채꼴·원형 광역·피격
+ * 반경)은 전부 몬스터의 논리 좌표를 중심으로 도는데, 그림만 옆으로 밀려 있으면
+ * "원 한가운데 서 있지 않다"로 읽힌다 — 화염 골렘의 전방향 찍기(반경 111)에서
+ * 제보받은 증상이다.
+ *
+ * 판정은 건드리지 않는다. 논리 좌표가 맞고 그림이 틀렸으므로 그림을 옮긴다.
+ */
+const ART_CENTER_X: Record<string, number> = {
+  demon: 3.1,
+  hellhound: 0.5,
+  blood: 2,
+  eyeball: 0,
+  lava_slime: -2,
+  minotaur: 6,
+  boss_demon: 5,
+  boss_knight: 1.5,
+  boss_golem: 2,
+  boss_dark_knight: 5.5,
+};
+
+/**
+ * 그림을 논리 좌표 위로 되돌리기 위해 몸통에 줄 로컬 x(월드 px).
+ * @param facingLeft 좌우 반전 중이면 치우침도 같이 뒤집힌다(반전은 원점을 축으로 돈다).
+ */
+export function monsterArtOffsetX(type: string, facingLeft = false): number {
+  const offset = -(ART_CENTER_X[type] ?? 0) * monsterScale(type);
+  return facingLeft ? -offset : offset;
+}
+
+/**
  * 팩의 태그 이름(대문자 시작)을 우리가 쓰는 상태 이름에 붙인 것.
  *
  * 공격은 팩마다 Attack01~03이 있는데 첫 번째만 쓴다 — 서버가 구분하는 건 "공격했다"
@@ -131,10 +166,22 @@ const FRAME_RATE: Record<MonsterAnim, number> = {
   death: 12,
 };
 
-/** 이 타입의 이 동작을 몇 fps로 재생할지. 보스 공격만 느리게 간다. */
+/**
+ * 이 타입의 이 동작을 몇 fps로 재생할지.
+ *
+ * 순서: 데이터의 동작별 지정(animFrameRate) → 보스 공격 기본 → 동작 기본.
+ * 데이터가 이기는 이유는, 타격 시점(atSeconds)이 재생속도에서 나온 값이라 둘을
+ * 같은 곳에서 정해야 어긋나지 않기 때문이다.
+ */
 function frameRateFor(type: string, anim: MonsterAnim): number {
-  const isAttack = anim === 'attack' || anim === 'attack2' || anim === 'attack3';
-  if (isAttack && type.startsWith('boss_')) return BOSS_ATTACK_FRAME_RATE;
+  const attackIndex = ATTACK_BY_INDEX.indexOf(anim);
+  if (attackIndex >= 0) {
+    const override = monstersData[type]?.meleeAttacks?.find(
+      (attack) => attack.anim === attackIndex + 1,
+    )?.animFrameRate;
+    if (override !== undefined) return override;
+    if (type.startsWith('boss_')) return BOSS_ATTACK_FRAME_RATE;
+  }
   return FRAME_RATE[anim];
 }
 

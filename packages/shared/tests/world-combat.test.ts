@@ -488,14 +488,19 @@ describe('World — 다운된(hp 0) 플레이어는 이동 말고는 아무 동�
     expect(world.getCore().storage.countOf(recipe.itemId)).toBe(before);
   });
 
-  it('자원이 충분해도 건축할 수 없다', () => {
+  it('건축 아이템을 들고 있어도 설치할 수 없다', () => {
     const world = new World();
     world.addPlayer('p1', 0, 0);
-    world.getCore().storage.add('wood', 999);
-    world.getCore().storage.add('stone', 999);
+    const inventory = world.getPlayers().get('p1')!.inventory;
+    inventory.takeAt(0);
+    inventory.add('fence', 1);
+    world.selectSlot(
+      'p1',
+      inventory.toView().slots.findIndex((slot) => slot?.itemId === 'fence'),
+    );
     world.getPlayers().get('p1')!.hp = 0;
 
-    world.placeBuilding('p1', 'fence', 3, 3);
+    world.placeHeldBuilding('p1', 3, 3);
 
     expect(world.getBuildings().size).toBe(0);
   });
@@ -515,7 +520,7 @@ describe('World — 다운된(hp 0) 플레이어는 이동 말고는 아무 동�
     const world = new World();
     world.addPlayer('p1', 0, 0);
     const tierBefore = world.getCore().tier;
-    world.getCore().sharedEnergy = 999999;
+    world.getCore().energy = 999999;
     world.getPlayers().get('p1')!.hp = 0;
 
     world.upgradeCore('p1');
@@ -892,7 +897,7 @@ describe('World — 몬스터 처치 보상(부품/에너지)', () => {
     monster!.y = 0;
     monster!.hp = 1;
 
-    const energyBefore = world.getCore().sharedEnergy;
+    const energyBefore = world.getCore().energy;
     world.selectSlot('p1', 1);
     world.fireWeapon('p1');
 
@@ -900,7 +905,7 @@ describe('World — 몬스터 처치 보상(부품/에너지)', () => {
     // 보스는 에너지와 바닥 드랍을 **둘 다** 준다 — 레이드 보상 체감을 위해
     // 예전의 "에너지가 있으면 드랍 생략" 규칙을 없앴다.
     expect(droppedCount(world, 'drop_normal')).toBeGreaterThan(0);
-    const gained = world.getCore().sharedEnergy - energyBefore;
+    const gained = world.getCore().energy - energyBefore;
     const drop = monstersData.boss_demon.energyDrop!;
     expect(gained).toBeGreaterThanOrEqual(drop.min);
     expect(gained).toBeLessThanOrEqual(drop.max);

@@ -1,7 +1,8 @@
 {
   "coreHp": 1000,
   "spawnRadius": 900,
-  "dayDuration": 90,
+  "dayDuration": 120,
+  "bossWarningSeconds": 3,
   "waves": [
     {
       "spawnPoints": 1,

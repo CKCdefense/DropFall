@@ -1,18 +1,27 @@
 import { describe, expect, it } from 'vitest';
 import { World } from '../src/sim/world';
-import { jobsData, } from '../src/data';
+import { jobsData } from '../src/data';
+import { PLAYER_SPEED } from '../src/sim/movement';
+
+/**
+ * 이동 테스트의 출발점. **코어 발자국 밖**이어야 한다 — 예전엔 원점(0,0)에서 시작했는데,
+ * 이동속도를 절반으로 낮추자 1초 한 틱으로도 발자국을 못 벗어나 충돌에 막혔다.
+ * 이 테스트들이 보려는 건 입력 처리이지 코어 충돌이 아니다.
+ */
+const START_X = 500;
+const START_Y = 500;
 
 describe('World', () => {
   it('입력받은 방향으로 tick 이후 플레이어가 이동한다', () => {
     const world = new World();
-    world.addPlayer('p1', 0, 0);
+    world.addPlayer('p1', START_X, START_Y);
     world.setInput('p1', { seq: 1, moveX: 1, moveY: 0, aimAngle: 0 });
 
     world.tick(1);
 
     const player = world.getPlayers().get('p1');
-    expect(player?.x).toBeGreaterThan(0);
-    expect(player?.y).toBe(0);
+    expect(player?.x).toBeGreaterThan(START_X);
+    expect(player?.y).toBe(START_Y);
   });
 
   it('입력이 없는 플레이어는 이동하지 않는다', () => {
@@ -54,24 +63,24 @@ describe('World', () => {
 
   it('범위를 벗어난 moveX/moveY는 -1~1로 clamp된다', () => {
     const world = new World();
-    world.addPlayer('p1', 0, 0);
+    world.addPlayer('p1', START_X, START_Y);
     world.setInput('p1', { seq: 1, moveX: 999, moveY: 0, aimAngle: 0 });
 
     world.tick(1);
 
     const player = world.getPlayers().get('p1');
-    expect(player?.x).toBe(100); // PLAYER_SPEED(100) * clamp(999→1) * 1s
-    expect(player?.y).toBe(0);
+    expect(player?.x).toBe(START_X + PLAYER_SPEED); // clamp(999→1) * 1s
+    expect(player?.y).toBe(START_Y);
   });
 
   it('대각선 입력도 직선과 같은 속도로 이동한다', () => {
     const straight = new World();
-    straight.addPlayer('p1', 0, 0);
+    straight.addPlayer('p1', START_X, START_Y);
     straight.setInput('p1', { seq: 1, moveX: 1, moveY: 0, aimAngle: 0 });
     straight.tick(1);
 
     const diagonal = new World();
-    diagonal.addPlayer('p1', 0, 0);
+    diagonal.addPlayer('p1', START_X, START_Y);
     diagonal.setInput('p1', { seq: 1, moveX: 1, moveY: 1, aimAngle: 0 });
     diagonal.tick(1);
 
@@ -79,12 +88,15 @@ describe('World', () => {
     const b = diagonal.getPlayers().get('p1')!;
 
     // clamp만 하면 대각선이 √2배(약 141%) 빨라진다 — 정규화로 막는다.
-    expect(Math.hypot(b.x, b.y)).toBeCloseTo(Math.hypot(a.x, a.y), 5);
+    expect(Math.hypot(b.x - START_X, b.y - START_Y)).toBeCloseTo(
+      Math.hypot(a.x - START_X, a.y - START_Y),
+      5,
+    );
   });
 
   it('순서가 뒤바뀌거나 중복된 seq 입력은 무시한다', () => {
     const world = new World();
-    world.addPlayer('p1', 0, 0);
+    world.addPlayer('p1', START_X, START_Y);
 
     world.setInput('p1', { seq: 5, moveX: 1, moveY: 0, aimAngle: 1 });
     // 늦게 도착한 예전 입력. 받아들이면 lastProcessedSeq가 되감겨 클라이언트가 튄다.
@@ -93,7 +105,7 @@ describe('World', () => {
 
     const player = world.getPlayers().get('p1');
     expect(player?.lastProcessedSeq).toBe(5);
-    expect(player?.x).toBe(100);
+    expect(player?.x).toBe(START_X + PLAYER_SPEED);
     expect(player?.aimAngle).toBe(1);
   });
 

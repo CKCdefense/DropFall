@@ -42,6 +42,21 @@ export interface PlayerView {
   useFxKind: number;
   /** 소모품을 쓸 때마다 오르는 번호. 값이 바뀐 순간이 "방금 썼다"이다. */
   useFxSeq: number;
+  /** 레벨과 이번 레벨에 쌓인 경험치. 다음 레벨까지의 양은 클라가 levels.json으로 구한다. */
+  level: number;
+  xp: number;
+  /** 아직 안 쓴 스탯 포인트와 스탯별로 찍은 횟수. */
+  statPoints: number;
+  spentHp: number;
+  spentAttack: number;
+  spentStamina: number;
+  /** 레벨이 오를 때마다 오르는 번호. 값이 바뀐 순간이 "방금 레벨업했다"이다. */
+  levelUpSeq: number;
+  /** 제작 중인 레시피와 남은 시간(초). 빈 문자열이면 제작 중이 아니다. */
+  craftRecipeId: string;
+  craftRemaining: number;
+  /** 다 만들어 꺼내 가기를 기다리는 물건(없으면 null). */
+  craftOutput: InventorySlot | null;
   /** 아직 코어에 입고하지 않고 들고 있는 나무/돌. 코어 근처에서 deposit()하면 0이 된다. */
   wood: number;
   stone: number;
@@ -158,14 +173,24 @@ export interface WorldStatus {
   /** 코어에 입고된 팀 공유 자원. 건축 비용은 여기서 나간다(개인 wood/stone이 아니다). */
   coreSharedWood: number;
   coreSharedStone: number;
-  /** 팀 공용 자금. 상점 구매에 쓴다. */
-  coreMoney: number;
+  /** 자원 게이지와 상한. 건축·제작·수리가 여기서 나간다. */
+  coreResource: number;
+  coreMaxResource: number;
   /** 오늘의 상점 진열(아이템 id). 낮이 될 때마다 통째로 바뀐다. */
   shopStock: string[];
   /** 창고에 쌓인 부품(drop_normal). 상점 판매의 주 수입원이다. */
   coreParts: number;
-  /** 콜로니 파괴 또는 보스 처치로만 얻는 희귀 자원. 코어 업그레이드/상점 구입 전용(아직 소비처 미구현). */
-  coreSharedEnergy: number;
+  /** 에너지 게이지와 상한. 코어 강화와 상점 구매가 여기서 나간다. */
+  coreEnergy: number;
+  coreMaxEnergy: number;
+  /** 코어 충전 슬롯(빈 칸은 null). 여기 올린 재료가 시간에 걸쳐 게이지가 된다. */
+  coreCharge: (InventorySlot | null)[];
+  /** 지금 열려 있는 충전 슬롯 수(= 코어 티어). 뒤쪽 칸은 잠겨 있다. */
+  openChargeSlots: number;
+  /** 다음 강화가 남아 있는지와 그 비용. 최고 티어면 false에 비용 0이다. */
+  upgradeAvailable: boolean;
+  upgradeResourceCost: number;
+  upgradeEnergyCost: number;
   /** 구매한 코어 업그레이드 단계(0부터, 미구매 상태). */
   coreTier: number;
   /** 코어 원점 기준 건설 가능 반경(px) — 업그레이드로 늘어난다. */
@@ -177,8 +202,16 @@ export interface WorldStatus {
   /** GamePhase: 'day' | 'night' | 'victory' | 'defeat' */
   wavePhase: string;
   currentWave: number;
+  /** 보스 등장까지 남은 예고 시간(초). 0보다 크면 경고 문구를 띄운다. */
+  bossWarningRemaining: number;
   /** 현재 페이즈가 끝나기까지 남은 시간(초) */
   phaseTimeRemaining: number;
+  /**
+   * 이번 밤의 잡몹 총 마릿수와 남은 수(보스 제외). **낮에는 둘 다 0**이라 HUD가
+   * 이 값만 보고 몬스터 표시를 켜고 끈다.
+   */
+  waveMonsterTotal: number;
+  waveMonsterRemaining: number;
   /** 낮 스킵 투표 동의 인원. 필요 인원은 players.length(만장일치) */
   skipVoteCount: number;
   /** 코어 창고 슬롯. 인벤토리와 같은 구조(빈 칸은 null). */
@@ -224,6 +257,11 @@ export interface LobbyView {
   phase: RoomPhase;
   players: LobbyPlayer[];
   amHost: boolean;
+  /**
+   * 이 방에 티모시가 있는지. 방을 만든 사람이 정한 값이라 참가자는 바꿀 수 없다 —
+   * 대기실이 이걸 읽어 "왜 티모시가 없는지"를 미리 알려준다.
+   */
+  companionEnabled: boolean;
 }
 
 export interface GameConnection {
@@ -264,7 +302,7 @@ export interface GameConnection {
    * 쉬프트 클릭 빠른 이동(docs/backend/44). 목적지 칸은 안 정한다 — 항상 반대편
    * 컨테이너에, 서버가 알아서 쌓거나 빈 칸을 골라 넣는다.
    */
-  quickMoveItem(container: SlotContainer, index: number): void;
+  quickMoveItem(container: SlotContainer, index: number, to?: 'storage' | 'charge'): void;
   /**
    * 창고 칸 하나를 비운다(폐기). 지우지 않고 발밑에 떨어뜨리므로 잘못 눌러도 되돌릴 수 있다.
    */
@@ -289,14 +327,10 @@ export interface GameConnection {
   companionInteract(): void;
   /** 제작 요청. 티어·재료 검증은 서버가 한다. */
   craft(recipeId: string): void;
-  /** 창고의 재료를 상점에 판다(대금은 팀 자금으로). */
-  shopSell(itemId: string, count: number): void;
+  /** 스탯 포인트 하나를 쓴다. 몇 점 남았는지 판단은 서버가 한다. */
+  spendStatPoint(stat: 'maxHp' | 'attack' | 'stamina'): void;
   /** 상점에서 산다(물건은 창고로). */
   shopBuy(itemId: string): void;
-  /** 건축 요청. cx/cy는 그리드 셀 좌표(worldToCell로 미리 변환해서 넘긴다). */
-  placeBuilding(buildingType: string, cx: number, cy: number): void;
-  /** 철거 요청(건설모드의 'demolish', docs/backend/43). 자원 환급 없음. */
-  demolishBuilding(cx: number, cy: number): void;
   /** 매 프레임 호출된다. 구현체는 새 객체를 만들지 말고 내부 버퍼를 재사용할 것. */
   getSnapshot(): WorldSnapshot;
   /**

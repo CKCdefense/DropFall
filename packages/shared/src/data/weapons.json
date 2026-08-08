@@ -5,7 +5,7 @@
     "type": "melee",
     "damage": 4,
     "fireRate": 2.2,
-    "range": 18,
+    "range": 20,
     "arc": 90,
     "harvestsAny": true
   },
@@ -15,7 +15,7 @@
     "tier": "normal",
     "damage": 14,
     "fireRate": 1.1,
-    "range": 37,
+    "range": 34,
     "arc": 100
   },
   "stone_spear": {
@@ -24,7 +24,7 @@
     "tier": "normal",
     "damage": 14,
     "fireRate": 1.5,
-    "range": 50,
+    "range": 44,
     "arc": 60
   },
   "fire_axe": {
@@ -33,7 +33,7 @@
     "tier": "rare",
     "damage": 20,
     "fireRate": 1.4,
-    "range": 34,
+    "range": 32,
     "arc": 110,
     "toolFamily": "axe",
     "gatherMultiplier": 1.0
@@ -53,7 +53,7 @@
     "tier": "epic",
     "damage": 30,
     "fireRate": 2.2,
-    "range": 38,
+    "range": 35,
     "arc": 120,
     "toolFamily": "axe",
     "gatherMultiplier": 1.0
@@ -64,7 +64,7 @@
     "tier": "epic",
     "damage": 40,
     "fireRate": 1.6,
-    "range": 32,
+    "range": 31,
     "arc": 110,
     "toolFamily": "axe",
     "gatherMultiplier": 1.6
@@ -75,7 +75,7 @@
     "tier": "legendary",
     "damage": 55,
     "fireRate": 2.4,
-    "range": 47,
+    "range": 42,
     "arc": 130,
     "lightRadius": 150
   },
@@ -246,7 +246,7 @@
     "type": "melee",
     "damage": 26,
     "fireRate": 1.7,
-    "range": 28,
+    "range": 27,
     "arc": 100,
     "toolFamily": "axe"
   },
@@ -255,7 +255,7 @@
     "type": "melee",
     "damage": 36,
     "fireRate": 2.0,
-    "range": 30,
+    "range": 29,
     "arc": 100,
     "toolFamily": "axe"
   },
@@ -264,7 +264,7 @@
     "type": "melee",
     "damage": 14,
     "fireRate": 1.8,
-    "range": 22,
+    "range": 23,
     "arc": 80,
     "toolFamily": "pickax"
   },

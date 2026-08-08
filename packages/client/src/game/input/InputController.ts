@@ -31,7 +31,11 @@ interface EquippedItem {
  */
 function readEquipped(self: PlayerView): EquippedItem {
   const item = itemOfSlot(self.slots[self.selectedSlot]);
-  if (item?.kind === 'consumable') return { kind: 'consumable', weaponId: undefined };
+  /*
+   * 소모품도 **무기 취급**으로 내려온다 — 좌클릭이 곧 맨손 공격이기 때문이다.
+   * 사용은 우클릭으로 갈라져 나갔으므로, 좌클릭 경로에서 소모품만 따로 볼 이유가 없다.
+   * 서버도 같은 결론을 낸다(무기가 아니면 BARE_HANDS_WEAPON_ID).
+   */
   if (item?.kind === 'building') return { kind: 'building', weaponId: undefined };
   return { kind: 'weapon', weaponId: item?.weaponId ?? BARE_HANDS_WEAPON_ID };
 }
@@ -56,14 +60,6 @@ function fireIntervalMs(weaponId: string | undefined): number {
   return weapon ? 1000 / weapon.fireRate : UNKNOWN_WEAPON_INTERVAL_MS;
 }
 
-/**
- * 건축모드에서 순환할 목록(docs/backend/18 §1 "B 건축모드 토글"). 'off'가
- * 항상 첫 자리라 B를 계속 누르면 결국 꺼진 상태로 돌아온다 — 별도 "나가기" 키가
- * 없어도 된다. 'demolish'(철거, docs/backend/43)는 건축물 타입이 아니라 별도
- * 동작이라 좌클릭 처리에서 따로 분기한다(§pointerdown).
- */
-const BUILD_MODES = ['off', 'fence', 'wall', 'demolish'] as const;
-type BuildMode = (typeof BUILD_MODES)[number];
 
 /**
  * WASD 이동 + 마우스 조준을 서버 입력 메시지로 바꿔 보낸다.
@@ -74,15 +70,26 @@ type BuildMode = (typeof BUILD_MODES)[number];
  * (docs/frontend/02-lobby-room-protocol.md)
  */
 export class InputController {
+  /** 지금 고른 퀵슬롯. 스냅샷에서 갱신되고 휠이 다음 칸을 셀 때 기준이 된다. */
+  private selectedSlot = 0;
+
+  /**
+   * 누적 시간(ms). 무기별 다음 발사 가능 시각을 재는 기준이다 — 버튼을 떼도 계속
+   * 흐르므로 연타로 쿨다운을 건너뛸 수 없다.
+   */
+  private clock = 0;
+  /** 무기 id → 다음 발사 가능 시각. 서버 CooldownTracker가 (플레이어, 무기)별인 것과 같다. */
+  private readonly nextFireAt = new Map<string, number>();
+  /** 이번에 누른 동안 건축물을 이미 놓았는지. 홀드 연타 방지용. */
+  private placedThisPress = false;
+
   private readonly keys: Record<
     'up' | 'down' | 'left' | 'right' | 'sprint',
     Phaser.Input.Keyboard.Key
   >;
   private seq = 0;
-  private fireTimer = 0;
   private elapsed = 0;
   private aimAngle = 0;
-  private buildModeIndex = 0;
   /**
    * 지금 들고 있는 것. **스냅샷에서 받아온 값**이라 서버가 인정한 상태다 —
    * 클라이언트가 정하지 않는다(update에서 매 프레임 갱신).
@@ -142,16 +149,10 @@ export class InputController {
     // 거절했을 때 두 상태가 어긋난다.
     for (let index = 0; index < SLOT_COUNT; index += 1) {
       keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ONE + index).on('down', () => {
-        this.fireTimer = 0;
         this.connection.selectSlot(index);
       });
     }
 
-    // 건축모드 순환(off → fence → wall → off...). 좌클릭은 건축모드일 때 설치로,
-    // 아닐 때는 기존처럼 사격으로 쓴다 — 두 조작이 같은 버튼을 나눠 쓰는 구조다.
-    keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.B).on('down', () => {
-      this.buildModeIndex = (this.buildModeIndex + 1) % BUILD_MODES.length;
-    });
 
     // 수동 재장전(R). 대상 무기·가득 여부 판정은 서버가 한다.
     keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.R).on('down', () => {
@@ -166,22 +167,36 @@ export class InputController {
     // 우클릭으로 건축모드를 바로 취소할 수 있게, 브라우저 기본 우클릭 메뉴부터 끈다.
     scene.input.mouse?.disableContextMenu();
     scene.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-      if (this.buildMode === 'off') return;
       if (this.isPointerOverHud?.(pointer.x, pointer.y)) return;
 
       if (pointer.rightButtonDown()) {
-        this.buildModeIndex = 0;
-        return;
-      }
-      if (pointer.leftButtonDown()) {
-        const { cx, cy } = this.cursorCell();
-        if (this.buildMode === 'demolish') {
-          this.connection.demolishBuilding(cx, cy);
-        } else {
-          this.connection.placeBuilding(this.buildMode, cx, cy);
-        }
+        /*
+         * **소모품 사용은 우클릭이다.** 좌클릭 하나에 공격과 사용을 겹쳐 놓으면, 붕대를
+         * 들고 몬스터를 때리는 것과 붕대를 쓰는 것을 구분할 방법이 없다.
+         *
+         * 홀드 연타 방지를 따로 두지 않는 이유는 이게 **누른 순간에만** 도는
+         * 이벤트라서다 — 예전 좌클릭 경로는 매 프레임 도는 루프라 타이머로 막아야 했다.
+         * 쓸 수 없는 것을 들고 눌러도 서버가 조용히 무시한다.
+         */
+        this.connection.useSlot();
       }
     });
+
+    /*
+     * 휠로 퀵슬롯을 넘긴다. 숫자키(1~4)와 나란히 두는 이유는 전투 중에 손가락을 WASD에서
+     * 떼지 않고도 바꿀 수 있어서다 — 위로 굴리면 앞 칸, 아래로 굴리면 뒤 칸이고 양끝에서
+     * 돌아온다(4에서 아래로 굴리면 1).
+     */
+    scene.input.on(
+      'wheel',
+      (pointer: Phaser.Input.Pointer, _objects: unknown, _dx: number, dy: number) => {
+        if (this.isPointerOverHud?.(pointer.x, pointer.y)) return;
+        if (dy === 0) return;
+        const step = dy > 0 ? 1 : -1;
+        this.selectedSlot = (this.selectedSlot + step + SLOT_COUNT) % SLOT_COUNT;
+        this.connection.selectSlot(this.selectedSlot);
+      },
+    );
   }
 
   /**
@@ -201,10 +216,6 @@ export class InputController {
     return this.equipped.kind;
   }
 
-  get buildMode(): BuildMode {
-    return BUILD_MODES[this.buildModeIndex];
-  }
-
   /**
    * 채팅/개발자 콘솔처럼 텍스트 입력이 뜰 때 부른다. `keyboard.enabled = false`만으로는
    * 부족하다 — Phaser는 그 순간부터 keyup 이벤트도 무시하므로, 입력을 여는 순간 이동키를
@@ -218,7 +229,7 @@ export class InputController {
     this.keys.left.reset();
     this.keys.right.reset();
     this.keys.sprint.reset();
-    this.fireTimer = 0;
+    this.placedThisPress = false;
     this.seq += 1;
     const input = this.buildInput();
     this.connection.sendInput(input);
@@ -230,57 +241,70 @@ export class InputController {
   }
 
   /**
-   * 좌클릭 동작. **들고 있는 것에 따라 갈린다** — 무기면 공격, 소모품이면 사용이다.
-   * 슬롯마다 다른 키를 두지 않고 하나로 합쳐야 조작이 단순하다.
+   * 좌클릭은 **언제나 공격이다** — 무기를 들었으면 그 무기로, 아니면 맨손으로.
+   * 사용(소모품)은 우클릭으로 갈라져 있다(§pointerdown).
    *
-   * 재전송 간격은 무기 fireRate에서 나오고, 실제 쿨다운·소모 판정은 전부 서버가 한다.
-   * 건축모드일 땐 좌클릭이 설치로 쓰이므로 통째로 건너뛴다.
+   * **연출은 "실제로 나갈 공격"에만 붙는다.** 예전엔 버튼을 뗄 때마다 발사 타이머를
+   * 0으로 되돌려서, 연타하면 쿨다운과 무관하게 매번 휘두르기·총구 화염이 나왔다 —
+   * 서버는 하나만 받아들이는데 화면만 대여섯 번 번쩍였다. 이제 타이머를 무기별로
+   * 계속 흘려보내고(서버 CooldownTracker와 같은 단위), 재장전 중·빈 탄창·쓰러진
+   * 상태도 스냅샷으로 미리 걸러 낸다.
+   *
+   * 서버 응답을 기다리지 않는 것은 그대로다 — 타격감은 지연되면 안 된다. 대신
+   * 클라이언트가 서버보다 **너그럽지 않게** 판단해서 헛연출이 안 나오게 한다.
    */
-  private updateFire(delta: number): void {
-    const pointer = this.scene.input.activePointer;
-    if (this.isPointerOverHud?.(pointer.x, pointer.y)) {
-      this.fireTimer = 0;
-      return;
-    }
-    if (this.buildMode !== 'off' || !pointer.leftButtonDown()) {
-      this.fireTimer = 0;
-      return;
-    }
+  private updateFire(delta: number, self: PlayerView): void {
+    this.clock += delta;
 
-    this.fireTimer -= delta;
-    if (this.fireTimer > 0) return;
+    const pointer = this.scene.input.activePointer;
+    const holding = pointer.leftButtonDown() && !this.isPointerOverHud?.(pointer.x, pointer.y);
+    if (!holding) {
+      this.placedThisPress = false;
+      return;
+    }
 
     const { kind, weaponId } = this.equipped;
-    this.fireTimer = fireIntervalMs(weaponId);
-
-    if (kind === 'consumable') {
-      // 소모품은 홀드로 연타되면 순식간에 다 없어진다 — 한 번 쓰고 버튼을 뗄 때까지 막는다.
-      this.fireTimer = Infinity;
-      this.connection.useSlot();
-      return;
-    }
 
     if (kind === 'building') {
-      // 건축물도 홀드 연타를 막는다 — 커서를 조금 움직이는 사이에 인벤토리가 비어버린다.
-      this.fireTimer = Infinity;
+      // 건축물은 홀드 연타를 막는다 — 커서를 조금 움직이는 사이에 인벤토리가 비어버린다.
+      if (this.placedThisPress) return;
+      this.placedThisPress = true;
       const cell = this.cursorCell();
       this.connection.placeHeldBuilding(cell.cx, cell.cy);
       return;
     }
 
     if (kind !== 'weapon' || !weaponId) return;
+    if (!this.canAttack(self, weaponId)) return;
 
+    this.nextFireAt.set(weaponId, this.clock + fireIntervalMs(weaponId));
     this.connection.fire();
-    // 연출은 서버 응답을 기다리지 않고 즉시 그린다 — 타격감은 지연되면 안 된다.
-    // (서버가 쿨다운으로 실제 공격을 거절하면 연출만 헛나오는데, 연출이라 문제되지 않는다)
+    // 연출은 서버 응답을 기다리지 않고 즉시 그린다 — 위 검사를 통과했으면 서버도
+    // 받아들일 공격이다.
     this.onAttack?.(weaponId);
+  }
+
+  /**
+   * 지금 이 공격이 **실제로 나갈 수 있는가.** 서버 `World.fireWeapon`의 관문을 같은
+   * 순서로 다시 본다 — 쓰러짐 → 쿨다운 → 탄약. 서버가 쓰는 여유(FIRE_COOLDOWN_GRACE)는
+   * 일부러 안 쓴다. 클라이언트가 더 너그러우면 헛연출이 다시 생긴다.
+   */
+  private canAttack(self: PlayerView, weaponId: string): boolean {
+    if (self.hp <= 0) return false;
+    if (self.reloadRemaining > 0) return false;
+    // 탄창이 있는 무기(ammoMagazine > 0)만 탄약을 본다 — 근접·맨손은 0이다.
+    if (self.ammoMagazine > 0 && self.ammo <= 0) return false;
+    return this.clock >= (this.nextFireAt.get(weaponId) ?? 0);
   }
 
   /** 매 프레임 호출. 실제 전송은 SEND_INTERVAL_MS 마다 한 번. */
   update(delta: number, self: PlayerView): void {
+    // 선택 칸은 서버가 정한 값을 그대로 따라간다 — 휠은 여기서 읽은 값을 기준으로
+    // 다음 칸을 계산한다(클라가 따로 세어 두면 숫자키와 어긋난다).
+    this.selectedSlot = self.selectedSlot;
     this.equipped = readEquipped(self);
     this.updateAim(self.x, self.y);
-    this.updateFire(delta);
+    this.updateFire(delta, self);
 
     this.elapsed += delta;
     if (this.elapsed < SEND_INTERVAL_MS) return;

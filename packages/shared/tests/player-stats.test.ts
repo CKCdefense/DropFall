@@ -64,15 +64,20 @@ describe('직업별 기초 스탯', () => {
 });
 
 describe('공격력 스탯', () => {
-  it('무기 데미지에 그대로 더해진다', () => {
+  it('무기 데미지에 fireRate로 나눈 만큼 더해진다', () => {
     const world = worldWithPlayer('soldier');
     const player = world.getPlayers().get('p1')!;
     player.inventory.add('handgun', 1);
 
     world.fireWeapon('p1');
 
+    // 공격력 스탯은 "초당 보너스"가 고정이라 fireRate로 나눠서 실린다 — 연사 무기가
+    // 스탯 보너스를 몇 배로 챙기지 않게 하는 장치(데모 준비도 리뷰 피드백 #1).
     const projectile = [...world.getProjectiles().values()][0]!;
-    expect(projectile.damage).toBeCloseTo(weaponsData.handgun.damage + jobsData.soldier.attack, 5);
+    expect(projectile.damage).toBeCloseTo(
+      weaponsData.handgun.damage + jobsData.soldier.attack / weaponsData.handgun.fireRate,
+      5,
+    );
   });
 
   it('산탄은 펠릿마다 더하지 않는다 — 한 발의 총 위력 기준으로 나눠 싣는다', () => {
@@ -85,7 +90,10 @@ describe('공격력 스탯', () => {
     const pellets = [...world.getProjectiles().values()];
     const total = pellets.reduce((sum, pellet) => sum + pellet.damage, 0);
     const weapon = weaponsData.pump_shotgun;
-    expect(total).toBeCloseTo(weapon.damage * weapon.pellets! + jobsData.soldier.attack, 5);
+    expect(total).toBeCloseTo(
+      weapon.damage * weapon.pellets! + jobsData.soldier.attack / weapon.fireRate,
+      5,
+    );
   });
 
   it('공격력이 높은 직업이 같은 무기로 더 아프게 때린다', () => {

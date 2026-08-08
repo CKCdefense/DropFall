@@ -23,10 +23,12 @@ import {
   CORE_INTERACT_KEY,
   HUD_BLOCK_KEY,
   INPUT_CONTROLLER_KEY,
+  LOCAL_POSITION_KEY,
 } from '../createGame';
 import { DayNightOverlay } from '../render/DayNightOverlay';
 import { EntityRenderer } from '../render/EntityRenderer';
 import { queueGameAtlas } from '../render/playerSprite';
+import { queueHudAtlas } from '../ui/hudBar';
 import { queueUiFrames } from '../ui/uiFrame';
 import { PlacementPreview, holdsBuilding } from '../render/PlacementPreview';
 import { queueMonsterAtlas } from '../render/monsterSprite';
@@ -92,6 +94,8 @@ export class GameScene extends Phaser.Scene {
     // HUD 모달의 돌 테두리. 텍스처는 게임 전체가 공유하므로 여기서 한 번 올리면
     // 나중에 뜨는 HudScene에서도 그대로 쓴다.
     queueUiFrames(this);
+    // HUD 게이지 껍데기(체력·코어·보스 바)와 라벨 아이콘. 없으면 단색 사각형으로 떨어진다.
+    queueHudAtlas(this);
   }
 
   create(): void {
@@ -204,6 +208,10 @@ export class GameScene extends Phaser.Scene {
       const { x, y } = this.predictor.renderPosition(this.isBlocked);
       localOverride = { id: me.id, x, y };
     }
+    // HudScene(미니맵 등)은 이 예측 좌표를 registry로만 받는다 — 씬이 달라 직접 참조가
+    // 안 된다. 안 넘기면 미니맵의 내 점만 여전히 순수 보간이라 네트워크 지터에 그대로
+    // 노출된다(docs/backend/55 후속 수정 — "미니맵에서 순간이동" 제보로 발견).
+    this.registry.set(LOCAL_POSITION_KEY, localOverride ? { x: localOverride.x, y: localOverride.y } : undefined);
 
     // 휘두르기는 스냅샷이 아니라 시간으로 진행한다 — sync보다 먼저 갱신해야 이번 프레임에 반영된다.
     this.entityRenderer.advance(delta);
@@ -214,12 +222,9 @@ export class GameScene extends Phaser.Scene {
 
     if (!me) return;
 
-    // 건축 아이템을 들고 있을 때만 커서 칸을 비춘다. 건축 모드(B)로도 같은 표시를 쓴다 —
-    // 두 경로가 결국 같은 칸에 같은 규칙으로 짓는데 표시가 다르면 헷갈린다.
+    // 건축 아이템을 들고 있을 때만 커서 칸을 비춘다 — 설치 경로가 그것 하나뿐이다.
     // (input_.update는 위 예측 재조정 블록에서 이미 호출했다 — 두 번 부르지 않는다.)
-    const showPlacement = holdsBuilding(me) || this.input_.buildMode === 'fence' ||
-      this.input_.buildMode === 'wall';
-    this.placement.update(showPlacement ? this.input_.cursorCell() : null, snapshot, me);
+    this.placement.update(holdsBuilding(me) ? this.input_.cursorCell() : null, snapshot, me);
 
     if (!this.isFollowing) {
       const sprite = this.entityRenderer.getSprite(me.id);

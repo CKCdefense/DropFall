@@ -10,7 +10,9 @@ import {
 import type { WorldSnapshot } from '../../net/GameConnection';
 import { PANEL_FILL, PANEL_STROKE } from './theme';
 
-const SIZE = 168;
+/** 미니맵 한 변(px). 코어 패널이 같은 높이를 쓰려고 가져간다(HudScene). */
+export const MINIMAP_SIZE = 168;
+const SIZE = MINIMAP_SIZE;
 
 /**
  * 미니맵이 담는 월드 범위(코어 기준 ±px) = **맵 전체**.
@@ -91,7 +93,14 @@ export class Minimap {
     this.fog?.setDisplaySize(this.size - 2, this.size - 2).setPosition(this.left + 1, this.top + 1);
   }
 
-  update(snapshot: WorldSnapshot, ownSessionId: string): void {
+  /**
+   * `selfPosition`: 내 캐릭터의 예측 좌표(있으면 이걸 우선 찍는다). GameScene의
+   * `EntityRenderer`가 월드 화면에서 쓰는 것과 같은 값이다 — 안 넘기면(또는
+   * undefined면) 스냅샷의 보간 좌표를 그대로 쓰는데, 그 값은 네트워크 도착 시각에
+   * 의존해 지터에 취약하다. 월드 화면의 내 캐릭터는 예측으로 매끈해졌는데 이 값을
+   * 안 받으면 미니맵 점만 여전히 순간이동하는 것처럼 보인다(docs/backend/55 후속 수정).
+   */
+  update(snapshot: WorldSnapshot, ownSessionId: string, selfPosition?: { x: number; y: number }): void {
     this.applyFog(snapshot.explored);
     this.dots.clear();
 
@@ -118,7 +127,8 @@ export class Minimap {
     // 플레이어는 마지막에 찍어야 몬스터 무리에 묻히지 않는다.
     for (const player of snapshot.players) {
       const isMe = player.id === ownSessionId;
-      this.plot([player], isMe ? SELF_COLOR : ALLY_COLOR, isMe ? 2 : 1.5);
+      const point = isMe && selfPosition ? { ...player, ...selfPosition } : player;
+      this.plot([point], isMe ? SELF_COLOR : ALLY_COLOR, isMe ? 2 : 1.5);
     }
   }
 

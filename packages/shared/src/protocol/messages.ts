@@ -21,26 +21,7 @@ export interface SelectSlotMessage {
   index: number;
 }
 
-/**
- * 건축 요청. 그리드 스냅(어느 셀을 가리키는지)은 클라이언트가 계산해서 셀 좌표로
- * 보낸다 — 서버는 좌표 변환 없이 그 셀에 지을 수 있는지만 검증한다. 채집(`harvest`)은
- * 반경 안 가장 가까운 노드에 자동으로 적용되니 별도 좌표가 필요 없어 메시지 타입이
- * 없다(페이로드 없는 이벤트).
- */
-export interface BuildInputMessage {
-  buildingType: string;
-  cx: number;
-  cy: number;
-}
 
-/**
- * 철거 요청(건설모드의 'demolish', docs/backend/43). 좌표만 보낸다 — 그 칸에
- * 실제로 건축물이 있는지, 무엇인지는 서버가 판단한다. 자원 환급은 없다.
- */
-export interface DemolishInputMessage {
-  cx: number;
-  cy: number;
-}
 
 /**
  * 슬롯 사이 아이템 이동(드래그앤드롭). 어느 컨테이너의 몇 번 칸에서 어디로 놓았는지만
@@ -58,10 +39,12 @@ export interface CraftMessage {
   recipeId: string;
 }
 
-/** 상점 판매. 창고에 있는 재료를 개수만큼 판다. */
-export interface ShopSellMessage {
-  itemId: string;
-  count: number;
+/**
+ * 스탯 포인트 하나를 쓴다. 몇 점을 쓸지는 안 보낸다 — 한 번에 여러 점을 넣으면
+ * 중간에 포인트가 모자랄 때 몇 점이 들어갔는지가 애매해진다.
+ */
+export interface SpendStatPointMessage {
+  stat: 'maxHp' | 'attack' | 'stamina';
 }
 
 /** 상점 구매. 진열된 물건 하나를 산다. */
@@ -88,6 +71,8 @@ export interface DevResultMessage {
  * 컨테이너(인벤토리↔창고)이고, 그 안 어느 칸에 넣을지는 서버가 자동으로 고른다.
  */
 export interface QuickMoveItemMessage {
+  /** 목적지. 없으면 예전 규칙(인벤토리↔창고)대로 반대편으로 간다. */
+  to?: 'storage' | 'charge';
   container: 'inventory' | 'storage';
   index: number;
 }

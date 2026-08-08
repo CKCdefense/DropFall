@@ -44,6 +44,12 @@ export class SlotDrag {
    * (반대편 컨테이너 안 어디에 넣을지는 서버가 고른다).
    */
   onQuickMove: (container: SlotContainer, index: number) => void = () => {};
+  /**
+   * 옮길 수 없는 조합(예: 충전 칸에 무기)을 화면이 먼저 거른다. true를 돌려주면
+   * 요청을 보내지 않는다 — 서버에 보내 봐야 아무 일도 안 일어나고, 그러면 사용자는
+   * "안 된 것"과 "안 눌린 것"을 구분할 수 없다.
+   */
+  isRejected: (to: SlotContainer, toIndex: number, itemId: string) => boolean = () => false;
 
   /** 칸 내용 조회. 빈 칸은 집을 수 없어야 해서 최신 스냅샷을 물어본다. */
   getSlot: (container: SlotContainer, index: number) => InventorySlot | null = () => null;
@@ -156,6 +162,10 @@ export class SlotDrag {
     this.endDrag();
 
     if (!target || target === source) return;
+
+    const slot = this.getSlot(source.container, source.index);
+    if (slot && this.isRejected(target.container, target.index, slot.itemId)) return;
+
     this.onMove(source.container, source.index, target.container, target.index);
   }
 

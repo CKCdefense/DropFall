@@ -8,17 +8,20 @@ import {
   normalizeRoomCode,
   sanitizeNickname,
   sanitizeRoomName,
+  JOBS,
+  type JobId,
   type RoomListItem,
 } from '@dropfall/shared';
 import { createRoom, joinRoomByCode } from '../net/ColyseusConnection';
 import { LocalConnection } from '../net/LocalConnection';
+import { characterPortrait } from './characterPortrait';
 import { fetchRooms } from '../net/lobbyApi';
 import type { GameConnection } from '../net/GameConnection';
 import { assetAttr, hasAsset } from './assets';
 import { createCodeInput } from './codeInput';
 import { clear, el } from './dom';
 
-type Screen = 'title' | 'browse' | 'create' | 'connecting';
+type Screen = 'title' | 'solo' | 'browse' | 'create' | 'connecting';
 
 const NICKNAME_STORAGE_KEY = 'dropfall:nickname';
 
@@ -47,6 +50,14 @@ export class LobbyApp {
   /** 방 목록 모달 안에서 목록 / 코드 찾기 전환 */
   private browseMode: 'list' | 'code' = 'list';
   private searchQuery = '';
+  /** 혼자하기 모달에서 고른 직업. 고르기 전에는 시작할 수 없다(대기실과 같은 규칙). */
+  private soloJob: JobId | null = null;
+  /**
+   * 티모시를 데려갈지. 혼자하기와 방 만들기가 **같은 값을 공유한다** — 한 번 정한
+   * 취향이 다음 판에도 이어지는 게 자연스럽고, 두 화면이 서로 다른 값을 기억하면
+   * "분명 껐는데 켜져 있다"가 된다.
+   */
+  private companionEnabled = true;
 
   constructor(
     private readonly root: HTMLElement,
@@ -76,15 +87,7 @@ export class LobbyApp {
   private render(): void {
     clear(this.root);
 
-    const message = this.errorMessage
-      ? el('p', { class: 'msg msg-error lobby-message' }, [this.errorMessage])
-      : this.statusMessage
-        ? el('p', { class: 'msg msg-info lobby-message' }, [this.statusMessage])
-        : null;
-
-    this.root.append(
-      el('div', { class: 'lobby' }, [this.renderTitle(), message, this.renderModal()]),
-    );
+    this.root.append(el('div', { class: 'lobby' }, [this.renderTitle(), this.renderModal()]));
   }
 
   /** 모달이 필요 없는 화면(title)에서는 null */
@@ -94,17 +97,21 @@ export class LobbyApp {
         ? this.renderBrowse()
         : this.screen === 'create'
           ? this.renderCreate()
-          : this.screen === 'connecting'
-            ? el('p', { class: 'modal-loading' }, ['접속 중...'])
-            : null;
+          : this.screen === 'solo'
+            ? this.renderSolo()
+            : this.screen === 'connecting'
+              ? el('p', { class: 'modal-loading' }, ['접속 중...'])
+              : null;
 
     if (!body) return null;
 
     // 방 목록만 가로로 긴 상자를 쓴다(네 열짜리 표). 입력 몇 칸뿐인 화면은 같은 상자에
     // 담으면 좌우가 통째로 비므로 세로로 선 폼 상자로 바꾼다(§.modal-form).
     const isTable = this.screen === 'browse' && this.browseMode === 'list';
+    // 혼자하기는 직업 카드 네 장이 한 줄로 들어가야 해서 폼보다 조금 넓다(§.modal-solo).
+    const shape = isTable ? '' : this.screen === 'solo' ? 'modal-form modal-solo' : 'modal-form';
     const modal = el('div', {
-      class: `modal ${isTable ? '' : 'modal-form'}`.trim(),
+      class: `modal ${shape}`.trim(),
       ...assetAttr('modal'),
     }, [body]);
     const backdrop = el('div', { class: 'modal-backdrop' }, [modal]);
@@ -127,12 +134,17 @@ export class LobbyApp {
 
     return el('div', { class: 'screen landing' }, [
       el('div', { class: 'landing-top' }, [this.logo(), nickname.wrapper]),
+      // 안내·오류 줄은 **항상 자리를 차지한다**(비어 있어도 빈 상자를 남긴다).
+      // 메시지가 뜰 때만 끼워 넣으면 그만큼 로고와 버튼이 밀려서, 오류를 읽는 순간
+      // 누르려던 버튼이 발밑에서 움직인다.
+      el('div', { class: 'landing-message' }, [this.landingMessage()]),
       el('div', { class: 'landing-bottom' }, [
         el('div', { class: 'landing-actions' }, [
           // 서버 없이 클라이언트만 확인하는 개발/시연용 진입로
           this.button('혼자하기', 'primary', () => {
             if (!this.commitNickname(nickname.input)) return;
-            this.startLocal();
+            this.screen = 'solo';
+            this.render();
           }),
           this.button('참가하기', 'primary', () => {
             if (!this.commitNickname(nickname.input)) return;
@@ -148,6 +160,13 @@ export class LobbyApp {
         ]),
       ]),
     ]);
+  }
+
+  /** 닉네임 칸과 버튼 줄 사이에 놓이는 안내/오류 한 줄. 없으면 null(자리는 유지된다). */
+  private landingMessage(): HTMLElement | null {
+    if (this.errorMessage) return el('p', { class: 'msg msg-error' }, [this.errorMessage]);
+    if (this.statusMessage) return el('p', { class: 'msg msg-info' }, [this.statusMessage]);
+    return null;
   }
 
   /** 와이어프레임: 검색 / 헤더 행 / 방 목록 / [방 만들기] [코드 찾기] */
@@ -292,6 +311,89 @@ export class LobbyApp {
     ]);
   }
 
+  /**
+   * 혼자하기 설정 모달 — 직업 고르기 + 티모시 여부.
+   *
+   * 혼자하기는 대기실을 건너뛰고 곧장 게임으로 들어간다(§main.enterRoom). 그래서
+   * 멀티에서 대기실이 하던 일 — 직업 선택 — 을 대신할 자리가 여기밖에 없다.
+   * 예전엔 이 단계가 통째로 없어서 혼자 하면 항상 기본 스탯으로만 시작했다.
+   */
+  private renderSolo(): HTMLElement {
+    const start = () => {
+      if (!this.soloJob) {
+        this.fail('직업을 먼저 고르세요.');
+        return;
+      }
+      this.startLocal(this.soloJob);
+    };
+
+    return el('div', { class: 'code-form' }, [
+      el('div', { class: 'screen-head' }, [el('h2', {}, ['혼자하기'])]),
+      el('div', { class: 'field-block' }, [
+        el('span', {}, ['직업']),
+        el(
+          'div',
+          { class: 'job-cards' },
+          JOBS.map((job) => {
+            const selected = this.soloJob === job.id;
+            const card = el(
+              'button',
+              {
+                class: `job-card ${selected ? 'is-selected' : ''}`.trim(),
+                type: 'button',
+                'aria-pressed': selected ? 'true' : 'false',
+              },
+              [
+                el('span', { class: 'job-card-portrait' }, [
+                  // 아틀라스가 아직 안 왔으면 이름 첫 글자로 대신한다(대기실과 같은 규칙).
+                  characterPortrait(job.id) ??
+                    el('span', { class: 'slot-portrait-mark' }, [job.name.charAt(0)]),
+                ]),
+                el('span', { class: 'job-card-name' }, [job.name]),
+                el('span', { class: 'job-card-summary' }, [job.summary]),
+              ],
+            );
+            card.addEventListener('click', () => {
+              this.soloJob = job.id;
+              this.errorMessage = '';
+              this.render();
+            });
+            return card;
+          }),
+        ),
+      ]),
+      this.companionToggle(),
+      el('div', { class: 'modal-actions' }, [
+        this.button('시작', 'primary', start),
+        this.button('뒤로', 'primary', () => this.goTitle()),
+      ]),
+    ]);
+  }
+
+  /**
+   * 티모시 on/off 체크박스. 혼자하기와 방 만들기가 같은 조각을 쓴다 — 같은 설정이
+   * 화면마다 다르게 생기면 같은 값이라는 걸 알아보기 어렵다.
+   */
+  private companionToggle(): HTMLElement {
+    const box = el('input', {
+      type: 'checkbox',
+      class: 'checkbox-input',
+      ...(this.companionEnabled ? { checked: 'checked' } : {}),
+    }) as HTMLInputElement;
+    box.addEventListener('change', () => {
+      this.companionEnabled = box.checked;
+    });
+
+    return el('label', { class: 'checkbox-row' }, [
+      box,
+      el('span', { class: 'checkbox-box' }),
+      el('span', { class: 'checkbox-text' }, [
+        '티모시 데려가기',
+        el('span', { class: 'checkbox-hint' }, ['자원을 대신 모아 주는 AI 동반자']),
+      ]),
+    ]);
+  }
+
   private renderCreate(): HTMLElement {
     const name = this.textField(`${this.nickname}의 방`, ROOM_NAME_MAX_LENGTH);
     const password = this.passwordField('비우면 공개 방');
@@ -301,6 +403,8 @@ export class LobbyApp {
       el('label', { class: 'field-block' }, [el('span', {}, ['방 이름']), name.wrapper]),
       el('label', { class: 'field-block' }, [el('span', {}, ['비밀번호']), password.wrapper]),
       el('p', { class: 'hint' }, ['비밀번호를 비워두면 누구나 들어올 수 있는 공개 방이 된다.']),
+      // 티모시는 방당 1마리라 참가자가 아니라 **만드는 사람**이 정한다.
+      this.companionToggle(),
       el('div', { class: 'modal-actions' }, [
         this.button('만들기', 'primary', () => {
           const roomName = sanitizeRoomName(name.input.value || `${this.nickname}의 방`);
@@ -448,7 +552,12 @@ export class LobbyApp {
     this.render();
 
     try {
-      const connection = await createRoom({ nickname: this.nickname, roomName, password });
+      const connection = await createRoom({
+        nickname: this.nickname,
+        roomName,
+        password,
+        companion: this.companionEnabled,
+      });
       this.onEnterGame(connection);
     } catch (err) {
       this.screen = 'create';
@@ -474,7 +583,15 @@ export class LobbyApp {
     }
   }
 
-  startLocal(): void {
-    this.onEnterGame(new LocalConnection(this.nickname || '생존자'));
+  /**
+   * @param job 로비에서 고른 직업. `?local=1` 직행 경로는 로비를 안 거치므로 없을 수 있다.
+   */
+  startLocal(job?: JobId): void {
+    this.onEnterGame(
+      new LocalConnection(this.nickname || '생존자', {
+        job,
+        companion: this.companionEnabled,
+      }),
+    );
   }
 }
