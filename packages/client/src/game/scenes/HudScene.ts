@@ -50,6 +50,7 @@ import {
 } from '../ui/hudBar';
 import {
   ACCENT,
+  BODY_TEXT,
   DIM_TEXT,
   DOWN_COLOR,
   FONT,
@@ -64,18 +65,35 @@ import {
 /** 코어 피격 시 패널 테두리가 붉게 남아있는 시간(ms). */
 const CORE_HIT_PANEL_FLASH_MS = 300;
 
+/**
+ * 열린 코어 창이 자동으로 닫히는 거리(px, 코어 발자국 가장자리 기준).
+ * 여는 거리(CORE_INTERACT_MARGIN = 32)보다 넉넉해야 경계에서 창이 깜빡이지 않는다.
+ */
+const CORE_CLOSE_MARGIN = 96;
+
 export const HUD_SCENE_KEY = 'Hud';
 
 /** HUD는 카메라 줌 1(네이티브 해상도)에 그려진다 — 그래서 실제 픽셀 크기를 그대로 쓴다. */
 const DIM_STYLE = { fontFamily: FONT, fontSize: `${SIZE_BODY}px`, color: DIM_TEXT } as const;
 const SMALL_STYLE = { fontFamily: FONT_SMALL, fontSize: `${SIZE_SMALL}px`, color: DIM_TEXT } as const;
 const PAD = 12;
-const CORE_PANEL_WIDTH = 190;
+const CORE_PANEL_WIDTH = 220;
+/**
+ * 패널 제목 줄. Galmuri11에는 굵은 자체(Galmuri11-Bold, weight 700)가 등록돼 있어서
+ * fontStyle 'bold'가 실제로 다른 글꼴로 그려진다 — 픽셀 폰트라 획을 인위적으로
+ * 두껍게 하면(stroke) 번지므로, 굵은 자체가 있을 때만 쓸 수 있는 방법이다.
+ */
+const HEAD_STYLE = {
+  fontFamily: FONT,
+  fontSize: `${SIZE_BODY}px`,
+  fontStyle: 'bold',
+  color: BODY_TEXT,
+} as const;
 /**
  * 코어 패널 — 방 이름 한 줄 + 게이지 세 줄(내구도·자원·에너지)이 들어간다.
  *
  * **숫자를 적지 않는다.** 전투 중에 "848 / 1000"을 읽고 판단할 여유는 없다 — 필요한 건
- * "얼마나 남았나"뿐이고 그건 막대 길이가 더 빨리 말해준다. 정확한 수치는 코어 창(F)의
+ * "얼마나 남았나"뿐이고 그건 막대 길이가 더 빨리 말해준다. 정확한 수치는 코어 창([E])의
  * 코어 탭에서 본다. 창고에 쌓인 나무·돌·부품 개수도 같은 이유로 여기서 뺐다.
  *
  * 높이는 **오른쪽 미니맵과 맞춘다**(MINIMAP_SIZE). 화면 위쪽 양 끝의 두 판이 같은 선에서
@@ -110,10 +128,16 @@ const CORE_ENERGY_COLOR = 0x5cc6e8;
  *   가르는 값이라(더 사냥할지 코어로 돌아갈지) 대략이 아니라 정확히 알아야 한다.
  * - 낮: 스킵 투표 칸을 인원수만큼. 판을 누르면 곧 내 표가 들어간다([V]와 같은 동작).
  */
-const STATUS_PANEL_HEIGHT = 40;
+const STATUS_PANEL_HEIGHT = 62;
 const STATUS_PANEL_GAP = 8;
 /** 투표 칸 사이 간격(화면 px). 칸 자체는 12px 원본 × HUD_BAR_SCALE = 24px다. */
 const VOTE_BOX_GAP = 6;
+/**
+ * 콜로니 증가분(`+N`) 색. 잡몹 숫자보다 **진한 경고색**이다 — 정원과 나란히 붙어 있어
+ * 같은 톤이면 한 숫자로 읽히고, 이건 "내가 안 치운 콜로니 때문에 늘어난 몫"이라
+ * 눈에 걸려야 하는 값이다.
+ */
+const MONSTER_BONUS_COLOR = '#ff6b5e';
 /** 자기 체력 바 — 퀵슬롯 바로 위에 붙인다. */
 /**
  * 보스 HP바(상단 중앙, 웨이브 다이얼 아래) 규격.
@@ -177,6 +201,13 @@ export class HudScene extends Phaser.Scene {
   /** 낮 스킵 투표 칸. 방 정원만큼 미리 만들어 두고 인원수에 맞춰 보이고 숨긴다. */
   private voteBoxes!: Phaser.GameObjects.Image[];
   private voteHint!: Phaser.GameObjects.Text;
+  /** 상황 판 제목. 낮/밤에 글자만 바뀐다. */
+  private statusHeadText!: Phaser.GameObjects.Text;
+  /**
+   * 콜로니 때문에 늘어난 마릿수(`+N`). 정원 숫자 **오른쪽에 따로 붙는다** —
+   * 정원에 더해 버리면 콜로니를 방치한 대가가 얼마인지 안 보인다.
+   */
+  private monsterBonusText!: Phaser.GameObjects.Text;
   /** 직전 스냅샷의 코어 체력. 줄어든 순간에만 패널 테두리를 붉게 펄스한다 — 코어가
    * 화면 밖(카메라 밖)이거나 몬스터에 가려도 "지금 맞고 있다"가 항상 보이게 하는
    * 용도다(월드 쪽 연출은 EntityRenderer.playCoreHit 참고). */
@@ -207,7 +238,8 @@ export class HudScene extends Phaser.Scene {
   private bossWarnText!: Phaser.GameObjects.Text;
   /** 직전 프레임에 보인 보스 몬스터 id. 새 보스 등장(경고 연출) 감지용. */
   private lastBossId: string | undefined;
-  private roomText!: Phaser.GameObjects.Text;
+  /** 패널 제목. 굵은 자체로 그려 무슨 판인지 먼저 읽히게 한다. */
+  private coreHeadText!: Phaser.GameObjects.Text;
   private resourceText!: Phaser.GameObjects.Text;
   private debugText!: Phaser.GameObjects.Text;
   private helpText!: Phaser.GameObjects.Text;
@@ -224,7 +256,7 @@ export class HudScene extends Phaser.Scene {
   /** 바 너비를 다시 계산할 때 필요해서 보관한다. */
   private uiScale = 1;
 
-  // 코어 허브 창 — [F]/[E]로 열고, 안에서 탭(코어/제작/상점/창고)으로 오간다.
+  // 코어 허브 창 — 코어 앞에서 [E]로 열고, 안에서 탭(코어/제작/상점/창고)으로 오간다.
   private coreModal!: CoreModal;
   private slotDrag!: SlotDrag;
   /** 최신 스냅샷의 내 슬롯/창고. 드래그가 "빈 칸인지"를 물어볼 때 쓴다. */
@@ -264,16 +296,16 @@ export class HudScene extends Phaser.Scene {
   }
 
   create(): void {
-    const { roomCode, roomName } = this.connection.roomInfo;
+    // 방 코드는 화면에 안 띄우지만 미니맵이 지형 시드로 쓴다(§this.minimap).
+    const { roomCode } = this.connection.roomInfo;
 
-    // 좌상단 — 코어 HP
+    // 좌상단 — 코어 현황
+    //
+    // 방 이름·코드·오프라인 표시는 뺐다. 게임 중에는 쓸 일이 없는 접속 정보라
+    // 매 순간 봐야 하는 코어 상태와 같은 판에 있으면 눈이 먼저 그쪽으로 간다
+    // (방 코드는 대기실에서 확인한다).
     this.corePanel = panelBox(this, CORE_PANEL_WIDTH, CORE_PANEL_HEIGHT);
-    this.roomText = this.add.text(
-      0,
-      0,
-      `${roomName} [${roomCode}]${this.connection.isLocal ? ' · 오프라인' : ''}`,
-      SMALL_STYLE,
-    );
+    this.coreHeadText = this.add.text(0, 0, '코어 상태', HEAD_STYLE);
     // 막대를 먼저, 표식을 나중에 만든다 — 나중에 만든 쪽이 위에 그려진다.
     this.coreRows = [
       { frame: ICON_ORB, color: CORE_HP_COLOR },
@@ -289,6 +321,7 @@ export class HudScene extends Phaser.Scene {
     // 판 전체가 투표 버튼이다. 24px짜리 칸 하나하나를 노리게 하면 너무 작다.
     this.statusPanel.setInteractive({ useHandCursor: true });
     this.statusPanel.on('pointerdown', () => this.connection.voteSkipDay());
+    this.statusHeadText = this.add.text(0, 0, '', HEAD_STYLE).setVisible(false);
     this.monsterIcon = hudIcon(this, ICON_SKULL)?.setVisible(false) ?? null;
     this.monsterText = this.add
       .text(0, 0, '', { fontFamily: FONT, fontSize: `${SIZE_BODY}px`, color: '#f2b8b8' })
@@ -301,6 +334,10 @@ export class HudScene extends Phaser.Scene {
     }).filter((box): box is Phaser.GameObjects.Image => box !== null);
     // 칸 오른쪽 끝에 붙는 단축키 안내. 칸 넷이 다 차면 남는 폭이 60px 남짓이라
     // 긴 문구는 판 밖으로 넘친다 — 무엇을 하는 판인지는 체크 칸이 이미 말해 준다.
+    this.monsterBonusText = this.add
+      .text(0, 0, '', { fontFamily: FONT, fontSize: `${SIZE_BODY}px`, color: MONSTER_BONUS_COLOR })
+      .setOrigin(0, 0.5)
+      .setVisible(false);
     this.voteHint = this.add.text(0, 0, '[V]', SMALL_STYLE).setOrigin(1, 0.5).setVisible(false);
 
     // 상단 중앙 원형 — 웨이브 번호 + 남은 시간
@@ -382,7 +419,7 @@ export class HudScene extends Phaser.Scene {
   }
 
   /**
-   * 코어 상호작용 모달 4종을 만들고 배선한다(docs/frontend/09) — [F]로 허브(코어)
+   * 코어 상호작용 모달 4종을 만들고 배선한다(docs/frontend/09) — [E]로 허브(코어)
    * 모달을 열고, 거기 있는 4개 버튼 중 3개가 각각 다른 모달로 넘어간다. "창고"는
    * 아직 모달 자체가 없어서(와이어프레임에 잘려 있었다) 우선 로그만 남긴다 —
    * 실제 코어 근접 판정이나 데이터 연결은 다음 작업이다.
@@ -489,12 +526,10 @@ export class HudScene extends Phaser.Scene {
     this.coreModal.onPurchase = (itemId: string) => this.connection.shopBuy(itemId);
     this.coreModal.onDiscard = (index: number) => this.connection.discardStorageItem(index);
 
-    // 낮/밤 무관하게 언제든 열어볼 수 있다 — 아직 실제 효과가 없는 선작업 UI라
-    // 페이즈로 막을 이유가 없다(효과가 생기면 그때 막을지 정하면 된다).
-    this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.F).on('down', () => {
-      if (this.anyModalOpen()) this.closeAllModals();
-      else this.coreModal.open();
-    });
+    // 코어 창을 여는 길은 **코어 앞에서 E** 하나뿐이다(CORE_INTERACT_KEY).
+    // 예전엔 F로 맵 어디서나 열렸는데, 창고·제작·상점이 전부 "코어 앞에서 하는 일"이라
+    // 서버가 어차피 근접을 다시 검사한다 — 멀리서 열리는 창은 눌러봐야 거절만 돌아와서
+    // 조작이 되는 것처럼 보이는 게 오히려 헷갈렸다.
 
     // 게임 입력이 모달을 뚫고 나가지 않게 한다 — 차단막이 없으니 좌표로 직접 판정한다.
     this.registry.set(HUD_BLOCK_KEY, (x: number, y: number) => {
@@ -511,7 +546,7 @@ export class HudScene extends Phaser.Scene {
     //
     // **줍기가 항상 우선한다.** 코어는 맵 한가운데라 그 근처에서 죽은 몬스터의 드롭을
     // 밟고 있는 일이 흔한데, 예전엔 코어 반경 안이기만 하면 무조건 모달이 떠서 발밑
-    // 아이템을 영영 못 주웠다. 창고는 F로도 열 수 있으니, E는 "발밑에 뭔가 있으면 줍고,
+    // 아이템을 영영 못 주웠다. E는 "발밑에 뭔가 있으면 줍고,
     // 없을 때만 코어를 연다"로 정리한다.
     this.registry.set(CORE_INTERACT_KEY, () => {
       if (this.anyModalOpen()) {
@@ -528,8 +563,7 @@ export class HudScene extends Phaser.Scene {
 
       this.coreModal.open();
       // 코어 AI 페르소나 트리거. 서버가 쿨다운을 판단하므로 여기선 그냥 알리기만
-      // 한다(F키 쪽 단축 접근은 건드리지 않는다 — 그쪽은 선작업용 지름길일 뿐
-      // "진짜 상호작용"으로 치지 않아, 중복 트리거를 막는다).
+      // 한다.
       this.connection.coreInteract();
       return true;
     });
@@ -664,7 +698,7 @@ export class HudScene extends Phaser.Scene {
     const panelW = CORE_PANEL_WIDTH * scale;
     const panelH = CORE_PANEL_HEIGHT * scale;
     this.corePanel.setSize(panelW, panelH).setPosition(pad, pad);
-    this.roomText.setFontSize(SIZE_SMALL * scale).setPosition(pad + 8 * scale, pad + 5 * scale);
+    this.coreHeadText.setFontSize(SIZE_BODY * scale).setPosition(pad + 10 * scale, pad + 6 * scale);
 
     // 게이지 세 줄. 각 줄은 [표식][막대]이고, 표식은 막대보다 커서 세로 가운데에 맞춘다
     // (막대 24px, 표식 36px — 원본 8px·12px에 같은 배율이 곱해진 값이다).
@@ -719,17 +753,25 @@ export class HudScene extends Phaser.Scene {
     const statusTop = pad + panelH + STATUS_PANEL_GAP * scale;
     const statusH = STATUS_PANEL_HEIGHT * scale;
     const statusScale = scale * HUD_BAR_SCALE;
-    const statusMidY = statusTop + statusH / 2;
+    // 제목 한 줄이 위에 앉고, 내용은 그 아래 남은 공간의 가운데에 온다.
+    const statusHeadBottom = statusTop + 6 * scale + SIZE_BODY * scale;
+    const statusMidY = statusHeadBottom + (statusTop + statusH - statusHeadBottom) / 2;
     const statusLeft = pad + 12 * scale;
     this.statusPanel.setSize(panelW, statusH).setPosition(pad, statusTop);
     // setSize는 히트 영역을 갱신하지 않는다 — 배율이 바뀌면 클릭 판정이 어긋난다.
     this.statusPanel.input?.hitArea?.setSize(panelW, statusH);
+    this.statusHeadText
+      .setFontSize(SIZE_BODY * scale)
+      .setPosition(pad + 10 * scale, statusTop + 6 * scale);
 
     // 밤: 해골 + 남은/전체
     this.monsterIcon?.setScale(statusScale).setPosition(statusLeft, statusMidY);
     this.monsterText
       .setFontSize(SIZE_BODY * statusScale)
       .setPosition(statusLeft + CORE_ICON_SIZE * statusScale + 8 * scale, statusMidY);
+    // `+N`은 잡몹 수 글자 오른쪽에 붙는다. 글자 폭이 매번 달라서 자리는 값을 넣은
+    // 뒤에 잡는다(updateStatusPanel) — 여기서는 크기와 세로 위치만 맞춰 둔다.
+    this.monsterBonusText.setFontSize(SIZE_BODY * scale * HUD_BAR_SCALE).setY(statusMidY);
 
     // 낮: 투표 칸을 왼쪽부터 늘어놓고, 남는 오른쪽에 안내 글자를 둔다.
     const boxSize = CORE_ICON_SIZE * statusScale;
@@ -812,6 +854,14 @@ export class HudScene extends Phaser.Scene {
     // "E가 안 먹는다"는 어긋남이 안 생긴다 — 코어가 8각 발자국이 되면서 반경
     // 비교로는 같은 결론을 낼 수 없다.
     this.nearCore = me ? isWithinCoreInteract(me.x, me.y) : false;
+    // 코어 앞을 떠나면 창을 닫는다. 서버가 어차피 근접을 다시 검사하므로, 열린 채
+    // 따라다니면 눌러도 안 되는 버튼만 화면을 가린다.
+    //
+    // 닫는 경계는 여는 경계보다 **넉넉히 잡는다**(CORE_CLOSE_MARGIN). 같은 선을 쓰면
+    // 경계에 서서 조금만 움직여도 창이 깜빡이며 열렸다 닫힌다.
+    if (this.coreModal.isOpen() && me && !isWithinCoreInteract(me.x, me.y, CORE_CLOSE_MARGIN)) {
+      this.coreModal.close();
+    }
     this.dropInReach = me
       ? snapshot.droppedItems.some(
           (drop) => Math.hypot(drop.x - me.x, drop.y - me.y) <= PICKUP_RADIUS,
@@ -990,7 +1040,7 @@ export class HudScene extends Phaser.Scene {
     );
 
     // 낮에만 스킵 안내를 띄운다 — 밤에는 쓸 수 없는 조작이라 보여줄 이유가 없다.
-    const controlsHint = `WASD 이동 · 좌클릭 공격 · 우클릭 사용 · [1~${SLOT_COUNT}] 퀵슬롯 · [E] 코어 입고 · [F] 코어 메뉴`;
+    const controlsHint = `WASD 이동 · 좌클릭 공격 · 우클릭 사용 · [1~${SLOT_COUNT}] 퀵슬롯 · [E] 코어 (입고 / 메뉴)`;
     // 개발 도구가 붙어 있을 때만 그 키를 안내한다 — 없는 키를 알려주면 안 된다.
     const devHint = this.devConsole ? ' · [`] 콘솔 · [F9] 아이템' : '';
     this.helpText.setText(
