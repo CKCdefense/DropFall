@@ -106,6 +106,14 @@ const SWING_FX_RADIUS = 30;
  */
 export const MELEE_REST_TILT = (40 * Math.PI) / 180;
 
+/**
+ * 근접 무기를 쥔 손이 몸 중심에서 커서 쪽으로 뻗는 거리(px).
+ *
+ * 원거리(orbitRadius 기본 9)보다 멀리 잡는다 — 팔을 뻗어야 "무기를 들이대고 있다"로
+ * 읽힌다. 무기 그림은 이 지점에서 시작하므로 이 값이 곧 그려지는 사거리의 일부다.
+ */
+const MELEE_HAND_REACH = 15;
+
 function meleeSwingFrom(weapon: WeaponData): MeleeSwing {
   const halfArc = ((weapon.arc ?? 360) * Math.PI) / 360;
   return {
@@ -693,15 +701,25 @@ export function layoutWeapon(
    * 부호를 쓰면 몸 쪽에서 바깥으로 퍼올리는 꼴이 된다 — 그림이 좌우로 뒤집혔으니
    * 궤적도 같이 뒤집혀야 날이 앞서 나간다.
    */
+  const swingOffset = (pose?.offset ?? 0) * (facingLeft ? -1 : 1);
+
   /*
-   * 휘두르지 않을 때는 **사선으로 들고 있는다**(MELEE_REST_TILT). 원거리 무기는
-   * 조준선 그대로다 — 총은 겨눈 곳을 향해야 한다.
+   * **손과 무기를 따로 둔다.**
+   *
+   * 예전엔 기울인 각도로 손 위치까지 같이 돌려서, 무기가 몸 중심을 축으로 빙 돈 것처럼
+   * 보였다 — 왼쪽을 볼 때 방망이가 몸을 가로질러 어깨 위에 얹혔다("캐릭터 중심으로
+   * 사선으로 잡는 것 같다" 제보).
+   *
+   * 손은 **커서 쪽으로 뻗고**(handAngle), 무기는 그 손에서 위로 기울여 잡는다(angle).
+   * 팔을 뻗어 무기를 비스듬히 든 자세가 된다. 휘두르는 동안엔 손도 궤도를 따라 도니
+   * 무기는 손과 같은 각도차를 유지한 채 함께 쓸고 지나간다.
    */
-  const rest = visual.melee ? -MELEE_REST_TILT : 0;
-  const swingOffset = (pose?.offset ?? rest) * (facingLeft ? -1 : 1);
-  // 휘두르는 동안에는 무기가 조준선에서 벗어나 궤도를 따라 훑고 지나간다.
-  const angle = aimAngle + swingOffset;
-  const radius = visual.orbitRadius + (pose?.thrust ?? 0);
+  const handAngle = aimAngle + swingOffset;
+  const tilt = visual.melee ? -MELEE_REST_TILT * (facingLeft ? -1 : 1) : 0;
+  const angle = handAngle + tilt;
+  // 근접은 팔을 뻗은 만큼 손이 몸에서 더 멀다. 원거리는 예전 궤도 반경 그대로다.
+  const radius =
+    (visual.melee ? MELEE_HAND_REACH : visual.orbitRadius) + (pose?.thrust ?? 0);
 
   /*
    * 왼쪽을 볼 때의 반전은 **조준선을 거울로 삼는다.**
@@ -720,8 +738,9 @@ export function layoutWeapon(
   const cos = Math.cos(rotation);
   const sin = Math.sin(rotation);
 
-  const pivotX = Math.cos(angle) * radius;
-  const pivotY = Math.sin(angle) * radius + ORBIT_CENTER_Y;
+  // 손(=무기를 쥔 지점)은 **조준 방향**에 있다. 기울기는 무기 회전에만 들어간다.
+  const pivotX = Math.cos(handAngle) * radius;
+  const pivotY = Math.sin(handAngle) * radius + ORBIT_CENTER_Y;
 
   const toContainer = (point: Point): Point =>
     weaponPointToContainer(point, visual, pivotX, pivotY, cos, sin, flipX, flipY);

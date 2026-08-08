@@ -1580,17 +1580,31 @@ export class World {
       return;
     }
 
-    const source = container === 'storage' ? this.core.storage : player.inventory;
-    const target = container === 'storage' ? player.inventory : this.core.storage;
+    // 인벤토리는 창고로 보내고, **코어 쪽 칸(창고·충전·제작)은 전부 인벤토리로 꺼낸다.**
+    //
+    // 예전엔 "storage면 창고, 아니면 인벤토리"로 뭉뚱그렸는데, isContainerName이
+    // charge/craft도 통과시키므로 충전 칸이나 제작 결과 칸을 쉬프트 클릭하면 그 이름이
+    // 인벤토리로 오인됐다 — 누른 적도 없는 **같은 번호의 인벤토리 칸**이 창고로 딸려
+    // 들어갔다. 컨테이너마다 목적지를 명시해서 이름이 늘어도 조용히 새지 않게 한다.
+    if (container === 'inventory') {
+      const slot = player.inventory.slotAt(index as number);
+      if (!slot) return;
 
-    const slot = source.slotAt(index as number);
-    if (!slot) return;
+      const leftover = this.core.storage.add(slot.itemId, slot.count);
+      if (leftover === slot.count) return; // 하나도 못 옮겼다 — 원래 칸 그대로 둔다
 
-    const leftover = target.add(slot.itemId, slot.count);
-    if (leftover === slot.count) return; // 하나도 못 옮겼다 — 원래 칸 그대로 둔다
+      player.inventory.removeAt(index as number, slot.count - leftover);
+      this.enqueueCompanionPersonaEvent('coreDeposit', playerId);
+      return;
+    }
 
-    source.removeAt(index as number, slot.count - leftover);
-    if (target === this.core.storage) this.enqueueCompanionPersonaEvent('coreDeposit', playerId);
+    const source = this.container(player, container);
+    const taken = source.takeAt(index as number);
+    if (!taken) return;
+
+    const leftover = player.inventory.add(taken.itemId, taken.count);
+    // 인벤토리가 꽉 차 다 못 받으면 남은 만큼 원래 자리로 되돌린다 — 조용히 사라지면 안 된다.
+    if (leftover > 0) source.placeAt(index as number, { itemId: taken.itemId, count: leftover });
   }
 
   /**
