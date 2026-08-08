@@ -8,8 +8,11 @@ import {
   DETAIL_RATIO,
   DIM_TEXT,
   FONT,
+  FONT_SMALL,
+  PANEL_FILL,
   PANEL_STROKE,
   SIZE_BODY,
+  SIZE_SMALL,
 } from './theme';
 import type { PanelBuilder } from './Modal';
 import { SlotIcon } from '../render/itemSprite';
@@ -31,10 +34,79 @@ const TIER_BUTTON_GAP = 8;
 const CRAFT_WIDTH = 84;
 const CRAFT_HEIGHT = 32;
 
+/** 진행 화살표와 결과 상자. "재료 → (시간) → 결과"를 한 줄로 읽히게 한다. */
+const ARROW_LENGTH = 46;
+const ARROW_SHAFT_HALF = 5;
+const ARROW_HEAD_HALF = 11;
+const ARROW_HEAD_LENGTH = 16;
+const RESULT_BOX = 52;
+const GAP = 10;
+/** 화살표 색: 아직 안 찬 부분(어둡게)과 찬 부분(흰색). */
+const ARROW_TRACK = 0x2a2f3a;
+const ARROW_FILL = 0xffffff;
+
 /** 레시피에 등장하는 티어들(오름차순). 데이터가 늘면 버튼도 따라 늘어난다. */
 const TIERS = [...new Set(craftingData.recipes.map((recipe) => recipe.requiresTier))].sort(
   (a, b) => a - b,
 );
+
+/**
+ * 왼쪽에서 오른쪽으로 차오르는 화살표.
+ *
+ * 마스크를 쓰지 않고 **채운 만큼만 다시 그린다.** 모달은 끌어서 옮길 수 있어서, 도형
+ * 마스크를 쓰면 창을 옮길 때마다 마스크의 월드 좌표를 다시 맞춰야 한다. 화살표는
+ * 사각형(자루) + 삼각형(촉) 두 조각뿐이라 잘라 그리는 편이 훨씬 단순하다.
+ */
+class ProgressArrow {
+  private readonly track: Phaser.GameObjects.Graphics;
+  private readonly fill: Phaser.GameObjects.Graphics;
+
+  constructor(
+    builder: PanelBuilder,
+    private readonly x: number,
+    private readonly y: number,
+  ) {
+    this.track = builder.scene.add.graphics();
+    this.fill = builder.scene.add.graphics();
+    builder.add(this.track);
+    builder.add(this.fill);
+
+    this.paint(this.track, ARROW_LENGTH, ARROW_TRACK);
+    this.set(0);
+  }
+
+  /** @param ratio 0~1. 0이면 아무것도 안 찬다. */
+  set(ratio: number): void {
+    const clamped = Math.max(0, Math.min(1, ratio));
+    this.fill.clear();
+    if (clamped > 0) this.paint(this.fill, ARROW_LENGTH * clamped, ARROW_FILL);
+  }
+
+  /** 화살표를 왼쪽부터 `width`만큼만 그린다. */
+  private paint(g: Phaser.GameObjects.Graphics, width: number, color: number): void {
+    const shaftEnd = ARROW_LENGTH - ARROW_HEAD_LENGTH;
+    g.fillStyle(color, 1);
+
+    const shaftWidth = Math.min(width, shaftEnd);
+    if (shaftWidth > 0) {
+      g.fillRect(this.x, this.y - ARROW_SHAFT_HALF, shaftWidth, ARROW_SHAFT_HALF * 2);
+    }
+    if (width <= shaftEnd) return;
+
+    // 촉은 끝으로 갈수록 좁아진다 — 잘린 지점의 반높이를 비례로 구해 사다리꼴로 채운다.
+    const cut = width - shaftEnd;
+    const halfAt = ARROW_HEAD_HALF * (1 - cut / ARROW_HEAD_LENGTH);
+    g.fillPoints(
+      [
+        { x: this.x + shaftEnd, y: this.y - ARROW_HEAD_HALF },
+        { x: this.x + shaftEnd + cut, y: this.y - halfAt },
+        { x: this.x + shaftEnd + cut, y: this.y + halfAt },
+        { x: this.x + shaftEnd, y: this.y + ARROW_HEAD_HALF },
+      ],
+      true,
+    );
+  }
+}
 
 /**
  * "제작" — 티어별 도구를 코어 창고의 재료로 만든다.
@@ -72,6 +144,13 @@ export class CraftPanel {
   /** 지금 만드는 중인 레시피와 남은 시간(초). 버튼 라벨이 진행 상황을 그대로 보여준다. */
   private craftingId = '';
   private craftRemaining = 0;
+  /** 직전 프레임의 제작 중 레시피. 비었다가 → 채워짐 → 다시 빔이 곧 "완성"이다. */
+  private lastCraftingId = '';
+
+  private readonly arrow: ProgressArrow;
+  private readonly resultBox: Phaser.GameObjects.Rectangle;
+  private readonly resultIcon: SlotIcon;
+  private readonly resultCount: Phaser.GameObjects.Text;
 
   constructor(private readonly builder: PanelBuilder) {
     const scene = builder.scene;
@@ -169,6 +248,35 @@ export class CraftPanel {
     builder.add(this.tierText);
     builder.add(this.costText);
 
+    /*
+     * "재료 → (차오르는 화살표) → 결과" 한 줄. 제작 버튼 왼쪽에 붙여서, 누른 뒤 시선이
+     * 그 자리에 머문 채로 진행과 결과를 다 볼 수 있게 한다.
+     */
+    const rowMidY = detailY + detailHeight / 2;
+    const resultX = builder.width - SECTION_PAD - CRAFT_WIDTH - GAP - RESULT_BOX;
+    const arrowX = resultX - GAP - ARROW_LENGTH;
+
+    this.arrow = new ProgressArrow(builder, arrowX, rowMidY);
+
+    this.resultBox = scene.add
+      .rectangle(resultX, rowMidY - RESULT_BOX / 2, RESULT_BOX, RESULT_BOX, PANEL_FILL, 0.9)
+      .setOrigin(0, 0)
+      .setStrokeStyle(1, PANEL_STROKE);
+    builder.add(this.resultBox);
+
+    this.resultIcon = new SlotIcon(scene, RESULT_BOX - 14);
+    this.resultIcon.place(resultX + RESULT_BOX / 2, rowMidY, RESULT_BOX - 14);
+    if (this.resultIcon.object) builder.add(this.resultIcon.object);
+
+    this.resultCount = scene.add
+      .text(resultX + RESULT_BOX - 4, rowMidY + RESULT_BOX / 2 - 3, '', {
+        fontFamily: FONT_SMALL,
+        fontSize: `${SIZE_SMALL}px`,
+        color: BODY_TEXT,
+      })
+      .setOrigin(1, 1);
+    builder.add(this.resultCount);
+
     builder.addButton(
       builder.width - SECTION_PAD - CRAFT_WIDTH,
       detailY + detailHeight - SECTION_PAD - CRAFT_HEIGHT,
@@ -213,8 +321,38 @@ export class CraftPanel {
     this.energy = context.energy;
     this.craftingId = context.craftingId;
     this.craftRemaining = context.craftRemaining;
+    this.refreshProgress();
     this.refreshTiers();
     this.refreshDetail();
+  }
+
+  /**
+   * 화살표를 채우고, 다 차면 결과 상자에 만들어진 물건을 띄운다.
+   *
+   * 완성 판정은 **제작 중이던 레시피가 사라진 순간**이다 — 서버가 "완성했다"는 신호를
+   * 따로 보내지 않지만, 비용을 미리 받는 구조라 진행 중에는 반드시 값이 들어 있다.
+   * 결과는 다음 제작을 걸 때까지 남겨 둔다(바로 지우면 눈 깜빡할 사이에 사라진다).
+   */
+  private refreshProgress(): void {
+    if (this.craftingId) {
+      const total = craftingData.craftSeconds;
+      this.arrow.set(total > 0 ? 1 - this.craftRemaining / total : 0);
+      // 새로 걸었으면 지난 결과를 치운다 — 지금 만드는 것과 헷갈린다.
+      if (this.lastCraftingId !== this.craftingId) this.showResult(null);
+    } else if (this.lastCraftingId) {
+      // 방금 끝났다 — 화살표를 가득 채운 채로 두고 결과를 띄운다.
+      this.arrow.set(1);
+      const done = craftingData.recipes.find((entry) => entry.id === this.lastCraftingId);
+      this.showResult(done ?? null);
+    }
+    this.lastCraftingId = this.craftingId;
+  }
+
+  private showResult(recipe: CraftRecipe | null): void {
+    this.resultIcon.setItem(recipe?.itemId ?? null);
+    this.resultCount.setText(recipe && (recipe.count ?? 1) > 1 ? `${recipe.count}` : '');
+    this.resultBox.setStrokeStyle(1, recipe ? SELECTED_STROKE : PANEL_STROKE);
+    if (!recipe) this.arrow.set(0);
   }
 
   private selectTier(tier: number): void {

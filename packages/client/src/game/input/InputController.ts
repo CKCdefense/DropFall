@@ -31,7 +31,11 @@ interface EquippedItem {
  */
 function readEquipped(self: PlayerView): EquippedItem {
   const item = itemOfSlot(self.slots[self.selectedSlot]);
-  if (item?.kind === 'consumable') return { kind: 'consumable', weaponId: undefined };
+  /*
+   * 소모품도 **무기 취급**으로 내려온다 — 좌클릭이 곧 맨손 공격이기 때문이다.
+   * 사용은 우클릭으로 갈라져 나갔으므로, 좌클릭 경로에서 소모품만 따로 볼 이유가 없다.
+   * 서버도 같은 결론을 낸다(무기가 아니면 BARE_HANDS_WEAPON_ID).
+   */
   if (item?.kind === 'building') return { kind: 'building', weaponId: undefined };
   return { kind: 'weapon', weaponId: item?.weaponId ?? BARE_HANDS_WEAPON_ID };
 }
@@ -74,6 +78,9 @@ type BuildMode = (typeof BUILD_MODES)[number];
  * (docs/frontend/02-lobby-room-protocol.md)
  */
 export class InputController {
+  /** 지금 고른 퀵슬롯. 스냅샷에서 갱신되고 휠이 다음 칸을 셀 때 기준이 된다. */
+  private selectedSlot = 0;
+
   private readonly keys: Record<
     'up' | 'down' | 'left' | 'right' | 'sprint',
     Phaser.Input.Keyboard.Key
@@ -166,14 +173,27 @@ export class InputController {
     // 우클릭으로 건축모드를 바로 취소할 수 있게, 브라우저 기본 우클릭 메뉴부터 끈다.
     scene.input.mouse?.disableContextMenu();
     scene.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-      if (this.buildMode === 'off') return;
       if (this.isPointerOverHud?.(pointer.x, pointer.y)) return;
 
       if (pointer.rightButtonDown()) {
-        this.buildModeIndex = 0;
+        // 건축모드에서는 우클릭이 "나가기"다 — 그게 더 급한 뜻이다.
+        if (this.buildMode !== 'off') {
+          this.buildModeIndex = 0;
+          return;
+        }
+        /*
+         * **소모품 사용은 우클릭이다.** 좌클릭 하나에 공격과 사용을 겹쳐 놓으면, 붕대를
+         * 들고 몬스터를 때리는 것과 붕대를 쓰는 것을 구분할 방법이 없다.
+         *
+         * 홀드 연타 방지를 따로 두지 않는 이유는 이게 **누른 순간에만** 도는
+         * 이벤트라서다 — 예전 좌클릭 경로는 매 프레임 도는 루프라 타이머로 막아야 했다.
+         * 쓸 수 없는 것을 들고 눌러도 서버가 조용히 무시한다.
+         */
+        this.connection.useSlot();
         return;
       }
-      if (pointer.leftButtonDown()) {
+
+      if (pointer.leftButtonDown() && this.buildMode !== 'off') {
         const { cx, cy } = this.cursorCell();
         if (this.buildMode === 'demolish') {
           this.connection.demolishBuilding(cx, cy);
@@ -182,6 +202,22 @@ export class InputController {
         }
       }
     });
+
+    /*
+     * 휠로 퀵슬롯을 넘긴다. 숫자키(1~4)와 나란히 두는 이유는 전투 중에 손가락을 WASD에서
+     * 떼지 않고도 바꿀 수 있어서다 — 위로 굴리면 앞 칸, 아래로 굴리면 뒤 칸이고 양끝에서
+     * 돌아온다(4에서 아래로 굴리면 1).
+     */
+    scene.input.on(
+      'wheel',
+      (pointer: Phaser.Input.Pointer, _objects: unknown, _dx: number, dy: number) => {
+        if (this.isPointerOverHud?.(pointer.x, pointer.y)) return;
+        if (dy === 0) return;
+        const step = dy > 0 ? 1 : -1;
+        this.selectedSlot = (this.selectedSlot + step + SLOT_COUNT) % SLOT_COUNT;
+        this.connection.selectSlot(this.selectedSlot);
+      },
+    );
   }
 
   /**
@@ -230,8 +266,8 @@ export class InputController {
   }
 
   /**
-   * 좌클릭 동작. **들고 있는 것에 따라 갈린다** — 무기면 공격, 소모품이면 사용이다.
-   * 슬롯마다 다른 키를 두지 않고 하나로 합쳐야 조작이 단순하다.
+   * 좌클릭은 **언제나 공격이다** — 무기를 들었으면 그 무기로, 아니면 맨손으로.
+   * 사용(소모품)은 우클릭으로 갈라져 있다(§pointerdown).
    *
    * 재전송 간격은 무기 fireRate에서 나오고, 실제 쿨다운·소모 판정은 전부 서버가 한다.
    * 건축모드일 땐 좌클릭이 설치로 쓰이므로 통째로 건너뛴다.
@@ -253,13 +289,6 @@ export class InputController {
     const { kind, weaponId } = this.equipped;
     this.fireTimer = fireIntervalMs(weaponId);
 
-    if (kind === 'consumable') {
-      // 소모품은 홀드로 연타되면 순식간에 다 없어진다 — 한 번 쓰고 버튼을 뗄 때까지 막는다.
-      this.fireTimer = Infinity;
-      this.connection.useSlot();
-      return;
-    }
-
     if (kind === 'building') {
       // 건축물도 홀드 연타를 막는다 — 커서를 조금 움직이는 사이에 인벤토리가 비어버린다.
       this.fireTimer = Infinity;
@@ -278,6 +307,9 @@ export class InputController {
 
   /** 매 프레임 호출. 실제 전송은 SEND_INTERVAL_MS 마다 한 번. */
   update(delta: number, self: PlayerView): void {
+    // 선택 칸은 서버가 정한 값을 그대로 따라간다 — 휠은 여기서 읽은 값을 기준으로
+    // 다음 칸을 계산한다(클라가 따로 세어 두면 숫자키와 어긋난다).
+    this.selectedSlot = self.selectedSlot;
     this.equipped = readEquipped(self);
     this.updateAim(self.x, self.y);
     this.updateFire(delta);
