@@ -58,6 +58,9 @@
 | [frontend/10-dev-mode.md](frontend/10-dev-mode.md) | **개발 모드** — 개발자 콘솔(`` ` ``)과 테스트 모드 아이템 도감(F9), 커맨드 목록, 켜는 방법 |
 | [frontend/11-work-report-quit-confirm-modal.md](frontend/11-work-report-quit-confirm-modal.md) | 작업 보고서 — ESC 나가기에 확인창(나가기/취소) 추가 |
 | [frontend/12-work-report-css-asset-double-path.md](frontend/12-work-report-css-asset-double-path.md) | 작업 보고서 — GitHub Pages 배포 시 UI 이미지 전부 404(CSS 커스텀 프로퍼티 url() 이중 경로 해석 버그) |
+| [frontend/13-work-report-core-hub-tabs.md](frontend/13-work-report-core-hub-tabs.md) | 작업 보고서 — 코어 창을 상단 탭 구조로 재설계(9-slice 돌 프레임, 그리드 레이아웃) |
+| [frontend/14-work-report-bottom-bar-and-character.md](frontend/14-work-report-bottom-bar-and-character.md) | 작업 보고서 — 하단 퀵슬롯 확대와 체력·스태미나 막대 통합, 캐릭터 정보 창 |
+| [frontend/15-work-report-consumable-fx-and-melee-scale.md](frontend/15-work-report-consumable-fx-and-melee-scale.md) | 작업 보고서 — 소모품 사용 이펙트(회복/버프/스탯) 연결, 근접 무기 일괄 축소, 휘두르기 이펙트 좌우 반전 수정 |
 
 ## 한 줄 요약
 
