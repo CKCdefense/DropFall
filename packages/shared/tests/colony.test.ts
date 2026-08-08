@@ -203,7 +203,7 @@ describe('World — 정화/성장/재보급', () => {
 
   it('저장분과 수호대를 전부 처치하면 정화된다 — 에너지 보상 + 1단계 초기화 + 빈 껍데기', () => {
     const { world, colonyId } = worldWithPlayerAtColony();
-    const energyBefore = world.getCore().sharedEnergy;
+    const energyBefore = world.getCore().energy;
 
     purifyByCombat(world, colonyId);
 
@@ -211,7 +211,7 @@ describe('World — 정화/성장/재보급', () => {
     expect(colony.purified).toBe(true);
     expect(colony.stage).toBe(1);
     expect(colony.stored).toBe(0);
-    expect(world.getCore().sharedEnergy).toBe(energyBefore + colonyStageData(1).purifyEnergy);
+    expect(world.getCore().energy).toBe(energyBefore + colonyStageData(1).purifyEnergy);
 
     // 빈 껍데기에서는 계속 서 있어도 수호대가 더 나오지 않는다.
     world.tick(coloniesData.guardRespawnSeconds * 3);

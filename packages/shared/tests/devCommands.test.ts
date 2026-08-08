@@ -95,15 +95,18 @@ describe('개발자 커맨드 — 지급', () => {
 });
 
 describe('개발자 커맨드 — 자원·진행', () => {
-  it('money/energy/tier가 그대로 반영된다', () => {
+  it('resource/energy/tier가 그대로 반영된다', () => {
     const world = worldWithPlayer();
 
-    world.runDevCommand('p1', 'money 777');
+    world.runDevCommand('p1', 'resource 300');
     world.runDevCommand('p1', 'energy 42');
     world.runDevCommand('p1', 'tier 3');
 
-    expect(world.getCore().money).toBe(777);
-    expect(world.getCore().sharedEnergy).toBe(42);
+    expect(world.getCore().resource).toBe(300);
+    // 게이지에는 상한이 있다 — 커맨드로도 넘길 수 없다(강화해야 늘어난다).
+    world.runDevCommand('p1', 'resource 999999');
+    expect(world.getCore().resource).toBe(world.getCore().maxResource);
+    expect(world.getCore().energy).toBe(42);
     expect(world.getCore().tier).toBe(3);
   });
 

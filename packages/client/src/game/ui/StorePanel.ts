@@ -40,16 +40,8 @@ const SECTION_PAD = 12;
 const SECTION_GAP = 10;
 const BUY_WIDTH = 84;
 const BUY_HEIGHT = 32;
-const SELL_ROW_HEIGHT = 26;
-const SELL_BUTTON_WIDTH = 78;
-/** 왼쪽(진열+상세)이 가져가는 폭 비율. 나머지가 판매 구역이다. */
-const LEFT_RATIO = 0.62;
-
 /** 하루 진열 칸 수. 데이터가 정하는 값이라 UI도 거기서 읽는다. */
 const STOCK_SIZE = shopData.weaponsPerDay + shopData.consumablesPerDay;
-
-/** 창고에 있으면 팔 수 있는 것들. 진열 순서는 값이 비싼 순이다. */
-const SELLABLE = ['drop_rare', 'drop_normal'];
 
 /**
  * "상점" — 판 돈으로 오늘의 물건을 산다.
@@ -63,33 +55,26 @@ const SELLABLE = ['drop_rare', 'drop_normal'];
  */
 export class StorePanel {
   onPurchase: (itemId: string) => void = () => {};
-  onSell: (itemId: string, count: number) => void = () => {};
 
   private readonly slotBoxes: Phaser.GameObjects.Rectangle[] = [];
   private readonly slotIcons: SlotIcon[] = [];
   private readonly slotPrices: Phaser.GameObjects.Text[] = [];
-  private readonly moneyText: Phaser.GameObjects.Text;
+  private readonly energyText: Phaser.GameObjects.Text;
   private readonly dayText: Phaser.GameObjects.Text;
   private readonly nameText: Phaser.GameObjects.Text;
   private readonly rarityText: Phaser.GameObjects.Text;
   private readonly priceText: Phaser.GameObjects.Text;
   private readonly detailIcon: SlotIcon;
-  private readonly sellLabels = new Map<string, Phaser.GameObjects.Text>();
 
   private stock: string[] = [];
   private selected = 0;
-  private money = 0;
-  private storage: Record<string, number> = {};
+  private energy = 0;
 
   constructor(private readonly builder: PanelBuilder) {
     const scene = builder.scene;
 
-    // 와이어프레임 구조: 왼쪽에 [진열 격자] 위, [상세] 아래. 오른쪽에 [판매].
-    // 창이 넓어져서 판매를 아래로 더 쌓는 대신 옆 칸으로 뺐다 — 아래로만 쌓으면
-    // 상자 셋이 세로로 길게 늘어져 넓어진 가로가 그대로 빈다.
-    const leftWidth = Math.floor((builder.width - SECTION_GAP) * LEFT_RATIO);
-    const rightX = leftWidth + SECTION_GAP;
-    const rightWidth = builder.width - rightX;
+    // 판매가 없어지면서 오른쪽 열이 통째로 비었다 — 진열 격자가 폭 전체를 쓴다.
+    const leftWidth = builder.width;
 
     // 제작 탭과 같은 규칙: 아래 상세 띠를 먼저 잘라내고 남은 높이를 진열 격자에 준다
     // (theme.DETAIL_RATIO). 두 탭의 아래 띠가 같은 자리에 있어야 탭을 오갈 때 안 흔들린다.
@@ -110,15 +95,15 @@ export class StorePanel {
       fontSize: `${SIZE_SMALL}px`,
       color: DIM_TEXT,
     });
-    this.moneyText = scene.add
-      .text(leftWidth - SECTION_PAD, SECTION_PAD - 2, '0 G', {
+    this.energyText = scene.add
+      .text(leftWidth - SECTION_PAD, SECTION_PAD - 2, '에너지 0', {
         fontFamily: FONT,
         fontSize: `${SIZE_BODY}px`,
         color: ACCENT,
       })
       .setOrigin(1, 0);
     builder.add(this.dayText);
-    builder.add(this.moneyText);
+    builder.add(this.energyText);
 
     // 격자는 상자 안에서 가운데 정렬한다 — 왼쪽에 몰리면 남은 폭이 빈 자리로 보인다.
     const gridWidth = SLOT_COLS * SLOT_SIZE + (SLOT_COLS - 1) * SLOT_GAP;
@@ -190,62 +175,19 @@ export class StorePanel {
       },
     );
 
-    // --- 판매: 창고에 든 몬스터 드랍을 **한 종류씩 통째로** 판다.
-    // 개수를 고르는 UI를 만들어봐야 결국 "전부 팔기"만 쓰게 된다.
-    // 판매 구역은 오른쪽 열 전체를 쓴다 — 왼쪽 두 상자와 아래 끝이 맞아야 정돈돼 보인다.
-    const sellHeight = Math.max(
-      SECTION_PAD * 2 + 16 + SELLABLE.length * SELL_ROW_HEIGHT,
-      builder.height,
-    );
-    builder.addSection(rightX, 0, rightWidth, sellHeight);
-    builder.addSectionTitle(rightX + SECTION_PAD, SECTION_PAD, '판매');
-
-    SELLABLE.forEach((itemId, index) => {
-      const y = SECTION_PAD + 16 + index * SELL_ROW_HEIGHT;
-      const label = scene.add.text(rightX + SECTION_PAD, y + 5, '', {
-        fontFamily: FONT,
-        fontSize: `${SIZE_BODY}px`,
-        color: DIM_TEXT,
-      });
-      builder.add(label);
-      this.sellLabels.set(itemId, label);
-
-      builder.addButton(
-        rightX + rightWidth - SECTION_PAD - SELL_BUTTON_WIDTH,
-        y,
-        SELL_BUTTON_WIDTH,
-        SELL_ROW_HEIGHT - 4,
-        '전부 팔기',
-        () => {
-          const count = this.storage[itemId] ?? 0;
-          if (count > 0) this.onSell(itemId, count);
-        },
-      );
-    });
-
     this.select(0);
   }
 
-  /** 진열/자금/창고를 반영한다. HudScene이 스냅샷마다 호출한다. */
-  setContext(stock: string[], money: number, storage: Record<string, number>): void {
-    this.money = money;
-    this.storage = storage;
-    this.moneyText.setText(`${money} G`);
+  /** 진열과 에너지 잔량을 반영한다. HudScene이 스냅샷마다 호출한다. */
+  setContext(stock: string[], energy: number): void {
+    this.energy = energy;
+    this.energyText.setText(`에너지 ${energy}`);
 
     if (!sameStock(this.stock, stock)) {
       this.stock = [...stock];
       this.refreshSlots();
       // 어제 고른 칸이 오늘은 다른 물건이다 — 선택을 첫 칸으로 되돌린다.
       this.select(0);
-    }
-
-    for (const [itemId, label] of this.sellLabels) {
-      const count = storage[itemId] ?? 0;
-      const unit = itemsData[itemId]?.sellPrice ?? 0;
-      const name = itemsData[itemId]?.name ?? itemId;
-      label
-        .setText(`${name} ${count}개 → ${count * unit} G`)
-        .setColor(count > 0 ? BODY_TEXT : DIM_TEXT);
     }
     this.refreshDetail();
   }
@@ -295,8 +237,8 @@ export class StorePanel {
       .setColor(rarity ? RARITY[rarity].text : DIM_TEXT);
 
     const price = item.buyPrice ?? 0;
-    this.priceText.setText(`${price} G · ${effectSummary(itemId!)}`);
-    this.priceText.setColor(this.money >= price ? BODY_TEXT : LACKING_TEXT);
+    this.priceText.setText(`에너지 ${price} · ${effectSummary(itemId!)}`);
+    this.priceText.setColor(this.energy >= price ? BODY_TEXT : LACKING_TEXT);
 
     this.detailIcon.setItem(itemId ?? null);
   }

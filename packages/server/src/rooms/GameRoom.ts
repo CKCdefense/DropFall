@@ -41,7 +41,7 @@ import {
   type PersonaEvent,
   type QuickMoveItemMessage,
   type ShopBuyMessage,
-  type ShopSellMessage,
+  type SpendStatPointMessage,
   type JoinRoomOptions,
   type PlayerInputMessage,
   type SelectJobMessage,
@@ -88,6 +88,12 @@ export class GameRoom extends Room {
   maxClients = MAX_CLIENTS_PER_ROOM;
   state = new GameRoomState();
 
+  /**
+   * 기본값(티모시 켬)으로 미리 세워 둔다. 방 옵션으로 티모시를 껐을 때만 onCreate가
+   * 다시 만든다 — 그 경우에만 자원 배치가 두 번 도는 셈인데, 방 하나당 한 번뿐이라
+   * 필드를 `world!: World`로 두고 "onCreate 전에는 없다"는 상태를 만드는 쪽보다 낫다.
+   * 아래 messages 핸들러는 전부 호출 시점에 `this.world`를 읽으므로 교체해도 안전하다.
+   */
   private world = new World();
   private readonly stepper = new FixedStepAccumulator(1 / TICK_RATE);
   /** 평문 보관. 게임 방 비밀번호는 계정 자격증명이 아니라 입장 키라 해싱하지 않는다. */
@@ -106,9 +112,9 @@ export class GameRoom extends Room {
       if (this.state.phase !== RoomPhase.PLAYING) return;
       this.world.craftItem(client.sessionId, payload?.recipeId);
     },
-    shopSell: (client: Client, payload: ShopSellMessage) => {
+    spendStatPoint: (client: Client, payload: SpendStatPointMessage) => {
       if (this.state.phase !== RoomPhase.PLAYING) return;
-      this.world.sellToShop(client.sessionId, payload?.itemId, payload?.count);
+      this.world.spendStatPoint(client.sessionId, payload?.stat);
     },
     dev: (client: Client, payload: DevCommandMessage) => {
       // 개발 플래그가 없으면 조용히 무시한다 — 존재를 알려줄 이유가 없다.
@@ -132,7 +138,12 @@ export class GameRoom extends Room {
     },
     quickMoveItem: (client: Client, payload: QuickMoveItemMessage) => {
       if (this.state.phase !== RoomPhase.PLAYING) return;
-      this.world.quickMoveItem(client.sessionId, payload?.container, payload?.index);
+      this.world.quickMoveItem(
+        client.sessionId,
+        payload?.container,
+        payload?.index,
+        payload?.to,
+      );
     },
     placeHeldBuilding: (client: Client, payload: { cx?: unknown; cy?: unknown }) => {
       if (this.state.phase !== RoomPhase.PLAYING) return;
@@ -255,6 +266,10 @@ export class GameRoom extends Room {
     this.state.roomName = roomName;
     this.state.hasPassword = this.password.length > 0;
 
+    // 티모시는 방 설정이다 — 아무도 안 들어온 지금 정해야 월드가 한 번만 세워진다.
+    this.state.companionEnabled = options?.companion !== false;
+    if (!this.state.companionEnabled) this.world = new World({ companion: false });
+
     // GET /rooms(방 목록)가 읽는 값. 비밀번호 자체는 절대 넣지 않는다.
     await this.setMetadata({
       roomName,
@@ -375,6 +390,17 @@ export class GameRoom extends Room {
       schema.burstMode = player.burstMode;
       schema.useFxKind = player.useFxKind;
       schema.useFxSeq = player.useFxSeq;
+      schema.level = player.level;
+      schema.xp = player.xp;
+      schema.statPoints = player.statPoints;
+      schema.spentHp = player.spentHp;
+      schema.spentAttack = player.spentAttack;
+      schema.spentStamina = player.spentStamina;
+      schema.levelUpSeq = player.levelUpSeq;
+      schema.craftRecipeId = player.craftRecipeId;
+      schema.craftRemaining = player.craftTimer;
+      schema.craftOutput.itemId = player.craftOutput?.itemId ?? '';
+      schema.craftOutput.count = player.craftOutput?.count ?? 0;
       // 장착 무기의 탄약 상태. 근접/맨손이면 magazine 0으로 두고 HUD가 표시를 걷는다.
       const ammo = this.world.ammoView(id);
       schema.ammo = ammo?.loaded ?? 0;
@@ -415,8 +441,17 @@ export class GameRoom extends Room {
     this.state.coreSharedWood = core.storage.countOf('wood');
     this.state.coreSharedStone = core.storage.countOf('stone');
     this.state.coreParts = core.storage.countOf('drop_normal');
-    this.state.coreSharedEnergy = core.sharedEnergy;
-    this.state.coreMoney = core.money;
+    this.state.coreResource = core.resource;
+    this.state.coreMaxResource = core.maxResource;
+    this.state.coreEnergy = core.energy;
+    this.state.coreMaxEnergy = core.maxEnergy;
+    // 강화 비용은 데이터에서 나오지만, 클라가 coreUpgrades.json을 다시 읽어 티어
+    // 인덱스를 계산하게 두면 규칙이 두 벌이 된다 — 서버가 정한 다음 단계를 그대로 보낸다.
+    const nextUpgrade = this.world.nextCoreUpgrade();
+    this.state.upgradeAvailable = nextUpgrade !== undefined;
+    this.state.upgradeResourceCost = nextUpgrade?.cost.resource ?? 0;
+    this.state.upgradeEnergyCost = nextUpgrade?.cost.energy ?? 0;
+    this.state.openChargeSlots = this.world.openChargeSlotCount();
     // 탐색 안개: 바뀐 바이트만 건드린다. 통째로 대입하면 Colyseus가 2048개 전부를
     // "바뀜"으로 보고 매 틱 2KB를 내보낸다.
     const explored = this.world.getExplored();
@@ -635,9 +670,15 @@ export class GameRoom extends Room {
   }
 
   private syncCoreStorage(): void {
-    const view = this.world.getCore().storage.toView();
-    view.slots.forEach((slot, index) => {
+    const core = this.world.getCore();
+    core.storage.toView().slots.forEach((slot, index) => {
       const schema = this.state.coreStorage[index];
+      if (!schema) return;
+      schema.itemId = slot?.itemId ?? '';
+      schema.count = slot?.count ?? 0;
+    });
+    core.chargeSlots.forEach((slot, index) => {
+      const schema = this.state.coreCharge[index];
       if (!schema) return;
       schema.itemId = slot?.itemId ?? '';
       schema.count = slot?.count ?? 0;

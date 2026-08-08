@@ -1,8 +1,8 @@
 import Phaser from 'phaser';
 import { jobsData } from '@dropfall/shared';
 import type { PlayerView } from '../../net/GameConnection';
+import { BAR_SMALL, HudBar } from './hudBar';
 import {
-  BAR_BACK,
   BODY_TEXT,
   DOWN_COLOR,
   FONT,
@@ -15,7 +15,8 @@ import {
 const BOX_WIDTH = 92;
 const BOX_HEIGHT = 30;
 const BOX_GAP = 5;
-const BAR_HEIGHT = 4;
+/** 코어·경험치와 같은 얇은 게이지 규격. 높이는 그림에 박혀 있다(hudBar 참고). */
+const BAR_HEIGHT = BAR_SMALL.height;
 
 /**
  * 화면 좌측 세로 칸 — 팀원 체력(와이어프레임 좌측 3칸).
@@ -27,11 +28,11 @@ const BAR_HEIGHT = 4;
 export class PartyPanel {
   private readonly boxes: Phaser.GameObjects.Rectangle[] = [];
   private readonly nameLabels: Phaser.GameObjects.Text[] = [];
-  private readonly barBacks: Phaser.GameObjects.Rectangle[] = [];
-  private readonly bars: Phaser.GameObjects.Rectangle[] = [];
+  private readonly bars: HudBar[] = [];
   /** 레이아웃 후 실제 높이(px). */
   height = 0;
-  private barWidth = 0;
+  /** 마지막 레이아웃의 UI 배율. 게이지 채움을 갱신할 때 다시 넘겨야 한다. */
+  private scale = 1;
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -47,8 +48,7 @@ export class PartyPanel {
       this.nameLabels.push(
         scene.add.text(0, 0, '', { fontFamily: FONT, fontSize: `${SIZE_BODY}px`, color: BODY_TEXT }),
       );
-      this.barBacks.push(scene.add.rectangle(0, 0, 10, BAR_HEIGHT, BAR_BACK).setOrigin(0, 0));
-      this.bars.push(scene.add.rectangle(0, 0, 10, BAR_HEIGHT, 0x6fd08c).setOrigin(0, 0));
+      this.bars.push(new HudBar(scene, BAR_SMALL));
     }
   }
 
@@ -56,19 +56,22 @@ export class PartyPanel {
     const width = BOX_WIDTH * scale;
     const boxHeight = BOX_HEIGHT * scale;
     const gap = BOX_GAP * scale;
-    this.barWidth = width - 10 * scale;
+    const barWidth = width - 10 * scale;
     this.height = this.capacity * boxHeight + (this.capacity - 1) * gap;
+    this.scale = scale;
 
     for (let index = 0; index < this.capacity; index += 1) {
       const y = top + index * (boxHeight + gap);
       this.boxes[index].setSize(width, boxHeight).setPosition(left, y);
       this.nameLabels[index].setFontSize(SIZE_BODY * scale).setPosition(left + 5 * scale, y + 4 * scale);
-      this.barBacks[index]
-        .setSize(this.barWidth, BAR_HEIGHT * scale)
-        .setPosition(left + 5 * scale, y + boxHeight - 9 * scale);
-      this.bars[index]
-        .setSize(this.barWidth, BAR_HEIGHT * scale)
-        .setPosition(left + 5 * scale, y + boxHeight - 9 * scale);
+      // 게이지가 4px에서 8px로 두꺼워져서 아래 여백만큼 위로 올린다 — 예전 자리
+      // (boxHeight - 9)에 그대로 두면 칸 아래 테두리를 넘는다.
+      this.bars[index].layout(
+        left + 5 * scale,
+        y + boxHeight - (BAR_HEIGHT + 4) * scale,
+        barWidth,
+        scale,
+      );
     }
   }
 
@@ -80,7 +83,6 @@ export class PartyPanel {
 
       this.boxes[index].setVisible(visible);
       this.nameLabels[index].setVisible(visible);
-      this.barBacks[index].setVisible(visible);
       this.bars[index].setVisible(visible);
       if (!player) continue;
 
@@ -90,8 +92,7 @@ export class PartyPanel {
 
       // 개발 커맨드(hp)로 최대치를 넘길 수 있어서 위쪽도 조인다(HudScene와 같은 이유).
       const ratio = Math.min(1, Math.max(0, player.hp) / (player.maxHp || jobsData.base.maxHp));
-      this.bars[index].width = Math.max(0, this.barWidth * ratio);
-      this.bars[index].fillColor = barColor(ratio);
+      this.bars[index].setValue(ratio, barColor(ratio), this.scale);
     }
   }
 }

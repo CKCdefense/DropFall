@@ -21,6 +21,20 @@ export const CORE_INTERACT_KEY = 'coreInteract';
 export const INPUT_CONTROLLER_KEY = 'inputController';
 
 /**
+ * GameScene이 매 프레임 갱신하는 내 캐릭터의 **예측 좌표**(`PlayerPredictor.
+ * renderPosition`) — `{ x, y } | undefined`. HudScene은 이 값이 있으면 그걸,
+ * 없으면(아직 예측이 초기화 전) 스냅샷의 보간 좌표를 대신 쓴다.
+ *
+ * 왜 필요한가: `HudScene.update()`는 `connection.getSnapshot()`을 GameScene과
+ * 별개로 직접 받는다 — GameScene의 `EntityRenderer.sync(snapshot, localOverride)`가
+ * 내 캐릭터 스프라이트에만 적용하는 예측 보정을, HudScene 쪽 소비자(미니맵 등)는
+ * 전혀 모른다. 그 결과 월드 화면의 내 캐릭터는 예측으로 매끈해졌는데 미니맵 점은
+ * 여전히 순수 보간(네트워크 지터에 취약)이라 "미니맵에서만 순간이동"하는 것처럼
+ * 보이는 버그로 이어졌다(docs/backend/55 후속 수정).
+ */
+export const LOCAL_POSITION_KEY = 'localPredictedPosition';
+
+/**
  * HudScene이 등록하는 채팅 로그 append 콜백. 말풍선은 GameScene의 EntityRenderer가
  * 그리지만(캐릭터 컨테이너를 들고 있는 쪽이 GameScene이라서) 하단 로그 패널은
  * HudScene 소속(DevConsole과 같은 DOM 오버레이)이라, GameScene이 onChatMessage를

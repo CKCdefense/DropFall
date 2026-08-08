@@ -6,7 +6,17 @@ export type CompanionState =
   | 'harvesting'
   | 'returning'
   | 'depositing'
-  | 'downed';
+  | 'downed'
+  /**
+   * 방 설정으로 티모시를 끈 상태. "죽었다"(downed)와 다르다 — 다운은 낮이 되면
+   * 되살아나지만 이 상태는 그 방에 티모시가 **처음부터 없는** 것이라 영영 바뀌지 않는다.
+   *
+   * 필드를 null로 두지 않고 상태 하나로 표현한 이유는, 티모시가 World·스냅샷·렌더러를
+   * 관통해 스무 곳 넘게 등장하기 때문이다. null이면 그 전부가 물음표 연산자로 덮이고,
+   * 그때 "없음"과 "아직 안 왔음"이 구분되지 않는다. 상태 하나면 이미 있는
+   * `state !== 'downed'` 검사 자리에 그대로 얹힌다.
+   */
+  | 'absent';
 
 /**
  * 방(팀)당 1마리인 AI 동반자("티모시"). `players`/`monsters`처럼 Map으로 관리하지 않는다 —
@@ -34,13 +44,17 @@ export interface CompanionEntity {
   stuckSeconds: number;
 }
 
-export function createCompanion(coreX: number, coreY: number): CompanionEntity {
+export function createCompanion(
+  coreX: number,
+  coreY: number,
+  enabled = true,
+): CompanionEntity {
   return {
     x: coreX + companionData.spawnOffset.x,
     y: coreY + companionData.spawnOffset.y,
     facingX: 0,
     facingY: 1,
-    state: 'seeking',
+    state: enabled ? 'seeking' : 'absent',
     targetNodeId: undefined,
     carriedWood: 0,
     carriedStone: 0,

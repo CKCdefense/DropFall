@@ -6,6 +6,7 @@ import {
   USE_FX,
   buildingsData,
   companionData,
+  isWithinCoreInteract,
   itemOfSlot,
   monstersData,
   resourcesData,
@@ -217,6 +218,15 @@ const USE_FX_ANIMS: Record<number, { anim: string; prefix: string; frames: numbe
     [USE_FX.statup]: { anim: 'fx_use_statup', prefix: 'fx_boost_statup_', frames: 8, rate: 18 },
   };
 
+/**
+ * 레벨업 이펙트(fx_levelup.lua). 10프레임을 16fps로 — 소모품 이펙트보다 길게(0.6초)
+ * 남긴다. 판마다 몇 번 없는 사건이라 스쳐 지나가면 축하로 안 읽힌다.
+ */
+const LEVEL_UP_ANIM = 'fx_levelup';
+const LEVEL_UP_PREFIX = 'fx_levelup_levelup_';
+const LEVEL_UP_FRAMES = 10;
+const LEVEL_UP_RATE = 16;
+
 /** 피격 아웃라인 색(눌린 빨강 — fx_hurt 팔레트와 동일)과 유지 시간(ms). */
 const HURT_OUTLINE_COLOR = 0xd95c4a;
 const HURT_OUTLINE_MS = 150;
@@ -247,6 +257,20 @@ const DROP_BOB_PERIOD_MS = 1400;
  * 눈으로 찾는 랜드마크가 먼저고, 부딪히는 크기는 그대로다.
  */
 const CORE_FRAME = 'core__0';
+/**
+ * 코어 위에 뜨는 "E" 키 안내. 원점이 아래쪽(0.5, 1)이라 화살표 끝이 이 y를 가리킨다 —
+ * 코어 몸통 꼭대기보다 조금 위에 둔다.
+ */
+const KEY_PROMPT_FRAME = 'ui_keyprompt_e_0';
+/**
+ * 코어 스프라이트 꼭대기(원점 0.68 기준 -73px) 바로 위. 더 띄우면 화살표가 무엇을
+ * 가리키는지 흐려진다 — 실제로 -96에서는 코어와 한 덩어리로 안 읽혔다.
+ */
+const KEY_PROMPT_Y = -80;
+/** 둥둥 뜨는 폭(px)과 한 번 오르내리는 시간(ms). */
+const KEY_PROMPT_BOB = 5;
+const KEY_PROMPT_BOB_MS = 900;
+
 const CORE_SPRITE_SIZE = 128;
 /** 원래 0.42였고, 랜드마크로 잘 보이도록 2배로 키웠다. */
 const CORE_SCALE = 0.84;
@@ -342,6 +366,11 @@ const COLONY_SCALE = 0.45;
 
 /** 이 거리보다 적게 움직였으면 정지로 본다(보간 지터로 걷기 애니메이션이 떨리는 것 방지) */
 const MOVE_EPSILON = 0.15;
+/**
+ * 좌표가 안 변해도 걷기를 유지하는 프레임 수. 20Hz 스냅샷을 60fps로 그리면 세 프레임에
+ * 한 번꼴로만 좌표가 갱신되므로, 그보다 넉넉해야 한다(몬스터도 같은 값을 쓴다).
+ */
+const STILL_GRACE_FRAMES = 6;
 
 /** 닉네임 라벨을 머리 위로 띄우는 거리(월드 단위). 캐릭터 32px 중 그림은 y 2~29에 있다. */
 const LABEL_OFFSET_SPRITE = 30;
@@ -421,6 +450,8 @@ export class EntityRenderer {
   private companion?: Phaser.GameObjects.Container;
   /** 코어(원점 고정). 스프라이트 + 반짝임 + 승급 이펙트를 한 컨테이너에 담는다. */
   private core?: Phaser.GameObjects.Container;
+  /** 코어 위 "E" 안내. 상호작용 사거리 안에 들어왔을 때만 보인다. */
+  private corePrompt?: Phaser.GameObjects.Sprite;
   /** 다음 반짝임까지 남은 시간(ms). */
   private glintTimer = CORE_GLINT_MIN_GAP_MS;
   /** 직전 스냅샷의 코어 티어. 늘어난 순간에만 승급 이펙트를 터뜨린다. */
@@ -573,6 +604,7 @@ export class EntityRenderer {
    */
   sync(snapshot: WorldSnapshot, localOverride?: { id: string; x: number; y: number }): void {
     this.syncCore(snapshot.status.coreTier, snapshot.status.coreHp);
+    this.syncCorePrompt(snapshot.players);
     this.syncPlayers(snapshot.players, localOverride);
     this.syncMonsters(snapshot.monsters);
     this.syncTelegraphs(snapshot.monsters);
@@ -669,6 +701,13 @@ export class EntityRenderer {
       }
       sprite.setData('useFxSeq', player.useFxSeq);
 
+      // 레벨업도 같은 규칙 — 번호가 바뀐 순간에만 튼다.
+      const lastLevelSeq = sprite.getData('levelUpSeq') as number | undefined;
+      if (lastLevelSeq !== undefined && lastLevelSeq !== player.levelUpSeq) {
+        this.playLevelUpFx(sprite);
+      }
+      sprite.setData('levelUpSeq', player.levelUpSeq);
+
       // 다운된 플레이어는 흐리게 — 부활 대상임을 한눈에 보이게 한다.
       sprite.setAlpha(player.hp > 0 ? 1 : 0.35);
 
@@ -759,6 +798,19 @@ export class EntityRenderer {
       .sprite(container.x, container.y, GAME_ATLAS, `${fx.prefix}0`)
       .setDepth(container.y + 1);
     burst.play(fx.anim);
+    burst.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => burst.destroy());
+  }
+
+  /**
+   * 레벨업 빛 기둥. 소모품 이펙트와 달리 **캐릭터 뒤에** 깐다 — 기둥이 몸을 덮으면
+   * 정작 레벨이 오른 사람이 안 보인다.
+   */
+  private playLevelUpFx(container: Phaser.GameObjects.Container): void {
+    if (!this.scene.anims.exists(LEVEL_UP_ANIM)) return;
+    const burst = this.scene.add
+      .sprite(container.x, container.y, GAME_ATLAS, `${LEVEL_UP_PREFIX}0`)
+      .setDepth(container.y - 1);
+    burst.play(LEVEL_UP_ANIM);
     burst.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => burst.destroy());
   }
 
@@ -989,7 +1041,21 @@ export class EntityRenderer {
     const moved = previous ? Math.hypot(x - previous.x, y - previous.y) > MOVE_EPSILON : false;
     this.lastPositions.set(player.id, { x, y });
 
-    if (moved && player.hp > 0) {
+    /*
+     * **한 프레임 안 움직였다고 바로 멈추지 않는다.**
+     *
+     * 좌표는 매 렌더 프레임 바뀌지 않는다 — 서버 스냅샷은 20Hz고, 보간기가 다음
+     * 스냅샷을 기다리는 동안 두 프레임이 같은 좌표로 나올 수 있다. 그때마다
+     * `anims.stop()`을 걸면 다음 프레임에 다시 play가 걸리면서 **애니메이션이 영원히
+     * 첫 프레임에 머문다** — 실제로 걷는데 캐릭터가 뻣뻣하게 미끄러지던 원인이다.
+     *
+     * 몬스터(§syncMonsters)가 이미 같은 방식으로 유예를 두고 있어 규칙을 맞췄다.
+     */
+    const stillFrames = (container.getData('still') as number | undefined) ?? 0;
+    container.setData('still', moved ? 0 : stillFrames + 1);
+    const walking = (moved || stillFrames < STILL_GRACE_FRAMES) && player.hp > 0;
+
+    if (walking) {
       const key = walkAnimKey(job, direction);
       // 같은 애니메이션이 이미 돌고 있으면 재시작하지 않는다(계속 첫 프레임에 머무는 것 방지).
       if (body.anims.currentAnim?.key !== key || !body.anims.isPlaying) body.play(key, true);
@@ -1131,7 +1197,7 @@ export class EntityRenderer {
     const stillFrames = (container.getData('still') as number | undefined) ?? 0;
     container.setData('still', moving ? 0 : stillFrames + 1);
 
-    const key = monsterAnimKey(monster.type, moving || stillFrames < 6 ? 'walk' : 'idle');
+    const key = monsterAnimKey(monster.type, moving || stillFrames < STILL_GRACE_FRAMES ? 'walk' : 'idle');
     if (body.anims.currentAnim?.key !== key || !body.anims.isPlaying) body.play(key, true);
   }
 
@@ -1440,6 +1506,38 @@ export class EntityRenderer {
   }
 
   /**
+   * 코어 위 "E" 안내를 켜고 끈다.
+   *
+   * **판정은 서버와 같은 함수(isWithinCoreInteract)를 쓴다.** HUD의 하단 안내 문구도
+   * 같은 값을 보므로, 글자는 떴는데 키캡은 안 뜨는 어긋남이 생기지 않는다.
+   *
+   * 둥둥 뜨는 트윈은 만들 때 한 번만 건다 — 보일 때마다 새로 걸면 트윈이 쌓인다.
+   */
+  private syncCorePrompt(players: PlayerView[]): void {
+    const me = players.find((player) => player.id === this.ownSessionId);
+    const visible = me !== undefined && me.hp > 0 && isWithinCoreInteract(me.x, me.y);
+
+    if (!this.corePrompt) {
+      if (!visible) return; // 필요해지기 전까지는 만들지 않는다
+      if (!this.scene.textures.get(GAME_ATLAS).has(KEY_PROMPT_FRAME)) return;
+      this.corePrompt = this.scene.add
+        .sprite(0, KEY_PROMPT_Y, GAME_ATLAS, KEY_PROMPT_FRAME)
+        // 화살표 끝이 원점이라, 이 좌표가 곧 "가리키는 지점"이다.
+        .setOrigin(0.5, 1)
+        .setDepth(KEY_PROMPT_Y);
+      this.scene.tweens.add({
+        targets: this.corePrompt,
+        y: KEY_PROMPT_Y - KEY_PROMPT_BOB,
+        duration: KEY_PROMPT_BOB_MS,
+        ease: 'Sine.easeInOut',
+        yoyo: true,
+        repeat: -1,
+      });
+    }
+    this.corePrompt.setVisible(visible);
+  }
+
+  /**
    * 코어 피격 연출 — "공격당하고 있다"는 게 눈에 안 띈다는 제보로 추가했다.
    * 몸체를 한 번 흰색으로 플래시하고, 그보다 오래 남는 붉은 테두리 펄스를 더한다
    * (플레이어 피격의 흰색+붉은 아웃라인 조합과 같은 문법 — §playPlayerHurt).
@@ -1672,6 +1770,22 @@ export class EntityRenderer {
           end: HURT_FX_FRAMES - 1,
         }),
         frameRate: HURT_FX_RATE,
+        repeat: 0,
+      });
+    }
+
+    if (
+      !this.scene.anims.exists(LEVEL_UP_ANIM) &&
+      this.scene.textures.get(GAME_ATLAS).has(`${LEVEL_UP_PREFIX}0`)
+    ) {
+      this.scene.anims.create({
+        key: LEVEL_UP_ANIM,
+        frames: this.scene.anims.generateFrameNames(GAME_ATLAS, {
+          prefix: LEVEL_UP_PREFIX,
+          start: 0,
+          end: LEVEL_UP_FRAMES - 1,
+        }),
+        frameRate: LEVEL_UP_RATE,
         repeat: 0,
       });
     }
@@ -2011,8 +2125,14 @@ export class EntityRenderer {
 
   // ---------------------------------------------------------------- 티모시(AI 동반자)
 
-  /** 방(팀)당 1마리, 항상 존재한다 — 코어처럼 diff-and-update 루프가 필요 없다. */
+  /**
+   * 방(팀)당 1마리라 코어처럼 diff-and-update 루프가 필요 없다.
+   *
+   * 방 설정으로 티모시를 껐으면(`absent`) 스프라이트를 아예 만들지 않는다 — 투명하게만
+   * 두면 이름표와 말풍선이 빈 자리에 계속 떠 있다.
+   */
   private syncCompanion(view: CompanionView): void {
+    if (view.state === 'absent') return;
     if (!this.companion) {
       this.companion = this.createCompanion(view);
     }

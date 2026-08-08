@@ -50,6 +50,11 @@ const STAT_FULL = { hp: 200, stamina: 200, attack: 40 } as const;
  * 흐리게 두고 안내 문구를 달았다 — 눌리는 것처럼 보이는데 아무 일도 안 하는 게 제일 나쁘다.
  */
 export class CharacterModal extends Modal {
+  /** 스탯 포인트를 하나 쓴다. HudScene이 서버로 보낸다. */
+  onSpendPoint: (stat: 'maxHp' | 'attack' | 'stamina') => void = () => {};
+
+  private readonly plusButtons: (Phaser.GameObjects.NineSlice | Phaser.GameObjects.Rectangle)[] = [];
+
   private readonly portrait: Phaser.GameObjects.Sprite | Phaser.GameObjects.Rectangle;
   private readonly levelText: Phaser.GameObjects.Text;
   private readonly nameText: Phaser.GameObjects.Text;
@@ -111,11 +116,13 @@ export class CharacterModal extends Modal {
     page.add(this.jobText);
     page.add(this.spText);
 
-    // --- 스탯 세 줄. 막대 오른쪽의 [+]는 아직 쓸 수 없다(레벨 없음).
+    // --- 스탯 세 줄. 막대 오른쪽 [+]로 스탯 포인트를 하나씩 쓴다.
     const statsTop = 56;
     this.statBarWidth = page.width - rightX - STAT_BUTTON - SECTION_GAP;
     const stats = ['체력 스탯', '스태미나 스탯', '공격력 스탯'];
     const colors = [0x6fd08c, STAMINA_COLOR, ATTACK_COLOR];
+    // 화면 순서(체력·스태미나·공격력)와 서버가 받는 이름을 나란히 둔다.
+    const statIds: ('maxHp' | 'stamina' | 'attack')[] = ['maxHp', 'stamina', 'attack'];
 
     stats.forEach((label, index) => {
       const y = statsTop + index * (STAT_ROW_HEIGHT + STAT_ROW_GAP);
@@ -148,17 +155,20 @@ export class CharacterModal extends Modal {
       page.add(value);
       this.statValues.push(value);
 
-      // 올리기 버튼. 지금은 흐린 껍데기다 — 레벨·SP가 생기면 여기에 연결한다.
+      /*
+       * 올리기 버튼. **포인트가 없으면 흐리게 하고 입력을 끈다** — 눌리는 것처럼
+       * 보이는데 아무 일도 안 하는 게 제일 나쁘다(하단 바 작업에서 세운 규칙).
+       * 실제 차감은 서버가 하고, 여기서는 보낼 뿐이다.
+       */
       const plus = page.addButton(
         page.width - STAT_BUTTON,
         barY - 2,
         STAT_BUTTON,
         STAT_BUTTON,
         '+',
-        () => {},
+        () => this.onSpendPoint(statIds[index]!),
       );
-      plus.setAlpha(0.4);
-      plus.disableInteractive();
+      this.plusButtons.push(plus);
     });
 
     // --- 아래: 스킬 목록과 설명.
@@ -223,6 +233,15 @@ export class CharacterModal extends Modal {
   /** 스냅샷마다 호출된다. 창이 닫혀 있어도 값만 갱신하면 되므로 비용이 거의 없다. */
   setPlayer(me: PlayerView | undefined): void {
     if (!me) return;
+
+    this.levelText.setText(`Lv ${me.level}`);
+    this.spText.setText(`SP ${me.statPoints}`);
+    const canSpend = me.statPoints > 0;
+    for (const button of this.plusButtons) {
+      button.setAlpha(canSpend ? 1 : 0.4);
+      if (canSpend) button.setInteractive({ useHandCursor: true });
+      else button.disableInteractive();
+    }
 
     this.nameText.setText(me.nickname || '생존자');
     this.jobText.setText(me.job ? jobName(me.job) : '직업 미선택');

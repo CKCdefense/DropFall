@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { World } from '../src/sim/world';
-import { coloniesData, coreUpgradesData, monstersData, resourcesData, wavesData } from '../src/data';
+import {
+  buildingsData,
+  coloniesData,
+  coreUpgradesData,
+  monstersData,
+  resourcesData,
+  wavesData,
+} from '../src/data';
 import { HIT_RADIUS } from '../src/sim/combat';
 import { COLONY_RADIUS } from '../src/sim/colony';
 import { SLOT_COUNT } from '../src/sim/inventory';
@@ -90,13 +97,15 @@ function createTestWorld(): World {
 const FIRST_EMPTY_STORAGE = 4;
 
 /**
- * 건축 비용은 코어 창고에서 나간다(개인 인벤토리가 아니다) — 테스트에서 직접 채워
- * 넣는다. 자원이 전용 숫자 필드가 아니라 창고 슬롯이 된 뒤로는 add()로 넣는다.
+ * 건축 비용은 코어 **자원 게이지**에서 나간다(창고 재료가 아니다) — 테스트에서 직접
+ * 채워 넣는다. 나무·돌은 이제 충전을 거쳐야 게이지가 되므로 창고에 넣어봐야 못 짓는다.
  */
-function grantSharedResources(world: World, wood: number, stone: number): void {
-  const storage = world.getCore().storage;
-  if (wood > 0) storage.add('wood', wood);
-  if (stone > 0) storage.add('stone', stone);
+function grantResource(world: World, amount: number): void {
+  // 상한도 같이 올린다 — 테스트에서 "자원 제약을 없앤다"는 뜻이라, 기본 상한(400)에
+  // 걸려 마흔 개짜리 벽 테스트가 여섯 개에서 멈추면 안 된다.
+  const core = world.getCore() as { resource: number; maxResource: number };
+  core.maxResource = Math.max(core.maxResource, amount);
+  core.resource = amount;
 }
 
 /** 창고에 든 특정 재료 개수. 예전 core.sharedWood를 대신한다. */
@@ -652,7 +661,7 @@ describe('World — 건축', () => {
     const world = createTestWorld();
     world.addPlayer('builder', 500, 500);
     equipDefaultKit(world, 'builder');
-    grantSharedResources(world, 10, 10);
+    grantResource(world, 400);
 
     // 본인이 서 있는 셀이 아니라 바로 옆 셀에 짓는다 — "플레이어가 서 있는 셀엔 못 짓는다"
     // 규칙은 배치를 요청한 본인에게도 적용된다(실제 게임에서도 자기 발밑이 아니라
@@ -660,9 +669,8 @@ describe('World — 건축', () => {
     const { cx, cy } = worldToCell(550, 500);
     world.placeBuilding('builder', 'fence', cx, cy);
 
-    // fence woodCost=5, stoneCost=0 → 나무만 5개 빠진다(10 - 5 = 5 남음)
-    expect(storedCount(world, 'wood')).toBe(5);
-    expect(storedCount(world, 'stone')).toBe(10);
+    // 울타리는 자원 게이지에서 resourceCost만큼 빠진다.
+    expect(world.getCore().resource).toBe(400 - buildingsData.fence.resourceCost);
 
     const buildings = [...world.getBuildings().values()];
     expect(buildings).toHaveLength(1);
@@ -673,21 +681,20 @@ describe('World — 건축', () => {
     const world = createTestWorld();
     world.addPlayer('builder', 500, 500);
     equipDefaultKit(world, 'builder');
-    grantSharedResources(world, 0, 0);
+    grantResource(world, 0);
 
     const { cx, cy } = worldToCell(550, 500);
     world.placeBuilding('builder', 'wall', cx, cy);
 
     expect(world.getBuildings().size).toBe(0);
-    expect(storedCount(world, 'wood')).toBe(0);
-    expect(storedCount(world, 'stone')).toBe(0);
+    expect(world.getCore().resource).toBe(0);
   });
 
   it('이미 건축물이 있는 셀엔 다시 지을 수 없다', () => {
     const world = createTestWorld();
     world.addPlayer('builder', 500, 500);
     equipDefaultKit(world, 'builder');
-    grantSharedResources(world, 100, 100);
+    grantResource(world, 400);
 
     const { cx, cy } = worldToCell(550, 500);
     world.placeBuilding('builder', 'fence', cx, cy);
@@ -700,7 +707,7 @@ describe('World — 건축', () => {
     const world = createTestWorld();
     world.addPlayer('builder', 500, 500);
     equipDefaultKit(world, 'builder');
-    grantSharedResources(world, 100, 100);
+    grantResource(world, 400);
 
     const { cx, cy } = worldToCell(0, 0);
     world.placeBuilding('builder', 'fence', cx, cy);
@@ -712,7 +719,7 @@ describe('World — 건축', () => {
     const world = createTestWorld();
     world.addPlayer('builder', 500, 500);
     equipDefaultKit(world, 'builder');
-    grantSharedResources(world, 100, 100);
+    grantResource(world, 400);
 
     const [node] = [...world.getResourceNodes().values()];
     const { cx, cy } = worldToCell(node.x, node.y);
@@ -725,7 +732,7 @@ describe('World — 건축', () => {
     const world = createTestWorld();
     world.addPlayer('builder', 500, 500);
     equipDefaultKit(world, 'builder');
-    grantSharedResources(world, 100, 100);
+    grantResource(world, 400);
 
     const { cx, cy } = worldToCell(500, 500); // builder 본인이 서 있는 셀
     world.placeBuilding('builder', 'fence', cx, cy);
@@ -737,7 +744,7 @@ describe('World — 건축', () => {
     const world = createTestWorld();
     world.addPlayer('builder', 500, 500);
     equipDefaultKit(world, 'builder');
-    grantSharedResources(world, 100, 100);
+    grantResource(world, 400);
 
     world.placeBuilding('builder', 'castle', 10, 10);
     world.placeBuilding('builder', 'fence', 1.5, 10);
@@ -754,7 +761,7 @@ describe('World — 철거(demolishBuilding, docs/backend/43)', () => {
     const world = createTestWorld();
     world.addPlayer('builder', 500, 500);
     equipDefaultKit(world, 'builder');
-    grantSharedResources(world, 100, 100);
+    grantResource(world, 400);
 
     const { cx, cy } = worldToCell(550, 500);
     world.placeBuilding('builder', 'fence', cx, cy);
@@ -773,7 +780,7 @@ describe('World — 철거(demolishBuilding, docs/backend/43)', () => {
     const world = createTestWorld();
     world.addPlayer('builder', 500, 500);
     equipDefaultKit(world, 'builder');
-    grantSharedResources(world, 100, 100);
+    grantResource(world, 400);
 
     const { cx, cy } = worldToCell(550, 500);
     world.placeBuilding('builder', 'fence', cx, cy); // woodCost=5
@@ -800,7 +807,7 @@ describe('World — 철거(demolishBuilding, docs/backend/43)', () => {
     const world = createTestWorld();
     world.addPlayer('builder', 500, 500);
     equipDefaultKit(world, 'builder');
-    grantSharedResources(world, 100, 100);
+    grantResource(world, 400);
 
     const { cx, cy } = worldToCell(550, 500);
     world.placeBuilding('builder', 'fence', cx, cy);
@@ -835,7 +842,7 @@ describe('World — 건축물과 몬스터 상호작용', () => {
     const directionBefore = { x: monster!.facingX, y: monster!.facingY };
 
     // 몬스터와 코어를 잇는 직선의 중간 지점에 벽을 짓는다.
-    grantSharedResources(world, 100, 100);
+    grantResource(world, 400);
     const { cx, cy } = worldToCell(monster!.x / 2, monster!.y / 2);
     world.placeBuilding('builder', 'wall', cx, cy);
     expect(world.getBuildings().size).toBe(1);
@@ -862,7 +869,7 @@ describe('World — 건축물과 몬스터 상호작용', () => {
     monster!.x = 0;
     monster!.y = -100;
 
-    grantSharedResources(world, 100, 100);
+    grantResource(world, 400);
     // 몬스터 코앞(사거리 20 안)에 벽을 짓는다.
     const { cx, cy } = worldToCell(monster!.x, monster!.y + 10);
     world.placeBuilding('builder', 'wall', cx, cy);
@@ -897,7 +904,7 @@ describe('World — 건축물과 몬스터 상호작용', () => {
     monster!.x = 0;
     monster!.y = -60; // 코어 사거리(attackRange+CORE_RADIUS=36) 밖 — 코어 대신 건축물부터 공격해야 함
 
-    grantSharedResources(world, 100, 100);
+    grantResource(world, 400);
     const { cx, cy } = worldToCell(monster!.x, monster!.y + 10);
     world.placeBuilding('builder', 'fence', cx, cy); // fence hp=50, blood damage=7 → 8번이면 파괴
 
@@ -926,7 +933,7 @@ describe('World — 건축물과 몬스터 상호작용', () => {
     world.tick(0.05);
     expect(monster!.targetPlayerId).toBe('target'); // 타겟 획득 확인
 
-    grantSharedResources(world, 100, 100);
+    grantResource(world, 400);
     // 몬스터와 타겟 사이, 몬스터 사거리(20) 안에 벽을 짓는다.
     const { cx, cy } = worldToCell(monster!.x + 12, monster!.y);
     world.placeBuilding('builder', 'wall', cx, cy);
@@ -938,7 +945,13 @@ describe('World — 건축물과 몬스터 상호작용', () => {
     for (let i = 0; i < 100; i += 1) world.tick(0.02); // 예고 → 정산
 
     expect(building!.hp).toBeLessThan(hpBefore);
-    expect(monster!.x).toBe(xBefore); // 플레이어를 향해 이동하지 않고 벽을 공격했다
+    /*
+     * 타겟(200,0)은 몬스터(213)의 **왼쪽**이다 — 플레이어를 향해 갔다면 x가 줄어든다.
+     * 벽 쪽으로 한 걸음 다가서는 건(x 증가) 벽을 때리러 가는 것이라 정상이다.
+     * 예전엔 "제자리 그대로"로 못 박았는데, 이동속도를 절반으로 낮추자 사거리 안까지
+     * 붙는 데 한 걸음이 더 필요해져 깨졌다 — 보려는 건 "플레이어를 쫓지 않는다"이다.
+     */
+    expect(monster!.x).toBeGreaterThanOrEqual(xBefore);
   });
 
   it('코어를 건축물로 완전히 둘러싸도 몬스터가 멈추지 않고 결국 건축물을 공격한다', () => {
@@ -949,7 +962,7 @@ describe('World — 건축물과 몬스터 상호작용', () => {
     world.addPlayer('builder', -2000, -2000);
     equipDefaultKit(world, 'builder');
 
-    grantSharedResources(world, 1000, 1000);
+    grantResource(world, 100000);
 
     // 코어를 벽 고리로 완전히 둘러싼다 — 바깥에서 코어로 가는 경로가 완전히 막힌다.
     // 코어 8각 발자국(가로 ±52px)이 커서, 발자국과 겹치지 않는 가장 가까운 완전한
@@ -976,10 +989,16 @@ describe('World — 건축물과 몬스터 상호작용', () => {
 
     const coreHpBefore = world.getCore().hp;
 
-    // 몬스터가 제자리에 멈춰 있지 않고 벽까지 다가가서 공격을 시작하는지 확인한다.
+    /*
+     * 몬스터가 제자리에 멈춰 있지 않고 벽까지 다가가서 공격을 시작하는지 확인한다.
+     *
+     * **틱을 잘게 쪼갠다.** 예전엔 1초씩 밀었는데, 이동 판정이 목적지 한 점만 보므로
+     * 한 걸음이 벽 칸보다 길면 벽을 지나쳐 버린다(속도가 45px/s가 되자 실제로 그랬다).
+     * 실제 게임은 60Hz라 한 걸음이 1px 남짓이다 — 그 조건에서 검사해야 의미가 있다.
+     */
     let anyBuildingDamaged = false;
-    for (let i = 0; i < 300 && !anyBuildingDamaged; i += 1) {
-      world.tick(1);
+    for (let i = 0; i < 4000 && !anyBuildingDamaged; i += 1) {
+      world.tick(0.05);
       for (const building of world.getBuildings().values()) {
         if (building.hp < building.maxHp) anyBuildingDamaged = true;
       }
@@ -996,7 +1015,7 @@ describe('World — 건축물과 몬스터 상호작용', () => {
 
 describe('World — 건축물과 플레이어', () => {
   function build(world: World, playerId: string, type: 'fence' | 'wall', x: number, y: number): void {
-    grantSharedResources(world, 100, 100);
+    grantResource(world, 400);
     const { cx, cy } = worldToCell(x, y);
     world.placeBuilding(playerId, type, cx, cy);
   }
@@ -1071,7 +1090,7 @@ describe('World — 건축물과 투사체', () => {
     world.addPlayer('builder', -500, -500);
     equipDefaultKit(world, 'builder');
 
-    grantSharedResources(world, 100, 100);
+    grantResource(world, 400);
 
     // 사수 조준 방향(바로 앞)에 벽을 짓는다.
     const { cx, cy } = worldToCell(260, 0);
@@ -1095,7 +1114,7 @@ describe('World — 건축물과 투사체', () => {
     world.addPlayer('builder', -500, -500);
     equipDefaultKit(world, 'builder');
 
-    grantSharedResources(world, 100, 100);
+    grantResource(world, 400);
 
     const { cx, cy } = worldToCell(260, 0);
     world.placeBuilding('builder', 'fence', cx, cy);

@@ -29,11 +29,19 @@ const SPAWN_Y = 0;
  * `?local=1` 로 진입한다. shared/sim이 Phaser/DOM/Node에 의존하지 않기 때문에
  * 같은 코드가 여기서도 그대로 돈다. (docs/02-tech-spec.md §2.1)
  */
+/** 혼자하기로 들어갈 때 로비에서 정해 넘기는 설정. */
+export interface LocalGameOptions {
+  /** 로비의 직업 선택 결과. 없으면 기본 스탯(jobsData.base)으로 시작한다. */
+  job?: JobId;
+  /** AI 동반자(티모시)를 둘지. 미지정이면 켠다. */
+  companion?: boolean;
+}
+
 export class LocalConnection implements GameConnection {
   readonly isLocal = true;
   readonly sessionId = LOCAL_SESSION_ID;
 
-  private readonly world = new World();
+  private readonly world: World;
   private devResultCallback?: (result: { ok: boolean; message: string }) => void;
   /**
    * 코어 AI 대사 콜백. **실제 LLM 호출은 절대 하지 않는다** — 오프라인 모드는 서버가
@@ -50,13 +58,19 @@ export class LocalConnection implements GameConnection {
   private readonly interpolator = new SnapshotInterpolator();
   private readonly nickname: string;
   private job: JobId | '' = '';
+  private readonly companionEnabled: boolean;
   private timer: ReturnType<typeof setInterval> | null = null;
   private readonly stepper = new FixedStepAccumulator(1 / TICK_RATE);
 
-  constructor(nickname: string) {
+  constructor(nickname: string, options: LocalGameOptions = {}) {
     this.nickname = nickname;
+    // 티모시 사용 여부는 방 설정이라 월드를 세울 때 정한다(서버 GameRoom#onCreate와 같다).
+    this.world = new World({ companion: options.companion !== false });
+    this.companionEnabled = options.companion !== false;
     // 서버(GameRoom#onJoin)와 마찬가지로 코어와 겹치지 않게 띄워 놓는다.
     this.world.addPlayer(LOCAL_SESSION_ID, SPAWN_X, SPAWN_Y);
+    // 혼자하기는 대기실을 거치지 않으므로 직업이 여기서 확정된다(로비에서 골라 넘겨준다).
+    if (options.job) this.selectJob(options.job);
     // 로컬 모드는 로비 대기 없이 항상 혼자라 인원이 이미 확정돼 있다 — 서버가
     // startGame() 시점에 하는 걸 여기선 생성자에서 바로 한다(docs/backend/41).
     this.world.startColonies(1);
@@ -129,16 +143,16 @@ export class LocalConnection implements GameConnection {
     this.world.discardFromStorage(LOCAL_SESSION_ID, index);
   }
 
-  quickMoveItem(container: SlotContainer, index: number): void {
-    this.world.quickMoveItem(LOCAL_SESSION_ID, container, index);
+  quickMoveItem(container: SlotContainer, index: number, to?: 'storage' | 'charge'): void {
+    this.world.quickMoveItem(LOCAL_SESSION_ID, container, index, to);
   }
 
   craft(recipeId: string): void {
     this.world.craftItem(LOCAL_SESSION_ID, recipeId);
   }
 
-  shopSell(itemId: string, count: number): void {
-    this.world.sellToShop(LOCAL_SESSION_ID, itemId, count);
+  spendStatPoint(stat: 'maxHp' | 'attack' | 'stamina'): void {
+    this.world.spendStatPoint(LOCAL_SESSION_ID, stat);
   }
 
   shopBuy(itemId: string): void {
@@ -236,6 +250,16 @@ export class LocalConnection implements GameConnection {
         burstMode: player.burstMode,
         useFxKind: player.useFxKind,
         useFxSeq: player.useFxSeq,
+        level: player.level,
+        xp: player.xp,
+        statPoints: player.statPoints,
+        spentHp: player.spentHp,
+        spentAttack: player.spentAttack,
+        spentStamina: player.spentStamina,
+        levelUpSeq: player.levelUpSeq,
+        craftRecipeId: player.craftRecipeId,
+        craftRemaining: player.craftTimer,
+        craftOutput: player.craftOutput ? { ...player.craftOutput } : null,
         wood: player.inventory.countOf('wood'),
         stone: player.inventory.countOf('stone'),
         parts: player.inventory.countOf('drop_normal'),
@@ -348,8 +372,15 @@ export class LocalConnection implements GameConnection {
         coreSharedStone: core.storage.countOf('stone'),
         coreParts: core.storage.countOf('drop_normal'),
         coreStorage: core.storage.toView().slots,
-        coreSharedEnergy: core.sharedEnergy,
-        coreMoney: core.money,
+        coreResource: core.resource,
+        coreMaxResource: core.maxResource,
+        coreEnergy: core.energy,
+        coreMaxEnergy: core.maxEnergy,
+        coreCharge: core.chargeSlots.map((slot) => (slot ? { ...slot } : null)),
+        openChargeSlots: this.world.openChargeSlotCount(),
+        upgradeAvailable: this.world.nextCoreUpgrade() !== undefined,
+        upgradeResourceCost: this.world.nextCoreUpgrade()?.cost.resource ?? 0,
+        upgradeEnergyCost: this.world.nextCoreUpgrade()?.cost.energy ?? 0,
         shopStock: [...core.shopStock],
         coreTier: core.tier,
         coreBuildRadius: this.world.getBuildRadius(),
@@ -383,6 +414,7 @@ export class LocalConnection implements GameConnection {
         },
       ],
       amHost: true,
+      companionEnabled: this.companionEnabled,
     };
   }
 
