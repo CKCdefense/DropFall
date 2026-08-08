@@ -13,10 +13,14 @@ const DEPTH = 30000;
  */
 const TITLE_SIZE = 99;
 
-/** 시작 암전: 검게 덮었다가 다시 걷는 시간(ms). */
-const OPEN_FADE_OUT_MS = 700;
-const OPEN_HOLD_MS = 350;
-const OPEN_FADE_IN_MS = 900;
+/**
+ * 시작 암전: 완전히 검은 상태에서 얼마나 머물고, 얼마에 걸쳐 밝아지는지(ms).
+ *
+ * 예전엔 맵을 한 번 보여준 뒤 덮었다가 열었는데, 들어서자마자 화면이 어두워지는 게
+ * "무슨 일이 생겼나"로 읽혔다. 처음부터 검은 데서 열리는 편이 시작으로 더 자연스럽다.
+ */
+const OPEN_HOLD_MS = 500;
+const OPEN_FADE_IN_MS = 1800;
 
 /** "DAY N": 떠오르고 · 머물고 · 사라지는 시간(ms). */
 const DAY_IN_MS = 700;
@@ -58,12 +62,16 @@ export class CinematicOverlay {
      * 두면 도형 자체가 안 그려져서, 트윈으로 오브젝트 알파를 아무리 올려도 화면에
      * 아무 일도 일어나지 않는다(실제로 그렇게 만들었다가 암전이 통째로 안 보였다).
      */
+    /*
+     * **처음부터 덮여 있다.** 나중에 켜면 그 사이 한두 프레임 동안 맵이 번쩍 보인다 —
+     * 씬이 만들어지는 순간부터 가려져 있어야 "검은 데서 열린다"가 된다.
+     */
     this.veil = scene.add
       .rectangle(0, 0, width, height, 0x000000, 1)
       .setOrigin(0, 0)
       .setScrollFactor(0)
       .setDepth(DEPTH)
-      .setAlpha(0);
+      .setAlpha(1);
 
     this.title = scene.add
       .text(width / 2, height / 2, '', {
@@ -83,28 +91,16 @@ export class CinematicOverlay {
     this.title.setPosition(width / 2, height / 2);
   }
 
-  /**
-   * 시작 암전 — 검게 덮었다가 천천히 걷는다.
-   *
-   * 이미 밝은 화면을 한 번 어둡게 만든 뒤 여는 이유는, 처음부터 검은 화면으로 시작하면
-   * "아직 안 켜졌나"로 읽히기 때문이다. 한 번 보여주고 덮었다가 여는 편이 "들어간다"에 가깝다.
-   */
+  /** 시작 암전 — 완전히 검은 상태에서 잠깐 머물다가 천천히 밝아진다. */
   playIntro(): void {
-    this.scene.tweens.add({
-      targets: this.veil,
-      alpha: 1,
-      duration: OPEN_FADE_OUT_MS,
-      ease: 'Sine.easeInOut',
-      onComplete: () => {
-        this.scene.time.delayedCall(OPEN_HOLD_MS, () => {
-          this.scene.tweens.add({
-            targets: this.veil,
-            alpha: 0,
-            duration: OPEN_FADE_IN_MS,
-            ease: 'Sine.easeInOut',
-          });
-        });
-      },
+    this.veil.setAlpha(1);
+    this.scene.time.delayedCall(OPEN_HOLD_MS, () => {
+      this.scene.tweens.add({
+        targets: this.veil,
+        alpha: 0,
+        duration: OPEN_FADE_IN_MS,
+        ease: 'Sine.easeInOut',
+      });
     });
   }
 
