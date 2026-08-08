@@ -40,7 +40,10 @@ monsters.png   몬스터                      → 커밋 안 함 (각자 빌드)
 
 ## 받는 법
 
-1. 팀 공유 채널에서 에셋 팩을 받는다 → **공유 위치: (여기에 링크를 적을 것)**
+1. 팀 공유 채널에서 에셋 팩을 받는다 → **공유 위치: 비공개 저장소
+   `CKCdefense/dropfall-assets`** (없으면 배포 담당에게 초대를 요청한다).
+   배포도 같은 저장소를 쓴다 — GitHub Pages 빌드가 여기서 완성된 아틀라스를
+   주입한다(.github/workflows/deploy-pages.yml의 ASSETS_SSH_KEY 주석 참고).
 2. 압축을 풀어 이 디렉터리(`assets/sprites/monsters/`)에 넣는다
 3. `pnpm build:atlas`
 
