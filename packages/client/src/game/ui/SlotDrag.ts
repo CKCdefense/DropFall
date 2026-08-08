@@ -1,9 +1,13 @@
 import Phaser from 'phaser';
 import { itemOfSlot, type InventorySlot, type SlotContainer } from '@dropfall/shared';
 import { BODY_TEXT, FONT_SMALL, SIZE_SMALL } from './theme';
+import { createItemIcon } from '../render/itemSprite';
 
 /** 드래그 유령은 모달보다도 위에 떠야 한다. */
 const DEPTH_GHOST = 30000;
+/** 커서를 따라다니는 그림의 크기와 투명도. 아래 칸이 비쳐야 어디에 놓는지가 보인다. */
+const GHOST_SIZE = 44;
+const GHOST_ALPHA = 0.72;
 const ACCENT_HEX = 0x6fd08c;
 const IDLE_STROKE = 0x4a5262;
 
@@ -46,7 +50,7 @@ export class SlotDrag {
 
   private readonly cells: DragCell[] = [];
   private source: DragCell | null = null;
-  private ghost: Phaser.GameObjects.Text | null = null;
+  private ghost: Phaser.GameObjects.GameObject | null = null;
   private hover: DragCell | null = null;
 
   constructor(private readonly scene: Phaser.Scene) {
@@ -96,24 +100,39 @@ export class SlotDrag {
 
     this.source = cell;
     const item = itemOfSlot(slot);
-    this.ghost = this.scene.add
-      .text(0, 0, item?.name ?? slot.itemId, {
-        fontFamily: FONT_SMALL,
-        fontSize: `${SIZE_SMALL}px`,
-        color: BODY_TEXT,
-        backgroundColor: '#14161d',
-        padding: { x: 4, y: 2 },
-      })
-      .setOrigin(0.5, 0.5)
-      .setDepth(DEPTH_GHOST);
+
+    // 집은 물건의 **그림**이 커서를 따라온다. 예전엔 이름표(글자)가 붙어 다녀서, 무엇을
+    // 집었는지는 알아도 어디에 놓는지가 눈에 안 들어왔다 — 칸도 그림으로 채워져 있으니
+    // 손에 든 것도 같은 그림이라야 "이걸 저기로 옮긴다"가 한 번에 읽힌다.
+    // 반투명으로 둬서 아래 칸이 비쳐 보이게 한다(놓을 자리를 가리면 안 된다).
+    const icon = createItemIcon(this.scene, slot.itemId, GHOST_SIZE);
+    this.ghost =
+      icon?.setAlpha(GHOST_ALPHA).setDepth(DEPTH_GHOST) ??
+      this.scene.add
+        // 아이콘이 없는 아이템(아틀라스 미빌드 등)은 예전처럼 이름표로 떨어진다.
+        .text(0, 0, item?.name ?? slot.itemId, {
+          fontFamily: FONT_SMALL,
+          fontSize: `${SIZE_SMALL}px`,
+          color: BODY_TEXT,
+          backgroundColor: '#14161d',
+          padding: { x: 4, y: 2 },
+        })
+        .setOrigin(0.5, 0.5)
+        .setAlpha(GHOST_ALPHA)
+        .setDepth(DEPTH_GHOST);
 
     const pointer = this.scene.input.activePointer;
-    this.ghost.setPosition(pointer.x, pointer.y);
+    this.moveGhost(pointer.x, pointer.y);
+  }
+
+  /** 고스트는 Image이거나 Text라 공통 상위 타입에는 setPosition이 없다 — 한 곳에서 좁힌다. */
+  private moveGhost(x: number, y: number): void {
+    (this.ghost as Phaser.GameObjects.Components.Transform | null)?.setPosition(x, y);
   }
 
   private onPointerMove(pointer: Phaser.Input.Pointer): void {
     if (!this.ghost) return;
-    this.ghost.setPosition(pointer.x, pointer.y);
+    this.moveGhost(pointer.x, pointer.y);
 
     const over = this.cellAt(pointer.x, pointer.y);
     if (over === this.hover) return;

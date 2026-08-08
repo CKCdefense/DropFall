@@ -19,6 +19,7 @@ import { DayNightOverlay } from '../render/DayNightOverlay';
 import { EntityRenderer } from '../render/EntityRenderer';
 import { queueGameAtlas } from '../render/playerSprite';
 import { queueUiFrames } from '../ui/uiFrame';
+import { PlacementPreview, holdsBuilding } from '../render/PlacementPreview';
 import { queueMonsterAtlas } from '../render/monsterSprite';
 import { TerrainLayer, hasTerrainTileset, queueTerrainTileset } from '../render/TerrainLayer';
 import { InputController } from '../input/InputController';
@@ -45,6 +46,8 @@ export class GameScene extends Phaser.Scene {
   private entityRenderer!: EntityRenderer;
   private terrain?: TerrainLayer;
   private dayNight!: DayNightOverlay;
+  /** 건축 아이템을 들었을 때 커서 칸을 비추는 표시. */
+  private placement!: PlacementPreview;
   private input_!: InputController;
   private isFollowing = false;
   private collisionDebugVisible = false;
@@ -94,6 +97,7 @@ export class GameScene extends Phaser.Scene {
     });
     // 낮·밤 하늘. 모든 월드 오브젝트 위에 얹히는 화면 고정 오버레이라 depth로 관리한다.
     this.dayNight = new DayNightOverlay(this);
+    this.placement = new PlacementPreview(this);
     this.input_ = new InputController(
       this,
       this.connection,
@@ -154,6 +158,12 @@ export class GameScene extends Phaser.Scene {
     if (!me) return;
 
     this.input_.update(delta, me);
+
+    // 건축 아이템을 들고 있을 때만 커서 칸을 비춘다. 건축 모드(B)로도 같은 표시를 쓴다 —
+    // 두 경로가 결국 같은 칸에 같은 규칙으로 짓는데 표시가 다르면 헷갈린다.
+    const showPlacement = holdsBuilding(me) || this.input_.buildMode === 'fence' ||
+      this.input_.buildMode === 'wall';
+    this.placement.update(showPlacement ? this.input_.cursorCell() : null, snapshot, me);
 
     if (!this.isFollowing) {
       const sprite = this.entityRenderer.getSprite(me.id);

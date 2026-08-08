@@ -1,4 +1,5 @@
 {
+  "$comment": "건축물. 나무(티어1) → 돌(티어2) → 철(티어3)로 갈수록 튼튼하다. woodCost/stoneCost는 **건축 모드(B)로 코어 창고에서 바로 지을 때**만 쓰인다 — 아이템으로 들고 설치할 때는 아이템 한 개가 곧 비용이라 여기 값을 보지 않는다. 철은 창고 자원으로는 못 짓고(비용 0) 제작으로만 얻는다.",
   "fence": {
     "woodCost": 5,
     "stoneCost": 0,
@@ -10,6 +11,34 @@
     "woodCost": 5,
     "stoneCost": 10,
     "hp": 200,
+    "blocksMovement": true,
+    "blocksProjectile": true
+  },
+  "stone_fence": {
+    "woodCost": 0,
+    "stoneCost": 8,
+    "hp": 120,
+    "blocksMovement": true,
+    "blocksProjectile": false
+  },
+  "stone_wall": {
+    "woodCost": 0,
+    "stoneCost": 18,
+    "hp": 420,
+    "blocksMovement": true,
+    "blocksProjectile": true
+  },
+  "iron_fence": {
+    "woodCost": 0,
+    "stoneCost": 0,
+    "hp": 260,
+    "blocksMovement": true,
+    "blocksProjectile": false
+  },
+  "iron_wall": {
+    "woodCost": 0,
+    "stoneCost": 0,
+    "hp": 900,
     "blocksMovement": true,
     "blocksProjectile": true
   }

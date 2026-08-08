@@ -354,5 +354,41 @@
     "kind": "weapon",
     "weaponId": "hammer_t2",
     "stackSize": 1
+  },
+  "fence": {
+    "name": "나무 울타리",
+    "kind": "building",
+    "buildingType": "fence",
+    "stackSize": 20
+  },
+  "wall": {
+    "name": "나무 벽",
+    "kind": "building",
+    "buildingType": "wall",
+    "stackSize": 20
+  },
+  "stone_fence": {
+    "name": "돌 울타리",
+    "kind": "building",
+    "buildingType": "stone_fence",
+    "stackSize": 20
+  },
+  "stone_wall": {
+    "name": "돌 벽",
+    "kind": "building",
+    "buildingType": "stone_wall",
+    "stackSize": 20
+  },
+  "iron_fence": {
+    "name": "철 울타리",
+    "kind": "building",
+    "buildingType": "iron_fence",
+    "stackSize": 20
+  },
+  "iron_wall": {
+    "name": "철 벽",
+    "kind": "building",
+    "buildingType": "iron_wall",
+    "stackSize": 20
   }
 }

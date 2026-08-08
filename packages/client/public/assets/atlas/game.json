@@ -847,7 +847,7 @@
     "sourceSize": { "w": 64, "h": 64 },
     "duration": 100
    },
-   "fence_wood_wall_front_0": {
+   "build_tier_stone_wall_front_0": {
     "frame": { "x": 684, "y": 562, "w": 32, "h": 32 },
     "rotated": false,
     "trimmed": false,
@@ -855,7 +855,7 @@
     "sourceSize": { "w": 32, "h": 32 },
     "duration": 100
    },
-   "fence_wood_wall_side_0": {
+   "build_tier_stone_wall_side_0": {
     "frame": { "x": 717, "y": 562, "w": 32, "h": 32 },
     "rotated": false,
     "trimmed": false,
@@ -863,7 +863,7 @@
     "sourceSize": { "w": 32, "h": 32 },
     "duration": 100
    },
-   "fence_wood_fence_front_0": {
+   "build_tier_stone_fence_front_0": {
     "frame": { "x": 750, "y": 562, "w": 32, "h": 32 },
     "rotated": false,
     "trimmed": false,
@@ -871,7 +871,7 @@
     "sourceSize": { "w": 32, "h": 32 },
     "duration": 100
    },
-   "fence_wood_fence_side_0": {
+   "build_tier_stone_fence_side_0": {
     "frame": { "x": 783, "y": 562, "w": 32, "h": 32 },
     "rotated": false,
     "trimmed": false,
@@ -879,7 +879,7 @@
     "sourceSize": { "w": 32, "h": 32 },
     "duration": 100
    },
-   "fence_stone_wall_front_0": {
+   "build_tier_iron_wall_front_0": {
     "frame": { "x": 816, "y": 562, "w": 32, "h": 32 },
     "rotated": false,
     "trimmed": false,
@@ -887,15 +887,7 @@
     "sourceSize": { "w": 32, "h": 32 },
     "duration": 100
    },
-   "fence_stone_wall_side_0": {
-    "frame": { "x": 783, "y": 562, "w": 32, "h": 32 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
-    "sourceSize": { "w": 32, "h": 32 },
-    "duration": 100
-   },
-   "stone_wall_front_0": {
+   "build_tier_iron_wall_side_0": {
     "frame": { "x": 849, "y": 562, "w": 32, "h": 32 },
     "rotated": false,
     "trimmed": false,
@@ -903,8 +895,80 @@
     "sourceSize": { "w": 32, "h": 32 },
     "duration": 100
    },
-   "stone_wall_side_0": {
+   "build_tier_iron_fence_front_0": {
     "frame": { "x": 1, "y": 565, "w": 32, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
+    "sourceSize": { "w": 32, "h": 32 },
+    "duration": 100
+   },
+   "build_tier_iron_fence_side_0": {
+    "frame": { "x": 34, "y": 565, "w": 32, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
+    "sourceSize": { "w": 32, "h": 32 },
+    "duration": 100
+   },
+   "fence_wood_wall_front_0": {
+    "frame": { "x": 1227, "y": 577, "w": 32, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
+    "sourceSize": { "w": 32, "h": 32 },
+    "duration": 100
+   },
+   "fence_wood_wall_side_0": {
+    "frame": { "x": 1260, "y": 577, "w": 32, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
+    "sourceSize": { "w": 32, "h": 32 },
+    "duration": 100
+   },
+   "fence_wood_fence_front_0": {
+    "frame": { "x": 1293, "y": 577, "w": 32, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
+    "sourceSize": { "w": 32, "h": 32 },
+    "duration": 100
+   },
+   "fence_wood_fence_side_0": {
+    "frame": { "x": 1326, "y": 577, "w": 32, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
+    "sourceSize": { "w": 32, "h": 32 },
+    "duration": 100
+   },
+   "fence_stone_wall_front_0": {
+    "frame": { "x": 1359, "y": 577, "w": 32, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
+    "sourceSize": { "w": 32, "h": 32 },
+    "duration": 100
+   },
+   "fence_stone_wall_side_0": {
+    "frame": { "x": 1326, "y": 577, "w": 32, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
+    "sourceSize": { "w": 32, "h": 32 },
+    "duration": 100
+   },
+   "stone_wall_front_0": {
+    "frame": { "x": 199, "y": 578, "w": 32, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
+    "sourceSize": { "w": 32, "h": 32 },
+    "duration": 100
+   },
+   "stone_wall_side_0": {
+    "frame": { "x": 232, "y": 578, "w": 32, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
@@ -912,7 +976,7 @@
     "duration": 100
    },
    "stone_fence_front_0": {
-    "frame": { "x": 750, "y": 562, "w": 32, "h": 32 },
+    "frame": { "x": 1293, "y": 577, "w": 32, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
@@ -920,7 +984,7 @@
     "duration": 100
    },
    "stone_fence_side_0": {
-    "frame": { "x": 34, "y": 565, "w": 32, "h": 32 },
+    "frame": { "x": 265, "y": 578, "w": 32, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
@@ -928,7 +992,7 @@
     "duration": 100
    },
    "wood_wall_front_0": {
-    "frame": { "x": 684, "y": 562, "w": 32, "h": 32 },
+    "frame": { "x": 1227, "y": 577, "w": 32, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
@@ -936,7 +1000,7 @@
     "duration": 100
    },
    "wood_wall_side_0": {
-    "frame": { "x": 1, "y": 565, "w": 32, "h": 32 },
+    "frame": { "x": 232, "y": 578, "w": 32, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
@@ -944,7 +1008,7 @@
     "duration": 100
    },
    "wood_fence_front_0": {
-    "frame": { "x": 750, "y": 562, "w": 32, "h": 32 },
+    "frame": { "x": 1293, "y": 577, "w": 32, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
@@ -952,7 +1016,7 @@
     "duration": 100
    },
    "wood_fence_side_0": {
-    "frame": { "x": 34, "y": 565, "w": 32, "h": 32 },
+    "frame": { "x": 265, "y": 578, "w": 32, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
@@ -976,7 +1040,7 @@
     "duration": 100
    },
    "stone_full_0": {
-    "frame": { "x": 1227, "y": 577, "w": 32, "h": 32 },
+    "frame": { "x": 298, "y": 578, "w": 32, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
@@ -984,7 +1048,7 @@
     "duration": 100
    },
    "stone_cracked_0": {
-    "frame": { "x": 1260, "y": 577, "w": 32, "h": 32 },
+    "frame": { "x": 331, "y": 578, "w": 32, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
@@ -992,7 +1056,7 @@
     "duration": 100
    },
    "stone_broken_0": {
-    "frame": { "x": 1293, "y": 577, "w": 32, "h": 32 },
+    "frame": { "x": 364, "y": 578, "w": 32, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
@@ -1512,7 +1576,7 @@
     "duration": 100
    },
    "fx_gather_shard_2": {
-    "frame": { "x": 1326, "y": 577, "w": 24, "h": 24 },
+    "frame": { "x": 397, "y": 578, "w": 24, "h": 24 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 24 },
@@ -1520,7 +1584,7 @@
     "duration": 100
    },
    "fx_gather_shard_3": {
-    "frame": { "x": 1351, "y": 577, "w": 24, "h": 24 },
+    "frame": { "x": 422, "y": 578, "w": 24, "h": 24 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 24 },
@@ -1528,7 +1592,7 @@
     "duration": 100
    },
    "fx_gather_shard_4": {
-    "frame": { "x": 1376, "y": 577, "w": 24, "h": 24 },
+    "frame": { "x": 915, "y": 585, "w": 24, "h": 24 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 24 },
@@ -1616,7 +1680,7 @@
     "duration": 100
    },
    "fx_hurt_hit_0": {
-    "frame": { "x": 199, "y": 578, "w": 24, "h": 24 },
+    "frame": { "x": 940, "y": 585, "w": 24, "h": 24 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 24 },
@@ -1624,7 +1688,7 @@
     "duration": 100
    },
    "fx_hurt_hit_1": {
-    "frame": { "x": 224, "y": 578, "w": 24, "h": 24 },
+    "frame": { "x": 965, "y": 585, "w": 24, "h": 24 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 24 },
@@ -1632,7 +1696,7 @@
     "duration": 100
    },
    "fx_hurt_hit_2": {
-    "frame": { "x": 249, "y": 578, "w": 24, "h": 24 },
+    "frame": { "x": 990, "y": 585, "w": 24, "h": 24 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 24 },
@@ -1640,7 +1704,7 @@
     "duration": 100
    },
    "fx_hurt_hit_3": {
-    "frame": { "x": 274, "y": 578, "w": 24, "h": 24 },
+    "frame": { "x": 1015, "y": 585, "w": 24, "h": 24 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 24 },
@@ -1648,7 +1712,7 @@
     "duration": 100
    },
    "fx_hurt_hit_4": {
-    "frame": { "x": 299, "y": 578, "w": 24, "h": 24 },
+    "frame": { "x": 1040, "y": 585, "w": 24, "h": 24 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 24 },
@@ -1656,7 +1720,7 @@
     "duration": 100
    },
    "fx_hurt_hit_5": {
-    "frame": { "x": 324, "y": 578, "w": 24, "h": 24 },
+    "frame": { "x": 1065, "y": 585, "w": 24, "h": 24 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 24 },
@@ -1797,7 +1861,7 @@
   "version": "1.3.18.1-x64",
   "image": "game.png",
   "format": "RGBA8888",
-  "size": { "w": 1411, "h": 610 },
+  "size": { "w": 1411, "h": 611 },
   "scale": "1",
   "frameTags": [
    { "name": "front", "from": 0, "to": 3, "direction": "forward", "color": "#000000ff" },
@@ -1867,6 +1931,14 @@
    { "name": "knife", "from": 16, "to": 16, "direction": "forward", "color": "#000000ff" },
    { "name": "stone_spear", "from": 17, "to": 17, "direction": "forward", "color": "#000000ff" },
    { "name": "idle", "from": 0, "to": 0, "direction": "forward", "color": "#000000ff" },
+   { "name": "stone_wall_front", "from": 0, "to": 0, "direction": "forward", "color": "#000000ff" },
+   { "name": "stone_wall_side", "from": 1, "to": 1, "direction": "forward", "color": "#000000ff" },
+   { "name": "stone_fence_front", "from": 2, "to": 2, "direction": "forward", "color": "#000000ff" },
+   { "name": "stone_fence_side", "from": 3, "to": 3, "direction": "forward", "color": "#000000ff" },
+   { "name": "iron_wall_front", "from": 4, "to": 4, "direction": "forward", "color": "#000000ff" },
+   { "name": "iron_wall_side", "from": 5, "to": 5, "direction": "forward", "color": "#000000ff" },
+   { "name": "iron_fence_front", "from": 6, "to": 6, "direction": "forward", "color": "#000000ff" },
+   { "name": "iron_fence_side", "from": 7, "to": 7, "direction": "forward", "color": "#000000ff" },
    { "name": "wood_wall_front", "from": 0, "to": 0, "direction": "forward", "color": "#000000ff" },
    { "name": "wood_wall_side", "from": 1, "to": 1, "direction": "forward", "color": "#000000ff" },
    { "name": "wood_fence_front", "from": 2, "to": 2, "direction": "forward", "color": "#000000ff" },

@@ -1303,8 +1303,12 @@ export class World {
     }
 
     // 창고가 꽉 차 결과물이 못 들어가면 재료만 날아간다 — 미리 자리를 확인한다.
-    const leftover = storage.add(recipe.itemId, 1);
+    // 한 번에 여러 개 나오는 레시피(울타리 등)는 **일부만 들어가도 실패로 되돌린다** —
+    // "다섯 개 만들었는데 두 개만 생겼다"를 설명할 방법이 없다.
+    const produced = recipe.count ?? 1;
+    const leftover = storage.add(recipe.itemId, produced);
     if (leftover > 0) {
+      storage.consume(recipe.itemId, produced - leftover);
       for (const [itemId, count] of Object.entries(recipe.cost)) storage.add(itemId, count);
     }
   }
@@ -1442,36 +1446,10 @@ export class World {
    * (자원채집 도구 도입에 맞춘 재설계 — 예전엔 요청자 개인 지갑에서만 나갔다).
    */
   placeBuilding(playerId: string, buildingType: unknown, cx: unknown, cy: unknown): void {
-    if (typeof buildingType !== 'string' || !isFiniteNumber(cx) || !isFiniteNumber(cy)) return;
-    if (!Number.isInteger(cx) || !Number.isInteger(cy)) return;
-
+    if (typeof buildingType !== 'string') return;
     const data = buildingsData[buildingType as BuildingType];
     if (!data) return;
-    if (cx < 0 || cy < 0 || cx >= MAP_SIZE_TILES || cy >= MAP_SIZE_TILES) return;
-    if (!this.buildings.canPlace(cx, cy)) return;
-
-    const { x, y } = cellCenterWorld(cx, cy);
-    // 코어 업그레이드로 건설 가능 구역이 늘어난다(docs/backend/38) — 구역 밖은 아직 못 짓는다.
-    // 구역은 원이 아니라 **정사각형**(변의 절반 = getBuildRadius)이다. 격자에 짓는
-    // 게임에서 원형 경계는 모서리 칸이 애매하게 잘리는데, 정사각형은 칸 단위로
-    // 딱 떨어진다.
-    if (Math.max(Math.abs(x), Math.abs(y)) > this.getBuildRadius()) return;
-
-    // 코어 발자국과 겹치는 셀은 전부 금지다 — 스프라이트에 파묻히는 벽이 지어지면 안 된다.
-    if (coreDistance(x, y) <= TILE_SIZE / 2) return;
-
-    for (const node of this.resourceNodes.values()) {
-      const nodeCell = worldToCell(node.x, node.y);
-      if (nodeCell.cx === cx && nodeCell.cy === cy) return;
-    }
-
-    for (const other of this.players.values()) {
-      const otherCell = worldToCell(other.x, other.y);
-      if (otherCell.cx === cx && otherCell.cy === cy) return;
-    }
-
-    const player = this.players.get(playerId);
-    if (!player || player.hp <= 0) return;
+    if (!this.canPlaceBuildingAt(playerId, cx, cy)) return;
 
     // 비용은 코어 창고에서 나간다. 둘 중 하나라도 모자라면 아무것도 소비하지 않는다 —
     // 나무만 깎이고 실패하면 자원이 조용히 증발한다.
@@ -1482,8 +1460,71 @@ export class World {
     storage.consume('wood', data.woodCost);
     storage.consume('stone', data.stoneCost);
 
+    this.spawnBuilding(buildingType as BuildingType, cx as number, cy as number);
+  }
+
+  /**
+   * 손에 든 건축 아이템으로 설치한다(아이템 한 개 = 비용).
+   *
+   * 건축 모드(B)와 규칙은 같지만 **비용을 내는 곳이 다르다** — 이쪽은 코어 창고가 아니라
+   * 내 인벤토리에서 한 개가 빠진다. 그래서 낮에 미리 만들어 들고 나가면 코어에서 멀리
+   * 떨어진 곳에서도 벽을 세울 수 있다(창고 자원은 코어 앞에서만 쓸 수 있는 것과 다르다).
+   *
+   * 무엇을 지을지는 클라이언트가 고르지 않는다 — 선택된 칸에 실제로 무엇이 들어 있는지
+   * 서버가 읽는다(무기와 같은 규칙, §fireWeapon).
+   */
+  placeHeldBuilding(playerId: string, cx: unknown, cy: unknown): void {
+    const player = this.players.get(playerId);
+    if (!player) return;
+
+    const held = player.inventory.heldItem();
+    if (!held || held.kind !== 'building' || !held.buildingType) return;
+    if (!buildingsData[held.buildingType as BuildingType]) return;
+    if (!this.canPlaceBuildingAt(playerId, cx, cy)) return;
+
+    // 아이템을 먼저 뺀다. 설치는 위 검사를 통과한 뒤라 실패하지 않는다.
+    if (!player.inventory.consumeSelectedOne()) return;
+    this.spawnBuilding(held.buildingType as BuildingType, cx as number, cy as number);
+  }
+
+  /**
+   * 이 칸에 건축물을 세울 수 있는가. 비용을 어디서 내든(창고/아이템) 자리 규칙은 같아야
+   * 하므로 한 곳에 모았다 — 규칙이 두 벌이면 한쪽만 고쳐져서 조용히 갈라진다.
+   */
+  canPlaceBuildingAt(playerId: string, cx: unknown, cy: unknown): boolean {
+    if (!isFiniteNumber(cx) || !isFiniteNumber(cy)) return false;
+    if (!Number.isInteger(cx) || !Number.isInteger(cy)) return false;
+    if (cx < 0 || cy < 0 || cx >= MAP_SIZE_TILES || cy >= MAP_SIZE_TILES) return false;
+    if (!this.buildings.canPlace(cx, cy)) return false;
+
+    const { x, y } = cellCenterWorld(cx, cy);
+    // 코어 업그레이드로 건설 가능 구역이 늘어난다(docs/backend/38) — 구역 밖은 아직 못 짓는다.
+    // 구역은 원이 아니라 **정사각형**(변의 절반 = getBuildRadius)이다. 격자에 짓는
+    // 게임에서 원형 경계는 모서리 칸이 애매하게 잘리는데, 정사각형은 칸 단위로
+    // 딱 떨어진다.
+    if (Math.max(Math.abs(x), Math.abs(y)) > this.getBuildRadius()) return false;
+
+    // 코어 발자국과 겹치는 셀은 전부 금지다 — 스프라이트에 파묻히는 벽이 지어지면 안 된다.
+    if (coreDistance(x, y) <= TILE_SIZE / 2) return false;
+
+    for (const node of this.resourceNodes.values()) {
+      const nodeCell = worldToCell(node.x, node.y);
+      if (nodeCell.cx === cx && nodeCell.cy === cy) return false;
+    }
+
+    for (const other of this.players.values()) {
+      const otherCell = worldToCell(other.x, other.y);
+      if (otherCell.cx === cx && otherCell.cy === cy) return false;
+    }
+
+    const player = this.players.get(playerId);
+    return player !== undefined && player.hp > 0;
+  }
+
+  private spawnBuilding(type: BuildingType, cx: number, cy: number): void {
+    const { x, y } = cellCenterWorld(cx, cy);
     const id = `building_${nextBuildingId++}`;
-    this.buildings.place(id, buildingType as BuildingType, cx, cy, x, y);
+    this.buildings.place(id, type, cx, cy, x, y);
     this.recomputeFlowField();
   }
 

@@ -417,6 +417,102 @@ describe('World — 코어 창고(moveItem)', () => {
   });
 });
 
+describe('World — 손에 든 건축 아이템으로 설치', () => {
+  /**
+   * 코어에서 충분히 떨어진 빈 칸. 코어 발자국은 생각보다 넓어서(가장자리 반경 ~52px)
+   * 60px 지점은 아직 키프아웃(TILE_SIZE/2) 안이다 — 실제로 걸려서 옮겼다.
+   */
+  function emptyCellNear(world: World): { cx: number; cy: number } {
+    clearNodes(world);
+    return worldToCell(120, 0);
+  }
+
+  /** 자원 노드를 전부 멀리 치운다 — 배치 검사에서 노드가 걸리면 안 된다. */
+  function clearNodes(world: World): void {
+    for (const node of world.getResourceNodes().values()) {
+      node.x = 5000;
+      node.y = 5000;
+    }
+  }
+
+  it('아이템이 한 개 줄고 그 자리에 건축물이 선다', () => {
+    const world = createTestWorld();
+    world.addPlayer('p1', 0, 0);
+    emptyHands(world, 'p1');
+    const inventory = world.getPlayers().get('p1')!.inventory;
+    inventory.add('stone_wall', 3);
+    world.selectSlot('p1', 0);
+
+    const cell = emptyCellNear(world);
+    world.placeHeldBuilding('p1', cell.cx, cell.cy);
+
+    expect(inventory.countOf('stone_wall')).toBe(2);
+    const placed = [...world.getBuildings().values()];
+    expect(placed).toHaveLength(1);
+    expect(placed[0]!.type).toBe('stone_wall');
+  });
+
+  it('비용은 코어 창고가 아니라 인벤토리에서 나간다', () => {
+    const world = createTestWorld();
+    world.addPlayer('p1', 0, 0);
+    emptyHands(world, 'p1');
+    world.getPlayers().get('p1')!.inventory.add('fence', 1);
+    world.selectSlot('p1', 0);
+    const woodBefore = storedCount(world, 'wood');
+
+    const cell = emptyCellNear(world);
+    world.placeHeldBuilding('p1', cell.cx, cell.cy);
+
+    expect(world.getBuildings().size).toBe(1);
+    expect(storedCount(world, 'wood')).toBe(woodBefore); // 창고는 그대로다
+  });
+
+  it('건축 아이템이 아니면 아무 일도 없다', () => {
+    const world = createTestWorld();
+    world.addPlayer('p1', 0, 0);
+    emptyHands(world, 'p1');
+    const inventory = world.getPlayers().get('p1')!.inventory;
+    inventory.add('bandage', 2);
+    world.selectSlot('p1', 0);
+
+    const cell = emptyCellNear(world);
+    world.placeHeldBuilding('p1', cell.cx, cell.cy);
+
+    expect(world.getBuildings().size).toBe(0);
+    expect(inventory.countOf('bandage')).toBe(2);
+  });
+
+  it('못 짓는 자리면 아이템도 줄지 않는다 — 실패해도 손해가 없어야 한다', () => {
+    const world = createTestWorld();
+    world.addPlayer('p1', 0, 0);
+    emptyHands(world, 'p1');
+    const inventory = world.getPlayers().get('p1')!.inventory;
+    inventory.add('wall', 2);
+    world.selectSlot('p1', 0);
+    clearNodes(world);
+
+    // 코어 발자국 한가운데 — 서버가 거절하는 자리다.
+    const centre = worldToCell(0, 0);
+    world.placeHeldBuilding('p1', centre.cx, centre.cy);
+
+    expect(world.getBuildings().size).toBe(0);
+    expect(inventory.countOf('wall')).toBe(2);
+  });
+
+  it('미리보기와 실제 배치가 같은 규칙을 쓴다', () => {
+    const world = createTestWorld();
+    world.addPlayer('p1', 0, 0);
+    clearNodes(world);
+
+    const ok = worldToCell(120, 0);
+    const core = worldToCell(0, 0);
+    // 클라이언트 미리보기는 이 함수와 같은 규칙을 스냅샷으로 다시 계산한다.
+    expect(world.canPlaceBuildingAt('p1', ok.cx, ok.cy)).toBe(true);
+    expect(world.canPlaceBuildingAt('p1', core.cx, core.cy)).toBe(false);
+    expect(world.canPlaceBuildingAt('p1', -1, 0)).toBe(false);
+  });
+});
+
 describe('World — 창고 칸 비우기(폐기)', () => {
   it('칸이 비고 내용물은 발밑에 떨어진다 — 지우지 않아 되돌릴 수 있다', () => {
     const world = createTestWorld();

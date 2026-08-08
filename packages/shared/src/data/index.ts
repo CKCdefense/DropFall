@@ -423,14 +423,19 @@ const ItemDataSchema = z.object({
    *  - weapon:     장착하면 좌클릭 공격에 쓰인다
    *  - consumable: 사용하면 효과를 내고 1개 줄어든다
    *  - material:   들고 다니다 코어 창고에 넣는다. 손에 들어도 아무 일도 안 일어난다
+   *  - building:   손에 들고 바닥에 설치한다. 한 개가 곧 건축 비용이다 —
+   *                건축 모드(B)가 코어 창고에서 자원을 빼는 것과 달리, 이쪽은 아이템이
+   *                줄어든다. 그래서 낮에 미리 만들어 두고 밤에 들고 다니며 세울 수 있다.
    *
    * 자원 노드를 부수면 나오는 드롭을 주웠을 때 material로 인벤토리에 들어온다 —
    * 예전처럼 PlayerEntity의 전용 필드(wood/stone)로 세지 않는다. 창고 입고가
    * "슬롯을 옮기는 일"이 되어야 도구도 같은 방식으로 보관할 수 있다.
    */
-  kind: z.enum(['weapon', 'consumable', 'material']),
+  kind: z.enum(['weapon', 'consumable', 'material', 'building']),
   /** weapon 전용: weapons.json의 key. 아이템 id와 달라질 수 있어 따로 둔다. */
   weaponId: z.string().optional(),
+  /** building 전용: buildings.json의 key. 설치하면 이 타입의 건축물이 선다. */
+  buildingType: z.string().optional(),
   /** consumable 전용: 자기 체력 회복량 */
   healAmount: z.number().positive().optional(),
   /**
@@ -605,6 +610,11 @@ export const coreUpgradesData = loadData(CoreUpgradesDataSchema, coreUpgradesJso
 // --- crafting.json ------------------------------------------------------------
 
 const CraftRecipeSchema = z.object({
+  /**
+   * 한 번 만들 때 나오는 개수(없으면 1). 울타리처럼 여러 개를 세워야 쓸모가 있는
+   * 물건을 한 개씩 만들게 하면 같은 버튼을 스무 번 누르게 된다.
+   */
+  count: z.number().int().positive().optional(),
   id: z.string(),
   /** 만들어지는 아이템(items.json의 key). */
   itemId: z.string(),

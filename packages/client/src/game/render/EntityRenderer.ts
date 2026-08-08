@@ -35,7 +35,7 @@ import {
   walkAnimKey,
 } from './playerSprite';
 import { ACTION_PLANE_Y } from './plane';
-import { itemFrame } from './itemSprite';
+import { hasItemFrame, itemFrame } from './itemSprite';
 import {
   BULLET_ANIM,
   DEFAULT_WEAPON_ID,
@@ -45,6 +45,7 @@ import {
   SWING_STRIKE_DELAY_MS,
   bulletFrame,
   hasBulletFx,
+  heldItemVisual,
   hasHandSprite,
   hasMuzzleFx,
   hasSwingFx,
@@ -58,6 +59,7 @@ import {
   weaponVisual,
   type SwingState,
   type WeaponParts,
+  type WeaponVisual,
 } from './weaponFx';
 import {
   MONSTER_ATLAS,
@@ -136,16 +138,28 @@ const COMPANION_PLACEHOLDER_COLOR = 0xf2c14e;
  * 서버·설치 UI에 방향 개념을 추가하지 않기 위해서다.
  * 프레임이 아틀라스에 없으면 아래 플레이스홀더 표로 떨어진다.
  */
+/** 무기가 아닌 아이템을 손에 든 상태를 가리키는 키 접두사(§visualOf). */
+const HELD_ITEM_PREFIX = 'item:';
+
 const BUILDING_SPRITE: Record<string, { h: string; v: string }> = {
   // wood.aseprite: 울타리는 가운데가 뚫려 있고(총알 통과 규칙과 일치) 벽은 꽉 차 있다.
   fence: { h: 'wood_fence_front_0', v: 'wood_fence_side_0' },
   wall: { h: 'wood_wall_front_0', v: 'wood_wall_side_0' },
+  // build_tier.aseprite: 같은 실루엣에 재질만 다르다(돌 → 철).
+  stone_fence: { h: 'build_tier_stone_fence_front_0', v: 'build_tier_stone_fence_side_0' },
+  stone_wall: { h: 'build_tier_stone_wall_front_0', v: 'build_tier_stone_wall_side_0' },
+  iron_fence: { h: 'build_tier_iron_fence_front_0', v: 'build_tier_iron_fence_side_0' },
+  iron_wall: { h: 'build_tier_iron_wall_front_0', v: 'build_tier_iron_wall_side_0' },
 };
 
 /** 건축물 타입별 플레이스홀더 표현. 울타리는 낮고 얇게, 벽은 크고 두껍게 그려서 구분한다. */
 const BUILDING_STYLE: Record<string, { color: number; size: number }> = {
   fence: { color: 0xb08a5c, size: 12 },
   wall: { color: 0x6b6f78, size: 16 },
+  stone_fence: { color: 0x8a8c8c, size: 12 },
+  stone_wall: { color: 0x696a6a, size: 16 },
+  iron_fence: { color: 0xa6b0be, size: 12 },
+  iron_wall: { color: 0x747e8c, size: 16 },
 };
 const BUILDING_FALLBACK = { color: 0x6b6f78, size: 14 };
 
@@ -471,19 +485,51 @@ export class EntityRenderer {
    * 스냅샷의 장착 무기를 반영한다. 바뀐 경우에만 프레임을 갈아끼우고 진행 중인
    * 휘두르기를 끊는다 — 매 프레임 setFrame을 부르면 애니메이션이 초기화된다.
    */
-  private syncWeapon(sessionId: string, weaponId: string): void {
-    if (this.equipped.get(sessionId) === weaponId) return;
-    this.equipped.set(sessionId, weaponId);
+  private syncWeapon(sessionId: string, heldKey: string): void {
+    if (this.equipped.get(sessionId) === heldKey) return;
+    this.equipped.set(sessionId, heldKey);
     this.swings.delete(sessionId);
 
     const weapon = this.players.get(sessionId)?.getByName('aim');
     if (weapon instanceof Phaser.GameObjects.Sprite && this.hasWeapon) {
-      weapon.setFrame(weaponVisual(weaponId).frame);
+      weapon.setFrame(this.visualOf(heldKey).frame);
     }
   }
 
   weaponOf(sessionId: string): string {
     return this.equipped.get(sessionId) ?? DEFAULT_WEAPON_ID;
+  }
+
+  /**
+   * 손에 든 것을 가리키는 키 → 그리는 방법.
+   *
+   * 무기는 무기표(WEAPON_VISUALS)를, 그 밖의 아이템은 아이콘에서 즉석으로 만든 것을
+   * 쓴다(§heldItemVisual). 키에 접두사를 붙여 두 세계를 한 문자열로 다룬다 — 이 키가
+   * 곧 "지금 그림이 최신인가" 판정에 쓰이므로 하나여야 한다.
+   */
+  private visualOf(heldKey: string): WeaponVisual {
+    if (!heldKey.startsWith(HELD_ITEM_PREFIX)) return weaponVisual(heldKey);
+    const itemId = heldKey.slice(HELD_ITEM_PREFIX.length);
+    const frame = itemFrame(itemId);
+    if (!frame || !hasItemFrame(this.scene, frame)) return weaponVisual(DEFAULT_WEAPON_ID);
+    return heldItemVisual(this.scene, itemId, frame);
+  }
+
+  /**
+   * 이 플레이어가 손에 든 것의 키. 무기면 무기 id, 무기가 아닌데 그림이 있으면
+   * `item:<id>`, 아무것도 아니면 맨손이다.
+   */
+  private heldKeyOf(player: PlayerView): string {
+    const item = itemOfSlot(player.slots[player.selectedSlot]);
+    if (!item) return DEFAULT_WEAPON_ID;
+    if (item.kind === 'weapon' && item.weaponId) return item.weaponId;
+
+    const itemId = player.slots[player.selectedSlot]?.itemId;
+    if (!itemId) return DEFAULT_WEAPON_ID;
+    const frame = itemFrame(itemId);
+    return frame && hasItemFrame(this.scene, frame)
+      ? `${HELD_ITEM_PREFIX}${itemId}`
+      : DEFAULT_WEAPON_ID;
   }
 
   /**
@@ -587,16 +633,18 @@ export class EntityRenderer {
 
       // 무기는 서버가 정한다. 무기가 아닌 걸 들었으면 맨손이다 — 소모품을 든 동안에도
       // 좌클릭으로 때릴 수 있으므로(서버의 BARE_HANDS_WEAPON_ID) 그림도 맨손이어야 한다.
+      // 그림은 "손에 든 것"을 그대로 따라간다 — 무기가 아니어도 들고 있으면 보여야 한다.
+      // 전투 판정은 여전히 무기 여부로 갈린다(서버의 BARE_HANDS_WEAPON_ID).
+      this.syncWeapon(player.id, this.heldKeyOf(player));
       const equippedWeaponId =
         itemOfSlot(player.slots[player.selectedSlot])?.weaponId ?? BARE_HANDS_WEAPON_ID;
-      this.syncWeapon(player.id, equippedWeaponId);
       this.updateReloadBar(sprite, player, equippedWeaponId);
 
       const aim = sprite.getByName('aim');
       if (aim instanceof Phaser.GameObjects.Sprite) {
         // 무기 일습(무기·양손·이펙트)을 궤도 위에 배치한다
         const parts = this.readWeaponParts(sprite, aim);
-        const visual = weaponVisual(this.weaponOf(player.id));
+        const visual = this.visualOf(this.weaponOf(player.id));
         layoutWeapon(parts, visual, player.aimAngle, this.swings.get(player.id) ?? null);
         orderWeaponAgainstBody(sprite, parts, player.aimAngle);
       } else if (aim instanceof Phaser.GameObjects.Rectangle) {

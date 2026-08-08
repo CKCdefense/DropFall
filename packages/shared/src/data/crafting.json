@@ -76,6 +76,66 @@
         "stone": 30,
         "drop_normal": 5
       }
+    },
+    {
+      "id": "fence",
+      "itemId": "fence",
+      "requiresTier": 1,
+      "count": 5,
+      "cost": {
+        "wood": 20
+      }
+    },
+    {
+      "id": "wall",
+      "itemId": "wall",
+      "requiresTier": 1,
+      "count": 3,
+      "cost": {
+        "wood": 30,
+        "stone": 15
+      }
+    },
+    {
+      "id": "stone_fence",
+      "itemId": "stone_fence",
+      "requiresTier": 2,
+      "count": 5,
+      "cost": {
+        "wood": 10,
+        "stone": 40
+      }
+    },
+    {
+      "id": "stone_wall",
+      "itemId": "stone_wall",
+      "requiresTier": 2,
+      "count": 3,
+      "cost": {
+        "stone": 60,
+        "drop_normal": 3
+      }
+    },
+    {
+      "id": "iron_fence",
+      "itemId": "iron_fence",
+      "requiresTier": 3,
+      "count": 5,
+      "cost": {
+        "stone": 40,
+        "drop_normal": 10
+      }
+    },
+    {
+      "id": "iron_wall",
+      "itemId": "iron_wall",
+      "requiresTier": 3,
+      "count": 3,
+      "cost": {
+        "stone": 60,
+        "drop_normal": 20,
+        "drop_rare": 2
+      }
     }
   ]
 }
