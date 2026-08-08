@@ -10,7 +10,7 @@
   },
   "waves": [
     {
-      "spawnPoints": 1,
+      "spawnPoints": 4,
       "groupSize": 3,
       "groupIntervalSeconds": 14,
       "spawns": {
@@ -19,7 +19,7 @@
       }
     },
     {
-      "spawnPoints": 2,
+      "spawnPoints": 4,
       "groupSize": 4,
       "groupIntervalSeconds": 13,
       "spawns": {
@@ -30,7 +30,7 @@
       "bossType": "boss_demon"
     },
     {
-      "spawnPoints": 2,
+      "spawnPoints": 5,
       "groupSize": 5,
       "groupIntervalSeconds": 12,
       "spawns": {
@@ -47,7 +47,7 @@
       "bossType": "boss_knight"
     },
     {
-      "spawnPoints": 3,
+      "spawnPoints": 6,
       "groupSize": 5,
       "groupIntervalSeconds": 11,
       "spawns": {
@@ -65,7 +65,7 @@
       "bossType": "boss_golem"
     },
     {
-      "spawnPoints": 3,
+      "spawnPoints": 6,
       "groupSize": 6,
       "groupIntervalSeconds": 10,
       "spawns": {

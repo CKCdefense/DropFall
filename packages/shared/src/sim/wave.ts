@@ -69,7 +69,22 @@ export class WaveManager {
   private waveMonsterTotal = 0;
   private spawnPoints: SpawnPoint[] = [];
   private spawnTimer = 0;
-  /** 스폰 지점을 순서대로 도는 커서. 매번 무작위로 뽑으면 지점 하나에 몰릴 수 있다. */
+  /**
+   * 한 번의 스폰(=groupIntervalSeconds마다 한 번)에 몇 마리를 내보낼지. waves.json의
+   * `groupSize`에 인원수 스케일링(playerScaling)을 적용한 값 — 밤이 시작될 때
+   * 확정된다(§beginNextWave). 이걸 안 늘리면 잡몹 총원만 커지고(피드백 #2) 내보내는
+   * 속도는 그대로라, 게임 흐름 피드백에서 "숫자만 늘었지 몰려오는 주기가 그대로라
+   * 느리다"는 지적을 받았다 — 총원과 같은 배율로 늘려서, 밤을 다 비우는 데 필요한
+   * "스폰 횟수" 자체는 스케일링 전과 비슷하게 유지하면서 한 번에 쏟아지는 양만
+   * 인원수만큼 커지게 한다.
+   */
+  private groupSize = 0;
+  /**
+   * 한 번의 스폰에서 시작할 지점의 순환 오프셋. §tick 주석 참고 — 무리 하나를 이제
+   * 여러 지점에 동시에 나눠 심으므로(사방에서 동시에 오는 느낌), 매번 지점 0부터
+   * 채우면 나머지(groupSize를 지점 수로 못 나눈 몫)가 항상 같은 지점에만 몰린다.
+   * 스폰마다 시작 지점을 밀어서 그 편향을 평균화한다.
+   */
   private spawnPointCursor = 0;
   /** 이번 밤의 보스가 이미 소환됐는가. bossType이 없는 웨이브(1일차)에서는 안 쓴다. */
   private bossSpawned = false;
@@ -149,6 +164,9 @@ export class WaveManager {
     // 확정된다 — 클라이언트가 waves.json만 보고 계산할 수 없어서 여기서 들고 있는다.
     // 보스는 포함하지 않는다(잡몹을 전멸시켜야 나오고, 그때부터는 보스 체력바가 맡는다).
     this.waveMonsterTotal = flat.length;
+    // groupSize도 총원과 같은 배율로 늘린다(§groupSize 필드 주석) — scaledSpawnCount를
+    // 그대로 재사용해 총원 스케일링과 항상 같은 비율을 유지한다.
+    this.groupSize = Math.max(1, scaledSpawnCount(entry.groupSize, players));
     this.spawnPoints = buildSpawnPoints(entry.spawnPoints, wavesData.spawnRadius, this.rng);
     this.spawnTimer = 0;
     this.spawnPointCursor = 0;
@@ -235,8 +253,12 @@ export class WaveManager {
     }
 
     // night — groupSize마리씩 묶어 groupIntervalSeconds 간격으로 내보낸다.
-    // 첫 무리는 밤 시작 즉시(spawnTimer 0) 나온다. 무리 하나는 같은 스폰 지점에서
-    // 함께 나와야 "무리"로 보인다 — 지점 순환은 무리 단위로 돈다.
+    // 첫 무리는 밤 시작 즉시(spawnTimer 0) 나온다. 예전엔 무리 하나가 스폰 지점
+    // "한 곳"에서만 나오고 다음 무리가 다음 지점으로 넘어가는 순환이었는데, 그러면
+    // 코어가 매번 한 방향에서만 공격받고 나머지 방향은 한참 기다려야 위협이 온다는
+    // 게임 흐름 피드백을 받았다 — 이제 무리 하나를 spawnPoints 전체에 동시에
+    // 나눠 심는다(§tick 아래 루프). "사방에서 동시에" 오는 느낌은 이걸로 만들고,
+    // groupIntervalSeconds는 그 "파도"가 몇 초마다 오는지만 정한다.
     const entry = this.currentWaveEntry();
 
     /*
@@ -259,17 +281,18 @@ export class WaveManager {
 
     this.spawnTimer -= dtSeconds;
     while (this.spawnQueue.length > 0 && this.spawnTimer <= 0 && entry) {
-      const point = this.spawnPoints[this.spawnPointCursor % this.spawnPoints.length] ?? {
-        x: 0,
-        y: 0,
-      };
-      this.spawnPointCursor += 1;
-
-      for (let i = 0; i < entry.groupSize; i += 1) {
+      const pointCount = this.spawnPoints.length || 1;
+      // this.groupSize마리를 spawnPoints 전체에 순서대로 나눠 심는다 — 같은 틱 안에서
+      // 여러 지점이 동시에 채워지므로 "사방에서 동시에" 몰려오는 그림이 된다.
+      // 시작 지점을 매번 spawnPointCursor만큼 밀어서, groupSize가 지점 수로 안 나눠
+      // 떨어질 때 나머지가 항상 같은 지점에만 쌓이지 않게 한다.
+      for (let i = 0; i < this.groupSize; i += 1) {
         const type = this.spawnQueue.shift();
         if (!type) break;
+        const point = this.spawnPoints[(this.spawnPointCursor + i) % pointCount] ?? { x: 0, y: 0 };
         spawn(type, point.x, point.y);
       }
+      this.spawnPointCursor += this.groupSize;
       this.spawnTimer += entry.groupIntervalSeconds;
     }
 
