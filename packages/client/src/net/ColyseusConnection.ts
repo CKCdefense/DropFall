@@ -289,6 +289,10 @@ export class ColyseusConnection implements GameConnection {
     this.room.send('moveItem', { from, fromIndex, to, toIndex });
   }
 
+  discardStorageItem(index: number): void {
+    this.room.send('discardStorageItem', { index });
+  }
+
   quickMoveItem(container: SlotContainer, index: number): void {
     this.room.send('quickMoveItem', { container, index });
   }

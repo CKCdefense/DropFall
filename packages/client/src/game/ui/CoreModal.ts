@@ -11,8 +11,8 @@ import { ACCENT, FONT_SMALL, SIZE_SMALL } from './theme';
  * 창고는 각자 또 다른 작은 창으로 떠서 화면에 창이 두세 개씩 겹쳤다. 코어 앞에서 하는
  * 일이 전부 한 창 안에 있어야 "코어를 조작한다"는 하나의 행동이 된다.
  */
-const PANEL_WIDTH = 620;
-const PANEL_HEIGHT = 400;
+const PANEL_WIDTH = 700;
+const PANEL_HEIGHT = 470;
 
 const ROW_GAP = 20;
 const BUTTON_HEIGHT = 30;
@@ -131,6 +131,10 @@ export class CoreModal extends Modal {
 
   set onSell(handler: (itemId: string, count: number) => void) {
     this.store.onSell = handler;
+  }
+
+  set onDiscard(handler: (index: number) => void) {
+    this.warehouse.onDiscard = handler;
   }
 
   setCraftContext(stock: Record<string, number>, coreTier: number): void {

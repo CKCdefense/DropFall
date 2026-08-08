@@ -417,6 +417,43 @@ describe('World — 코어 창고(moveItem)', () => {
   });
 });
 
+describe('World — 창고 칸 비우기(폐기)', () => {
+  it('칸이 비고 내용물은 발밑에 떨어진다 — 지우지 않아 되돌릴 수 있다', () => {
+    const world = createTestWorld();
+    world.addPlayer('p1', 10, 0); // 코어 근접
+    emptyHands(world, 'p1');
+
+    const before = storedCount(world, 'bandage'); // 창고 3번 칸에 심어 둔 붕대 3개
+    expect(before).toBe(3);
+
+    world.discardFromStorage('p1', 3);
+
+    expect(storedCount(world, 'bandage')).toBe(0);
+    expect(droppedCount(world, 'bandage')).toBe(before);
+  });
+
+  it('코어에서 멀면 무시된다 — 창고를 만지는 다른 조작과 같은 규칙이다', () => {
+    const world = createTestWorld();
+    world.addPlayer('p1', 1000, 0);
+
+    world.discardFromStorage('p1', 3);
+
+    expect(storedCount(world, 'bandage')).toBe(3);
+    expect(droppedCount(world, 'bandage')).toBe(0);
+  });
+
+  it('빈 칸이나 이상한 번호를 폐기해도 크래시하지 않는다', () => {
+    const world = createTestWorld();
+    world.addPlayer('p1', 10, 0);
+
+    for (const bad of [-1, 999, 1.5, '1', null, undefined, NaN]) {
+      expect(() => world.discardFromStorage('p1', bad)).not.toThrow();
+    }
+    expect(() => world.discardFromStorage('ghost', 3)).not.toThrow();
+    expect(storedCount(world, 'bandage')).toBe(3);
+  });
+});
+
 describe('World — 쉬프트 클릭 빠른 이동(quickMoveItem, docs/backend/44)', () => {
   it('창고 칸을 쉬프트클릭하면 인벤토리 빈 칸으로 바로 들어간다', () => {
     const world = createTestWorld();

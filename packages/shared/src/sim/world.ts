@@ -1198,6 +1198,31 @@ export class World {
    * (`removeAt`), 하나도 못 옮기면 원래 칸을 그대로 둔다 — `moveItem`의 "다 못
    * 들어가면 되돌린다" 원칙과 같은 결과다.
    */
+  /**
+   * 창고 칸 하나를 비운다(폐기).
+   *
+   * **없애지 않고 바닥에 떨군다.** 창고가 꽉 차서 자리를 만들려는 게 목적인데, 아주
+   * 지우면 잘못 누른 순간 되돌릴 방법이 없다. 바닥에 나오면 마음이 바뀌었을 때 다시
+   * 주우면 되고, 놔두면 어차피 사라지는 것도 아니다 — "자리를 비운다"는 목적은 그대로
+   * 달성된다.
+   */
+  discardFromStorage(playerId: string, index: unknown): void {
+    const player = this.players.get(playerId);
+    if (!player || player.hp <= 0) return;
+    if (!Number.isInteger(index)) return;
+    // 창고를 만지는 다른 조작(moveItem/quickMoveItem)과 같은 규칙 — 코어 앞이어야 한다.
+    if (!this.isNearCore(player)) return;
+
+    const slot = this.core.storage.slotAt(index as number);
+    if (!slot) return;
+
+    // 칸을 비우기 **전에** 내용을 복사해 둔다 — slotAt은 살아 있는 칸을 그대로 돌려주므로,
+    // 먼저 지우면 그 참조의 count가 0이 되어 아무것도 안 떨어진다(실제로 그랬다).
+    const { itemId, count } = slot;
+    this.core.storage.removeAt(index as number, count);
+    this.dropItem(itemId, count, player.x, player.y);
+  }
+
   quickMoveItem(playerId: string, container: unknown, index: unknown): void {
     const player = this.players.get(playerId);
     if (!player || player.hp <= 0) return;

@@ -112,17 +112,22 @@ export class LobbyApp {
   }
 
   /**
-   * 와이어프레임 기준: 화면 위에 로고, 가운데 닉네임, 아래 좌우로 벌어진 두 버튼.
-   * 세 구역을 화면 높이에 분배해서 창 크기가 달라져도 상대 위치가 유지된다.
+   * 로고 바로 아래에 닉네임을 붙이고(로고 이미지의 부제 "SURVIVAL PROTOCOL" 바로 밑),
+   * 버튼 세 개는 화면 맨 아래에 로고 폭 안쪽으로 모아 한 줄로 늘어놓는다.
+   * 위/아래 두 구역을 화면 높이에 분배해서 창 크기가 달라져도 상대 위치가 유지된다.
    */
   private renderTitle(): HTMLElement {
     const nickname = this.nicknameField();
 
     return el('div', { class: 'screen landing' }, [
-      el('div', { class: 'landing-top' }, [this.logo()]),
-      el('div', { class: 'landing-mid' }, [nickname.wrapper]),
+      el('div', { class: 'landing-top' }, [this.logo(), nickname.wrapper]),
       el('div', { class: 'landing-bottom' }, [
         el('div', { class: 'landing-actions' }, [
+          // 서버 없이 클라이언트만 확인하는 개발/시연용 진입로
+          this.button('혼자하기', 'primary', () => {
+            if (!this.commitNickname(nickname.input)) return;
+            this.startLocal();
+          }),
           this.button('참가하기', 'primary', () => {
             if (!this.commitNickname(nickname.input)) return;
             this.screen = 'browse';
@@ -135,11 +140,6 @@ export class LobbyApp {
             this.render();
           }),
         ]),
-        // 서버 없이 클라이언트만 확인하는 개발/시연용 진입로
-        this.button('오프라인으로 혼자 해보기', 'link', () => {
-          if (!this.commitNickname(nickname.input)) return;
-          this.startLocal();
-        }),
       ]),
     ]);
   }

@@ -322,6 +322,7 @@ export class HudScene extends Phaser.Scene {
     this.coreModal.onPurchase = (itemId: string) => this.connection.shopBuy(itemId);
     this.coreModal.onSell = (itemId: string, count: number) =>
       this.connection.shopSell(itemId, count);
+    this.coreModal.onDiscard = (index: number) => this.connection.discardStorageItem(index);
 
     // 낮/밤 무관하게 언제든 열어볼 수 있다 — 아직 실제 효과가 없는 선작업 UI라
     // 페이즈로 막을 이유가 없다(효과가 생기면 그때 막을지 정하면 된다).

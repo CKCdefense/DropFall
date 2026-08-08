@@ -262,6 +262,10 @@ export interface GameConnection {
    */
   quickMoveItem(container: SlotContainer, index: number): void;
   /**
+   * 창고 칸 하나를 비운다(폐기). 지우지 않고 발밑에 떨어뜨리므로 잘못 눌러도 되돌릴 수 있다.
+   */
+  discardStorageItem(index: number): void;
+  /**
    * 코어 업그레이드 요청. 다음 단계 비용을 팀 공유 에너지에서 차감하고 코어
    * 체력/건설 가능 반경/제작·스텟증가 해금을 한 번에 적용한다 — 서버가 비용/최고
    * 단계 여부를 판정한다.
