@@ -16,6 +16,7 @@ import {
   CORE_INTERACT_KEY,
   HUD_BLOCK_KEY,
   INPUT_CONTROLLER_KEY,
+  LOCAL_POSITION_KEY,
 } from '../createGame';
 import type { InputController } from '../input/InputController';
 import { ChatBox } from '../ui/ChatBox';
@@ -545,7 +546,10 @@ export class HudScene extends Phaser.Scene {
     );
     this.waveDial.update(status);
     this.updateBossBar(snapshot);
-    this.minimap.update(snapshot, this.connection.sessionId);
+    // GameScene의 예측 좌표(있으면) — 없으면(로컬 모드 초기 프레임 등) 미니맵이
+    // 스냅샷의 보간 좌표로 알아서 폴백한다.
+    const localPosition = this.registry.get(LOCAL_POSITION_KEY) as { x: number; y: number } | undefined;
+    this.minimap.update(snapshot, this.connection.sessionId, localPosition);
     this.party.update(
       snapshot.players.filter((player) => player.id !== this.connection.sessionId),
     );
