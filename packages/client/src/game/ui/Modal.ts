@@ -372,6 +372,12 @@ export class Modal {
         .setStrokeStyle(1, PANEL_STROKE)
         .setInteractive({ useHandCursor: true });
       box.on('pointerdown', () => this.showTab(index));
+      // 무언가를 집은 채 탭 위에 올리면 그 탭으로 넘어간다 — 창고에서 집은 재료를
+      // 코어 충전 칸에 넣으려면 예전엔 한 번 내려놓고 탭을 누른 뒤 다시 집어야 했다.
+      // 파일 탐색기의 "드래그한 채 폴더 위에 머물면 열린다"와 같은 관습이다.
+      box.on('pointerover', () => {
+        if (this.isDragActive()) this.showTab(index);
+      });
 
       text.setPosition(x + tabWidth / 2, PAD + TAB_HEIGHT / 2);
 
@@ -391,6 +397,12 @@ export class Modal {
     this.tabBoardTop = boardTop;
     this.showTab(0);
   }
+
+  /**
+   * 지금 무언가를 끌고 있는가. 바깥(HudScene)이 SlotDrag를 물어보도록 채워 준다 —
+   * Modal이 드래그 컨트롤러를 직접 알면 창고·퀵슬롯까지 딸려 들어온다.
+   */
+  isDragActive: () => boolean = () => false;
 
   /** 내용 판의 윗변 y. 탭이 이 선에 맞춰 붙거나 내려앉는다. */
   private tabBoardTop = 0;

@@ -87,15 +87,7 @@ export class LobbyApp {
   private render(): void {
     clear(this.root);
 
-    const message = this.errorMessage
-      ? el('p', { class: 'msg msg-error lobby-message' }, [this.errorMessage])
-      : this.statusMessage
-        ? el('p', { class: 'msg msg-info lobby-message' }, [this.statusMessage])
-        : null;
-
-    this.root.append(
-      el('div', { class: 'lobby' }, [this.renderTitle(), message, this.renderModal()]),
-    );
+    this.root.append(el('div', { class: 'lobby' }, [this.renderTitle(), this.renderModal()]));
   }
 
   /** 모달이 필요 없는 화면(title)에서는 null */
@@ -142,6 +134,10 @@ export class LobbyApp {
 
     return el('div', { class: 'screen landing' }, [
       el('div', { class: 'landing-top' }, [this.logo(), nickname.wrapper]),
+      // 안내·오류 줄은 **항상 자리를 차지한다**(비어 있어도 빈 상자를 남긴다).
+      // 메시지가 뜰 때만 끼워 넣으면 그만큼 로고와 버튼이 밀려서, 오류를 읽는 순간
+      // 누르려던 버튼이 발밑에서 움직인다.
+      el('div', { class: 'landing-message' }, [this.landingMessage()]),
       el('div', { class: 'landing-bottom' }, [
         el('div', { class: 'landing-actions' }, [
           // 서버 없이 클라이언트만 확인하는 개발/시연용 진입로
@@ -164,6 +160,13 @@ export class LobbyApp {
         ]),
       ]),
     ]);
+  }
+
+  /** 닉네임 칸과 버튼 줄 사이에 놓이는 안내/오류 한 줄. 없으면 null(자리는 유지된다). */
+  private landingMessage(): HTMLElement | null {
+    if (this.errorMessage) return el('p', { class: 'msg msg-error' }, [this.errorMessage]);
+    if (this.statusMessage) return el('p', { class: 'msg msg-info' }, [this.statusMessage]);
+    return null;
   }
 
   /** 와이어프레임: 검색 / 헤더 행 / 방 목록 / [방 만들기] [코드 찾기] */

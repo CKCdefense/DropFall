@@ -403,6 +403,9 @@ export class HudScene extends Phaser.Scene {
     // 창고 격자와 하단 퀵슬롯을 **하나의 드래그 공간**으로 묶는다. 둘은 별개 UI지만
     // 아이템이 그 사이를 오가야 해서, 드래그 로직을 모달이 아니라 공용 컨트롤러에 둔다.
     this.slotDrag = new SlotDrag(this);
+    // 집은 채 탭 위에 올리면 그 탭으로 넘어간다(Modal.isDragActive) — 창고에서 집은
+    // 재료를 코어 충전 칸에 바로 가져갈 수 있다.
+    this.coreModal.isDragActive = () => this.slotDrag.isDragging();
     this.slotDrag.onMove = (from, fromIndex, to, toIndex) =>
       this.connection.moveItem(from, fromIndex, to, toIndex);
     /*
@@ -414,6 +417,13 @@ export class HudScene extends Phaser.Scene {
       if (container === 'inventory' && this.coreModal.isCoreTabVisible()) {
         const itemId = this.latestInventory[index]?.itemId;
         if (itemId && !World.canCharge(itemId)) {
+          this.coreModal.rejectCharge(0);
+          return;
+        }
+        // 받을 칸이 없으면 서버가 조용히 무시한다 — 왜 안 들어갔는지 화면에서 보이게
+        // 한다. 판정 규칙은 World.quickChargeFromInventory와 같다(같은 재료 우선, 없으면 빈 칸).
+        const target = itemId === undefined ? -1 : this.findChargeTarget(itemId);
+        if (target < 0) {
           this.coreModal.rejectCharge(0);
           return;
         }
@@ -523,6 +533,22 @@ export class HudScene extends Phaser.Scene {
       this.connection.coreInteract();
       return true;
     });
+  }
+
+  /**
+   * 쉬프트 클릭한 재료가 들어갈 충전 칸. 없으면 -1.
+   * 같은 재료가 타고 있으면 거기에 합치고, 없으면 열려 있는 빈 칸을 쓴다 —
+   * 서버(World.quickChargeFromInventory)와 **같은 순서**여야 화면과 결과가 어긋나지 않는다.
+   */
+  private findChargeTarget(itemId: string): number {
+    let empty = -1;
+    for (let index = 0; index < this.latestCharge.length; index += 1) {
+      if (!this.coreModal.isChargeSlotOpen(index)) continue;
+      const slot = this.latestCharge[index];
+      if (slot?.itemId === itemId) return index;
+      if (empty < 0 && !slot) empty = index;
+    }
+    return empty;
   }
 
   /**
