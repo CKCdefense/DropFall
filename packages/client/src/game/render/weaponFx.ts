@@ -74,6 +74,8 @@ export interface WeaponVisual {
   grips: [Point, Point];
   /** 그릴 손 개수. 맨손은 무기 스프라이트 자체가 손이라 0이다. */
   handCount: number;
+  /** 맨손 전용. 첫 손을 그립이 아니라 몸 앞 가드 위치에 둔다. */
+  guardHand?: boolean;
   orbitRadius: number;
   /** ranged 전용: 총구 끝(스프라이트 좌표) */
   muzzle?: Point;
@@ -104,7 +106,7 @@ const SWING_FX_RADIUS = 30;
  * 이 값이 곧 **휘두르기의 시작점**이기도 하다(아래 windup). 둘이 다르면 좌클릭한 순간
  * 무기가 툭 튀었다가 내려온다.
  */
-export const MELEE_REST_TILT = (40 * Math.PI) / 180;
+export const MELEE_REST_TILT = (50 * Math.PI) / 180;
 
 /**
  * 근접 무기를 쥔 손이 몸 중심에서 커서 쪽으로 뻗는 거리(px).
@@ -112,7 +114,7 @@ export const MELEE_REST_TILT = (40 * Math.PI) / 180;
  * 원거리(orbitRadius 기본 9)보다 멀리 잡는다 — 팔을 뻗어야 "무기를 들이대고 있다"로
  * 읽힌다. 무기 그림은 이 지점에서 시작하므로 이 값이 곧 그려지는 사거리의 일부다.
  */
-const MELEE_HAND_REACH = 15;
+const MELEE_HAND_REACH = 12;
 
 function meleeSwingFrom(weapon: WeaponData): MeleeSwing {
   const halfArc = ((weapon.arc ?? 360) * Math.PI) / 360;
@@ -152,6 +154,7 @@ function measured(options: {
   orbitRadius: number;
   center?: Point;
   handCount?: number;
+  guardHand?: boolean;
   /** ranged면 축의 끝을 총구로 등록한다. melee면 휘두르기 값이 나중에 붙는다. */
   ranged: boolean;
 }): WeaponVisual {
@@ -171,6 +174,7 @@ function measured(options: {
       { x: grip.x + Math.cos(forward) * HAND_SPACING, y: grip.y + Math.sin(forward) * HAND_SPACING },
     ],
     handCount: options.handCount ?? 2,
+    guardHand: options.guardHand,
     orbitRadius,
     ...(ranged ? { muzzle: tip } : {}),
   };
@@ -189,6 +193,24 @@ function projectOntoAxis(point: Point, from: Point, to: Point): Point {
 
 /** 두 손 사이 간격(스프라이트 px). 원본이 32px든 128px든 손은 같은 크기로 그려진다. */
 const HAND_SPACING = 9;
+
+/**
+ * 손 스프라이트 배율. 손은 캐릭터와 같은 32×32 캔버스에 그려져 원래 크기가 맞지만,
+ * 무기를 0.75배로 줄인 뒤로는 손이 상대적으로 작아 보인다("손 크기도 조금 키워 달라").
+ * 맨손(fist)은 손 그림 자체가 무기이므로 **같은 값을 무기 배율로도 쓴다** — 두 값이
+ * 어긋나면 주먹 쥔 손과 무기를 든 손의 크기가 달라진다.
+ */
+const HAND_SCALE = 1.25;
+
+/**
+ * 맨손일 때 뒤에 남는 **가드 주먹**의 위치(몸 중심 기준 px).
+ *
+ * 앞손은 커서 쪽으로 뻗어 때리고, 뒷손은 **반대쪽으로 조금 물러나 낮게** 있는다 —
+ * 권투의 가드 자세다. 손이 하나만 보이면 나머지 팔이 없는 것처럼 읽히고, 둘을 같은
+ * 쪽에 두면 한 덩어리로 뭉쳐 손이 하나로 보인다(둘 다 겪었다).
+ */
+const GUARD_HAND_BACK = 5;
+const GUARD_HAND_DROP = 6;
 
 /** 32×32 도구(도끼·곡괭이·망치). 자루 끝이 좌하단, 머리가 우상단인 공통 구도다. */
 function toolVisual(frame: string): WeaponVisual {
@@ -354,9 +376,11 @@ export const WEAPON_VISUALS: Record<string, WeaponVisual> = {
       { x: 12, y: 16 },
       { x: 22, y: 16 },
     ],
-    scale: 1,
+    scale: HAND_SCALE,
     orbitRadius: 12,
-    handCount: 0,
+    // 앞손은 무기 스프라이트(=손 그림) 자체이고, 여기 하나는 몸에 붙는 가드 주먹이다.
+    handCount: 1,
+    guardHand: true,
     ranged: false,
   }),
 
@@ -754,10 +778,20 @@ export function layoutWeapon(
   weapon.setPosition(center.x, center.y);
 
   hands.forEach((hand, index) => {
-    // 맨손처럼 무기 스프라이트 자체가 손인 경우엔 손을 겹쳐 그리지 않는다.
     hand.setVisible(index < visual.handCount);
-    const point = toContainer(visual.grips[index] ?? visual.grips[0]);
-    // 손은 캐릭터와 같은 32×32 캔버스에 그려져 원래 크기가 맞다 — 무기 배율을 적용하지 않는다.
+    // 손은 무기 배율이 아니라 제 배율을 쓴다 — 무기를 줄여도 손 크기는 그대로여야 한다.
+    hand.setScale(HAND_SCALE);
+    /*
+     * 맨손이면 첫 손은 그립이 아니라 **몸 앞 가드 위치**다. 그립엔 이미 앞손(무기
+     * 스프라이트)이 있어서 거기에 또 그리면 손이 겹쳐 한 덩어리가 된다.
+     */
+    const point =
+      index === 0 && visual.guardHand
+        ? {
+            x: -Math.cos(aimAngle) * GUARD_HAND_BACK,
+            y: -Math.sin(aimAngle) * GUARD_HAND_BACK + ORBIT_CENTER_Y + GUARD_HAND_DROP,
+          }
+        : toContainer(visual.grips[index] ?? visual.grips[0]);
     hand.setPosition(point.x, point.y);
   });
 
