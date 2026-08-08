@@ -30,9 +30,27 @@ const DAY_OUT_MS = 700;
 /** 경고 문구가 한 번 깜빡이는 주기(ms). */
 const WARNING_BLINK_MS = 320;
 
-const WARNING_COLOR = '#ff4a4a';
-const DAY_COLOR = '#f2f6ff';
-const CLEAR_COLOR = '#6fd08c';
+/**
+ * 문구 색. HUD의 차분한 팔레트(§theme)보다 **한 단계 진하고 밝게** 잡는다 — 이건 정보가
+ * 아니라 순간을 알리는 신호라, 배경 위에 얹혔을 때 확실히 튀어야 한다.
+ */
+const WARNING_COLOR = '#ff2b2b';
+const DAY_COLOR = '#ffffff';
+const CLEAR_COLOR = '#4bf28c';
+
+/**
+ * 문구 불투명도. 완전 불투명이면 화면에 붙인 스티커처럼 보여서, 살짝 비쳐 아래 장면과
+ * 같은 공간에 있는 느낌을 준다.
+ */
+const TITLE_ALPHA = 0.88;
+/** 경고가 깜빡일 때 어두워지는 쪽 알파. */
+const WARNING_DIM_ALPHA = 0.15;
+
+/**
+ * 문구의 세로 위치(화면 높이 비율). 정확한 한가운데(0.5)가 아니라 **조금 위**다 —
+ * 화면 아래쪽을 HUD가 차지하고 있어서, 기하학적 중앙에 두면 눈에는 아래로 처져 보인다.
+ */
+const TITLE_Y_RATIO = 0.43;
 
 /**
  * 게임 진행에 얹히는 화면 연출 — 시작 암전, 아침의 "DAY N", 보스 예고, 클리어.
@@ -74,7 +92,7 @@ export class CinematicOverlay {
       .setAlpha(1);
 
     this.title = scene.add
-      .text(width / 2, height / 2, '', {
+      .text(width / 2, height * TITLE_Y_RATIO, '', {
         fontFamily: FONT,
         fontSize: `${TITLE_SIZE}px`,
         // 굵은 자족(Galmuri11-Bold, weight 700)이 이미 등록돼 있다(§ui/fonts.ts).
@@ -91,7 +109,7 @@ export class CinematicOverlay {
   /** 화면 크기가 바뀌면 다시 부른다. */
   layout(width: number, height: number): void {
     this.veil.setSize(width, height);
-    this.title.setPosition(width / 2, height / 2);
+    this.title.setPosition(width / 2, height * TITLE_Y_RATIO);
   }
 
   /** 시작 암전 — 완전히 검은 상태에서 잠깐 머물다가 천천히 밝아진다. */
@@ -118,7 +136,7 @@ export class CinematicOverlay {
     this.title.setText(`DAY ${day}`).setColor(DAY_COLOR).setAlpha(0);
     this.scene.tweens.add({
       targets: this.title,
-      alpha: 1,
+      alpha: TITLE_ALPHA,
       duration: DAY_IN_MS,
       ease: 'Sine.easeOut',
       onComplete: () => {
@@ -144,12 +162,13 @@ export class CinematicOverlay {
   showWarning(): void {
     if (!this.setCue('warning')) return;
 
-    this.title.setText('WARNING').setColor(WARNING_COLOR).setAlpha(1);
+    this.title.setText('WARNING').setColor(WARNING_COLOR).setAlpha(TITLE_ALPHA);
     this.stopBlink();
     this.blinkEvent = this.scene.time.addEvent({
       delay: WARNING_BLINK_MS,
       loop: true,
-      callback: () => this.title.setAlpha(this.title.alpha > 0.5 ? 0.15 : 1),
+      callback: () =>
+        this.title.setAlpha(this.title.alpha > 0.5 ? WARNING_DIM_ALPHA : TITLE_ALPHA),
     });
   }
 
@@ -168,7 +187,7 @@ export class CinematicOverlay {
     this.title.setText('CLEAR').setColor(CLEAR_COLOR).setAlpha(0);
     this.scene.tweens.add({
       targets: this.title,
-      alpha: 1,
+      alpha: TITLE_ALPHA,
       duration: DAY_IN_MS,
       ease: 'Sine.easeOut',
     });
