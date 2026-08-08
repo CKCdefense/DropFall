@@ -1,6 +1,13 @@
 import Phaser from 'phaser';
-import { MAP_SIZE_TILES, TILE_SIZE, companionData, computeCameraZoom } from '@dropfall/shared';
-import type { GameConnection } from '../../net/GameConnection';
+import {
+  MAP_SIZE_TILES,
+  TILE_SIZE,
+  companionData,
+  computeCameraZoom,
+  itemOfSlot,
+  weaponsData,
+} from '@dropfall/shared';
+import type { GameConnection, WorldSnapshot } from '../../net/GameConnection';
 import {
   CHAT_LOG_KEY,
   CONNECTION_KEY,
@@ -15,6 +22,7 @@ import { queueMonsterAtlas } from '../render/monsterSprite';
 import { TerrainLayer, hasTerrainTileset, queueTerrainTileset } from '../render/TerrainLayer';
 import { InputController } from '../input/InputController';
 import { HUD_SCENE_KEY } from './HudScene';
+import { ACTION_PLANE_Y } from '../render/plane';
 
 export const GAME_SCENE_KEY = 'Game';
 
@@ -136,7 +144,7 @@ export class GameScene extends Phaser.Scene {
     this.entityRenderer.sync(snapshot);
     // 건축 구역 포장 — 반경이 바뀐 순간에만 실제로 다시 그린다(TerrainLayer 참고).
     this.terrain?.setBuildRadius(snapshot.status.coreBuildRadius);
-    this.dayNight.update(snapshot.status, this.cameras.main, delta);
+    this.dayNight.update(snapshot.status, this.cameras.main, delta, portableLights(snapshot));
 
     const me = snapshot.players.find((player) => player.id === this.connection.sessionId);
     if (!me) return;
@@ -207,4 +215,19 @@ export class GameScene extends Phaser.Scene {
     );
     grid.setDepth(-1000);
   }
+}
+
+/**
+ * 들고 있는 무기가 밤을 밝히는 플레이어들의 광원(빔소드). 서버가 따로 알려주지 않아도
+ * 스냅샷의 선택 슬롯 → weapons.json의 lightRadius만 보면 되므로 동기화 필드가 늘지 않는다.
+ */
+function portableLights(snapshot: WorldSnapshot): { x: number; y: number; radius: number }[] {
+  const lights: { x: number; y: number; radius: number }[] = [];
+  for (const player of snapshot.players) {
+    const weaponId = itemOfSlot(player.slots[player.selectedSlot] ?? null)?.weaponId;
+    const radius = weaponId ? weaponsData[weaponId]?.lightRadius : undefined;
+    // 광원은 몸통 높이에서 나온다 — 발밑에서 뿜으면 캐릭터가 빛 가장자리에 걸린다.
+    if (radius) lights.push({ x: player.x, y: player.y + ACTION_PLANE_Y, radius });
+  }
+  return lights;
 }

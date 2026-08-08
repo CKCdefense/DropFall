@@ -1,16 +1,239 @@
 {
-  "pistol": {
+  "$comment": "무기 재설계(2026-08). 티어 N/R/E/L. 근접: damage/fireRate/range/arc(+채집·조명). 원거리: damage(펠릿당)/fireRate/magazine/reloadTime/projectileSpeed/maxRange/muzzleOffset(+pellets/spreadDeg/pierce/burst). muzzleOffset은 클라 스프라이트 그립~총구 실측(weaponFx.ts) 기준.",
+  "fist": {
+    "name": "맨손",
+    "type": "melee",
+    "damage": 4,
+    "fireRate": 2.2,
+    "range": 18,
+    "arc": 90,
+    "harvestsAny": true
+  },
+  "bat": {
+    "name": "뭉둥이",
+    "type": "melee",
+    "tier": "normal",
+    "damage": 14,
+    "fireRate": 1.1,
+    "range": 30,
+    "arc": 100
+  },
+  "stone_spear": {
+    "name": "돌창",
+    "type": "melee",
+    "tier": "normal",
+    "damage": 14,
+    "fireRate": 1.5,
+    "range": 44,
+    "arc": 60
+  },
+  "fire_axe": {
+    "name": "소방 도끼",
+    "type": "melee",
+    "tier": "rare",
+    "damage": 20,
+    "fireRate": 1.4,
+    "range": 30,
+    "arc": 110,
+    "toolFamily": "axe",
+    "gatherMultiplier": 1.0
+  },
+  "knife": {
+    "name": "군용 나이프",
+    "type": "melee",
+    "tier": "rare",
+    "damage": 24,
+    "fireRate": 3.0,
+    "range": 20,
+    "arc": 70
+  },
+  "machete": {
+    "name": "마체테",
+    "type": "melee",
+    "tier": "epic",
+    "damage": 30,
+    "fireRate": 2.2,
+    "range": 32,
+    "arc": 120,
+    "toolFamily": "axe",
+    "gatherMultiplier": 1.0
+  },
+  "tomahauk": {
+    "name": "토마호크",
+    "type": "melee",
+    "tier": "epic",
+    "damage": 40,
+    "fireRate": 1.6,
+    "range": 30,
+    "arc": 110,
+    "toolFamily": "axe",
+    "gatherMultiplier": 1.6
+  },
+  "beamsword": {
+    "name": "빔소드",
+    "type": "melee",
+    "tier": "legendary",
+    "damage": 55,
+    "fireRate": 2.4,
+    "range": 38,
+    "arc": 130,
+    "lightRadius": 150
+  },
+  "slingshot": {
+    "name": "새총",
+    "type": "ranged",
+    "tier": "normal",
+    "damage": 10,
+    "fireRate": 1.6,
+    "magazine": 1,
+    "reloadTime": 1.2,
+    "projectileSpeed": 380,
+    "maxRange": 280,
+    "muzzleOffset": 18
+  },
+  "shuriken": {
+    "name": "표창",
+    "type": "ranged",
+    "tier": "normal",
+    "damage": 12,
+    "fireRate": 2.5,
+    "magazine": 3,
+    "reloadTime": 1.2,
+    "projectileSpeed": 360,
+    "maxRange": 200,
+    "muzzleOffset": 14
+  },
+  "crossbow": {
+    "name": "석궁",
+    "type": "ranged",
+    "tier": "normal",
+    "damage": 26,
+    "fireRate": 1.4,
+    "magazine": 1,
+    "reloadTime": 1.8,
+    "projectileSpeed": 480,
+    "maxRange": 300,
+    "muzzleOffset": 27
+  },
+  "rifle": {
+    "name": "장전식 소총",
+    "type": "ranged",
+    "tier": "rare",
+    "damage": 42,
+    "fireRate": 1.2,
+    "magazine": 1,
+    "reloadTime": 2.6,
+    "projectileSpeed": 640,
+    "maxRange": 400,
+    "muzzleOffset": 29
+  },
+  "revolver": {
+    "name": "리볼버",
+    "type": "ranged",
+    "tier": "rare",
+    "damage": 20,
+    "fireRate": 2.5,
+    "magazine": 6,
+    "reloadTime": 1.5,
+    "projectileSpeed": 520,
+    "maxRange": 280,
+    "muzzleOffset": 22
+  },
+  "handgun": {
     "name": "권총",
     "type": "ranged",
+    "tier": "rare",
+    "damage": 13,
+    "fireRate": 5,
+    "magazine": 10,
+    "reloadTime": 1.0,
+    "projectileSpeed": 500,
+    "maxRange": 280,
+    "muzzleOffset": 20
+  },
+  "smg": {
+    "name": "기관단총",
+    "type": "ranged",
+    "tier": "epic",
+    "damage": 8,
+    "fireRate": 10,
+    "magazine": 15,
+    "reloadTime": 1.0,
+    "projectileSpeed": 520,
+    "maxRange": 210,
+    "muzzleOffset": 20
+  },
+  "double_barrel_shotgun": {
+    "name": "더블배럴 샷건",
+    "type": "ranged",
+    "tier": "epic",
+    "damage": 9,
+    "fireRate": 2.0,
+    "magazine": 2,
+    "reloadTime": 2.2,
+    "projectileSpeed": 460,
+    "maxRange": 150,
+    "muzzleOffset": 29,
+    "pellets": 6,
+    "spreadDeg": 24
+  },
+  "assault_rifle": {
+    "name": "돌격 소총",
+    "type": "ranged",
+    "tier": "epic",
+    "damage": 16,
+    "fireRate": 6,
+    "magazine": 20,
+    "reloadTime": 1.6,
+    "projectileSpeed": 600,
+    "maxRange": 400,
+    "muzzleOffset": 24,
+    "burst": {
+      "count": 3,
+      "interval": 0.07
+    }
+  },
+  "pump_shotgun": {
+    "name": "펌프 샷건",
+    "type": "ranged",
+    "tier": "legendary",
     "damage": 12,
-    "fireRate": 4,
-    "magazine": 12,
-    "reloadTime": 1.2,
-    "projectileSpeed": 420,
-    "muzzleOffset": 25
+    "fireRate": 1.6,
+    "magazine": 6,
+    "reloadTime": 1.8,
+    "projectileSpeed": 460,
+    "maxRange": 190,
+    "muzzleOffset": 28,
+    "pellets": 6,
+    "spreadDeg": 20
+  },
+  "sniper_rifle": {
+    "name": "저격 라이플",
+    "type": "ranged",
+    "tier": "legendary",
+    "damage": 90,
+    "fireRate": 0.8,
+    "magazine": 7,
+    "reloadTime": 2.2,
+    "projectileSpeed": 900,
+    "maxRange": 900,
+    "muzzleOffset": 32,
+    "pierce": true
+  },
+  "minigun": {
+    "name": "미니건",
+    "type": "ranged",
+    "tier": "legendary",
+    "damage": 18,
+    "fireRate": 12,
+    "magazine": 100,
+    "reloadTime": 4.5,
+    "projectileSpeed": 620,
+    "maxRange": 520,
+    "muzzleOffset": 29
   },
   "axe_t1": {
-    "name": "도끼 T1",
+    "name": "돌도끼",
     "type": "melee",
     "damage": 18,
     "fireRate": 1.5,
@@ -37,7 +260,7 @@
     "toolFamily": "axe"
   },
   "pickax_t1": {
-    "name": "곡괭이 T1",
+    "name": "돌 곡괭이",
     "type": "melee",
     "damage": 14,
     "fireRate": 1.8,
@@ -80,62 +303,5 @@
     "range": 26,
     "arc": 100,
     "toolFamily": "hammer"
-  },
-  "magnum": {
-    "name": "매그넘",
-    "type": "ranged",
-    "damage": 34,
-    "fireRate": 1.8,
-    "magazine": 6,
-    "reloadTime": 1.6,
-    "projectileSpeed": 520,
-    "muzzleOffset": 27
-  },
-  "rifle": {
-    "name": "소총",
-    "type": "ranged",
-    "damage": 18,
-    "fireRate": 7,
-    "magazine": 30,
-    "reloadTime": 1.8,
-    "projectileSpeed": 600,
-    "muzzleOffset": 32
-  },
-  "shotgun": {
-    "name": "산탄총",
-    "type": "ranged",
-    "damage": 46,
-    "fireRate": 1.2,
-    "magazine": 6,
-    "reloadTime": 2.2,
-    "projectileSpeed": 420,
-    "muzzleOffset": 28
-  },
-  "minigun": {
-    "name": "미니건",
-    "type": "ranged",
-    "damage": 12,
-    "fireRate": 14,
-    "magazine": 120,
-    "reloadTime": 4.0,
-    "projectileSpeed": 560,
-    "muzzleOffset": 37
-  },
-  "beamsword": {
-    "name": "빔소드",
-    "type": "melee",
-    "damage": 60,
-    "fireRate": 2.5,
-    "range": 34,
-    "arc": 120
-  },
-  "fist": {
-    "name": "맨손",
-    "type": "melee",
-    "damage": 4,
-    "fireRate": 2.2,
-    "range": 18,
-    "arc": 90,
-    "harvestsAny": true
   }
 }

@@ -89,7 +89,7 @@ export class PartyPanel {
       this.nameLabels[index].setColor(down ? DOWN_COLOR : BODY_TEXT);
 
       // 개발 커맨드(hp)로 최대치를 넘길 수 있어서 위쪽도 조인다(HudScene와 같은 이유).
-      const ratio = Math.min(1, Math.max(0, player.hp) / wavesData.playerHp);
+      const ratio = Math.min(1, Math.max(0, player.hp) / (player.maxHp || wavesData.playerHp));
       this.bars[index].width = Math.max(0, this.barWidth * ratio);
       this.bars[index].fillColor = barColor(ratio);
     }

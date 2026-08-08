@@ -34,37 +34,61 @@ describe('resolveFire', () => {
   });
 
   it('원거리 무기는 조준각 방향으로 날아가는 투사체를 만든다', () => {
-    const result = resolveFire({ playerId: 'p1', weaponId: 'pistol', x: 0, y: 0, aimAngle: 0 });
+    const result = resolveFire({ playerId: 'p1', weaponId: 'handgun', x: 0, y: 0, aimAngle: 0 });
+    const projectile = result.projectiles?.[0];
     expect(result.meleeHit).toBeUndefined();
-    expect(result.projectile?.vx).toBeCloseTo(420, 5);
-    expect(result.projectile?.vy).toBeCloseTo(0, 5);
-    expect(result.projectile?.damage).toBe(12);
-    expect(result.projectile?.angle).toBe(0);
+    expect(result.projectiles).toHaveLength(1);
+    expect(projectile?.vx).toBeCloseTo(weaponsData.handgun.projectileSpeed!, 5);
+    expect(projectile?.vy).toBeCloseTo(0, 5);
+    expect(projectile?.damage).toBe(weaponsData.handgun.damage);
+    expect(projectile?.angle).toBe(0);
   });
 
   it('투사체는 플레이어 중심이 아니라 총구에서 나간다', () => {
-    const result = resolveFire({ playerId: 'p1', weaponId: 'pistol', x: 10, y: 20, aimAngle: 0 });
+    const result = resolveFire({ playerId: 'p1', weaponId: 'handgun', x: 10, y: 20, aimAngle: 0 });
 
     // 총구 거리는 스프라이트에서 잰 값이라 무기마다 다르다 — 숫자를 박아두면
     // 그림을 고칠 때마다 테스트가 깨진다. 데이터에서 읽어 쓴다.
-    const offset = weaponsData.pistol.muzzleOffset!;
-    expect(result.projectile?.x).toBeCloseTo(10 + offset, 5);
-    expect(result.projectile?.y).toBeCloseTo(20, 5);
+    const offset = weaponsData.handgun.muzzleOffset!;
+    expect(result.projectiles?.[0]?.x).toBeCloseTo(10 + offset, 5);
+    expect(result.projectiles?.[0]?.y).toBeCloseTo(20, 5);
   });
 
   it('총구 오프셋은 조준 방향을 따라간다', () => {
-    const up = resolveFire({ playerId: 'p1', weaponId: 'pistol', x: 0, y: 0, aimAngle: -Math.PI / 2 });
+    const up = resolveFire({ playerId: 'p1', weaponId: 'handgun', x: 0, y: 0, aimAngle: -Math.PI / 2 });
 
-    expect(up.projectile?.x).toBeCloseTo(0, 5);
-    expect(up.projectile?.y).toBeCloseTo(-weaponsData.pistol.muzzleOffset!, 5);
-    expect(up.projectile?.angle).toBeCloseTo(-Math.PI / 2, 5);
+    expect(up.projectiles?.[0]?.x).toBeCloseTo(0, 5);
+    expect(up.projectiles?.[0]?.y).toBeCloseTo(-weaponsData.handgun.muzzleOffset!, 5);
+    expect(up.projectiles?.[0]?.angle).toBeCloseTo(-Math.PI / 2, 5);
   });
 
-  it('총구까지 밀어낸 만큼 사거리가 줄어 총 비행거리가 일정하다', () => {
-    const result = resolveFire({ playerId: 'p1', weaponId: 'pistol', x: 0, y: 0, aimAngle: 0 });
+  it('총구까지 밀어낸 만큼 사거리가 줄어 총 비행거리가 무기의 maxRange와 같다', () => {
+    const result = resolveFire({ playerId: 'p1', weaponId: 'handgun', x: 0, y: 0, aimAngle: 0 });
 
-    // 발사 지점(19)에서 남은 사거리(581)를 더하면 항상 600이다
-    expect(result.projectile!.x + result.projectile!.remainingRange).toBeCloseTo(600, 5);
+    // 발사 지점(muzzleOffset)에서 남은 사거리를 더하면 항상 그 무기의 maxRange다.
+    const projectile = result.projectiles![0]!;
+    expect(projectile.x + projectile.remainingRange).toBeCloseTo(weaponsData.handgun.maxRange!, 5);
+  });
+
+  it('산탄 무기는 한 번 쏘면 펠릿 수만큼 부채꼴로 퍼진다', () => {
+    const result = resolveFire({ playerId: 'p1', weaponId: 'pump_shotgun', x: 0, y: 0, aimAngle: 0 });
+    const weapon = weaponsData.pump_shotgun;
+
+    expect(result.projectiles).toHaveLength(weapon.pellets!);
+    // 데미지는 펠릿 1개 기준이다 — 전부 맞아야 표기 위력이 나온다.
+    for (const pellet of result.projectiles!) expect(pellet.damage).toBe(weapon.damage);
+
+    const spread = (weapon.spreadDeg! * Math.PI) / 180;
+    const angles = result.projectiles!.map((pellet) => pellet.angle);
+    expect(Math.min(...angles)).toBeCloseTo(-spread / 2, 5);
+    expect(Math.max(...angles)).toBeCloseTo(spread / 2, 5);
+  });
+
+  it('관통 무기의 투사체는 pierce 플래그와 명중 기록을 들고 나간다', () => {
+    const result = resolveFire({ playerId: 'p1', weaponId: 'sniper_rifle', x: 0, y: 0, aimAngle: 0 });
+
+    expect(result.projectiles![0]!.pierce).toBe(true);
+    expect(result.projectiles![0]!.hitIds?.size).toBe(0);
   });
 
   it('존재하지 않는 무기 id는 빈 결과를 반환한다(클라이언트 입력 불신)', () => {
@@ -139,27 +163,27 @@ describe('withinMeleeArc', () => {
 describe('WeaponCooldowns', () => {
   it('처음 발사는 항상 허용한다', () => {
     const cooldowns = new WeaponCooldowns();
-    expect(cooldowns.canFire('p1', 'pistol', 0)).toBe(true);
+    expect(cooldowns.canFire('p1', 'handgun', 0)).toBe(true);
   });
 
   it('fireRate 간격 전에는 다시 발사할 수 없다', () => {
     const cooldowns = new WeaponCooldowns();
-    cooldowns.recordFire('p1', 'pistol', 0); // fireRate 4 → 0.25초 간격
-    expect(cooldowns.canFire('p1', 'pistol', 0.1)).toBe(false);
-    expect(cooldowns.canFire('p1', 'pistol', 0.25)).toBe(true);
+    cooldowns.recordFire('p1', 'handgun', 0); // fireRate 5 → 0.2초 간격
+    expect(cooldowns.canFire('p1', 'handgun', 0.1)).toBe(false);
+    expect(cooldowns.canFire('p1', 'handgun', 0.2)).toBe(true);
   });
 
   it('플레이어별로 독립적으로 추적한다', () => {
     const cooldowns = new WeaponCooldowns();
-    cooldowns.recordFire('p1', 'pistol', 0);
-    expect(cooldowns.canFire('p2', 'pistol', 0)).toBe(true);
+    cooldowns.recordFire('p1', 'handgun', 0);
+    expect(cooldowns.canFire('p2', 'handgun', 0)).toBe(true);
   });
 
   it('removePlayer 이후에는 다시 처음 발사로 취급한다', () => {
     const cooldowns = new WeaponCooldowns();
-    cooldowns.recordFire('p1', 'pistol', 0);
+    cooldowns.recordFire('p1', 'handgun', 0);
     cooldowns.removePlayer('p1');
-    expect(cooldowns.canFire('p1', 'pistol', 0.01)).toBe(true);
+    expect(cooldowns.canFire('p1', 'handgun', 0.01)).toBe(true);
   });
 });
 

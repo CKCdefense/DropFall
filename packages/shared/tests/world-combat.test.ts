@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { World } from '../src/sim/world';
 import { craftingData, monstersData, wavesData } from '../src/data';
+import { SLOT_COUNT } from '../src/sim/inventory';
 
 /** 1웨이브가 시작될 때까지(day → night) 틱을 진행시킨다. */
 function startFirstWave(world: World): void {
@@ -16,9 +17,9 @@ function spawnAtLeast(world: World, count: number): void {
 }
 
 /**
- * 예전 시작 지급품(권총/도끼/곡괭이/붕대)을 손에 쥐여준다. 이제 도구는 팀 창고에서
- * 시작하므로(loadout.coreStorage), 장착을 전제하는 테스트는 명시적으로 꺼내 쓴다.
- * 슬롯 순서는 예전과 같아서 기존 selectSlot 번호가 그대로 유효하다.
+ * 고정된 4칸 구성(권총/도끼/곡괭이/붕대)을 손에 쥐여준다. 실제 시작 지급품은 창고
+ * (loadout.coreStorage)와 붕대 1개뿐이라, 장착을 전제하는 테스트는 여기서 직접 채운다.
+ * 슬롯 번호가 고정되어야 selectSlot으로 특정 무기를 지목할 수 있다.
  */
 /** 인벤토리 전체에서 특정 아이템 개수. 자원이 전용 숫자 필드에서 아이템이 됐다. */
 function carriedCount(world: World, playerId: string, itemId: string): number {
@@ -36,7 +37,9 @@ function droppedCount(world: World, itemId: string): number {
 
 function equipDefaultKit(world: World, playerId: string): void {
   const inventory = world.getPlayers().get(playerId)!.inventory;
-  inventory.add('pistol', 1);
+  // 참가 지급품(붕대 1개)을 먼저 비운다 — 슬롯 번호를 고정해야 selectSlot 테스트가 성립한다.
+  for (let index = 0; index < SLOT_COUNT; index += 1) inventory.takeAt(index);
+  inventory.add('handgun', 1);
   inventory.add('axe_t1', 1);
   inventory.add('pickax_t1', 1);
   inventory.add('bandage', 3);
@@ -906,10 +909,10 @@ describe('World — 몬스터 처치 보상(부품/에너지)', () => {
   it('부품은 인벤토리에 들어오고, 창고로 끌어다 놓으면 팀 공유분이 된다', () => {
     const world = new World();
     world.addPlayer('p1', 10, 0); // 코어 상호작용 반경 안
-    world.getPlayers().get('p1')!.inventory.add('drop_normal', 5);
+    world.getPlayers().get('p1')!.inventory.add('drop_normal', 5); // 0번은 참가 지급 붕대
 
-    // 인벤토리 0번 → 창고 첫 빈 칸(초기 지급품 4개 다음)
-    world.moveItem('p1', 'inventory', 0, 'storage', 4);
+    // 인벤토리 1번 → 창고 첫 빈 칸(초기 지급품 도구 3종 다음)
+    world.moveItem('p1', 'inventory', 1, 'storage', 3);
 
     expect(carriedCount(world, 'p1', 'drop_normal')).toBe(0);
     expect(world.getCore().storage.countOf('drop_normal')).toBe(5);

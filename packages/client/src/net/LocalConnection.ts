@@ -97,6 +97,14 @@ export class LocalConnection implements GameConnection {
     this.world.selectSlot(LOCAL_SESSION_ID, index);
   }
 
+  reload(): void {
+    this.world.reloadWeapon(LOCAL_SESSION_ID);
+  }
+
+  toggleFireMode(): void {
+    this.world.toggleFireMode(LOCAL_SESSION_ID);
+  }
+
   useSlot(): void {
     this.world.useSelectedItem(LOCAL_SESSION_ID);
   }
@@ -206,6 +214,11 @@ export class LocalConnection implements GameConnection {
         aimAngle: player.aimAngle,
         lastProcessedSeq: player.lastProcessedSeq,
         hp: player.hp,
+        maxHp: this.world.playerMaxHp(player),
+        ammo: this.world.ammoView(id)?.loaded ?? 0,
+        ammoMagazine: this.world.ammoView(id)?.magazine ?? 0,
+        reloadRemaining: this.world.ammoView(id)?.reloadRemaining ?? 0,
+        burstMode: player.burstMode,
         wood: player.inventory.countOf('wood'),
         stone: player.inventory.countOf('stone'),
         parts: player.inventory.countOf('drop_normal'),

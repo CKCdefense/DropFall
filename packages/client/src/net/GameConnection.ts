@@ -24,6 +24,15 @@ export interface PlayerView {
   aimAngle: number;
   lastProcessedSeq: number;
   hp: number;
+  /** 음식(도넛/당근케이크)으로 늘어날 수 있는 최대 체력. HP바 비율은 상수 대신 이 값. */
+  maxHp: number;
+  /** 장착 무기 탄약. 근접/맨손이면 ammoMagazine이 0이고 HUD가 표시를 걷는다. */
+  ammo: number;
+  ammoMagazine: number;
+  /** 재장전 잔여 시간(초). 0이면 재장전 중 아님. */
+  reloadRemaining: number;
+  /** 점사 모드(돌격소총 토글) 상태. */
+  burstMode: boolean;
   /** 아직 코어에 입고하지 않고 들고 있는 나무/돌. 코어 근처에서 deposit()하면 0이 된다. */
   wood: number;
   stone: number;
@@ -221,6 +230,10 @@ export interface GameConnection {
   fire(): void;
   /** 퀵슬롯 선택(= 무기 교체). 서버가 그 칸의 실제 내용물을 보고 판단한다. */
   selectSlot(index: number): void;
+  /** 수동 재장전(R). 장착 무기가 원거리가 아니거나 가득이면 서버가 무시한다. */
+  reload(): void;
+  /** 점사 모드 토글(돌격소총 전용 — burst 스펙 없는 무기면 서버가 무시한다). */
+  toggleFireMode(): void;
   /** 선택 중인 소모품 사용. 쓸 수 없는 슬롯이면 서버가 조용히 무시한다. */
   useSlot(): void;
   /** 낮 넘기기 투표 (만장일치) */

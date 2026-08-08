@@ -38,6 +38,7 @@ import {
   BAR_BACK,
   BODY_TEXT,
   DIM_TEXT,
+  DOWN_COLOR,
   FONT,
   FONT_SMALL,
   PANEL_FILL,
@@ -118,6 +119,7 @@ export class HudScene extends Phaser.Scene {
 
   private selfBarBack!: Phaser.GameObjects.Rectangle;
   private selfBar!: Phaser.GameObjects.Rectangle;
+  private ammoText!: Phaser.GameObjects.Text;
 
   /** 보스 레이드 표시 — 보스가 살아있는 동안만 보인다. */
   private bossBarBack!: Phaser.GameObjects.Rectangle;
@@ -226,6 +228,9 @@ export class HudScene extends Phaser.Scene {
     // 내 체력은 퀵슬롯 바로 위에 붙인다. 팀원 칸과 섞으면 "누구 체력인지" 헷갈린다.
     this.selfBarBack = this.add.rectangle(0, 0, 10, SELF_BAR_HEIGHT, BAR_BACK).setOrigin(0.5, 1);
     this.selfBar = this.add.rectangle(0, 0, 10, SELF_BAR_HEIGHT, 0x6fd08c).setOrigin(0, 1);
+
+    // 탄약은 체력 바 오른쪽 끝에 붙인다 — 쏘는 동안 눈이 화면 아래 중앙을 벗어나지 않게.
+    this.ammoText = this.add.text(0, 0, '', DIM_STYLE).setOrigin(1, 1);
 
     this.resourceText = this.add.text(0, 0, '휴대 나무 0 · 돌 0 · 부품 0', DIM_STYLE);
     this.buildModeText = this.add.text(0, 0, '건축모드: 꺼짐', DIM_STYLE);
@@ -517,6 +522,9 @@ export class HudScene extends Phaser.Scene {
     this.selfBar
       .setSize(selfBarW, SELF_BAR_HEIGHT * scale)
       .setPosition(width / 2 - selfBarW / 2, selfBarY);
+    this.ammoText
+      .setFontSize(SIZE_BODY * scale)
+      .setPosition(width / 2 + selfBarW / 2, selfBarY - SELF_BAR_HEIGHT * scale - 2 * scale);
 
     // --- 나머지
     this.resourceText.setFontSize(SIZE_BODY * scale).setPosition(pad, height - 40 * scale);
@@ -569,6 +577,7 @@ export class HudScene extends Phaser.Scene {
     this.storeModal.setContext(status.shopStock, status.coreMoney, stock);
     this.quickSlots.update(me, this.slotDrag.hoverCellOf('inventory'));
     this.updateSelfBar(me);
+    this.updateAmmo(me);
     this.updateTexts(snapshot, me);
 
     // 코어는 항상 원점(0,0). 서버(World.isNearCore)와 같은 함수로 판정해야
@@ -629,10 +638,34 @@ export class HudScene extends Phaser.Scene {
     });
   }
 
+  /**
+   * 탄약 표시. 근접·맨손이면(탄창 0) 아예 감춘다 — 늘 "—"가 떠 있으면 화면만 시끄럽다.
+   * 재장전 중에는 남은 시간을 보여준다: 언제 다시 쏠 수 있는지가 그 순간 가장 궁금하다.
+   */
+  private updateAmmo(me: PlayerView | undefined): void {
+    if (!me || me.ammoMagazine <= 0) {
+      this.ammoText.setVisible(false);
+      return;
+    }
+
+    this.ammoText.setVisible(true);
+    if (me.reloadRemaining > 0) {
+      this.ammoText.setText(`재장전 ${me.reloadRemaining.toFixed(1)}s`);
+      this.ammoText.setColor(DOWN_COLOR);
+      return;
+    }
+
+    const mode = me.burstMode ? ' 점사' : '';
+    this.ammoText.setText(`${me.ammo} / ${me.ammoMagazine}${mode}`);
+    this.ammoText.setColor(me.ammo === 0 ? DOWN_COLOR : DIM_TEXT);
+  }
+
   private updateSelfBar(me: PlayerView | undefined): void {
     // 개발 커맨드(hp)로 최대치를 넘겨 설정할 수 있어서 위쪽도 조인다 — 안 그러면
     // 바가 패널 밖으로 삐져나간다.
-    const ratio = me ? Math.min(1, Math.max(0, me.hp) / wavesData.playerHp) : 0;
+    // 최대 체력은 음식으로 늘어나므로 상수가 아니라 서버가 알려준 값을 쓴다.
+    const maxHp = me?.maxHp || wavesData.playerHp;
+    const ratio = me ? Math.min(1, Math.max(0, me.hp) / maxHp) : 0;
     this.selfBar.width = Math.max(0, SELF_BAR_WIDTH * this.uiScale * ratio);
     this.selfBar.fillColor = barColor(ratio);
   }

@@ -78,6 +78,9 @@ const OVERLAY_DEPTH = 45000;
  */
 const VIEW_PAD = 48;
 
+/** 휴대 광원(빔소드)이 어둠을 걷어내는 세기. 코어만큼 환하진 않다. */
+const PORTABLE_LIGHT_ALPHA = 0.75;
+
 const LIGHT_TEXTURE_KEY = 'day-night-core-light';
 const LIGHT_TEXTURE_SIZE = 256;
 
@@ -133,6 +136,11 @@ export class DayNightOverlay {
     status: WorldSnapshot['status'],
     camera: Phaser.Cameras.Scene2D.Camera,
     deltaMs: number,
+    /**
+     * 코어 말고 추가로 어둠을 걷어낼 광원들(빔소드를 든 플레이어 등). 월드 좌표다.
+     * 밤이 아닐 땐 어둠막 자체가 꺼져 있어 아무 효과가 없다 — 호출부가 걸러낼 필요 없다.
+     */
+    lights: readonly { x: number; y: number; radius: number }[] = [],
   ): void {
     if (status.wavePhase === 'night') this.hasSeenNight = true;
 
@@ -171,6 +179,14 @@ export class DayNightOverlay {
       this.lightBrush.setAlpha(this.current.light);
       this.lightBrush.setDisplaySize(radius * 2, radius * 2);
       this.veil.erase(this.lightBrush, 0 - this.veil.x, 0 - this.veil.y);
+    }
+
+    // 휴대 광원. 코어 빛과 달리 밤에도 항상 같은 세기다 — 들고 다니는 빛이 하늘
+    // 밝기에 따라 흐려지면 "이 무기가 밝혀준다"는 사실이 전달되지 않는다.
+    for (const light of lights) {
+      this.lightBrush.setAlpha(PORTABLE_LIGHT_ALPHA);
+      this.lightBrush.setDisplaySize(light.radius * 2, light.radius * 2);
+      this.veil.erase(this.lightBrush, light.x - this.veil.x, light.y - this.veil.y);
     }
   }
 

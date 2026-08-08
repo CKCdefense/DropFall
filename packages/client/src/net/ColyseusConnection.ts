@@ -35,6 +35,11 @@ interface RemotePlayerState {
   aimAngle: number;
   lastProcessedSeq: number;
   hp: number;
+  maxHp: number;
+  ammo: number;
+  ammoMagazine: number;
+  reloadRemaining: number;
+  burstMode: boolean;
   wood: number;
   stone: number;
   parts: number;
@@ -256,6 +261,14 @@ export class ColyseusConnection implements GameConnection {
     this.room.send('selectSlot', { index });
   }
 
+  reload(): void {
+    this.room.send('reload', {});
+  }
+
+  toggleFireMode(): void {
+    this.room.send('toggleFireMode', {});
+  }
+
   useSlot(): void {
     this.room.send('useSlot', {});
   }
@@ -354,6 +367,11 @@ export class ColyseusConnection implements GameConnection {
         aimAngle: player.aimAngle,
         lastProcessedSeq: player.lastProcessedSeq,
         hp: player.hp,
+        maxHp: player.maxHp,
+        ammo: player.ammo,
+        ammoMagazine: player.ammoMagazine,
+        reloadRemaining: player.reloadRemaining,
+        burstMode: player.burstMode,
         wood: player.wood,
         stone: player.stone,
         parts: player.parts,

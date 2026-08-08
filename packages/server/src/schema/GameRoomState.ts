@@ -28,6 +28,13 @@ export class PlayerSchema extends Schema {
   @type('number') aimAngle = 0;
   @type('number') lastProcessedSeq = 0;
   @type('number') hp = 0;
+  /** 음식으로 늘어날 수 있는 최대 체력. HP바 비율 계산은 상수가 아니라 이 값을 쓴다. */
+  @type('number') maxHp = 0;
+  /**
+   * 이동속도 배율(영구 스태미나 × 아드레날린). 클라이언트 예측이 이 값을 같이 곱해야
+   * 버프 중에 되감기지 않는다. 1이 기본.
+   */
+  @type('number') speedMultiplier = 1;
   @type('number') wood = 0;
   @type('number') stone = 0;
   /** 몬스터가 떨구는 부품(drop_normal) 휴대량. 나무/돌과 동일하게 창고로 옮겨야 팀 몫이 된다. */
@@ -36,6 +43,13 @@ export class PlayerSchema extends Schema {
     ...Array.from({ length: SLOT_COUNT }, () => new ItemSlotSchema()),
   );
   @type('number') selectedSlot = 0;
+  /** 장착 무기의 남은 탄약/탄창. 근접·맨손이면 magazine 0. */
+  @type('uint16') ammo = 0;
+  @type('uint16') ammoMagazine = 0;
+  /** 재장전 잔여 시간(초). 0이면 재장전 중이 아니다. */
+  @type('number') reloadRemaining = 0;
+  /** 점사 모드 토글 상태(돌격소총). */
+  @type('boolean') burstMode = false;
 }
 
 export class MonsterSchema extends Schema {

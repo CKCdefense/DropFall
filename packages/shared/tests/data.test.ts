@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { monstersData, weaponsData, wavesData } from '../src/data';
+import { itemsData, monstersData, weaponsData, wavesData } from '../src/data';
 
 describe('data', () => {
   it('monsters.json이 스키마를 통과하고 잡몹 6종 + 보스 4종을 포함한다', () => {
@@ -43,10 +43,34 @@ describe('data', () => {
     expect(monstersData.boss_demon.hitRadius).toBeGreaterThan(30);
   });
 
-  it('weapons.json이 스키마를 통과하고 club/pistol을 포함한다', () => {
+  it('weapons.json이 스키마를 통과하고 근접·원거리 무기를 포함한다', () => {
     expect(weaponsData.axe_t1.type).toBe('melee');
-    expect(weaponsData.pistol.type).toBe('ranged');
-    expect(weaponsData.pistol.projectileSpeed).toBe(420);
+    expect(weaponsData.handgun.type).toBe('ranged');
+    expect(weaponsData.handgun.projectileSpeed).toBeGreaterThan(0);
+  });
+
+  it('무기 티어 4단계가 모두 존재하고, 원거리 무기는 탄창과 재장전 시간을 갖는다', () => {
+    const tiers = new Set(
+      Object.values(weaponsData)
+        .map((weapon) => weapon.tier)
+        .filter(Boolean),
+    );
+    expect(tiers).toEqual(new Set(['normal', 'rare', 'epic', 'legendary']));
+
+    for (const [id, weapon] of Object.entries(weaponsData)) {
+      if (weapon.type !== 'ranged') continue;
+      expect(weapon.magazine, `${id}에 탄창이 없다`).toBeGreaterThan(0);
+      expect(weapon.reloadTime, `${id}에 재장전 시간이 없다`).toBeGreaterThan(0);
+      expect(weapon.muzzleOffset, `${id}에 총구 오프셋이 없다`).toBeGreaterThan(0);
+    }
+  });
+
+  it('items.json의 무기 아이템은 실재하는 weaponId를 가리킨다', () => {
+    for (const [id, item] of Object.entries(itemsData)) {
+      if (item.kind !== 'weapon') continue;
+      expect(item.weaponId, `${id}에 weaponId가 없다`).toBeDefined();
+      expect(weaponsData[item.weaponId!], `${id} → ${item.weaponId} 무기가 없다`).toBeDefined();
+    }
   });
 
   it('waves.json이 스키마를 통과하고 웨이브 5개를 포함한다', () => {

@@ -50,11 +50,14 @@ import {
 } from './companionPersona';
 import {
   HIT_RADIUS,
+  WeaponAmmo,
   WeaponCooldowns,
   circlesOverlap,
+  projectileSweepHits,
   resolveFire,
   tickProjectiles,
   withinMeleeArc,
+  type FireResult,
   type MeleeHit,
   type ProjectileEntity,
 } from './combat';
@@ -243,6 +246,20 @@ export interface PlayerEntity {
   inventory: Inventory;
   /** 이번 틱에 몬스터에게 맞았는지. 매 틱 시작 시 초기화되고, damagePlayer()가 세팅한다. */
   tookDamageThisTick: boolean;
+
+  /** 음식(도넛/당근케이크)으로 늘어난 최대 체력. 기본값은 wavesData.playerHp에 더해진다. */
+  maxHpBonus: number;
+  /** 음식(너겟/라자냐)으로 쌓인 공격력 증가율의 합(0.05 = +5%). 모든 공격 데미지에 ×(1+합). */
+  attackBonus: number;
+  /** 음식(초콜릿/사과주스)으로 쌓인 이동속도 증가율의 합. 스태미나 게이지 도입 전의 해석. */
+  staminaBonus: number;
+  /** 진통제: 남은 시간(초) 동안 체력이 1 아래로 떨어지지 않는다. */
+  hpFloorTimer: number;
+  /** 아드레날린: 남은 시간(초) 동안 이동속도에 speedBuffMultiplier를 곱한다. */
+  speedBuffTimer: number;
+  speedBuffMultiplier: number;
+  /** 점사 모드(돌격소총 전용 토글). burst 스펙이 없는 무기를 들면 무시된다. */
+  burstMode: boolean;
 }
 
 export interface ResourceNodeEntity {
@@ -443,6 +460,12 @@ export class World {
   private readonly monsterGrid = new SpatialGrid(MONSTER_GRID_CELL_SIZE);
   private projectiles = new Map<string, ProjectileEntity>();
   private readonly cooldowns = new WeaponCooldowns();
+  private readonly ammo = new WeaponAmmo();
+  /**
+   * 진행 중인 점사(burst). 방아쇠 1번에 count발이 interval 간격으로 나가야 해서
+   * 첫 발 이후의 나머지를 틱에서 예약 발사한다. 플레이어당 하나만 진행된다.
+   */
+  private readonly bursts = new Map<string, { weaponId: string; shotsLeft: number; timer: number }>();
   private readonly waveManager = new WaveManager();
   private readonly buildings = new BuildingRegistry();
   /** 코어 AI 페르소나 트레잇. 웨이브 종료/콜로니 파괴/코어 상호작용마다 조금씩 바뀐다. */
@@ -610,7 +633,24 @@ export class World {
       hp: wavesData.playerHp,
       inventory,
       tookDamageThisTick: false,
+      maxHpBonus: 0,
+      attackBonus: 0,
+      staminaBonus: 0,
+      hpFloorTimer: 0,
+      speedBuffTimer: 0,
+      speedBuffMultiplier: 1,
+      burstMode: false,
     });
+  }
+
+  /** 음식 보너스를 반영한 이 플레이어의 최대 체력. 회복 상한·부활·HP바가 전부 이 값을 쓴다. */
+  playerMaxHp(player: PlayerEntity): number {
+    return wavesData.playerHp + player.maxHpBonus;
+  }
+
+  /** 이동속도 배율 = 영구 스태미나 보너스 × (아드레날린 지속 중이면 그 배율). */
+  playerSpeedMultiplier(player: PlayerEntity): number {
+    return (1 + player.staminaBonus) * (player.speedBuffTimer > 0 ? player.speedBuffMultiplier : 1);
   }
 
   removePlayer(id: string): void {
@@ -618,6 +658,8 @@ export class World {
     this.players.delete(id);
     this.inputs.delete(id);
     this.cooldowns.removePlayer(id);
+    this.ammo.removePlayer(id);
+    this.bursts.delete(id);
     this.skipVotes.delete(id);
   }
 
@@ -672,10 +714,18 @@ export class World {
 
     // 효과가 없는 상황이면 **소모하지 않는다.** 체력이 가득인데 붕대만 날리는 일이
     // 없어야 한다 — 어떤 효과든 "지금 의미가 있는가"를 먼저 묻고 나서 꺼낸다.
-    if (selected.healAmount !== undefined && player.hp >= wavesData.playerHp) return;
+    // 버프(진통제/아드레날린)·영구 스탯(음식)은 언제 써도 의미가 있어 검사하지 않는다.
+    const maxHp = this.playerMaxHp(player);
+    const heals = selected.healAmount !== undefined || selected.healPercent !== undefined;
+    const hasBuffOrStat =
+      selected.hpFloorSeconds !== undefined ||
+      selected.speedMultiplier !== undefined ||
+      selected.statBonus !== undefined;
+    if (heals && !hasBuffOrStat && player.hp >= maxHp) return;
     if (selected.coreHealAmount !== undefined && this.core.hp >= this.core.maxHp) return;
     if (
-      selected.healAmount === undefined &&
+      !heals &&
+      !hasBuffOrStat &&
       selected.coreHealAmount === undefined &&
       selected.energyAmount === undefined
     ) {
@@ -686,7 +736,30 @@ export class World {
     if (!item) return;
 
     if (item.healAmount !== undefined) {
-      player.hp = Math.min(wavesData.playerHp, player.hp + item.healAmount);
+      player.hp = Math.min(maxHp, player.hp + item.healAmount);
+    }
+    if (item.healPercent !== undefined) {
+      // 비율 회복은 최대 체력 기준이다 — 음식으로 최대치가 늘면 회복량도 같이 는다.
+      player.hp = Math.min(maxHp, player.hp + Math.round(maxHp * item.healPercent));
+    }
+    if (item.hpFloorSeconds !== undefined) {
+      // 겹쳐 쓰면 남은 시간과 새 시간 중 긴 쪽 — 더하기로 하면 쟁여놓고 연타해 사실상 무적이 된다.
+      player.hpFloorTimer = Math.max(player.hpFloorTimer, item.hpFloorSeconds);
+    }
+    if (item.speedMultiplier !== undefined && item.speedSeconds !== undefined) {
+      player.speedBuffMultiplier = item.speedMultiplier;
+      player.speedBuffTimer = Math.max(player.speedBuffTimer, item.speedSeconds);
+    }
+    if (item.statBonus !== undefined) {
+      if (item.statBonus.stat === 'maxHp') {
+        player.maxHpBonus += item.statBonus.amount;
+        // 최대치만 늘고 현재 체력이 그대로면 "먹었는데 체감이 없다" — 늘어난 만큼 같이 채운다.
+        player.hp = Math.min(this.playerMaxHp(player), player.hp + item.statBonus.amount);
+      } else if (item.statBonus.stat === 'attack') {
+        player.attackBonus += item.statBonus.amount;
+      } else {
+        player.staminaBonus += item.statBonus.amount;
+      }
     }
     if (item.coreHealAmount !== undefined) {
       this.core.hp = Math.min(this.core.maxHp, this.core.hp + item.coreHealAmount);
@@ -719,17 +792,42 @@ export class World {
     // "사용"이라 여기까지 오지 않는다(클라이언트가 useSlot으로 보낸다).
     const weaponId = player.inventory.equippedWeaponId ?? BARE_HANDS_WEAPON_ID;
     if (!this.cooldowns.canFire(playerId, weaponId, this.elapsedSeconds)) return;
+    // 탄창 검사(원거리만 해당). 재장전 중이거나 빈 탄창이면 발사되지 않고, 빈 탄창은
+    // 이 호출 안에서 자동 재장전이 시작된다. 쿨다운보다 뒤에 검사해야 실패한 시도가
+    // 발사 주기를 밀어내지 않는다.
+    if (!this.ammo.tryConsume(playerId, weaponId)) return;
 
     this.cooldowns.recordFire(playerId, weaponId, this.elapsedSeconds);
-    const result = resolveFire({
-      playerId,
+    this.fireOneShot(player, weaponId);
+
+    // 점사 모드: 방아쇠 1번 = burst.count발. 첫 발은 방금 나갔고, 나머지는 틱에서
+    // interval 간격으로 이어 쏜다(탄약은 발마다 소모).
+    const weapon = weaponsData[weaponId];
+    if (weapon?.burst && player.burstMode) {
+      this.bursts.set(playerId, {
+        weaponId,
+        shotsLeft: weapon.burst.count - 1,
+        timer: weapon.burst.interval,
+      });
+    }
+  }
+
+  /**
+   * 한 발 발사의 공통 경로 — 즉시 발사(fireWeapon)와 점사 후속탄(tickBursts)이 같이 쓴다.
+   * 음식으로 쌓은 공격력 보너스도 여기서 곱한다(근접·투사체·산탄 전부 일관되게).
+   */
+  private fireOneShot(player: PlayerEntity, weaponId: string): void {
+    const result: FireResult = resolveFire({
+      playerId: player.id,
       weaponId,
       x: player.x,
       y: player.y,
       aimAngle: player.aimAngle,
     });
 
-    if (result.projectile) {
+    const damageScale = 1 + player.attackBonus;
+    for (const projectile of result.projectiles ?? []) {
+      projectile.damage *= damageScale;
       // 총구가 플레이어 좌표에서 muzzleOffset만큼 떨어진 곳에서 "순간이동하듯" 생겨난다
       // (연출용 총구 위치 보정, backend/frontend 병합분). 그런데 몬스터가 그 사이
       // 간격(0~muzzleOffset)에 딱 붙어 있으면, 투사체가 몬스터를 지나친 자리에서
@@ -737,14 +835,73 @@ export class World {
       // 사거리까지 파고든 뒤 총으로는 못 잡는 버그로 제보받음). 총구가 "생겨나기 전"
       // 그 간격을 지나가는 순간 몬스터가 있었을지를 먼저 검사해서, 있었으면 투사체를
       // 날리는 대신 그 자리에서 바로 맞힌 것으로 처리한다.
-      if (!this.resolveMuzzleGapHit(player, result.projectile)) {
-        this.projectiles.set(result.projectile.id, result.projectile);
+      if (!this.resolveMuzzleGapHit(player, projectile)) {
+        this.projectiles.set(projectile.id, projectile);
       }
     }
     if (result.meleeHit) {
+      result.meleeHit.damage *= damageScale;
       this.applyMeleeHit(result.meleeHit);
       this.applyMeleeHitToResourceNode(player, result.meleeHit, weaponId);
     }
+  }
+
+  /** 진행 중인 점사의 후속탄을 발사한다. 무기를 바꾸거나 다운되면 남은 점사는 버린다. */
+  private tickBursts(dtSeconds: number): void {
+    for (const [playerId, burst] of this.bursts) {
+      const player = this.players.get(playerId);
+      const equipped = player?.inventory.equippedWeaponId ?? BARE_HANDS_WEAPON_ID;
+      if (!player || player.hp <= 0 || equipped !== burst.weaponId) {
+        this.bursts.delete(playerId);
+        continue;
+      }
+      burst.timer -= dtSeconds;
+      // 한 틱에 interval이 여러 번 지나도 발사는 틱당 한 발이면 충분하다(틱 50ms,
+      // interval 70ms — 실제로 겹칠 일이 없고, 겹쳐도 다음 틱에 이어 쏜다).
+      if (burst.timer > 0) continue;
+      if (this.ammo.tryConsume(playerId, burst.weaponId)) {
+        this.rebuildMonsterGrid();
+        this.fireOneShot(player, burst.weaponId);
+        burst.shotsLeft -= 1;
+        burst.timer += weaponsData[burst.weaponId]?.burst?.interval ?? 0;
+      } else {
+        burst.shotsLeft = 0; // 탄이 떨어졌다 — 남은 점사는 없던 일로 하고 재장전에 맡긴다
+      }
+      if (burst.shotsLeft <= 0) this.bursts.delete(playerId);
+    }
+  }
+
+  /** 수동 재장전(R). 장착 중인 원거리 무기가 대상이다. 가득이거나 이미 장전 중이면 무시. */
+  reloadWeapon(playerId: string): void {
+    const player = this.players.get(playerId);
+    if (!player || player.hp <= 0) return;
+    const weaponId = player.inventory.equippedWeaponId;
+    if (!weaponId) return;
+    this.ammo.startReload(playerId, weaponId);
+  }
+
+  /**
+   * 점사 모드 토글(돌격소총). burst 스펙이 있는 무기를 들고 있을 때만 뒤집는다 —
+   * 아무 무기에서나 눌러 켜지면 나중에 돌격소총을 들었을 때 의도치 않게 점사가 된다.
+   */
+  toggleFireMode(playerId: string): void {
+    const player = this.players.get(playerId);
+    if (!player) return;
+    const weaponId = player.inventory.equippedWeaponId;
+    if (!weaponId || !weaponsData[weaponId]?.burst) return;
+    player.burstMode = !player.burstMode;
+  }
+
+  /** HUD 동기화용 탄약 조회. 근접/맨손이면 null. */
+  ammoView(playerId: string): { loaded: number; magazine: number; reloadRemaining: number } | null {
+    const player = this.players.get(playerId);
+    if (!player) return null;
+    const weaponId = player.inventory.equippedWeaponId ?? BARE_HANDS_WEAPON_ID;
+    const weapon = weaponsData[weaponId];
+    if (!weapon?.magazine) return null;
+    const view = this.ammo.view(playerId, weaponId);
+    if (!view) return null;
+    return { loaded: view.loaded, magazine: weapon.magazine, reloadRemaining: view.reloadRemaining };
   }
 
   /**
@@ -793,7 +950,10 @@ export class World {
     if (!target) return;
 
     const data = resourcesData[target.type];
-    target.hp = Math.max(0, target.hp - hit.damage);
+    // 채집 효율(gatherMultiplier)은 노드에만 적용된다 — 전투 데미지와 분리된 축이라
+    // "효율 좋음" 도구가 몬스터까지 세게 때리지 않는다.
+    const gather = weaponsData[weaponId]?.gatherMultiplier ?? 1;
+    target.hp = Math.max(0, target.hp - hit.damage * gather);
     if (target.hp > 0) return;
 
     target.respawnTimer = data.respawnSeconds;
@@ -1324,7 +1484,7 @@ export class World {
 
       healPlayer: (playerId) => {
         const player = this.players.get(playerId);
-        if (player) player.hp = wavesData.playerHp;
+        if (player) player.hp = this.playerMaxHp(player);
       },
       setPlayerHp: (playerId, amount) => {
         const player = this.players.get(playerId);
@@ -1348,7 +1508,14 @@ export class World {
 
     // 이번 틱의 피격 여부를 새로 센다 — damagePlayer()가 이번 틱 중 세팅하고,
     // tickChannels()가 tickMonsters() 이후(=피격이 이미 반영된 뒤)에 읽는다.
-    for (const player of this.players.values()) player.tookDamageThisTick = false;
+    // 소모품 버프 타이머(진통제/아드레날린)도 같은 자리에서 감소시킨다.
+    for (const player of this.players.values()) {
+      player.tookDamageThisTick = false;
+      if (player.hpFloorTimer > 0) player.hpFloorTimer -= dtSeconds;
+      if (player.speedBuffTimer > 0) player.speedBuffTimer -= dtSeconds;
+    }
+    this.ammo.tick(dtSeconds);
+    this.tickBursts(dtSeconds);
 
     for (const [id, player] of this.players) {
       const input = this.inputs.get(id);
@@ -1797,14 +1964,16 @@ export class World {
    * 경로(추격 공격, 보스 돌진/광역)가 반드시 이 메서드를 거쳐야 한다.
    */
   private damagePlayer(player: PlayerEntity, amount: number): void {
-    player.hp = Math.max(0, player.hp - amount);
+    // 진통제 지속 중에는 체력이 1 아래로 떨어지지 않는다 — 다운을 3초 미루는 보험.
+    const floor = player.hpFloorTimer > 0 ? 1 : 0;
+    player.hp = Math.max(floor, player.hp - amount);
     player.tookDamageThisTick = true;
   }
 
   /** 웨이브를 클리어하고 새 낮이 시작될 때 다운된 플레이어를 전원 부활시킨다. */
   private revivePlayers(): void {
     for (const player of this.players.values()) {
-      player.hp = wavesData.playerHp;
+      player.hp = this.playerMaxHp(player);
     }
   }
 
@@ -2918,21 +3087,22 @@ export class World {
     moveY: number,
     dtSeconds: number,
   ): void {
-    const full = stepPosition(player.x, player.y, moveX, moveY, dtSeconds);
+    const speed = this.playerSpeedMultiplier(player);
+    const full = stepPosition(player.x, player.y, moveX, moveY, dtSeconds, speed);
     if (!this.isBlockedForPlayer(full.x, full.y)) {
       player.x = full.x;
       player.y = full.y;
       return;
     }
 
-    const xOnly = stepPosition(player.x, player.y, moveX, 0, dtSeconds);
+    const xOnly = stepPosition(player.x, player.y, moveX, 0, dtSeconds, speed);
     if (!this.isBlockedForPlayer(xOnly.x, xOnly.y)) {
       player.x = xOnly.x;
       player.y = xOnly.y;
       return;
     }
 
-    const yOnly = stepPosition(player.x, player.y, 0, moveY, dtSeconds);
+    const yOnly = stepPosition(player.x, player.y, 0, moveY, dtSeconds, speed);
     if (!this.isBlockedForPlayer(yOnly.x, yOnly.y)) {
       player.x = yOnly.x;
       player.y = yOnly.y;
@@ -3278,41 +3448,51 @@ export class World {
   private projectileHitsMonster(projectileId: string, projectile: ProjectileEntity): boolean {
     // 전체 몬스터 대신 격자 후보만 본다(docs/backend/45) — 후보 반경에 몬스터 최대
     // 히트박스를 더해야, 큰(보스급) 몬스터의 중심이 격자 반경 밖이어도 몸이 걸치는
-    // 경우를 놓치지 않는다.
+    // 경우를 놓치지 않는다. 판정이 선분(직전 위치→현재 위치)이므로 이번 틱에 이동한
+    // 거리도 반경에 더해야 그 구간에 있던 몬스터가 후보에서 빠지지 않는다.
+    const travelled = Math.hypot(projectile.x - projectile.prevX, projectile.y - projectile.prevY);
     const candidateIds = this.monsterGrid.queryRadius(
       projectile.x,
       projectile.y,
-      MAX_MONSTER_HIT_RADIUS,
+      MAX_MONSTER_HIT_RADIUS + travelled,
     );
+    let hitAny = false;
     for (const monsterId of candidateIds) {
       const monster = this.monsters.get(monsterId);
       if (!monster) continue;
-      if (circlesOverlap(projectile.x, projectile.y, monster.x, monster.y, monsterRadius(monster))) {
+      // 관통탄이 이미 때린 몬스터는 건너뛴다 — 한 발이 같은 몸을 두 번 뚫지 않는다.
+      if (projectile.hitIds?.has(monsterId)) continue;
+      if (projectileSweepHits(projectile, monster.x, monster.y, monsterRadius(monster))) {
         this.damageMonster(monsterId, monster.hp - projectile.damage);
-        this.projectiles.delete(projectileId);
-        return true;
+        if (!projectile.pierce) {
+          this.projectiles.delete(projectileId);
+          return true;
+        }
+        projectile.hitIds?.add(monsterId);
+        hitAny = true;
       }
     }
-    return false;
+    return hitAny;
   }
 
   private projectileHitsObstacle(projectileId: string, projectile: ProjectileEntity): void {
+    // 몬스터와 같은 이유로 선분 판정을 쓴다 — 빠른 총알이 벽을 뚫고 지나가면 안 된다.
     for (const building of this.buildings.values()) {
       if (!buildingsData[building.type].blocksProjectile) continue;
-      if (circlesOverlap(projectile.x, projectile.y, building.x, building.y, TILE_SIZE / 2)) {
+      if (projectileSweepHits(projectile, building.x, building.y, TILE_SIZE / 2)) {
         this.projectiles.delete(projectileId);
         return;
       }
     }
     for (const node of this.resourceNodes.values()) {
       if (node.hp <= 0) continue; // 고갈된 자리는 투사체도 그냥 통과한다(docs/backend/39)
-      if (circlesOverlap(projectile.x, projectile.y, node.x, node.y, resourcesData[node.type].hitRadius)) {
+      if (projectileSweepHits(projectile, node.x, node.y, resourcesData[node.type].hitRadius)) {
         this.projectiles.delete(projectileId);
         return;
       }
     }
     for (const colony of this.colonies.values()) {
-      if (circlesOverlap(projectile.x, projectile.y, colony.x, colony.y, COLONY_RADIUS)) {
+      if (projectileSweepHits(projectile, colony.x, colony.y, COLONY_RADIUS)) {
         this.projectiles.delete(projectileId);
         return;
       }

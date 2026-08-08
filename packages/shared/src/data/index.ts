@@ -14,7 +14,17 @@ import coreUpgradesJson from './coreUpgrades.json';
 import corePersonaJson from './corePersona.json';
 import companionJson from './companion.json';
 
+/**
+ * JSON은 주석을 쓸 수 없어서 데이터 파일마다 `$comment` 키로 설명을 단다.
+ * z.object는 모르는 키를 알아서 버리지만 z.record는 그것도 항목으로 보고 실패하므로,
+ * 검증 전에 최상위 `$comment`를 걷어낸다.
+ */
 export function loadData<T>(schema: z.ZodType<T>, json: unknown): T {
+  if (json && typeof json === 'object' && '$comment' in json) {
+    const rest = { ...(json as Record<string, unknown>) };
+    delete rest.$comment;
+    return schema.parse(rest);
+  }
   return schema.parse(json);
 }
 
@@ -163,6 +173,11 @@ export const monstersData = loadData(MonstersDataSchema, monstersJson);
 const WeaponDataSchema = z.object({
   name: z.string(),
   type: z.enum(['melee', 'ranged']),
+  /**
+   * 티어(노말/레어/에픽/레전더리). UI 색상·정렬용 표시 값이다 — 상점 등장 여부·가중치는
+   * items.json의 rarity가 따로 정한다(도구처럼 상점에 안 나오는 무기가 있어서 분리).
+   */
+  tier: z.enum(['normal', 'rare', 'epic', 'legendary']).optional(),
   damage: z.number().nonnegative(),
   /** 초당 발사/타격 횟수 */
   fireRate: z.number().positive(),
@@ -183,10 +198,45 @@ const WeaponDataSchema = z.object({
    * 없으면 전방향(360도) — 기존 원형 판정과 같아진다.
    */
   arc: z.number().positive().max(360).optional(),
+  /**
+   * melee 전용: 자원 노드를 때릴 때 데미지에 곱하는 채집 효율. 없으면 1.
+   * "효율 좋음" 도구(토마호크)가 전투 데미지를 안 건드리고 채집만 빨라지게 한다.
+   */
+  gatherMultiplier: z.number().positive().optional(),
+  /**
+   * 이 무기를 든 동안 밤에 캐릭터 주변을 밝히는 반경(px). 클라이언트 연출 전용 —
+   * 서버 시야/판정에는 영향이 없다(빔소드).
+   */
+  lightRadius: z.number().positive().optional(),
   /** ranged 전용 */
   magazine: z.number().int().positive().optional(),
   reloadTime: z.number().positive().optional(),
   projectileSpeed: z.number().positive().optional(),
+  /**
+   * ranged 전용: 이 무기의 투사체 사거리(px). 없으면 전역 기본값(600).
+   * 산탄총(짧다)과 저격소총(사실상 무제한)이 같은 600을 쓸 수 없어 무기별로 뒀다.
+   */
+  maxRange: z.number().positive().optional(),
+  /**
+   * ranged 전용: 산탄 — 한 발에 이 개수의 투사체가 spreadDeg 부채꼴로 퍼져 나간다.
+   * damage는 **펠릿 1개** 기준이다(다 맞으면 damage × pellets).
+   */
+  pellets: z.number().int().min(2).optional(),
+  /** ranged 전용: 산탄이 퍼지는 전체 각도(도). pellets가 있을 때만 의미 있다. */
+  spreadDeg: z.number().positive().max(90).optional(),
+  /** ranged 전용: 관통 — 투사체가 몬스터를 뚫고 계속 날아간다(각 몬스터는 1회만 피해). */
+  pierce: z.boolean().optional(),
+  /**
+   * ranged 전용: 점사 모드 스펙. 있는 무기만 점사 토글이 가능하다(돌격소총).
+   * 점사 1회 = 방아쇠 1번 = count발이 interval 간격으로 나간다. 탄약도 발당 소모.
+   */
+  burst: z
+    .object({
+      count: z.number().int().min(2),
+      /** 점사 내 발사 간격(초) */
+      interval: z.number().positive(),
+    })
+    .optional(),
   /**
    * ranged 전용: 발사 지점을 플레이어 중심에서 조준 방향으로 밀어내는 거리(px).
    * 총구 위치와 맞춰야 총알이 배에서 튀어나오지 않는다 — 클라이언트 렌더의
@@ -326,6 +376,33 @@ const ItemDataSchema = z.object({
   weaponId: z.string().optional(),
   /** consumable 전용: 자기 체력 회복량 */
   healAmount: z.number().positive().optional(),
+  /**
+   * consumable 전용: 최대 체력 대비 비율 회복(0~1). 붕대 30%처럼 "몇 %" 설계를
+   * 그대로 싣는다 — 음식으로 최대 체력이 늘어도 체감 회복량이 같이 커진다.
+   */
+  healPercent: z.number().positive().max(1).optional(),
+  /**
+   * consumable 전용: 이 시간(초) 동안 체력이 1 아래로 떨어지지 않는다(진통제).
+   * 다시 쓰면 남은 시간에 더하지 않고 새로 시작한다(최댓값 갱신).
+   */
+  hpFloorSeconds: z.number().positive().optional(),
+  /** consumable 전용: 이동속도 버프 배율(아드레날린 1.5). speedSeconds와 함께 쓴다. */
+  speedMultiplier: z.number().positive().optional(),
+  /** consumable 전용: 이동속도 버프 지속시간(초). */
+  speedSeconds: z.number().positive().optional(),
+  /**
+   * consumable 전용(음식): 영구 스탯 증가. 세션이 끝날 때까지 유지된다.
+   *  - maxHp:    최대 체력 +amount (현재 체력도 같이 오른다 — 먹자마자 손해 보지 않게)
+   *  - attack:   모든 공격 데미지 +amount×100% (0.05 = +5%)
+   *  - stamina:  이동속도 +amount×100% — 스태미나 게이지 시스템이 아직 없어
+   *              "지구력 = 발이 오래/빨리 간다"로 해석했다. 게이지가 생기면 그쪽으로 옮긴다.
+   */
+  statBonus: z
+    .object({
+      stat: z.enum(['maxHp', 'attack', 'stamina']),
+      amount: z.number().positive(),
+    })
+    .optional(),
   /** consumable 전용: 코어 체력 회복량. 최대 체력을 넘겨 회복하지는 않는다. */
   coreHealAmount: z.number().positive().optional(),
   /** consumable 전용: 팀 공유 에너지 지급량(코어 업그레이드 재화). */

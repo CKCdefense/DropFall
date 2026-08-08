@@ -4,13 +4,15 @@ import { World } from '../src/sim/world';
 import { wavesData } from '../src/data';
 
 /**
- * 예전 시작 지급품(권총/도끼/곡괭이/붕대)을 손에 쥐여준다. 이제 도구는 팀 창고에서
- * 시작하므로(loadout.coreStorage), 장착을 전제하는 테스트는 명시적으로 꺼내 쓴다.
- * 슬롯 순서는 예전과 같아서 기존 selectSlot 번호가 그대로 유효하다.
+ * 고정된 4칸 구성(권총/도끼/곡괭이/붕대)을 손에 쥐여준다. 실제 시작 지급품은 창고
+ * (loadout.coreStorage)와 붕대 1개뿐이라, 장착을 전제하는 테스트는 여기서 직접 채운다.
+ * 슬롯 번호가 고정되어야 selectSlot으로 특정 무기를 지목할 수 있다.
  */
 function equipDefaultKit(world: World, playerId: string): void {
   const inventory = world.getPlayers().get(playerId)!.inventory;
-  inventory.add('pistol', 1);
+  // 참가 지급품(붕대 1개)을 먼저 비운다 — 슬롯 번호를 고정해야 selectSlot 테스트가 성립한다.
+  for (let index = 0; index < SLOT_COUNT; index += 1) inventory.takeAt(index);
+  inventory.add('handgun', 1);
   inventory.add('axe_t1', 1);
   inventory.add('pickax_t1', 1);
   inventory.add('bandage', 3);
@@ -26,10 +28,10 @@ describe('Inventory', () => {
 
   it('아이템을 넣으면 앞 칸부터 채운다', () => {
     const inventory = new Inventory();
-    inventory.add('pistol');
+    inventory.add('handgun');
     inventory.add('axe_t1');
 
-    expect(inventory.slotAt(0)).toEqual({ itemId: 'pistol', count: 1 });
+    expect(inventory.slotAt(0)).toEqual({ itemId: 'handgun', count: 1 });
     expect(inventory.slotAt(1)).toEqual({ itemId: 'axe_t1', count: 1 });
   });
 
@@ -53,17 +55,17 @@ describe('Inventory', () => {
 
   it('무기는 stackSize 1이라 겹치지 않고 칸을 따로 쓴다', () => {
     const inventory = new Inventory();
-    inventory.add('pistol', 3);
+    inventory.add('handgun', 3);
 
-    expect(inventory.slotAt(0)).toEqual({ itemId: 'pistol', count: 1 });
-    expect(inventory.slotAt(1)).toEqual({ itemId: 'pistol', count: 1 });
-    expect(inventory.slotAt(2)).toEqual({ itemId: 'pistol', count: 1 });
+    expect(inventory.slotAt(0)).toEqual({ itemId: 'handgun', count: 1 });
+    expect(inventory.slotAt(1)).toEqual({ itemId: 'handgun', count: 1 });
+    expect(inventory.slotAt(2)).toEqual({ itemId: 'handgun', count: 1 });
   });
 
   it('칸이 모자라면 못 넣은 개수를 돌려준다(조용히 증발시키지 않는다)', () => {
     const inventory = new Inventory();
     // 4칸 × stackSize 1 = 4개가 한계
-    const leftover = inventory.add('pistol', 6);
+    const leftover = inventory.add('handgun', 6);
 
     expect(leftover).toBe(2);
   });
@@ -100,7 +102,7 @@ describe('Inventory', () => {
 
   it('빈 칸도 선택할 수 있다(맨손)', () => {
     const inventory = new Inventory();
-    inventory.add('pistol');
+    inventory.add('handgun');
 
     expect(inventory.select(2)).toBe(true);
     expect(inventory.selected).toBeNull();
@@ -109,7 +111,7 @@ describe('Inventory', () => {
 
   it('무기 칸을 고르면 장착 무기가 나온다', () => {
     const inventory = new Inventory();
-    inventory.add('pistol');
+    inventory.add('handgun');
     inventory.add('axe_t1');
 
     inventory.select(1);
@@ -127,16 +129,16 @@ describe('Inventory', () => {
     const inventory = new Inventory();
     inventory.add('bandage', 2);
 
-    expect(inventory.consumeSelected()?.healAmount).toBe(30);
+    expect(inventory.consumeSelected()?.healPercent).toBe(0.3);
     expect(inventory.slotAt(0)).toEqual({ itemId: 'bandage', count: 1 });
   });
 
   it('무기는 소모되지 않는다', () => {
     const inventory = new Inventory();
-    inventory.add('pistol');
+    inventory.add('handgun');
 
     expect(inventory.consumeSelected()).toBeUndefined();
-    expect(inventory.slotAt(0)).toEqual({ itemId: 'pistol', count: 1 });
+    expect(inventory.slotAt(0)).toEqual({ itemId: 'handgun', count: 1 });
   });
 
   it('toView는 복사본을 준다 — 밖에서 고쳐도 내부가 바뀌지 않는다', () => {
@@ -167,8 +169,8 @@ describe('World 인벤토리 연동', () => {
     equipDefaultKit(world, 'p1');
 
     const inventory = world.getPlayers().get('p1')!.inventory;
-    expect(inventory.slotAt(0)?.itemId).toBe('pistol');
-    expect(inventory.equippedWeaponId).toBe('pistol');
+    expect(inventory.slotAt(0)?.itemId).toBe('handgun');
+    expect(inventory.equippedWeaponId).toBe('handgun');
   });
 
   it('붕대를 쓰면 체력이 회복된다', () => {

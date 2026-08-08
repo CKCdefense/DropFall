@@ -141,6 +141,14 @@ export class GameRoom extends Room {
       if (this.state.phase !== RoomPhase.PLAYING) return;
       this.world.useSelectedItem(client.sessionId);
     },
+    reload: (client: Client) => {
+      if (this.state.phase !== RoomPhase.PLAYING) return;
+      this.world.reloadWeapon(client.sessionId);
+    },
+    toggleFireMode: (client: Client) => {
+      if (this.state.phase !== RoomPhase.PLAYING) return;
+      this.world.toggleFireMode(client.sessionId);
+    },
     skipVote: (client: Client) => {
       if (this.state.phase !== RoomPhase.PLAYING) return;
       this.world.castSkipVote(client.sessionId);
@@ -346,6 +354,14 @@ export class GameRoom extends Room {
       schema.aimAngle = player.aimAngle;
       schema.lastProcessedSeq = player.lastProcessedSeq;
       schema.hp = player.hp;
+      schema.maxHp = this.world.playerMaxHp(player);
+      schema.speedMultiplier = this.world.playerSpeedMultiplier(player);
+      schema.burstMode = player.burstMode;
+      // 장착 무기의 탄약 상태. 근접/맨손이면 magazine 0으로 두고 HUD가 표시를 걷는다.
+      const ammo = this.world.ammoView(id);
+      schema.ammo = ammo?.loaded ?? 0;
+      schema.ammoMagazine = ammo?.magazine ?? 0;
+      schema.reloadRemaining = ammo?.reloadRemaining ?? 0;
       // 휴대 자원은 이제 전용 숫자 필드가 아니라 인벤토리 슬롯이다 — HUD가 쓰는
       // 요약 숫자만 세어 내려보낸다.
       schema.wood = player.inventory.countOf('wood');

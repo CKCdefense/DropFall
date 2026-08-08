@@ -143,6 +143,16 @@ export class InputController {
       this.buildModeIndex = (this.buildModeIndex + 1) % BUILD_MODES.length;
     });
 
+    // 수동 재장전(R). 대상 무기·가득 여부 판정은 서버가 한다.
+    keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.R).on('down', () => {
+      this.connection.reload();
+    });
+
+    // 점사 모드 토글(X, 돌격소총 전용). burst 스펙 없는 무기면 서버가 무시한다.
+    keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.X).on('down', () => {
+      this.connection.toggleFireMode();
+    });
+
     // 우클릭으로 건축모드를 바로 취소할 수 있게, 브라우저 기본 우클릭 메뉴부터 끈다.
     scene.input.mouse?.disableContextMenu();
     scene.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
