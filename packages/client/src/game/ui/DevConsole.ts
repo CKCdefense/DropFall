@@ -84,7 +84,11 @@ export class DevConsole {
     // 백틱은 입력창 안에서도 콘솔을 닫는 데 써야 해서(문자로 들어가면 안 된다)
     // keydown 단계에서 가로챈다.
     window.addEventListener('keydown', this.onGlobalKey);
+    // ChatBox와 같은 이유(§ChatBox 생성자 주석 참고) — "나가기"는 씬을 stop하는 게
+    // 아니라 Phaser.Game을 통째로 destroy(true)해서 SHUTDOWN을 안 거친다. 게임 레벨
+    // DESTROY에도 같이 걸어 둬야 DOM 오버레이가 확실히 지워진다.
     this.scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.destroy());
+    this.scene.game.events.once(Phaser.Core.Events.DESTROY, () => this.destroy());
 
     this.print('개발자 콘솔. `help`로 명령 목록을 본다.', 'echo');
   }

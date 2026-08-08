@@ -86,7 +86,14 @@ export class ChatBox {
     this.input.addEventListener('keydown', (event) => event.stopPropagation());
 
     window.addEventListener('keydown', this.onGlobalKey);
+    // 씬이 정상적으로 stop/restart될 땐 SHUTDOWN이 온다. 그런데 "나가기"(main.ts의
+    // leaveRoom)는 씬을 stop하는 게 아니라 **Phaser.Game 자체를 destroy(true)** 하는데,
+    // 이 경로는 SHUTDOWN을 안 거치고 곧장 내부 오브젝트를 정리한다 — SHUTDOWN에만
+    // 걸어두면 DOM 오버레이(this.root)가 안 지워져 로비 화면 위에 그대로 겹쳐 남았다.
+    // 그래서 게임 레벨 DESTROY(createGame.ts가 리사이즈 리스너 정리에 쓰는 것과 같은
+    // 이벤트)에도 같이 걸어 둔다. destroy()는 두 번 불려도 안전하다(멱등).
     this.scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.destroy());
+    this.scene.game.events.once(Phaser.Core.Events.DESTROY, () => this.destroy());
   }
 
   isOpen(): boolean {
