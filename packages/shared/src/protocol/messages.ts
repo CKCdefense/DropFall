@@ -58,10 +58,12 @@ export interface CraftMessage {
   recipeId: string;
 }
 
-/** 상점 판매. 창고에 있는 재료를 개수만큼 판다. */
-export interface ShopSellMessage {
-  itemId: string;
-  count: number;
+/**
+ * 스탯 포인트 하나를 쓴다. 몇 점을 쓸지는 안 보낸다 — 한 번에 여러 점을 넣으면
+ * 중간에 포인트가 모자랄 때 몇 점이 들어갔는지가 애매해진다.
+ */
+export interface SpendStatPointMessage {
+  stat: 'maxHp' | 'attack' | 'stamina';
 }
 
 /** 상점 구매. 진열된 물건 하나를 산다. */

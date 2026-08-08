@@ -1,10 +1,11 @@
 import Phaser from 'phaser';
 import type { InventorySlot } from '@dropfall/shared';
 import { Modal } from './Modal';
+import { CorePanel, type ChargeCellHandle } from './CorePanel';
 import { CraftPanel } from './CraftPanel';
 import { StorePanel } from './StorePanel';
 import { WarehousePanel, type StorageCellHandle } from './WarehousePanel';
-import { ACCENT, FONT_SMALL, SIZE_SMALL } from './theme';
+
 
 /**
  * 창 크기. 예전엔 220×240이라 안에 정보 세 줄과 버튼 여섯 개가 겨우 들어갔고, 제작·상점·
@@ -17,12 +18,6 @@ import { ACCENT, FONT_SMALL, SIZE_SMALL } from './theme';
  */
 const PANEL_WIDTH = 600;
 const PANEL_HEIGHT = 640;
-
-const ROW_GAP = 20;
-const BUTTON_HEIGHT = 30;
-const BUTTON_GAP = 10;
-/** 코어 탭의 정보/버튼이 차지하는 폭. 남은 오른쪽은 코어 AI 대사에 준다. */
-const INFO_WIDTH = 260;
 
 /** 탭 순서 = 와이어프레임의 왼쪽부터. 숫자로 부르지 않게 이름을 붙여 둔다. */
 export const CORE_TAB = { CORE: 0, CRAFT: 1, STORE: 2, WAREHOUSE: 3 } as const;
@@ -39,16 +34,10 @@ export type CoreTab = (typeof CORE_TAB)[keyof typeof CORE_TAB];
  * 창과 탭만 책임지고, 무엇을 파는지·무엇을 만드는지는 각 패널이 안다.
  */
 export class CoreModal extends Modal {
-  onManage: () => void = () => {};
-
+  private readonly core: CorePanel;
   private readonly craft: CraftPanel;
   private readonly store: StorePanel;
   private readonly warehouse: WarehousePanel;
-
-  /** "에너지" 행 값 텍스트. 콜로니 정화로 얻는 팀 공유 자원(docs/backend/35). */
-  private readonly energyValueText: Phaser.GameObjects.Text;
-  /** 코어 AI 페르소나 대사. 아직 아무 일도 없었으면 빈 문자열(조용한 게 자연스럽다). */
-  private readonly commentaryText: Phaser.GameObjects.Text;
 
   constructor(scene: Phaser.Scene) {
     super(scene, {
@@ -58,66 +47,27 @@ export class CoreModal extends Modal {
       tabs: ['코어', '제작', '상점', '창고'],
     });
 
-    const core = this.buildCoreTab(scene);
-    this.energyValueText = core.energy;
-    this.commentaryText = core.commentary;
-
+    this.core = new CorePanel(this.pageBuilder(CORE_TAB.CORE));
     this.craft = new CraftPanel(this.pageBuilder(CORE_TAB.CRAFT));
     this.store = new StorePanel(this.pageBuilder(CORE_TAB.STORE));
     this.warehouse = new WarehousePanel(this.pageBuilder(CORE_TAB.WAREHOUSE));
   }
 
-  /** 코어 탭 — 상태 요약과 코어 자체를 다루는 행동(주입·관리). */
-  private buildCoreTab(scene: Phaser.Scene): {
-    energy: Phaser.GameObjects.Text;
-    commentary: Phaser.GameObjects.Text;
-  } {
-    const page = this.pageBuilder(CORE_TAB.CORE);
-    // 정보 행은 왼쪽 열 안에서만 좌우로 벌어진다 — 창이 넓어져서 전체폭으로 두면
-    // 레이블과 값이 화면 양끝으로 갈라져 한눈에 안 읽힌다.
-    const column = page.narrow(INFO_WIDTH);
-
-    column.addRow(0, '가격', '-');
-    column.addRow(ROW_GAP, '자원', '0');
-    const energy = column.addRow(ROW_GAP * 2, '에너지', '0');
-
-    const actionY = ROW_GAP * 3 + 6;
-    column.addButton(0, actionY, INFO_WIDTH, BUTTON_HEIGHT, '주입', () => {
-      // 아직 실제 주입 로직 없음 — 클릭 배선만 확인하는 자리.
-      console.log('[CoreModal] 주입');
-    });
-    column.addButton(
-      0,
-      actionY + BUTTON_HEIGHT + BUTTON_GAP,
-      INFO_WIDTH,
-      BUTTON_HEIGHT,
-      '코어 관리',
-      () => this.onManage(),
-    );
-
-    // 대사는 오른쪽 절반을 쓴다 — 정보 행과 같은 줄에 두면 둘 다 잘린다.
-    const commentaryX = INFO_WIDTH + 24;
-    const commentary = scene.add
-      .text(commentaryX, 0, '', {
-        fontFamily: FONT_SMALL,
-        fontSize: `${SIZE_SMALL}px`,
-        color: ACCENT,
-        wordWrap: { width: page.width - commentaryX },
-      })
-      .setOrigin(0, 0);
-    page.add(commentary);
-
-    return { energy, commentary };
+  set onUpgrade(handler: () => void) {
+    this.core.onUpgrade = handler;
   }
 
-  /** 코어 공유 에너지(coreSharedEnergy)를 반영한다. HudScene이 스냅샷마다 호출한다. */
-  setEnergy(value: number): void {
-    this.energyValueText.setText(String(value));
+  setCoreStatus(status: Parameters<CorePanel['setStatus']>[0]): void {
+    this.core.setStatus(status);
+  }
+
+  setChargeSlots(slots: (InventorySlot | null)[]): void {
+    this.core.setChargeSlots(slots);
   }
 
   /** 코어 AI 페르소나의 새 대사를 반영한다. HudScene이 onCoreCommentary 콜백에서 호출한다. */
   setCommentary(text: string): void {
-    this.commentaryText.setText(`"${text}"`);
+    this.core.setCommentary(text);
   }
 
   // ------------------------------------------------------------------ 탭 위임
@@ -133,20 +83,16 @@ export class CoreModal extends Modal {
     this.store.onPurchase = handler;
   }
 
-  set onSell(handler: (itemId: string, count: number) => void) {
-    this.store.onSell = handler;
-  }
-
   set onDiscard(handler: (index: number) => void) {
     this.warehouse.onDiscard = handler;
   }
 
-  setCraftContext(stock: Record<string, number>, coreTier: number): void {
-    this.craft.setContext(stock, coreTier);
+  setCraftContext(context: Parameters<CraftPanel['setContext']>[0]): void {
+    this.craft.setContext(context);
   }
 
-  setStoreContext(stock: string[], money: number, storage: Record<string, number>): void {
-    this.store.setContext(stock, money, storage);
+  setStoreContext(stock: string[], energy: number): void {
+    this.store.setContext(stock, energy);
   }
 
   setStorageSlots(storage: (InventorySlot | null)[]): void {
@@ -156,6 +102,16 @@ export class CoreModal extends Modal {
   /** 창고 칸 손잡이. SlotDrag가 드래그앤드롭 대상으로 등록한다. */
   get storageCells(): readonly StorageCellHandle[] {
     return this.warehouse.storageCells;
+  }
+
+  /** 충전 칸 손잡이. 창고와 같은 방식으로 드래그앤드롭 대상이 된다. */
+  get chargeCells(): readonly ChargeCellHandle[] {
+    return this.core.chargeCells;
+  }
+
+  /** 코어 탭이 실제로 보이는 상태인가. 충전 칸의 드롭 판정에 쓴다. */
+  isCoreTabVisible(): boolean {
+    return this.isOpen() && this.currentTab === CORE_TAB.CORE;
   }
 
   /** 창고 탭이 실제로 보이는 상태인가. 드래그앤드롭이 "지금 이 칸이 살아 있나"를 물을 때 쓴다. */

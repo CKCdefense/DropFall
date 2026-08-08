@@ -217,6 +217,15 @@ const USE_FX_ANIMS: Record<number, { anim: string; prefix: string; frames: numbe
     [USE_FX.statup]: { anim: 'fx_use_statup', prefix: 'fx_boost_statup_', frames: 8, rate: 18 },
   };
 
+/**
+ * 레벨업 이펙트(fx_levelup.lua). 10프레임을 16fps로 — 소모품 이펙트보다 길게(0.6초)
+ * 남긴다. 판마다 몇 번 없는 사건이라 스쳐 지나가면 축하로 안 읽힌다.
+ */
+const LEVEL_UP_ANIM = 'fx_levelup';
+const LEVEL_UP_PREFIX = 'fx_levelup_levelup_';
+const LEVEL_UP_FRAMES = 10;
+const LEVEL_UP_RATE = 16;
+
 /** 피격 아웃라인 색(눌린 빨강 — fx_hurt 팔레트와 동일)과 유지 시간(ms). */
 const HURT_OUTLINE_COLOR = 0xd95c4a;
 const HURT_OUTLINE_MS = 150;
@@ -669,6 +678,13 @@ export class EntityRenderer {
       }
       sprite.setData('useFxSeq', player.useFxSeq);
 
+      // 레벨업도 같은 규칙 — 번호가 바뀐 순간에만 튼다.
+      const lastLevelSeq = sprite.getData('levelUpSeq') as number | undefined;
+      if (lastLevelSeq !== undefined && lastLevelSeq !== player.levelUpSeq) {
+        this.playLevelUpFx(sprite);
+      }
+      sprite.setData('levelUpSeq', player.levelUpSeq);
+
       // 다운된 플레이어는 흐리게 — 부활 대상임을 한눈에 보이게 한다.
       sprite.setAlpha(player.hp > 0 ? 1 : 0.35);
 
@@ -759,6 +775,19 @@ export class EntityRenderer {
       .sprite(container.x, container.y, GAME_ATLAS, `${fx.prefix}0`)
       .setDepth(container.y + 1);
     burst.play(fx.anim);
+    burst.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => burst.destroy());
+  }
+
+  /**
+   * 레벨업 빛 기둥. 소모품 이펙트와 달리 **캐릭터 뒤에** 깐다 — 기둥이 몸을 덮으면
+   * 정작 레벨이 오른 사람이 안 보인다.
+   */
+  private playLevelUpFx(container: Phaser.GameObjects.Container): void {
+    if (!this.scene.anims.exists(LEVEL_UP_ANIM)) return;
+    const burst = this.scene.add
+      .sprite(container.x, container.y, GAME_ATLAS, `${LEVEL_UP_PREFIX}0`)
+      .setDepth(container.y - 1);
+    burst.play(LEVEL_UP_ANIM);
     burst.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => burst.destroy());
   }
 
@@ -1672,6 +1701,22 @@ export class EntityRenderer {
           end: HURT_FX_FRAMES - 1,
         }),
         frameRate: HURT_FX_RATE,
+        repeat: 0,
+      });
+    }
+
+    if (
+      !this.scene.anims.exists(LEVEL_UP_ANIM) &&
+      this.scene.textures.get(GAME_ATLAS).has(`${LEVEL_UP_PREFIX}0`)
+    ) {
+      this.scene.anims.create({
+        key: LEVEL_UP_ANIM,
+        frames: this.scene.anims.generateFrameNames(GAME_ATLAS, {
+          prefix: LEVEL_UP_PREFIX,
+          start: 0,
+          end: LEVEL_UP_FRAMES - 1,
+        }),
+        frameRate: LEVEL_UP_RATE,
         repeat: 0,
       });
     }

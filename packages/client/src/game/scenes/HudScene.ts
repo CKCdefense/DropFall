@@ -7,7 +7,6 @@ import {
   PICKUP_RADIUS,
   SLOT_COUNT,
   computeCameraZoom,
-  coreUpgradesData,
 } from '@dropfall/shared';
 import type { GameConnection, PlayerView, WorldSnapshot } from '../../net/GameConnection';
 import {
@@ -29,7 +28,6 @@ import { DevItemModal } from '../ui/DevItemModal';
 import { Minimap } from '../ui/Minimap';
 import { PartyPanel } from '../ui/PartyPanel';
 import { BOTTOM_BAR_RESERVED, QuickSlotBar } from '../ui/QuickSlotBar';
-import { UpgradeModal } from '../ui/UpgradeModal';
 import { WaveDial } from '../ui/WaveDial';
 import {
   ACCENT,
@@ -146,6 +144,7 @@ export class HudScene extends Phaser.Scene {
   /** 최신 스냅샷의 내 슬롯/창고. 드래그가 "빈 칸인지"를 물어볼 때 쓴다. */
   private latestInventory: (InventorySlot | null)[] = [];
   private latestStorage: (InventorySlot | null)[] = [];
+  private latestCharge: (InventorySlot | null)[] = [];
   /** 코어 상호작용 반경 안에 있는지. update가 매 프레임 갱신한다. */
   private nearCore = false;
   /** 주울 수 있는 드롭이 발밑에 있는지. 코어 앞에서 E가 무엇을 할지 가른다. */
@@ -153,7 +152,6 @@ export class HudScene extends Phaser.Scene {
   /** 티모시 상호작용 반경(companionData.interactRange) 안에 있는지. */
   private nearCompanion = false;
   /** 코어 티어업만 아직 별도 창이다(탭 넷에 들어가지 않는다). */
-  private upgradeModal!: UpgradeModal;
   /** 캐릭터 정보(직업·스탯·스킬). 하단 바의 직업/스탯 버튼으로 연다. */
   private characterModal!: CharacterModal;
   /**
@@ -281,7 +279,6 @@ export class HudScene extends Phaser.Scene {
       this.coreModal.setCommentary(text);
       this.showAiToast(text);
     });
-    this.upgradeModal = new UpgradeModal(this);
     this.characterModal = new CharacterModal(this);
     // 하단 바의 직업/스탯 칸이 이 창을 연다 — 스탯을 보는 곳이 한 군데여야 한다.
     this.quickSlots.onProfile = () => {
@@ -297,7 +294,11 @@ export class HudScene extends Phaser.Scene {
     this.slotDrag.onQuickMove = (container, index) =>
       this.connection.quickMoveItem(container, index);
     this.slotDrag.getSlot = (container, index) =>
-      (container === 'storage' ? this.latestStorage : this.latestInventory)[index] ?? null;
+      (container === 'storage'
+        ? this.latestStorage
+        : container === 'charge'
+          ? this.latestCharge
+          : this.latestInventory)[index] ?? null;
 
     for (const cell of this.coreModal.storageCells) {
       // 창고 칸은 **창고 탭이 보일 때만** 살아 있다. 다른 탭에 가려진 칸은 Phaser의
@@ -310,20 +311,25 @@ export class HudScene extends Phaser.Scene {
         isActive: () => this.coreModal.isWarehouseVisible(),
       });
     }
+    for (const cell of this.coreModal.chargeCells) {
+      // 창고 칸과 같은 규칙 — 코어 탭이 보일 때만 드롭을 받는다.
+      this.slotDrag.register({
+        container: 'charge',
+        index: cell.index,
+        box: cell.box,
+        isActive: () => this.coreModal.isCoreTabVisible(),
+      });
+    }
     this.quickSlots.cells.forEach((box, index) => {
       this.slotDrag.register({ container: 'inventory', index, box, isActive: () => true });
     });
 
-    // 코어 관리(티어업)만 아직 별도 창이다 — 와이어프레임의 탭 넷에 들어가지 않는다.
-    this.coreModal.onManage = () => {
-      this.coreModal.close();
-      this.upgradeModal.open();
-    };
-    this.upgradeModal.onTierUp = () => this.connection.upgradeCore();
+    // 강화는 코어 탭 안의 큰 버튼이다 — 예전엔 별도 창(UpgradeModal)이었는데,
+    // "얼마 모였나"를 보고 "올릴까"를 정하는 사이에 창을 갈아타야 했다.
+    this.coreModal.onUpgrade = () => this.connection.upgradeCore();
+    this.characterModal.onSpendPoint = (stat) => this.connection.spendStatPoint(stat);
     this.coreModal.onCraft = (recipeId: string) => this.connection.craft(recipeId);
     this.coreModal.onPurchase = (itemId: string) => this.connection.shopBuy(itemId);
-    this.coreModal.onSell = (itemId: string, count: number) =>
-      this.connection.shopSell(itemId, count);
     this.coreModal.onDiscard = (index: number) => this.connection.discardStorageItem(index);
 
     // 낮/밤 무관하게 언제든 열어볼 수 있다 — 아직 실제 효과가 없는 선작업 UI라
@@ -420,7 +426,6 @@ export class HudScene extends Phaser.Scene {
   private allModals(): Modal[] {
     return [
       this.coreModal,
-      this.upgradeModal,
       this.characterModal,
       ...(this.devItemModal ? [this.devItemModal] : []),
     ];
@@ -436,7 +441,6 @@ export class HudScene extends Phaser.Scene {
 
   private closeAllModals(): void {
     this.coreModal.close();
-    this.upgradeModal.close();
     this.characterModal.close();
     this.devItemModal?.close();
   }
@@ -534,16 +538,9 @@ export class HudScene extends Phaser.Scene {
       status.coreSharedWood,
       status.coreSharedStone,
       status.coreParts,
-      status.coreSharedEnergy,
-      status.coreMoney,
     );
-    // tiers는 "다음 티어로 올리는" 목록이라 티어 1이 0번 항목을 산다(startTier 오프셋).
-    const nextTier = coreUpgradesData.tiers[status.coreTier - coreUpgradesData.startTier];
-    this.upgradeModal.setTierInfo(
-      status.coreTier,
-      coreUpgradesData.startTier + coreUpgradesData.tiers.length,
-      nextTier ? nextTier.cost : null,
-    );
+    this.coreModal.setCoreStatus(status);
+    this.coreModal.setChargeSlots(status.coreCharge);
     this.waveDial.update(status);
     this.updateBossBar(snapshot);
     // GameScene의 예측 좌표(있으면) — 없으면(로컬 모드 초기 프레임 등) 미니맵이
@@ -555,12 +552,16 @@ export class HudScene extends Phaser.Scene {
     );
     this.latestInventory = me?.slots ?? [];
     this.latestStorage = status.coreStorage;
+    this.latestCharge = status.coreCharge;
 
-    // 제작·상점은 둘 다 "창고에 뭐가 몇 개 있나"만 알면 된다 — 칸 배열을 한 번만
-    // 합계로 접어서 두 모달에 같이 넘긴다.
-    const stock = summarizeStorage(status.coreStorage);
-    this.coreModal.setCraftContext(stock, status.coreTier);
-    this.coreModal.setStoreContext(status.shopStock, status.coreMoney, stock);
+    this.coreModal.setCraftContext({
+      coreTier: status.coreTier,
+      resource: status.coreResource,
+      energy: status.coreEnergy,
+      craftingId: me?.craftRecipeId ?? '',
+      craftRemaining: me?.craftRemaining ?? 0,
+    });
+    this.coreModal.setStoreContext(status.shopStock, status.coreEnergy);
     this.quickSlots.update(me, this.slotDrag.hoverCellOf('inventory'));
     this.characterModal.setPlayer(me);
     this.updateAmmo(me);
@@ -590,20 +591,17 @@ export class HudScene extends Phaser.Scene {
     sharedWood: number,
     sharedStone: number,
     coreParts: number,
-    sharedEnergy: number,
-    money: number,
   ): void {
     const ratio = maxHp > 0 ? hp / maxHp : 1;
     this.coreBar.width = Math.max(0, this.coreBarBack.width * ratio);
     // 코어가 위험하면 색으로 먼저 알린다 — 숫자를 읽기 전에 눈에 들어와야 한다.
     this.coreBar.fillColor = barColor(ratio);
     this.coreLabel.setText(`CORE ${Math.ceil(hp)}`);
-    // 자금은 상점에서만 쓰지만 여기 같이 띄운다 — 팔러 갈지 말지를 코어 앞이 아니라
-    // 사냥 중에 판단하게 된다.
+    // 창고에 쌓인 **충전 재료** 수량이다(게이지가 아니라). 사냥 중에 "얼마나 모았나"를
+    // 보고 코어로 돌아갈지 정하게 된다 — 게이지 자체는 코어 탭에서 본다.
     this.sharedResourceText.setText(
-      `공유 나무 ${sharedWood} · 돌 ${sharedStone} · 부품 ${coreParts} · ${money} G`,
+      `창고 나무 ${sharedWood} · 돌 ${sharedStone} · 부품 ${coreParts}`,
     );
-    this.coreModal.setEnergy(sharedEnergy);
 
     // 체력이 줄었다 = 맞았다(플레이어/몬스터 피격과 같은 추론, 스냅샷엔 타격
     // 이벤트가 따로 없다). 처음 받은 값은 기준점으로만 쓴다.
@@ -733,18 +731,6 @@ function isDevBuild(): boolean {
   return new URLSearchParams(window.location.search).get('dev') === '1';
 }
 
-/**
- * 창고 칸 배열 → 아이템별 총 개수. 같은 아이템이 여러 칸에 나뉘어 있을 수 있어서
- * 그대로는 "재료가 몇 개 있나"를 물을 수 없다(서버의 CoreStorage.countOf와 같은 계산).
- */
-function summarizeStorage(slots: readonly (InventorySlot | null)[]): Record<string, number> {
-  const total: Record<string, number> = {};
-  for (const slot of slots) {
-    if (!slot) continue;
-    total[slot.itemId] = (total[slot.itemId] ?? 0) + slot.count;
-  }
-  return total;
-}
 
 /** 와이어프레임의 테두리 상자. HUD 전 구역이 같은 모양을 쓴다. */
 function panelBox(

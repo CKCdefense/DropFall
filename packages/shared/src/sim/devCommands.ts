@@ -26,8 +26,11 @@ export interface DevWorldAccess {
   clearInventory(playerId: string): void;
   clearStorage(): void;
 
-  setMoney(amount: number): void;
-  setEnergy(amount: number): void;
+  /** 실제로 적용된 값을 돌려준다(게이지 상한에서 잘린다). */
+  setResource(amount: number): number;
+  setEnergy(amount: number): number;
+  /** 실제로 적용된 레벨을 돌려준다. */
+  setLevel(playerId: string, level: number): number;
   /** 실제로 적용된 티어를 돌려준다(범위를 벗어나면 잘린다). */
   setTier(tier: number): number;
 
@@ -162,25 +165,33 @@ const COMMANDS: Record<string, CommandSpec> = {
     },
   },
 
-  money: {
-    usage: 'money <금액>',
-    summary: '팀 자금을 정한다.',
+  resource: {
+    usage: 'resource <양>',
+    summary: '코어 자원 게이지를 정한다(건축·제작·수리 재화).',
     run(access, _playerId, args) {
       const amount = parseCount(args[0], 1000);
-      if (amount === null) return fail('금액은 1 이상의 정수여야 한다.');
-      access.setMoney(amount);
-      return ok(`자금 ${amount} G`);
+      if (amount === null) return fail('양은 1 이상의 정수여야 한다.');
+      return ok(`자원 ${access.setResource(amount)}`);
     },
   },
 
   energy: {
     usage: 'energy <양>',
-    summary: '팀 공유 에너지를 정한다(코어 업그레이드 재화).',
+    summary: '코어 에너지 게이지를 정한다(강화·상점 재화).',
     run(access, _playerId, args) {
-      const amount = parseCount(args[0], 50);
+      const amount = parseCount(args[0], 200);
       if (amount === null) return fail('양은 1 이상의 정수여야 한다.');
-      access.setEnergy(amount);
-      return ok(`에너지 ${amount}`);
+      return ok(`에너지 ${access.setEnergy(amount)}`);
+    },
+  },
+
+  level: {
+    usage: 'level <레벨>',
+    summary: '내 레벨을 정한다(레벨업 보상·SP 확인용).',
+    run(access, playerId, args) {
+      const level = parseCount(args[0], 5);
+      if (level === null) return fail('레벨은 1 이상의 정수여야 한다.');
+      return ok(`레벨 ${access.setLevel(playerId, level)}`);
     },
   },
 

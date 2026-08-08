@@ -14,6 +14,8 @@ import coreUpgradesJson from './coreUpgrades.json';
 import corePersonaJson from './corePersona.json';
 import companionJson from './companion.json';
 import jobsJson from './jobs.json';
+import chargingJson from './charging.json';
+import levelsJson from './levels.json';
 
 /**
  * JSON은 주석을 쓸 수 없어서 데이터 파일마다 `$comment` 키로 설명을 단다.
@@ -176,6 +178,8 @@ const MonsterDataSchema = z.object({
    * 같은 자원이다 — 보스 전용(희귀 등급), 개인 소지 단계 없이 바로 팀 전체 몫이 된다.
    */
   energyDrop: DropRangeSchema.optional(),
+  /** 처치 시 살아 있는 모든 플레이어에게 들어가는 경험치. */
+  xpReward: z.number().int().nonnegative(),
 });
 
 const MonstersDataSchema = z.record(z.string(), MonsterDataSchema);
@@ -398,8 +402,11 @@ export const toolsData = loadData(ToolsDataSchema, toolsJson);
 // --- buildings.json ------------------------------------------------------------
 
 const BuildingDataSchema = z.object({
-  woodCost: z.number().int().nonnegative(),
-  stoneCost: z.number().int().nonnegative(),
+  /** 건축 모드(B)로 지을 때 코어 자원 게이지에서 나가는 양. 0이면 그 경로로는 못 짓는다. */
+  resourceCost: z.number().int().nonnegative(),
+  /** 해머로 한 번 때릴 때 회복되는 체력과 그때 드는 자원. */
+  repairPerHit: z.number().int().positive(),
+  repairCost: z.number().int().positive(),
   hp: z.number().positive(),
   /** Flow Field 이동 차단 여부(기술명세 §5.2) */
   blocksMovement: z.boolean(),
@@ -578,8 +585,18 @@ export const coloniesData = loadData(ColoniesDataSchema, coloniesJson);
  * 체력/건설 가능 반경/제작·스텟증가 해금이 전부 "한 번의 업그레이드"로 묶여 있다.
  */
 const CoreUpgradeTierSchema = z.object({
-  /** coreSharedEnergy에서 차감되는 비용. */
-  cost: z.number().int().positive(),
+  /**
+   * 코어 게이지에서 차감되는 비용. 자원과 에너지를 **둘 다** 요구한다 — 한쪽만으로
+   * 올릴 수 있으면 낮(채집)이나 밤(전투) 중 하나를 건너뛰는 공략이 생긴다.
+   */
+  cost: z.object({
+    resource: z.number().int().nonnegative(),
+    energy: z.number().int().nonnegative(),
+  }),
+  /** 자원 게이지 상한에 더해지는 양. */
+  maxResourceBonus: z.number().int().nonnegative(),
+  /** 에너지 게이지 상한에 더해지는 양. */
+  maxEnergyBonus: z.number().int().nonnegative(),
   /** 이 단계를 사면 coreMaxHp와 coreHp에 동시에 더해지는 양(즉시 체감되는 회복 겸 증축). */
   coreHpBonus: z.number().nonnegative(),
   /** 건설 가능 반경(baseBuildRadius 기준 누적)에 더해지는 양. */
@@ -598,6 +615,9 @@ const CoreUpgradesDataSchema = z.object({
   startTier: z.number().int().positive(),
   /** 업그레이드 전(tier 0) 기본 건설 가능 반경(px, 코어 원점 기준). */
   baseBuildRadius: z.number().positive(),
+  /** 강화 전 자원/에너지 게이지 상한. 강화할 때마다 tiers의 보너스가 누적된다. */
+  baseMaxResource: z.number().int().positive(),
+  baseMaxEnergy: z.number().int().positive(),
   tiers: z.array(CoreUpgradeTierSchema).min(1),
 });
 
@@ -606,6 +626,62 @@ export type CoreUpgradesData = z.infer<typeof CoreUpgradesDataSchema>;
 
 export const coreUpgradesData = loadData(CoreUpgradesDataSchema, coreUpgradesJson);
 
+
+// --- charging.json ------------------------------------------------------------
+
+/**
+ * 코어 충전 — 창고/인벤토리의 재료를 게이지로 바꾼다.
+ *
+ * 아이템에 값을 다는 대신 별도 표로 둔 이유는, **여기 없는 것은 충전할 수 없다**는
+ * 규칙을 한 곳에서 읽히게 하기 위해서다. items.json에 선택 필드로 뿌리면 무엇이
+ * 충전 가능한지 알려면 전체를 훑어야 한다.
+ */
+const ChargeMaterialSchema = z.object({
+  gauge: z.enum(['resource', 'energy']),
+  /** 아이템 한 개가 게이지에 더하는 양. */
+  amount: z.number().int().positive(),
+});
+
+const ChargingDataSchema = z.object({
+  slotCount: z.number().int().positive(),
+  /** 슬롯 하나가 1초에 소화하는 아이템 개수. */
+  itemsPerSecond: z.number().positive(),
+  materials: z.record(z.string(), ChargeMaterialSchema),
+});
+
+export type ChargeGauge = z.infer<typeof ChargeMaterialSchema>['gauge'];
+
+export const chargingData = loadData(ChargingDataSchema, chargingJson);
+
+/** 이 아이템이 충전 가능한가. 슬롯이 받을지 말지를 서버·클라가 같은 규칙으로 판단한다. */
+export function chargeMaterialOf(itemId: string) {
+  return chargingData.materials[itemId];
+}
+
+// --- levels.json ------------------------------------------------------------
+
+const LevelsDataSchema = z.object({
+  maxLevel: z.number().int().positive(),
+  baseXp: z.number().int().positive(),
+  growth: z.number().positive(),
+  spPerLevel: z.number().int().positive(),
+  statPerPoint: z.object({
+    maxHp: z.number().int().positive(),
+    attack: z.number().int().positive(),
+    stamina: z.number().int().positive(),
+  }),
+});
+
+export const levelsData = loadData(LevelsDataSchema, levelsJson);
+
+/**
+ * 레벨 N에서 N+1로 가는 데 필요한 경험치. 최대 레벨이면 Infinity라 어떤 경험치도
+ * 넘기지 못한다 — 호출부마다 "최대인가"를 따로 묻지 않아도 되게 하려는 것이다.
+ */
+export function xpToNextLevel(level: number): number {
+  if (level >= levelsData.maxLevel) return Infinity;
+  return Math.round(levelsData.baseXp * levelsData.growth ** (level - 1));
+}
 
 // --- crafting.json ------------------------------------------------------------
 
@@ -620,11 +696,19 @@ const CraftRecipeSchema = z.object({
   itemId: z.string(),
   /** 코어가 이 티어 이상이어야 제작할 수 있다. */
   requiresTier: z.number().int().positive(),
-  /** 재료 → 개수. 코어 창고에서 차감된다. */
-  cost: z.record(z.string(), z.number().int().positive()),
+  /**
+   * 코어 게이지에서 차감되는 비용. 창고의 재료를 직접 먹지 않는다 — 나무·돌·드랍은
+   * 충전을 거쳐 게이지가 되고, 레시피는 그 게이지만 본다.
+   */
+  cost: z.object({
+    resource: z.number().int().nonnegative(),
+    energy: z.number().int().nonnegative().optional(),
+  }),
 });
 
 const CraftingDataSchema = z.object({
+  /** 제작 한 건에 걸리는 시간(초). 즉시 완성이면 밤이 오기 전 준비라는 압박이 없다. */
+  craftSeconds: z.number().positive(),
   recipes: z.array(CraftRecipeSchema),
 });
 

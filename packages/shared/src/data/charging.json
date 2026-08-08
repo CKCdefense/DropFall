@@ -1,0 +1,13 @@
+{
+  "$comment": "코어 충전 — 창고/인벤토리의 재료를 코어 게이지로 바꾼다. 나무·돌은 자원으로, 몬스터 드랍은 에너지로만 들어간다. 무기나 소모품은 여기 없으므로 충전 슬롯이 받지 않는다.",
+  "$slotComment": "슬롯이 여러 개인 이유는 자원과 에너지를 동시에 충전할 수 있어야 해서다. 하나뿐이면 나무를 태우는 동안 드랍을 못 넣는다.",
+  "slotCount": 3,
+  "$rateComment": "슬롯 하나가 1초에 소화하는 아이템 개수. 즉시 변환이 아니라 시간이 드는 이유는, 밤이 오기 전에 무엇을 먼저 채울지 고르게 만들기 위해서다.",
+  "itemsPerSecond": 2,
+  "materials": {
+    "wood": { "gauge": "resource", "amount": 3 },
+    "stone": { "gauge": "resource", "amount": 5 },
+    "drop_normal": { "gauge": "energy", "amount": 3 },
+    "drop_rare": { "gauge": "energy", "amount": 12 }
+  }
+}

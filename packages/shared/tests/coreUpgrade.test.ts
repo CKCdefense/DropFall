@@ -3,11 +3,26 @@ import { World } from '../src/sim/world';
 import { coreUpgradesData } from '../src/data';
 import { worldToCell } from '../src/constants';
 
-/** 코어 공유 자원은 팀 자원이라 테스트에서 직접 채워 넣는다 — world-building.test.ts의
- * grantSharedResources와 동일한 패턴(테스트 전용 캐스팅). */
-function grantEnergy(world: World, amount: number): void {
-  const core = world.getCore() as { sharedEnergy: number };
-  core.sharedEnergy = amount;
+/**
+ * 강화 비용은 자원과 에너지를 **둘 다** 요구한다. 테스트에서 직접 채워 넣는다 —
+ * 게이지 상한도 같이 올려야 비싼 단계를 살 수 있다(world-building.test.ts와 같은 패턴).
+ */
+function grantGauges(world: World, resource: number, energy: number): void {
+  const core = world.getCore() as {
+    resource: number;
+    maxResource: number;
+    energy: number;
+    maxEnergy: number;
+  };
+  core.maxResource = Math.max(core.maxResource, resource);
+  core.maxEnergy = Math.max(core.maxEnergy, energy);
+  core.resource = resource;
+  core.energy = energy;
+}
+
+/** 다음 단계를 딱 살 수 있을 만큼만 채운다. */
+function grantExactly(world: World, tier: { cost: { resource: number; energy: number } }): void {
+  grantGauges(world, tier.cost.resource, tier.cost.energy);
 }
 
 /**
@@ -29,7 +44,7 @@ describe('World — 코어 업그레이드', () => {
     equipDefaultKit(world, 'p1');
 
     const tier0 = coreUpgradesData.tiers[0]!;
-    grantEnergy(world, tier0.cost);
+    grantExactly(world, tier0);
 
     const hpBefore = world.getCore().hp;
     const maxHpBefore = world.getCore().maxHp;
@@ -39,22 +54,29 @@ describe('World — 코어 업그레이드', () => {
 
     const core = world.getCore();
     expect(core.tier).toBe(coreUpgradesData.startTier + 1);
-    expect(core.sharedEnergy).toBe(0); // 정확히 다 썼다
+    expect(core.resource).toBe(0); // 정확히 다 썼다
+    expect(core.energy).toBe(0);
     expect(core.hp).toBe(hpBefore + tier0.coreHpBonus);
     expect(core.maxHp).toBe(maxHpBefore + tier0.coreHpBonus);
     expect(world.getBuildRadius()).toBe(radiusBefore + tier0.buildRadiusBonus);
+    // 상한만 늘고 게이지는 비어 있다 — 다음 단계를 위해 다시 모아야 한다.
+    expect(core.maxResource).toBeGreaterThan(tier0.cost.resource);
+    expect(core.maxEnergy).toBeGreaterThan(tier0.cost.energy);
   });
 
   it('에너지가 부족하면 거절되고 아무것도 안 바뀐다', () => {
     const world = new World();
     world.addPlayer('p1', 0, 0);
     equipDefaultKit(world, 'p1');
-    grantEnergy(world, coreUpgradesData.tiers[0]!.cost - 1); // 1 모자라게
+    // 자원은 넉넉하지만 에너지가 1 모자라다 — 한쪽만 모아선 못 올린다는 규칙.
+    const tier0 = coreUpgradesData.tiers[0]!;
+    grantGauges(world, tier0.cost.resource, tier0.cost.energy - 1);
 
     world.upgradeCore('p1');
 
     expect(world.getCore().tier).toBe(coreUpgradesData.startTier + 0);
-    expect(world.getCore().sharedEnergy).toBe(coreUpgradesData.tiers[0]!.cost - 1); // 안 깎였다
+    expect(world.getCore().resource).toBe(tier0.cost.resource); // 안 깎였다
+    expect(world.getCore().energy).toBe(tier0.cost.energy - 1);
   });
 
   it('이미 최고 단계면 에너지가 아무리 많아도 더 살 수 없다', () => {
@@ -63,21 +85,22 @@ describe('World — 코어 업그레이드', () => {
     equipDefaultKit(world, 'p1');
 
     for (const tier of coreUpgradesData.tiers) {
-      grantEnergy(world, tier.cost);
+      grantExactly(world, tier);
       world.upgradeCore('p1');
     }
     expect(world.getCore().tier).toBe(coreUpgradesData.startTier + coreUpgradesData.tiers.length);
 
-    grantEnergy(world, 999999);
+    grantGauges(world, 999999, 999999);
     world.upgradeCore('p1');
 
     expect(world.getCore().tier).toBe(coreUpgradesData.startTier + coreUpgradesData.tiers.length); // 그대로
-    expect(world.getCore().sharedEnergy).toBe(999999); // 차감되지 않았다
+    expect(world.getCore().resource).toBe(999999); // 차감되지 않았다
+    expect(world.getCore().energy).toBe(999999);
   });
 
   it('존재하지 않는 플레이어의 요청은 무시된다', () => {
     const world = new World();
-    grantEnergy(world, 999999);
+    grantGauges(world, 999999, 999999);
 
     expect(() => world.upgradeCore('ghost')).not.toThrow();
     expect(world.getCore().tier).toBe(coreUpgradesData.startTier + 0);
@@ -99,7 +122,7 @@ describe('World — 코어 업그레이드', () => {
         expect(world.isCraftingUnlocked()).toBe(false);
         expect(world.isStatUpgradesUnlocked()).toBe(false);
       }
-      grantEnergy(world, coreUpgradesData.tiers[i]!.cost);
+      grantExactly(world, coreUpgradesData.tiers[i]!);
       world.upgradeCore('p1');
     }
 
@@ -108,7 +131,7 @@ describe('World — 코어 업그레이드', () => {
 
     // 마지막 단계까지 다 사도 계속 유지돼야 한다(도로 잠기지 않는다).
     for (let i = Math.max(craftingTierIndex, statTierIndex) + 1; i < coreUpgradesData.tiers.length; i += 1) {
-      grantEnergy(world, coreUpgradesData.tiers[i]!.cost);
+      grantExactly(world, coreUpgradesData.tiers[i]!);
       world.upgradeCore('p1');
     }
     expect(world.isCraftingUnlocked()).toBe(true);
@@ -120,10 +143,9 @@ describe('World — 코어 업그레이드', () => {
     world.addPlayer('builder', 0, 0);
     equipDefaultKit(world, 'builder');
 
-    // 건축 비용은 코어 창고에서 나간다(자원이 숫자 필드에서 슬롯으로 바뀌었다).
-    const core = world.getCore() as { sharedEnergy: number };
-    world.getCore().storage.add('wood', 100);
-    world.getCore().storage.add('stone', 100);
+    // 건축 비용은 코어 자원 게이지에서 나간다. 이 테스트는 반경만 보려는 것이니
+    // 자원 제약은 없애 둔다.
+    grantGauges(world, 999999, 999999);
 
     // baseBuildRadius보다 확실히 먼 지점(반경 밖), 코어(0,0)에서 +x 방향.
     const farDistance = coreUpgradesData.baseBuildRadius + 50;
@@ -133,11 +155,13 @@ describe('World — 코어 업그레이드', () => {
     expect(world.getBuildings().size).toBe(0); // 반경 밖이라 거절됐다
 
     // 그 지점이 반경 안에 들어올 만큼 충분히 업그레이드한다.
-    for (const tier of coreUpgradesData.tiers) {
-      core.sharedEnergy = tier.cost;
+    for (let i = 0; i < coreUpgradesData.tiers.length; i += 1) {
+      grantGauges(world, 999999, 999999);
       world.upgradeCore('builder');
       if (world.getBuildRadius() > farDistance + 16) break; // 셀 중심 오차 여유
     }
+    // 강화가 게이지를 비우므로 다시 채운 뒤에 짓는다.
+    grantGauges(world, 999999, 999999);
 
     world.placeBuilding('builder', 'fence', cx, cy);
     expect(world.getBuildings().size).toBe(1); // 이제는 지어진다

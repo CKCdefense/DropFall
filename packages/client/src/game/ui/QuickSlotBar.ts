@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { itemOfSlot } from '@dropfall/shared';
+import { itemOfSlot, xpToNextLevel } from '@dropfall/shared';
 import type { PlayerView } from '../../net/GameConnection';
 import { SlotIcon } from '../render/itemSprite';
 import {
@@ -35,6 +35,15 @@ const HOVER_STROKE = 0x6fd08c;
 /** 칸 위에 얹히는 체력·스태미나 막대의 높이와 칸과의 간격. */
 const BAR_HEIGHT = 24;
 const BAR_GAP = 8;
+/**
+ * 경험치 막대. 체력·스태미나 바로 아래에 줄 전체 폭으로 얇게 깔린다.
+ *
+ * 얇은 이유는 급하지 않은 정보라서다 — 체력은 죽고 사는 문제라 두껍게, 경험치는
+ * 곁눈질로 "얼마나 남았나"만 보면 된다. 대신 줄 전체를 가로질러서 진행도가 한눈에 읽힌다.
+ */
+const XP_HEIGHT = 10;
+const XP_GAP = 4;
+const XP_COLOR = 0xd7b45a;
 
 /** 바 아래쪽에 남기는 여백(HudScene이 slotsBottom을 잡을 때 쓰는 값과 같다). */
 const BOTTOM_MARGIN = 28;
@@ -46,7 +55,8 @@ const BOTTOM_MARGIN = 28;
  * 보여야 하기 때문이다. 창의 최대 높이와 창의 세로 위치가 모두 이 한 값에서 나온다.
  * 두 곳에서 따로 계산했더니 창이 막대를 12px 덮었다.
  */
-export const BOTTOM_BAR_RESERVED = SLOT_SIZE + BAR_HEIGHT + BAR_GAP + BOTTOM_MARGIN;
+export const BOTTOM_BAR_RESERVED =
+  SLOT_SIZE + BAR_HEIGHT + BAR_GAP + XP_HEIGHT + XP_GAP + BOTTOM_MARGIN;
 const STAMINA_COLOR = 0x6f9fd0;
 
 /**
@@ -81,6 +91,9 @@ export class QuickSlotBar {
   private readonly staminaBack: Phaser.GameObjects.Rectangle;
   private readonly staminaFill: Phaser.GameObjects.Rectangle;
   private readonly staminaLabel: Phaser.GameObjects.Text;
+  private readonly xpBack: Phaser.GameObjects.Rectangle;
+  private readonly xpFill: Phaser.GameObjects.Rectangle;
+  private readonly xpLabel: Phaser.GameObjects.Text;
 
   /** 레이아웃 후 실제 높이(px). 다른 요소를 이 위에 얹을 때 쓴다. */
   height = 0;
@@ -122,6 +135,16 @@ export class QuickSlotBar {
       .setOrigin(0, 0);
     this.staminaLabel = scene.add
       .text(0, 0, '스태미나', {
+        fontFamily: FONT_SMALL,
+        fontSize: `${SIZE_SMALL}px`,
+        color: DIM_TEXT,
+      })
+      .setOrigin(0.5, 0.5);
+
+    this.xpBack = scene.add.rectangle(0, 0, 10, XP_HEIGHT, BAR_BACK).setOrigin(0, 0);
+    this.xpFill = scene.add.rectangle(0, 0, 10, XP_HEIGHT, XP_COLOR).setOrigin(0, 0);
+    this.xpLabel = scene.add
+      .text(0, 0, 'Lv 1', {
         fontFamily: FONT_SMALL,
         fontSize: `${SIZE_SMALL}px`,
         color: DIM_TEXT,
@@ -171,7 +194,9 @@ export class QuickSlotBar {
     const gap = SLOT_GAP * scale;
     const barHeight = BAR_HEIGHT * scale;
     const barGap = BAR_GAP * scale;
-    this.height = size + barHeight + barGap;
+    const xpHeight = XP_HEIGHT * scale;
+    const xpGap = XP_GAP * scale;
+    this.height = size + barHeight + barGap + xpHeight + xpGap;
 
     // 직업 버튼까지 한 줄이다 — 가운데 정렬도 그 폭 전체를 기준으로 한다.
     const cells = this.slotCount + 1;
@@ -207,7 +232,10 @@ export class QuickSlotBar {
     // 버튼 위가 비어서 줄이 두 조각으로 끊겨 보인다 — 체력·스태미나는 특정 칸에
     // 딸린 값이 아니라 "내 몸 상태"라 줄 전체를 덮는 게 맞다.
     const barWidth = (totalWidth - gap) / 2;
-    const barTop = top - barGap - barHeight;
+    // 경험치 막대가 체력·스태미나와 칸 사이에 들어간다 — 위에서부터 [체력|스태미나]
+    // → [경험치] → [칸] 순이다.
+    const xpTop = top - barGap - xpHeight;
+    const barTop = xpTop - xpGap - barHeight;
     this.barsTop = barTop;
     this.barsRight = startX + totalWidth;
 
@@ -222,10 +250,18 @@ export class QuickSlotBar {
       .setFontSize(SIZE_SMALL * scale)
       .setPosition(staminaX + barWidth / 2, barTop + barHeight / 2);
     this.barWidth = barWidth;
+
+    this.xpBack.setSize(totalWidth, xpHeight).setPosition(startX, xpTop);
+    this.xpFill.setSize(totalWidth, xpHeight).setPosition(startX, xpTop);
+    this.xpLabel
+      .setFontSize(SIZE_SMALL * scale)
+      .setPosition(startX + totalWidth / 2, xpTop + xpHeight / 2);
+    this.xpWidth = totalWidth;
   }
 
   /** 마지막 레이아웃의 막대 한 개 폭. 채움 비율을 여기에 곱한다. */
   private barWidth = 0;
+  private xpWidth = 0;
 
   /** 드래그 컨트롤러(SlotDrag)에 등록할 칸 목록. */
   get cells(): readonly Phaser.GameObjects.Rectangle[] {
@@ -257,6 +293,19 @@ export class QuickSlotBar {
     }
 
     // 최대치는 직업·음식으로 달라지므로 서버가 내려준 값을 그대로 쓴다.
+    // 경험치는 "이번 레벨에 쌓인 양 / 다음 레벨까지"다. 다음 레벨까지의 양은 서버가
+    // 안 보낸다 — levels.json이 양쪽에 있으니 같은 함수로 구하면 된다.
+    const need = me ? xpToNextLevel(me.level) : Infinity;
+    const xpRatio = me && Number.isFinite(need) && need > 0 ? Math.min(1, me.xp / need) : 1;
+    this.xpFill.width = this.xpWidth * xpRatio;
+    this.xpLabel.setText(
+      me
+        ? Number.isFinite(need)
+          ? `Lv ${me.level}   ${me.xp} / ${need}${me.statPoints > 0 ? `   SP ${me.statPoints}` : ''}`
+          : `Lv ${me.level}   MAX`
+        : 'Lv 1',
+    );
+
     const hpRatio = me && me.maxHp > 0 ? Math.min(1, Math.max(0, me.hp) / me.maxHp) : 0;
     this.hpFill.width = this.barWidth * hpRatio;
     this.hpFill.fillColor = barColor(hpRatio);

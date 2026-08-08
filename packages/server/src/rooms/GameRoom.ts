@@ -41,7 +41,7 @@ import {
   type PersonaEvent,
   type QuickMoveItemMessage,
   type ShopBuyMessage,
-  type ShopSellMessage,
+  type SpendStatPointMessage,
   type JoinRoomOptions,
   type PlayerInputMessage,
   type SelectJobMessage,
@@ -112,9 +112,9 @@ export class GameRoom extends Room {
       if (this.state.phase !== RoomPhase.PLAYING) return;
       this.world.craftItem(client.sessionId, payload?.recipeId);
     },
-    shopSell: (client: Client, payload: ShopSellMessage) => {
+    spendStatPoint: (client: Client, payload: SpendStatPointMessage) => {
       if (this.state.phase !== RoomPhase.PLAYING) return;
-      this.world.sellToShop(client.sessionId, payload?.itemId, payload?.count);
+      this.world.spendStatPoint(client.sessionId, payload?.stat);
     },
     dev: (client: Client, payload: DevCommandMessage) => {
       // 개발 플래그가 없으면 조용히 무시한다 — 존재를 알려줄 이유가 없다.
@@ -385,6 +385,15 @@ export class GameRoom extends Room {
       schema.burstMode = player.burstMode;
       schema.useFxKind = player.useFxKind;
       schema.useFxSeq = player.useFxSeq;
+      schema.level = player.level;
+      schema.xp = player.xp;
+      schema.statPoints = player.statPoints;
+      schema.spentHp = player.spentHp;
+      schema.spentAttack = player.spentAttack;
+      schema.spentStamina = player.spentStamina;
+      schema.levelUpSeq = player.levelUpSeq;
+      schema.craftRecipeId = player.craftRecipeId;
+      schema.craftRemaining = player.craftTimer;
       // 장착 무기의 탄약 상태. 근접/맨손이면 magazine 0으로 두고 HUD가 표시를 걷는다.
       const ammo = this.world.ammoView(id);
       schema.ammo = ammo?.loaded ?? 0;
@@ -425,8 +434,16 @@ export class GameRoom extends Room {
     this.state.coreSharedWood = core.storage.countOf('wood');
     this.state.coreSharedStone = core.storage.countOf('stone');
     this.state.coreParts = core.storage.countOf('drop_normal');
-    this.state.coreSharedEnergy = core.sharedEnergy;
-    this.state.coreMoney = core.money;
+    this.state.coreResource = core.resource;
+    this.state.coreMaxResource = core.maxResource;
+    this.state.coreEnergy = core.energy;
+    this.state.coreMaxEnergy = core.maxEnergy;
+    // 강화 비용은 데이터에서 나오지만, 클라가 coreUpgrades.json을 다시 읽어 티어
+    // 인덱스를 계산하게 두면 규칙이 두 벌이 된다 — 서버가 정한 다음 단계를 그대로 보낸다.
+    const nextUpgrade = this.world.nextCoreUpgrade();
+    this.state.upgradeAvailable = nextUpgrade !== undefined;
+    this.state.upgradeResourceCost = nextUpgrade?.cost.resource ?? 0;
+    this.state.upgradeEnergyCost = nextUpgrade?.cost.energy ?? 0;
     // 탐색 안개: 바뀐 바이트만 건드린다. 통째로 대입하면 Colyseus가 2048개 전부를
     // "바뀜"으로 보고 매 틱 2KB를 내보낸다.
     const explored = this.world.getExplored();
@@ -645,9 +662,15 @@ export class GameRoom extends Room {
   }
 
   private syncCoreStorage(): void {
-    const view = this.world.getCore().storage.toView();
-    view.slots.forEach((slot, index) => {
+    const core = this.world.getCore();
+    core.storage.toView().slots.forEach((slot, index) => {
       const schema = this.state.coreStorage[index];
+      if (!schema) return;
+      schema.itemId = slot?.itemId ?? '';
+      schema.count = slot?.count ?? 0;
+    });
+    core.chargeSlots.forEach((slot, index) => {
+      const schema = this.state.coreCharge[index];
       if (!schema) return;
       schema.itemId = slot?.itemId ?? '';
       schema.count = slot?.count ?? 0;

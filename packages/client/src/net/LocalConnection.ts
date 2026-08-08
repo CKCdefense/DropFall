@@ -151,8 +151,8 @@ export class LocalConnection implements GameConnection {
     this.world.craftItem(LOCAL_SESSION_ID, recipeId);
   }
 
-  shopSell(itemId: string, count: number): void {
-    this.world.sellToShop(LOCAL_SESSION_ID, itemId, count);
+  spendStatPoint(stat: 'maxHp' | 'attack' | 'stamina'): void {
+    this.world.spendStatPoint(LOCAL_SESSION_ID, stat);
   }
 
   shopBuy(itemId: string): void {
@@ -250,6 +250,15 @@ export class LocalConnection implements GameConnection {
         burstMode: player.burstMode,
         useFxKind: player.useFxKind,
         useFxSeq: player.useFxSeq,
+        level: player.level,
+        xp: player.xp,
+        statPoints: player.statPoints,
+        spentHp: player.spentHp,
+        spentAttack: player.spentAttack,
+        spentStamina: player.spentStamina,
+        levelUpSeq: player.levelUpSeq,
+        craftRecipeId: player.craftRecipeId,
+        craftRemaining: player.craftTimer,
         wood: player.inventory.countOf('wood'),
         stone: player.inventory.countOf('stone'),
         parts: player.inventory.countOf('drop_normal'),
@@ -362,8 +371,14 @@ export class LocalConnection implements GameConnection {
         coreSharedStone: core.storage.countOf('stone'),
         coreParts: core.storage.countOf('drop_normal'),
         coreStorage: core.storage.toView().slots,
-        coreSharedEnergy: core.sharedEnergy,
-        coreMoney: core.money,
+        coreResource: core.resource,
+        coreMaxResource: core.maxResource,
+        coreEnergy: core.energy,
+        coreMaxEnergy: core.maxEnergy,
+        coreCharge: core.chargeSlots.map((slot) => (slot ? { ...slot } : null)),
+        upgradeAvailable: this.world.nextCoreUpgrade() !== undefined,
+        upgradeResourceCost: this.world.nextCoreUpgrade()?.cost.resource ?? 0,
+        upgradeEnergyCost: this.world.nextCoreUpgrade()?.cost.energy ?? 0,
         shopStock: [...core.shopStock],
         coreTier: core.tier,
         coreBuildRadius: this.world.getBuildRadius(),

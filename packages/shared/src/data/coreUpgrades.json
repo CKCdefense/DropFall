@@ -1,18 +1,24 @@
 {
-  "$comment": "코어는 티어 1로 시작한다. tiers는 '다음 티어로 올리는 비용/효과' 목록이라 최대 티어(3) - 1개다.",
+  "$comment": "코어는 티어 1로 시작한다. tiers는 '다음 티어로 올리는 비용/효과' 목록이라 최대 티어(3) - 1개다. 강화 비용은 자원과 에너지를 **둘 다** 요구한다 — 자원만 쌓아도, 몬스터만 잡아도 올릴 수 없게 해서 낮(채집)과 밤(전투)이 둘 다 필요하게 만든다.",
   "startTier": 1,
   "baseBuildRadius": 175,
+  "baseMaxResource": 400,
+  "baseMaxEnergy": 150,
   "tiers": [
     {
-      "cost": 8,
+      "cost": { "resource": 250, "energy": 60 },
       "coreHpBonus": 300,
+      "maxResourceBonus": 400,
+      "maxEnergyBonus": 150,
       "buildRadiusBonus": 175,
       "unlocksCrafting": true,
       "unlocksStatUpgrades": false
     },
     {
-      "cost": 20,
+      "cost": { "resource": 700, "energy": 200 },
       "coreHpBonus": 500,
+      "maxResourceBonus": 700,
+      "maxEnergyBonus": 250,
       "buildRadiusBonus": 280,
       "unlocksCrafting": true,
       "unlocksStatUpgrades": true

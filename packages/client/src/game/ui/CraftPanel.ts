@@ -65,8 +65,13 @@ export class CraftPanel {
   private tier = TIERS[0] ?? 1;
   private selected = 0;
   /** 마지막으로 받은 창고 내용물(아이템 id → 개수)과 코어 티어. */
-  private stock: Record<string, number> = {};
   private coreTier = 0;
+  /** 코어 게이지 잔량. 모자란 쪽을 붉게 칠하는 데 쓴다. */
+  private resource = 0;
+  private energy = 0;
+  /** 지금 만드는 중인 레시피와 남은 시간(초). 버튼 라벨이 진행 상황을 그대로 보여준다. */
+  private craftingId = '';
+  private craftRemaining = 0;
 
   constructor(private readonly builder: PanelBuilder) {
     const scene = builder.scene;
@@ -193,12 +198,21 @@ export class CraftPanel {
   }
 
   /**
-   * 창고 내용과 코어 티어를 반영한다. HudScene이 스냅샷마다 호출한다 —
-   * 재료를 캐 오면 모달을 다시 열지 않아도 글자가 바로 바뀐다.
+   * 코어 게이지·티어·제작 진행을 반영한다. HudScene이 스냅샷마다 호출한다 —
+   * 충전이 차오르면 모달을 다시 열지 않아도 글자가 바로 바뀐다.
    */
-  setContext(stock: Record<string, number>, coreTier: number): void {
-    this.stock = stock;
-    this.coreTier = coreTier;
+  setContext(context: {
+    coreTier: number;
+    resource: number;
+    energy: number;
+    craftingId: string;
+    craftRemaining: number;
+  }): void {
+    this.coreTier = context.coreTier;
+    this.resource = context.resource;
+    this.energy = context.energy;
+    this.craftingId = context.craftingId;
+    this.craftRemaining = context.craftRemaining;
     this.refreshTiers();
     this.refreshDetail();
   }
@@ -256,15 +270,28 @@ export class CraftPanel {
       .setText(locked ? `코어 티어 ${recipe.requiresTier} 필요` : '제작 가능')
       .setColor(locked ? LACKING_TEXT : ACCENT);
 
-    // 가진 만큼/필요한 만큼을 같이 보여준다 — 모자란 재료가 뭔지 바로 알 수 있어야 한다.
-    const lines = Object.entries(recipe.cost).map(([itemId, need]) => {
-      const have = this.stock[itemId] ?? 0;
-      return `${itemsData[itemId]?.name ?? itemId} ${have}/${need}`;
-    });
-    const lacking = Object.entries(recipe.cost).some(
-      ([itemId, need]) => (this.stock[itemId] ?? 0) < need,
-    );
-    this.costText.setText(lines.join('   ')).setColor(lacking ? LACKING_TEXT : BODY_TEXT);
+    /*
+     * 비용은 코어 게이지에서 나간다 — 가진 만큼/필요한 만큼을 같이 적어 모자란 쪽이
+     * 어느 게이지인지 바로 보이게 한다. 제작 중이면 남은 시간이 그 자리를 대신한다.
+     */
+    if (this.craftingId) {
+      const name = itemsData[
+        craftingData.recipes.find((entry) => entry.id === this.craftingId)?.itemId ?? ''
+      ]?.name;
+      this.costText
+        .setText(`${name ?? '제작'} 만드는 중... ${this.craftRemaining.toFixed(1)}초`)
+        .setColor(ACCENT);
+      return;
+    }
+
+    const energyNeed = recipe.cost.energy ?? 0;
+    const parts = [`자원 ${this.resource}/${recipe.cost.resource}`];
+    if (energyNeed > 0) parts.push(`에너지 ${this.energy}/${energyNeed}`);
+    const lacking = this.resource < recipe.cost.resource || this.energy < energyNeed;
+    const produced = recipe.count && recipe.count > 1 ? `  (${recipe.count}개)` : '';
+    this.costText
+      .setText(parts.join('   ') + produced)
+      .setColor(lacking ? LACKING_TEXT : BODY_TEXT);
 
     this.detailIcon.setItem(recipe.itemId);
   }

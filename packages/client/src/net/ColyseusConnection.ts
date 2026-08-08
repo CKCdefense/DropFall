@@ -45,6 +45,15 @@ interface RemotePlayerState {
   burstMode: boolean;
   useFxKind: number;
   useFxSeq: number;
+  level: number;
+  xp: number;
+  statPoints: number;
+  spentHp: number;
+  spentAttack: number;
+  spentStamina: number;
+  levelUpSeq: number;
+  craftRecipeId: string;
+  craftRemaining: number;
   wood: number;
   stone: number;
   parts: number;
@@ -110,8 +119,14 @@ interface RemoteGameState {
   coreSharedWood: number;
   coreSharedStone: number;
   coreParts: number;
-  coreSharedEnergy: number;
-  coreMoney: number;
+  coreResource: number;
+  coreMaxResource: number;
+  coreEnergy: number;
+  coreMaxEnergy: number;
+  coreCharge: ArrayLike<{ itemId: string; count: number }>;
+  upgradeAvailable: boolean;
+  upgradeResourceCost: number;
+  upgradeEnergyCost: number;
   shopStock: ArrayLike<string>;
   explored: ArrayLike<number>;
   coreTier: number;
@@ -309,8 +324,8 @@ export class ColyseusConnection implements GameConnection {
     this.room.send('craft', { recipeId });
   }
 
-  shopSell(itemId: string, count: number): void {
-    this.room.send('shopSell', { itemId, count });
+  spendStatPoint(stat: 'maxHp' | 'attack' | 'stamina'): void {
+    this.room.send('spendStatPoint', { stat });
   }
 
   shopBuy(itemId: string): void {
@@ -397,6 +412,15 @@ export class ColyseusConnection implements GameConnection {
         burstMode: player.burstMode,
         useFxKind: player.useFxKind,
         useFxSeq: player.useFxSeq,
+        level: player.level,
+        xp: player.xp,
+        statPoints: player.statPoints,
+        spentHp: player.spentHp,
+        spentAttack: player.spentAttack,
+        spentStamina: player.spentStamina,
+        levelUpSeq: player.levelUpSeq,
+        craftRecipeId: player.craftRecipeId,
+        craftRemaining: player.craftRemaining,
         wood: player.wood,
         stone: player.stone,
         parts: player.parts,
@@ -508,8 +532,16 @@ export class ColyseusConnection implements GameConnection {
         coreSharedWood: state?.coreSharedWood ?? 0,
         coreSharedStone: state?.coreSharedStone ?? 0,
         coreParts: state?.coreParts ?? 0,
-        coreSharedEnergy: state?.coreSharedEnergy ?? 0,
-        coreMoney: state?.coreMoney ?? 0,
+        coreResource: state?.coreResource ?? 0,
+        coreMaxResource: state?.coreMaxResource ?? 0,
+        coreEnergy: state?.coreEnergy ?? 0,
+        coreMaxEnergy: state?.coreMaxEnergy ?? 0,
+        coreCharge: Array.from(state?.coreCharge ?? [], (slot) =>
+          slot.itemId ? { itemId: slot.itemId, count: slot.count } : null,
+        ),
+        upgradeAvailable: state?.upgradeAvailable ?? false,
+        upgradeResourceCost: state?.upgradeResourceCost ?? 0,
+        upgradeEnergyCost: state?.upgradeEnergyCost ?? 0,
         shopStock: Array.from(state?.shopStock ?? []),
         coreTier: state?.coreTier ?? 0,
         coreBuildRadius: state?.coreBuildRadius ?? 0,

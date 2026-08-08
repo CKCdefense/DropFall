@@ -41,6 +41,7 @@
 | [backend/50-work-report-downed-player-action-lockout.md](backend/50-work-report-downed-player-action-lockout.md) | 작업 보고서 — 다운된(hp 0) 플레이어가 이동 말고는 아무 동작도 못 하게 막음 |
 | [backend/51-work-report-companion-core-stuck-movement.md](backend/51-work-report-companion-core-stuck-movement.md) | 작업 보고서 — 티모시가 코어에 막혀 영원히 멈추는 이동 버그(접선 미끄러짐+탈출 점프 이식) |
 | [backend/55-work-report-player-client-prediction.md](backend/55-work-report-player-client-prediction.md) | 작업 보고서 — 내 캐릭터 클라이언트 예측+재조정(멀티플레이 텔레포트/끊김 원인 분석 및 해결) |
+| [backend/56-work-report-resource-rebuild.md](backend/56-work-report-resource-rebuild.md) | 작업 보고서 — 자원 시스템 리빌딩(자원·에너지 게이지, 코어 충전, 돈 제거, 제작 시간, 해머 수리, 레벨업/SP) |
 
 ### 역할 C — 클라이언트/렌더/UI 작업 문서 ([frontend/](frontend/))
 

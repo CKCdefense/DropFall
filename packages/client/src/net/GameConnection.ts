@@ -42,6 +42,19 @@ export interface PlayerView {
   useFxKind: number;
   /** 소모품을 쓸 때마다 오르는 번호. 값이 바뀐 순간이 "방금 썼다"이다. */
   useFxSeq: number;
+  /** 레벨과 이번 레벨에 쌓인 경험치. 다음 레벨까지의 양은 클라가 levels.json으로 구한다. */
+  level: number;
+  xp: number;
+  /** 아직 안 쓴 스탯 포인트와 스탯별로 찍은 횟수. */
+  statPoints: number;
+  spentHp: number;
+  spentAttack: number;
+  spentStamina: number;
+  /** 레벨이 오를 때마다 오르는 번호. 값이 바뀐 순간이 "방금 레벨업했다"이다. */
+  levelUpSeq: number;
+  /** 제작 중인 레시피와 남은 시간(초). 빈 문자열이면 제작 중이 아니다. */
+  craftRecipeId: string;
+  craftRemaining: number;
   /** 아직 코어에 입고하지 않고 들고 있는 나무/돌. 코어 근처에서 deposit()하면 0이 된다. */
   wood: number;
   stone: number;
@@ -158,14 +171,22 @@ export interface WorldStatus {
   /** 코어에 입고된 팀 공유 자원. 건축 비용은 여기서 나간다(개인 wood/stone이 아니다). */
   coreSharedWood: number;
   coreSharedStone: number;
-  /** 팀 공용 자금. 상점 구매에 쓴다. */
-  coreMoney: number;
+  /** 자원 게이지와 상한. 건축·제작·수리가 여기서 나간다. */
+  coreResource: number;
+  coreMaxResource: number;
   /** 오늘의 상점 진열(아이템 id). 낮이 될 때마다 통째로 바뀐다. */
   shopStock: string[];
   /** 창고에 쌓인 부품(drop_normal). 상점 판매의 주 수입원이다. */
   coreParts: number;
-  /** 콜로니 파괴 또는 보스 처치로만 얻는 희귀 자원. 코어 업그레이드/상점 구입 전용(아직 소비처 미구현). */
-  coreSharedEnergy: number;
+  /** 에너지 게이지와 상한. 코어 강화와 상점 구매가 여기서 나간다. */
+  coreEnergy: number;
+  coreMaxEnergy: number;
+  /** 코어 충전 슬롯(빈 칸은 null). 여기 올린 재료가 시간에 걸쳐 게이지가 된다. */
+  coreCharge: (InventorySlot | null)[];
+  /** 다음 강화가 남아 있는지와 그 비용. 최고 티어면 false에 비용 0이다. */
+  upgradeAvailable: boolean;
+  upgradeResourceCost: number;
+  upgradeEnergyCost: number;
   /** 구매한 코어 업그레이드 단계(0부터, 미구매 상태). */
   coreTier: number;
   /** 코어 원점 기준 건설 가능 반경(px) — 업그레이드로 늘어난다. */
@@ -295,7 +316,8 @@ export interface GameConnection {
   /** 제작 요청. 티어·재료 검증은 서버가 한다. */
   craft(recipeId: string): void;
   /** 창고의 재료를 상점에 판다(대금은 팀 자금으로). */
-  shopSell(itemId: string, count: number): void;
+  /** 스탯 포인트 하나를 쓴다. 몇 점 남았는지 판단은 서버가 한다. */
+  spendStatPoint(stat: 'maxHp' | 'attack' | 'stamina'): void;
   /** 상점에서 산다(물건은 창고로). */
   shopBuy(itemId: string): void;
   /** 건축 요청. cx/cy는 그리드 셀 좌표(worldToCell로 미리 변환해서 넘긴다). */
