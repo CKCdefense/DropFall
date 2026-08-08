@@ -34,6 +34,16 @@ function maxTotal(entry: WaveEntry, playerCount = 1): number {
 }
 
 /**
+ * 한 번의 스폰(무리)이 실제로 내보내는 마릿수 — waves.json의 groupSize 원본이 아니라
+ * baseTotal과 같은 배율(playerScaling)로 늘어난 값이다(게임 흐름 피드백: "숫자만
+ * 늘었지 몰려오는 속도는 그대로라 느리다"). §wave.ts의 `groupSize` 필드 주석 참고.
+ */
+function scaledGroupSize(entry: WaveEntry, playerCount = 1): number {
+  const { baseMultiplier, base, perPlayer } = wavesData.playerScaling;
+  return Math.max(1, Math.round(entry.groupSize * baseMultiplier * (base + perPlayer * playerCount)));
+}
+
+/**
  * 진행 중인 밤의 잡몹 스폰 큐를 전부 소진시킨다(보스는 전멸 전이라 아직 안 나온다).
  * 스폰된 몬스터는 계속 살아있는 것으로 계산한다 — 밤이 끝나지 않게.
  */
@@ -99,20 +109,24 @@ describe('WaveManager', () => {
     expect(manager.currentWave).toBe(1);
 
     manager.tick(0.001, () => 0, (type, x, y) => spawned.push({ type, x, y }));
-    // 무리 스폰: 한 마리씩이 아니라 groupSize마리가 같은 틱에 함께 나온다.
-    expect(spawned.length).toBe(Math.min(wavesData.waves[0]!.groupSize, baseTotal(wavesData.waves[0]!)));
+    // 무리 스폰: 한 마리씩이 아니라 (인원수 스케일링을 받은) groupSize마리가 같은
+    // 틱에 함께 나온다.
+    expect(spawned.length).toBe(
+      Math.min(scaledGroupSize(wavesData.waves[0]!), baseTotal(wavesData.waves[0]!)),
+    );
   });
 
-  it('한 무리는 같은 스폰 지점에서 함께 나오고, 다음 무리는 groupIntervalSeconds 뒤에 나온다', () => {
+  it('한 무리는 spawnPoints 전체에 동시에 나눠 심고, 다음 무리는 groupIntervalSeconds 뒤에 나온다', () => {
     const manager = new WaveManager({ rng: seededRng(42) });
     manager.tick(wavesData.dayDuration, () => 0, () => {}); // → night
 
     const wave1 = wavesData.waves[0]!;
     const first: { x: number; y: number }[] = [];
     manager.tick(0.001, () => 0, (_type, x, y) => first.push({ x, y }));
-    expect(first.length).toBe(wave1.groupSize);
-    // 같은 무리 = 같은 지점.
-    expect(new Set(first.map((p) => `${p.x},${p.y}`)).size).toBe(1);
+    expect(first.length).toBe(scaledGroupSize(wave1));
+    // 사방에서 동시에 오는 느낌을 위해, 한 무리가 spawnPoints 전체를 다 쓴다(게임
+    // 흐름 피드백 — 예전엔 무리 하나가 지점 한 곳에서만 나왔다).
+    expect(new Set(first.map((p) => `${p.x},${p.y}`)).size).toBe(wave1.spawnPoints);
 
     // 간격이 되기 전에는 다음 무리가 안 나온다.
     const early: string[] = [];
@@ -122,7 +136,7 @@ describe('WaveManager', () => {
     // 간격을 채우면 다음 무리가 나온다.
     const second: string[] = [];
     manager.tick(wave1.groupIntervalSeconds * 0.6, () => first.length, (type) => second.push(type));
-    expect(second.length).toBe(wave1.groupSize);
+    expect(second.length).toBe(scaledGroupSize(wave1));
   });
 
   it('1웨이브 전체 몬스터가 스폰될 때까지 계속 틱하면 기본 총원이 전부 스폰된다', () => {
@@ -233,9 +247,9 @@ describe('WaveManager', () => {
     expect(manager.currentPhase).toBe('victory');
   });
 
-  it('스폰 지점을 무리 단위로 순환해서 한 지점에 몰리지 않는다', () => {
+  it('무리 하나가 spawnPoints 전체를 동시에 써서 한 지점에 몰리지 않는다(사방에서 동시에)', () => {
     const manager = new WaveManager({ rng: seededRng(5) });
-    manager.debugJumpToWave(2); // wave 2: 스폰 지점 2곳
+    manager.debugJumpToWave(2); // wave 2: 스폰 지점 여러 곳
 
     const wave2 = wavesData.waves[1]!;
     const points: { x: number; y: number }[] = [];
@@ -247,10 +261,12 @@ describe('WaveManager', () => {
       unique.set(key, (unique.get(key) ?? 0) + 1);
     }
 
-    // 무리가 지점을 번갈아 썼다면 두 지점의 스폰 수 차이가 무리 하나 이하여야 한다.
+    // 지점마다 최소 한 마리는 왔어야 "사방에서 동시에"가 성립한다. 무리 하나(=한 틱)
+    // 안에서 이미 전 지점을 순서대로 채우므로(spawnPointCursor), 지점 간 스폰 수
+    // 차이는 무리 하나 이하로 촘촘해야 한다 — 특정 지점만 계속 몰리지 않는지 본다.
     expect(unique.size).toBe(wave2.spawnPoints);
     const counts = [...unique.values()];
-    expect(Math.max(...counts) - Math.min(...counts)).toBeLessThanOrEqual(wave2.groupSize);
+    expect(Math.max(...counts) - Math.min(...counts)).toBeLessThanOrEqual(scaledGroupSize(wave2));
   });
 
   it('skipDay는 day 페이즈에서만 즉시 night으로 전환시킨다', () => {
