@@ -105,7 +105,11 @@ Public Suffix List에 올라간 공유 도메인이라 Cloudflare가 "소유한 
 #    https://login.tailscale.com/admin/dns → HTTPS Certificates 켜기
 
 # 2) 서버에서 로컬 포트를 공개 인터넷에 노출
-sudo tailscale funnel 2567
+#    **반드시 --bg로 켠다.** --bg 없이 실행하면 포그라운드 세션이라 SSH 터미널을
+#    닫는 순간 Funnel도 같이 죽는다 — 실제로 이렇게 꺼진 채 방치돼 배포판이
+#    ERR_CONNECTION_REFUSED가 난 적이 있다(2026-08-08). --bg는 tailscaled의
+#    로컬 상태에 저장되는 백그라운드 설정이라 세션 종료·재부팅 후에도 유지된다.
+sudo tailscale funnel --bg 2567
 # 최초 실행 시 "Funnel is not enabled on your tailnet" 안내와 함께
 # 승인 링크(https://login.tailscale.com/f/funnel?node=...)가 뜬다 —
 # 브라우저로 열어서 한 번만 승인하면 이후엔 바로 활성화된다.
@@ -115,9 +119,10 @@ sudo tailscale funnel status
 # https://<머신명>.<tailnet-이름>.ts.net 로 공개 접속 가능(TLS 자동)
 ```
 
-`tailscale funnel` 설정은 tailscaled 자체(로컬 상태)에 저장되므로 서버
+`--bg`로 켠 Funnel 설정은 tailscaled 자체(로컬 상태)에 저장되므로 서버
 재부팅 후에도 별도 조치 없이 유지된다 — `cloudflared`처럼 따로 systemd
-유닛을 만들 필요가 없다. 호스트네임(`<머신명>.<tailnet-이름>.ts.net`)도
+유닛을 만들 필요가 없다. (반대로 --bg 없는 포그라운드 실행은 터미널
+수명에 묶인다 — 위 주석 참고.) 호스트네임(`<머신명>.<tailnet-이름>.ts.net`)도
 고정이라 Cloudflare Quick Tunnel(매 실행마다 무작위 주소 발급)과 달리
 `Restart=always` 자동 복구 설계와 잘 맞는다.
 
