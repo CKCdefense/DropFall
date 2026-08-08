@@ -989,10 +989,16 @@ describe('World — 건축물과 몬스터 상호작용', () => {
 
     const coreHpBefore = world.getCore().hp;
 
-    // 몬스터가 제자리에 멈춰 있지 않고 벽까지 다가가서 공격을 시작하는지 확인한다.
+    /*
+     * 몬스터가 제자리에 멈춰 있지 않고 벽까지 다가가서 공격을 시작하는지 확인한다.
+     *
+     * **틱을 잘게 쪼갠다.** 예전엔 1초씩 밀었는데, 이동 판정이 목적지 한 점만 보므로
+     * 한 걸음이 벽 칸보다 길면 벽을 지나쳐 버린다(속도가 45px/s가 되자 실제로 그랬다).
+     * 실제 게임은 60Hz라 한 걸음이 1px 남짓이다 — 그 조건에서 검사해야 의미가 있다.
+     */
     let anyBuildingDamaged = false;
-    for (let i = 0; i < 300 && !anyBuildingDamaged; i += 1) {
-      world.tick(1);
+    for (let i = 0; i < 4000 && !anyBuildingDamaged; i += 1) {
+      world.tick(0.05);
       for (const building of world.getBuildings().values()) {
         if (building.hp < building.maxHp) anyBuildingDamaged = true;
       }
