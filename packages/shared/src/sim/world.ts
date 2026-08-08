@@ -10,6 +10,7 @@ import {
   coreUpgradesData,
   craftingData,
   levelsData,
+  reviveData,
   xpToNextLevel,
   itemsData,
   jobStats,
@@ -175,6 +176,25 @@ const STAMINA_REGEN_DELAY = 0.8;
  */
 const HP_REGEN_PER_SECOND = 0.5;
 
+/**
+ * 새 낮에 다운된 플레이어가 되살아날 때 채워지는 체력 비율(§revivePlayers).
+ * 1로 두면 "죽는 편이 이득"이 되므로 반드시 1보다 작아야 한다.
+ */
+const REVIVE_HP_RATIO = 0.5;
+
+/**
+ * 코어에서 다시 시작할 때 서는 자리(월드 px). 코어는 원점에 있고 발자국이 아래로
+ * 27px까지라, 그 바깥에 세워야 일어나자마자 코어에 끼지 않는다.
+ */
+const CORE_RESPAWN_X = 0;
+const CORE_RESPAWN_Y = 48;
+
+/**
+ * 쓰러진 아군을 즉시 일으키는 소모품. items.json의 키와 같아야 한다 — 이름을 바꾸면
+ * 여기도 같이 고쳐야 하고, 안 고치면 조용히 아무 일도 일어나지 않는다.
+ */
+const AID_ITEM_ID = 'aid_kit';
+
 /** 개발 커맨드로 몬스터를 부를 때 코어에서 띄우는 거리(px). 바로 옆에 붙여 놓으면 코어가 즉사한다. */
 const DEV_SPAWN_RADIUS = 160;
 
@@ -298,6 +318,15 @@ function scaledResourceTarget(type: ResourceType, playerCount: number): number {
   return Math.round(RESOURCE_BASELINE_COUNT[type] * (0.6 + 0.4 * playerCount));
 }
 
+/**
+ * 살아 있는가 / 쓰러졌는가 / 유령인가.
+ *
+ * **hp <= 0은 여전히 "살아있지 않다"를 뜻한다** — 쓰러짐과 유령 둘 다 hp가 0이다.
+ * 이렇게 두면 "쓰러진 사람은 못 한다"는 기존 규칙(공격·제작·상점·채집·어그로 대상)이
+ * 전부 그대로 맞는다. 이 필드는 그 위에서 **어떻게 돌아올 수 있는가**만 가른다.
+ */
+export type PlayerLifeState = 'alive' | 'downed' | 'ghost';
+
 export interface PlayerEntity {
   id: string;
   x: number;
@@ -323,6 +352,14 @@ export interface PlayerEntity {
   stamina: number;
   /** 이번 틱에 달리기를 눌렀는가(입력). 실제로 달렸는지는 스태미나가 정한다. */
   sprinting: boolean;
+  /**
+   * 상호작용(E)을 누르고 있는가. 지금은 쓰러진 동료 구조에만 쓴다 — 코어 창은
+   * 클라이언트가 혼자 여닫으므로 서버가 알 필요가 없다.
+   *
+   * `sprinting`과 같은 자리에 두는 이유는 성질이 같아서다: 되감기 대상인 이동 입력이
+   * 아니라 **지금 누르고 있나**라는 상태다.
+   */
+  interacting: boolean;
   /** 달리기를 멈춘 뒤 회복이 시작되기까지 남은 시간(초). */
   staminaRegenDelay: number;
   /** 음식(도넛/당근케이크)으로 늘어난 최대 체력. 직업 기초 체력에 더해진다. */
@@ -377,6 +414,21 @@ export interface PlayerEntity {
   spentStamina: number;
   /** 레벨이 오를 때마다 1씩 오르는 번호. 클라이언트가 레벨업 이펙트를 틀 신호다(useFxSeq와 같은 방식). */
   levelUpSeq: number;
+
+  /** 살아있음/쓰러짐/유령. hp가 0인 동안 뒤의 둘을 가른다(§PlayerLifeState). */
+  lifeState: PlayerLifeState;
+  /**
+   * 쓰러진 뒤 남은 시간(초). 혼자 할 때는 **다 되면 코어에서 부활**하고, 여럿이 할
+   * 때는 **다 되면 유령이 된다**. 어느 쪽이든 "가만히 두면 곧 뭔가 바뀐다"라서
+   * 화면에 같은 숫자 하나로 보여줄 수 있다.
+   */
+  downTimer: number;
+  /**
+   * 동료가 쌓아 준 구조 진행도(초). reviveData.rescueSeconds에 닿으면 그 자리에서
+   * 일어난다. 구조하던 사람이 떨어지면 **같은 속도로 줄어든다** — 0으로 초기화하지
+   * 않는 이유는, 몬스터에 밀려 잠깐 떨어진 것과 포기한 것은 다르기 때문이다.
+   */
+  reviveProgress: number;
 }
 
 /**
@@ -607,6 +659,13 @@ export interface WorldOptions {
    * 기본값은 켬(기존 동작).
    */
   companion?: boolean;
+  /**
+   * 혼자하기인가. 쓰러졌을 때 돌아오는 길이 통째로 달라진다 — 혼자면 구조해 줄 사람이
+   * 없으므로 시간이 지나면 코어에서 스스로 일어나고(§tickRevive), 전원 다운도 패배가
+   * 아니다. 사람 수로 짐작하지 않고 방을 만들 때 못 박는 이유는, 멀티 방에 한 명만
+   * 남은 상황과 혼자하기는 **규칙이 달라야** 하기 때문이다(전자는 패배가 맞다).
+   */
+  solo?: boolean;
 }
 
 export class World {
@@ -663,6 +722,11 @@ export class World {
    * tickContingents()가 콜로니 방향에서 무리 단위로 내보낸다. 다음 밤 시작에 통째로
    * 교체된다.
    */
+  /**
+   * 이번 밤 콜로니가 보태는 총 마릿수(§buildNightContingents). 웨이브 정원과 별개라
+   * HUD가 "+N"으로 따로 보여준다 — 정원에 섞으면 콜로니를 방치한 대가가 안 보인다.
+   */
+  private nightContingentTotal = 0;
   private readonly contingents: { x: number; y: number; queue: MonsterType[]; timer: number }[] =
     [];
   /**
@@ -758,9 +822,12 @@ export class World {
    * 제일 안전하다.
    */
   private readonly terrainSeed = 875_309;
+  /** 혼자하기인가(§WorldOptions.solo). 부활 규칙과 전원 다운 판정이 여기서 갈린다. */
+  private readonly solo: boolean;
 
   constructor(options: WorldOptions = {}) {
     this.rng = options.rng ?? Math.random;
+    this.solo = options.solo ?? false;
     // 티모시를 끈 방에서는 'absent'로 세워 둔다. 이 상태는 게임 내내 바뀌지 않으므로
     // 이후 모든 판정이 companionActive() 하나로 걸러진다.
     if (options.companion === false) this.companion.state = 'absent';
@@ -853,6 +920,7 @@ export class World {
       job: '',
       stamina: stats.maxStamina,
       sprinting: false,
+      interacting: false,
       staminaRegenDelay: 0,
       maxHpBonus: 0,
       attackFlatBonus: 0,
@@ -873,6 +941,9 @@ export class World {
       spentAttack: 0,
       spentStamina: 0,
       levelUpSeq: 0,
+      lifeState: 'alive',
+      downTimer: 0,
+      reviveProgress: 0,
     });
   }
 
@@ -1065,7 +1136,10 @@ export class World {
     // 달리기는 이동 입력과 달리 되감기 대상이 아니라 "지금 누르고 있나"라는 상태다 —
     // 순서가 뒤바뀐 입력에서도 마지막으로 받은 값을 그대로 쓴다.
     const player = this.players.get(id);
-    if (player) player.sprinting = input.sprint === true;
+    if (player) {
+      player.sprinting = input.sprint === true;
+      player.interacting = input.interact === true;
+    }
   }
 
   /**
@@ -1245,6 +1319,9 @@ export class World {
     }
     if (result.meleeHit) {
       result.meleeHit.damage += attack;
+      // AID로 아군을 일으킨 타격은 거기서 끝난다 — 같은 휘두르기가 몬스터도 베고
+      // 자원도 캐면 "구조했다"가 다른 일들에 묻힌다.
+      if (this.applyMeleeHitToDownedAlly(player, result.meleeHit)) return;
       this.applyMeleeHit(result.meleeHit);
       this.applyMeleeHitToResourceNode(player, result.meleeHit, weaponId);
       this.applyMeleeHitToRepair(result.meleeHit, weaponId);
@@ -2196,7 +2273,11 @@ export class World {
 
       healPlayer: (playerId) => {
         const player = this.players.get(playerId);
-        if (player) player.hp = this.playerMaxHp(player);
+        if (!player) return;
+        // 쓰러져 있었다면 일으켜 세운 뒤 가득 채운다 — 체력만 올리고 상태를 그대로
+        // 두면 hp는 가득인데 유령인, 어느 규칙으로도 설명되지 않는 상태가 남는다.
+        if (player.lifeState !== 'alive') this.revivePlayer(player);
+        player.hp = this.playerMaxHp(player);
       },
       setPlayerHp: (playerId, amount) => {
         const player = this.players.get(playerId);
@@ -2205,6 +2286,10 @@ export class World {
         // 용도라, 최대치로 잘라버리면 정작 쓸 데가 없어진다. 체력 바가 넘치는 문제는
         // 그리는 쪽에서 비율을 1로 조여 막는다(HudScene/PartyPanel).
         player.hp = amount;
+        // 커맨드로 0을 찍는 건 "다운을 재현해 보겠다"는 뜻이다 — 실제 피격과 같은
+        // 문(§downPlayer)을 지나야 타이머와 구조가 똑같이 돈다.
+        if (player.hp <= 0 && player.lifeState === 'alive') this.downPlayer(player);
+        else if (player.hp > 0 && player.lifeState !== 'alive') this.revivePlayer(player);
         return player.hp;
       },
       setCoreHp: (amount) => {
@@ -2223,12 +2308,22 @@ export class World {
     // 소모품 버프 타이머(진통제/아드레날린)도 같은 자리에서 감소시킨다.
     for (const player of this.players.values()) {
       player.tookDamageThisTick = false;
+      /*
+       * 체력과 상태를 맞춘다. damagePlayer()가 유일한 피해 경로지만, 체력을 직접
+       * 0으로 쓰는 길(개발 커맨드, 테스트, 앞으로 생길 즉사 효과)이 언제든 생긴다 —
+       * 그때 상태가 'alive'로 남으면 hp 0인데 쓰러지지도 유령도 아닌, 어떤 부활
+       * 경로도 집어가지 않는 유령 아닌 유령이 된다.
+       */
+      if (player.hp <= 0 && player.lifeState === 'alive') this.downPlayer(player);
       if (player.hpFloorTimer > 0) player.hpFloorTimer -= dtSeconds;
       if (player.speedBuffTimer > 0) player.speedBuffTimer -= dtSeconds;
       this.tickStamina(player, dtSeconds);
       this.tickHpRegen(player, dtSeconds);
     }
     this.ammo.tick(dtSeconds);
+    // 이동보다 **먼저** 처리한다 — 이번 틱에 일어선 사람은 이번 틱부터 걸을 수 있어야
+    // 한다(뒤로 미루면 부활한 프레임에 한 번 굳는다).
+    this.tickRevive(dtSeconds);
     this.tickBursts(dtSeconds);
     this.tickCoreCharge(dtSeconds);
     this.tickCrafting(dtSeconds);
@@ -2236,9 +2331,17 @@ export class World {
     for (const [id, player] of this.players) {
       const input = this.inputs.get(id);
       if (!input) continue;
-      // 쓰러진 플레이어도 이동은 할 수 있다(도망/은신 등 최소한의 조작은 남겨둔다) —
-      // 공격·제작·건축 등 그 외 행동만 막는다(아래 각 메서드의 hp 체크 참고).
-      this.movePlayer(player, input.moveX, input.moveY, dtSeconds);
+      /*
+       * **쓰러진 사람은 움직이지 못한다.** 예전엔 다운 상태에서도 걸을 수 있었는데,
+       * 구조가 생긴 지금은 기어다니는 쓰러짐이 구조를 통째로 무의미하게 만든다 —
+       * 동료가 다가가는 동안 도망쳐 버리면 5초를 채울 수가 없다.
+       *
+       * 유령은 자유롭게 떠다닌다. 어차피 아무것도 못 하고 어그로도 끌지 않으니,
+       * 낮이 오기까지 화면 앞에 묶어 두는 것이 더 나쁘다.
+       */
+      if (player.lifeState !== 'downed') {
+        this.movePlayer(player, input.moveX, input.moveY, dtSeconds);
+      }
       player.aimAngle = input.aimAngle;
       player.lastProcessedSeq = input.seq;
     }
@@ -2344,14 +2447,25 @@ export class World {
     return this.waveManager.currentPhase === 'night' ? this.waveManager.waveMonsterCount : 0;
   }
 
-  /** 아직 남은 잡몹 수 = 살아있는 잡몹 + 아직 안 나온 스폰 큐. */
+  /**
+   * 이번 밤 콜로니가 보태는 마릿수. 정화하지 않고 넘긴 콜로니가 저장분의 일부를
+   * 복제해 보낸다(§buildNightContingents). 낮에는 0이다.
+   */
+  getWaveMonsterBonus(): number {
+    return this.waveManager.currentPhase === 'night' ? this.nightContingentTotal : 0;
+  }
+
+  /**
+   * 아직 남은 잡몹 수 = 살아있는 잡몹 + 웨이브 스폰 큐 + **콜로니 침공 대기열**.
+   * 대기열을 빼먹으면 아직 나올 몬스터가 남았는데 0으로 보인다.
+   */
   getWaveMonsterRemaining(): number {
     if (this.waveManager.currentPhase !== 'night') return 0;
     let alive = 0;
     for (const monster of this.monsters.values()) {
       if (!isBossType(monster.type)) alive += 1;
     }
-    return alive + this.waveManager.pendingSpawnCount;
+    return alive + this.waveManager.pendingSpawnCount + this.pendingContingentCount();
   }
 
   getCurrentWave(): number {
@@ -2751,12 +2865,183 @@ export class World {
     const floor = player.hpFloorTimer > 0 ? 1 : 0;
     player.hp = Math.max(floor, player.hp - amount);
     player.tookDamageThisTick = true;
+    if (player.hp <= 0 && player.lifeState === 'alive') this.downPlayer(player);
   }
 
-  /** 웨이브를 클리어하고 새 낮이 시작될 때 다운된 플레이어를 전원 부활시킨다. */
+  /**
+   * 체력이 0이 된 순간 한 번만. **죽는 게 아니라 쓰러진다** — 아직 넷 중 하나로
+   * 되돌릴 수 있다(시간·동료 구조·AID·코어).
+   *
+   * 이미 쓰러졌거나 유령인 사람에게 다시 부르면 안 된다. 다시 부르면 유령이 쓰러짐으로
+   * 되돌아가고 타이머가 새로 돌아, 맞을수록 부활이 가까워지는 뒤집힌 규칙이 된다.
+   */
+  private downPlayer(player: PlayerEntity): void {
+    player.lifeState = 'downed';
+    player.reviveProgress = 0;
+    // 혼자면 이 시간이 곧 부활까지고, 여럿이면 동료가 달려올 수 있는 시간이다.
+    player.downTimer = this.solo
+      ? reviveData.soloRespawnSeconds
+      : reviveData.ghostSeconds;
+  }
+
+  /**
+   * 되살린다. 어느 경로로 돌아오든(시간·구조·AID·코어) **여기 한 곳**을 지난다 —
+   * 체력 비율과 상태 초기화가 경로마다 달라지면 "부활했는데 왜 다르지"가 된다.
+   *
+   * @param x,y 일어설 자리. 생략하면 쓰러진 그 자리다.
+   */
+  private revivePlayer(player: PlayerEntity, x?: number, y?: number): void {
+    player.hp = Math.max(1, Math.round(this.playerMaxHp(player) * reviveData.reviveHpRatio));
+    player.lifeState = 'alive';
+    player.downTimer = 0;
+    player.reviveProgress = 0;
+    if (x !== undefined) player.x = x;
+    if (y !== undefined) player.y = y;
+  }
+
+  /**
+   * 쓰러진 사람들의 시계 — 시간이 흐르는 쪽(downTimer)과 동료가 밀어 올리는
+   * 쪽(reviveProgress) 둘을 같이 굴린다.
+   *
+   * 두 시계는 **서로를 멈추지 않는다.** 구조가 4초쯤 찼는데 유령이 되어 버리면
+   * 헛수고지만, 그건 "늦었다"가 맞는 결과다 — 구조 중이라고 유령 전환을 미뤄 주면
+   * 한 명이 옆에 붙어 있는 것만으로 밤새 쓰러진 상태를 유지할 수 있다.
+   */
+  private tickRevive(dtSeconds: number): void {
+    for (const player of this.players.values()) {
+      if (player.lifeState !== 'downed') continue;
+
+      // 동료 구조가 먼저다 — 같은 틱에 5초가 찼다면 유령이 되기 전에 일어난다.
+      const rescued = this.tickRescue(player, dtSeconds);
+      if (rescued) continue;
+
+      player.downTimer = Math.max(0, player.downTimer - dtSeconds);
+      if (player.downTimer > 0) continue;
+
+      if (this.solo) {
+        // 혼자면 코어 앞에서 다시 시작한다. 쓰러진 자리에 세우면 자기를 눕힌 몬스터
+        // 한가운데서 일어나 그대로 다시 쓰러진다.
+        this.revivePlayer(player, CORE_RESPAWN_X, CORE_RESPAWN_Y);
+      } else {
+        player.lifeState = 'ghost';
+        player.reviveProgress = 0;
+      }
+    }
+  }
+
+  /**
+   * 동료 구조 한 틱. 살아 있는 다른 플레이어가 옆에서 상호작용 키를 **누르고 있는
+   * 동안** 진행도가 찬다.
+   *
+   * 여럿이 붙어도 속도는 그대로다(진행도를 인원수만큼 곱하지 않는다) — 곱하면 4인
+   * 파티에서 구조가 1.25초로 끝나 "위험을 무릅쓰고 5초를 버틴다"는 설계가 사라진다.
+   *
+   * @returns 이번 틱에 일어섰으면 true.
+   */
+  private tickRescue(player: PlayerEntity, dtSeconds: number): boolean {
+    const radiusSquared = reviveData.rescueRadius * reviveData.rescueRadius;
+    let helped = false;
+
+    for (const other of this.players.values()) {
+      if (other === player || other.lifeState !== 'alive') continue;
+      if (!other.interacting) continue;
+      const dx = other.x - player.x;
+      const dy = other.y - player.y;
+      if (dx * dx + dy * dy > radiusSquared) continue;
+      helped = true;
+      break;
+    }
+
+    // 놓으면 같은 속도로 줄어든다 — 0으로 되돌리지 않는 이유는 §reviveProgress 참고.
+    player.reviveProgress = Math.max(
+      0,
+      player.reviveProgress + (helped ? dtSeconds : -dtSeconds),
+    );
+    if (player.reviveProgress < reviveData.rescueSeconds) return false;
+
+    this.revivePlayer(player);
+    return true;
+  }
+
+  /**
+   * 코어에서 유령을 되살린다 — **낮에만**, 에너지를 치르고.
+   *
+   * 밤을 막는 이유는 이게 "다시 해 보자"의 값이지 전투 중 자원이 아니어서다. 밤에도
+   * 되면 에너지가 곧 목숨이 되어, 죽어도 그 자리에서 계속 밀어 넣는 소모전이 된다.
+   *
+   * @param playerId 버튼을 누른 사람(살아 있고 코어 옆이어야 한다).
+   * @param targetId 되살릴 유령.
+   * @returns 실제로 되살렸으면 true. 조건이 안 맞으면 조용히 false다.
+   */
+  reviveGhostAtCore(playerId: string, targetId: string): boolean {
+    const player = this.players.get(playerId);
+    if (!player || player.hp <= 0 || !this.isNearCore(player)) return false;
+    if (this.waveManager.currentPhase !== 'day') return false;
+
+    const target = this.players.get(targetId);
+    if (!target || target.lifeState !== 'ghost') return false;
+    if (this.core.energy < reviveData.coreReviveEnergy) return false;
+
+    this.core.energy -= reviveData.coreReviveEnergy;
+    this.revivePlayer(target, CORE_RESPAWN_X, CORE_RESPAWN_Y);
+    return true;
+  }
+
+  /**
+   * AID로 쓰러진 아군을 후려쳐 **즉시** 일으킨다.
+   *
+   * 구조(5초)와 나란히 두는 이유는 값이 다르기 때문이다 — AID는 에픽 등급 소모품이라
+   * 개수가 곧 대가고, 그 대신 시간이 0이다. 몬스터에 둘러싸여 5초를 버틸 수 없는
+   * 상황에서 쓰라고 있는 물건이다.
+   *
+   * 가장 가까운 **한 명만** 일으킨다. 부채꼴 안의 전원을 한 번에 세우면 한 개로 파티
+   * 전체가 복구된다.
+   *
+   * @returns AID를 썼으면 true(이때 호출자는 이번 타격을 몬스터에게 넘기지 않는다).
+   */
+  private applyMeleeHitToDownedAlly(player: PlayerEntity, hit: MeleeHit): boolean {
+    if (player.inventory.selected?.itemId !== AID_ITEM_ID) return false;
+
+    let target: PlayerEntity | undefined;
+    let targetDistance = Infinity;
+    for (const other of this.players.values()) {
+      if (other === player || other.lifeState !== 'downed') continue;
+      if (!withinMeleeArc(hit, other.x, other.y, HIT_RADIUS)) continue;
+      const distance = Math.hypot(other.x - player.x, other.y - player.y);
+      if (distance >= targetDistance) continue;
+      target = other;
+      targetDistance = distance;
+    }
+    if (!target) return false;
+
+    if (!player.inventory.consumeSelectedOne()) return false;
+    this.revivePlayer(target);
+    return true;
+  }
+
+  /**
+   * 웨이브를 클리어하고 새 낮이 시작될 때 **다운된 플레이어만** 일으켜 세운다.
+   *
+   * 예전엔 살아남은 사람까지 전원 풀피로 채웠다. 그러면 밤을 어떻게 버텼든 아침이면
+   * 원점이라 체력 관리가 의미를 잃는다 — 붕대를 아껴 쓸 이유도, 위험할 때 물러설
+   * 이유도 없어진다. 회복은 자연 재생(tickHpRegen)과 소모품이 맡는다.
+   *
+   * 부활은 **절반만** 채운다. 가득 채우면 "죽는 편이 이득"이 되어(살아남으면 깎인 채로
+   * 시작, 죽으면 가득) 다운을 유도하는 뒤집힌 보상이 된다.
+   */
   private revivePlayers(): void {
     for (const player of this.players.values()) {
-      player.hp = this.playerMaxHp(player);
+      // **유령은 아침이 와도 스스로 돌아오지 못한다.** 낮에 코어에서 에너지를 치러야
+      // 하는 것이 유령의 대가인데(§reviveGhostAtCore), 여기서 공짜로 일으켜 세우면
+      // 그 대가가 통째로 사라진다. 쓰러진 사람만 일어난다 — 밤이 끝나는 순간에 쓰러진
+      // 사람은 어차피 30초를 채우면 유령이 됐을 참이라, 그 정도 운은 봐 준다.
+      // 유령만 뺀다 — 쓰러진 사람은 일어난다. 상태가 아니라 체력으로도 한 번 더 묻는
+      // 이유는 체력을 직접 0으로 쓰는 경로가 있어서다(§tick의 상태 맞추기).
+      if (player.lifeState === 'ghost' || player.hp > 0) continue;
+      player.lifeState = 'alive';
+      player.downTimer = 0;
+      player.reviveProgress = 0;
+      player.hp = Math.max(1, Math.round(this.playerMaxHp(player) * REVIVE_HP_RATIO));
     }
   }
 
@@ -2766,6 +3051,12 @@ export class World {
    */
   private checkAllPlayersDown(): void {
     if (this.players.size === 0) return;
+    /*
+     * **혼자하기에는 이 패배가 없다.** 혼자면 쓰러져도 시간이 지나면 코어에서 스스로
+     * 일어나므로(§tickRevive), 전원 다운은 "잠깐 쓰러졌다"와 같은 말이다. 여기서
+     * 패배로 처리하면 첫 다운에 게임이 끝난다. 혼자하기의 패배 조건은 코어 파괴뿐이다.
+     */
+    if (this.solo) return;
     const allDown = [...this.players.values()].every((player) => player.hp <= 0);
     if (allDown) this.waveManager.markDefeat();
   }
@@ -3084,6 +3375,7 @@ export class World {
    */
   private buildNightContingents(): void {
     this.contingents.length = 0;
+    this.nightContingentTotal = 0;
     for (const colony of this.colonies.values()) {
       if (colony.purified || colony.stored <= 0) continue;
       const count = Math.floor(colony.stored * coloniesData.waveContributionRatio);
@@ -3095,6 +3387,7 @@ export class World {
         queue.push(stage.types[Math.floor(this.rng() * stage.types.length)] as MonsterType);
       }
       this.contingents.push({ x: colony.x, y: colony.y, queue, timer: 0 });
+      this.nightContingentTotal += count;
     }
   }
 

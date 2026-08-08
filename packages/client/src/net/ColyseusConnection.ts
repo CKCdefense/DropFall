@@ -55,6 +55,9 @@ interface RemotePlayerState {
   craftRecipeId: string;
   craftRemaining: number;
   craftOutput: { itemId: string; count: number };
+  lifeState: string;
+  downRemaining: number;
+  reviveProgress: number;
   wood: number;
   stone: number;
   parts: number;
@@ -141,6 +144,7 @@ interface RemoteGameState {
   phaseTimeRemaining: number;
   waveMonsterTotal: number;
   waveMonsterRemaining: number;
+  waveMonsterBonus: number;
   skipVoteCount: number;
   players: {
     size: number;
@@ -333,6 +337,10 @@ export class ColyseusConnection implements GameConnection {
     this.room.send('spendStatPoint', { stat });
   }
 
+  reviveGhost(targetId: string): void {
+    this.room.send('reviveGhost', { targetId });
+  }
+
   shopBuy(itemId: string): void {
     this.room.send('shopBuy', { itemId });
   }
@@ -421,6 +429,15 @@ export class ColyseusConnection implements GameConnection {
         craftOutput: player.craftOutput?.itemId
           ? { itemId: player.craftOutput.itemId, count: player.craftOutput.count }
           : null,
+        // 스키마는 문자열이라 무엇이든 올 수 있다 — 모르는 값은 'alive'로 본다.
+        // 화면이 알 수 없는 상태를 만나 아무것도 안 그리는 것보다, 평소 모습으로
+        // 그리는 편이 덜 위험하다.
+        lifeState:
+          player.lifeState === 'downed' || player.lifeState === 'ghost'
+            ? player.lifeState
+            : 'alive',
+        downRemaining: player.downRemaining,
+        reviveProgress: player.reviveProgress,
         wood: player.wood,
         stone: player.stone,
         parts: player.parts,
@@ -554,6 +571,7 @@ export class ColyseusConnection implements GameConnection {
         phaseTimeRemaining: state?.phaseTimeRemaining ?? 0,
         waveMonsterTotal: state?.waveMonsterTotal ?? 0,
         waveMonsterRemaining: state?.waveMonsterRemaining ?? 0,
+        waveMonsterBonus: state?.waveMonsterBonus ?? 0,
         skipVoteCount: state?.skipVoteCount ?? 0,
         // 서버는 빈 칸을 itemId ''로 내려보낸다(길이 고정). 클라이언트 표현은 null이다.
         coreStorage: Array.from(state?.coreStorage ?? [], (slot) =>

@@ -16,6 +16,7 @@ import companionJson from './companion.json';
 import jobsJson from './jobs.json';
 import chargingJson from './charging.json';
 import levelsJson from './levels.json';
+import reviveJson from './revive.json';
 
 /**
  * JSON은 주석을 쓸 수 없어서 데이터 파일마다 `$comment` 키로 설명을 단다.
@@ -723,6 +724,20 @@ export function xpToNextLevel(level: number): number {
   if (level >= levelsData.maxLevel) return Infinity;
   return Math.round(levelsData.baseXp * levelsData.growth ** (level - 1));
 }
+
+// --- revive.json ------------------------------------------------------------
+
+const ReviveDataSchema = z.object({
+  soloRespawnSeconds: z.number().positive(),
+  ghostSeconds: z.number().positive(),
+  rescueSeconds: z.number().positive(),
+  rescueRadius: z.number().positive(),
+  /** 1이면 "죽는 편이 이득"이 되므로 반드시 1보다 작다(§REVIVE_HP_RATIO와 같은 이유). */
+  reviveHpRatio: z.number().positive().max(1),
+  coreReviveEnergy: z.number().int().nonnegative(),
+});
+
+export const reviveData = loadData(ReviveDataSchema, reviveJson);
 
 // --- crafting.json ------------------------------------------------------------
 

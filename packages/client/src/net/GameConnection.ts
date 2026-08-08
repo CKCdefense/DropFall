@@ -57,6 +57,15 @@ export interface PlayerView {
   craftRemaining: number;
   /** 다 만들어 꺼내 가기를 기다리는 물건(없으면 null). */
   craftOutput: InventorySlot | null;
+  /**
+   * 살아있음/쓰러짐/유령. **hp 0만으로는 화면을 정할 수 없다** — 쓰러짐과 유령이 둘 다
+   * hp 0이고, 되돌리는 방법이 서로 다르다(구조 vs 코어).
+   */
+  lifeState: 'alive' | 'downed' | 'ghost';
+  /** 쓰러진 뒤 남은 시간(초). 다 되면 부활(혼자) 또는 유령(멀티)이 된다. */
+  downRemaining: number;
+  /** 동료 구조 진행도(0~1). */
+  reviveProgress: number;
   /** 아직 코어에 입고하지 않고 들고 있는 나무/돌. 코어 근처에서 deposit()하면 0이 된다. */
   wood: number;
   stone: number;
@@ -212,6 +221,8 @@ export interface WorldStatus {
    */
   waveMonsterTotal: number;
   waveMonsterRemaining: number;
+  /** 콜로니를 정화하지 않아 늘어난 마릿수. 정원(waveMonsterTotal)에는 안 들어간다. */
+  waveMonsterBonus: number;
   /** 낮 스킵 투표 동의 인원. 필요 인원은 players.length(만장일치) */
   skipVoteCount: number;
   /** 코어 창고 슬롯. 인벤토리와 같은 구조(빈 칸은 null). */
@@ -329,6 +340,8 @@ export interface GameConnection {
   craft(recipeId: string): void;
   /** 스탯 포인트 하나를 쓴다. 몇 점 남았는지 판단은 서버가 한다. */
   spendStatPoint(stat: 'maxHp' | 'attack' | 'stamina'): void;
+  /** 코어에서 유령이 된 동료를 되살린다(낮·에너지 소모). */
+  reviveGhost(targetId: string): void;
   /** 상점에서 산다(물건은 창고로). */
   shopBuy(itemId: string): void;
   /** 매 프레임 호출된다. 구현체는 새 객체를 만들지 말고 내부 버퍼를 재사용할 것. */

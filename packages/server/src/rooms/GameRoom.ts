@@ -40,6 +40,8 @@ import {
   type QuickMoveItemMessage,
   type ShopBuyMessage,
   type SpendStatPointMessage,
+  type ReviveGhostMessage,
+  reviveData,
   type JoinRoomOptions,
   type PlayerInputMessage,
   type SelectJobMessage,
@@ -113,6 +115,10 @@ export class GameRoom extends Room {
     spendStatPoint: (client: Client, payload: SpendStatPointMessage) => {
       if (this.state.phase !== RoomPhase.PLAYING) return;
       this.world.spendStatPoint(client.sessionId, payload?.stat);
+    },
+    reviveGhost: (client: Client, payload: ReviveGhostMessage) => {
+      if (this.state.phase !== RoomPhase.PLAYING) return;
+      this.world.reviveGhostAtCore(client.sessionId, payload?.targetId ?? '');
     },
     dev: (client: Client, payload: DevCommandMessage) => {
       // 개발 플래그가 없으면 조용히 무시한다 — 존재를 알려줄 이유가 없다.
@@ -391,6 +397,9 @@ export class GameRoom extends Room {
       schema.craftRemaining = player.craftTimer;
       schema.craftOutput.itemId = player.craftOutput?.itemId ?? '';
       schema.craftOutput.count = player.craftOutput?.count ?? 0;
+      schema.lifeState = player.lifeState;
+      schema.downRemaining = player.downTimer;
+      schema.reviveProgress = player.reviveProgress / reviveData.rescueSeconds;
       // 장착 무기의 탄약 상태. 근접/맨손이면 magazine 0으로 두고 HUD가 표시를 걷는다.
       const ammo = this.world.ammoView(id);
       schema.ammo = ammo?.loaded ?? 0;
@@ -467,6 +476,7 @@ export class GameRoom extends Room {
     this.state.phaseTimeRemaining = this.world.getPhaseTimeRemaining();
     this.state.waveMonsterTotal = this.world.getWaveMonsterTotal();
     this.state.waveMonsterRemaining = this.world.getWaveMonsterRemaining();
+    this.state.waveMonsterBonus = this.world.getWaveMonsterBonus();
     this.state.skipVoteCount = this.world.getSkipVoteCount();
 
     // LLM 호출은 네트워크 왕복이 있어 이번 틱 안에 못 끝난다 — fire-and-forget으로

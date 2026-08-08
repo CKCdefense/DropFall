@@ -84,7 +84,7 @@ export class InputController {
   private placedThisPress = false;
 
   private readonly keys: Record<
-    'up' | 'down' | 'left' | 'right' | 'sprint',
+    'up' | 'down' | 'left' | 'right' | 'sprint' | 'interact',
     Phaser.Input.Keyboard.Key
   >;
   private seq = 0;
@@ -129,6 +129,14 @@ export class InputController {
       right: keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D),
       // 달리기. 누르고 있는 동안만 유효한 상태라 이벤트가 아니라 매 틱 입력에 실어 보낸다.
       sprint: keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT),
+      /*
+       * 상호작용. 코어 창을 여는 키와 **같은 키**다 — 쓰러진 동료 옆에서 누르고 있으면
+       * 구조가 찬다(5초). 코어 옆에서 누르면 창이 열린다. 둘을 갈라 새 키를 만들지
+       * 않은 이유는, 플레이어가 하는 일은 어느 쪽이든 "앞의 것에 손을 대는" 하나라서다.
+       *
+       * 구조는 **누르고 있는 상태**라 이벤트가 아니라 매 틱 입력에 실어 보낸다(sprint와 같다).
+       */
+      interact: keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.E),
     };
 
     // 낮 넘기기 투표(만장일치). 서버가 중복 투표를 무시하므로 한 번만 보내면 된다.
@@ -229,6 +237,7 @@ export class InputController {
     this.keys.left.reset();
     this.keys.right.reset();
     this.keys.sprint.reset();
+    this.keys.interact.reset();
     this.placedThisPress = false;
     this.seq += 1;
     const input = this.buildInput();
@@ -359,6 +368,7 @@ export class InputController {
       ...normalized,
       aimAngle: this.aimAngle,
       sprint: this.keys.sprint.isDown,
+      interact: this.keys.interact.isDown,
     };
   }
 }

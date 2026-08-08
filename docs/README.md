@@ -50,6 +50,7 @@
 | [backend/62-work-report-colony-trickle-spawn.md](backend/62-work-report-colony-trickle-spawn.md) | 작업 보고서 — 콜로니 저장분 소진 후 트리클 스폰 추가(아침 파밍 가능하게, 피드백 #3) |
 | [backend/63-work-report-wave-player-scaling.md](backend/63-work-report-wave-player-scaling.md) | 작업 보고서 — 몬스터 웨이브 인원수 스케일링 신규 구현(기본값 3배 + 인원당 +100%, 피드백 #2) |
 | [backend/64-work-report-terrain-resource-placement.md](backend/64-work-report-terrain-resource-placement.md) | 작업 보고서 — 자원 노드를 클러스터 배치에서 지형 기반 확률 배치로 전면 교체, 인원수 스케일링(피드백 #4) |
+| [backend/65-work-report-revive-system.md](backend/65-work-report-revive-system.md) | 작업 보고서 — 부활 시스템(쓰러짐/유령, 혼자하기 10초 자동 부활, 동료 구조 5초, AID 즉시 부활, 낮에 코어에서 에너지로 유령 부활) |
 
 ### 역할 C — 클라이언트/렌더/UI 작업 문서 ([frontend/](frontend/))
 

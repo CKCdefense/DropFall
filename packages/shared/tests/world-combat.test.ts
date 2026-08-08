@@ -401,7 +401,7 @@ describe('World — 전원 다운 = 즉시 패배', () => {
     expect(world.getCore().hp).toBeLessThan(coreHpBefore);
   });
 
-  it('웨이브를 클리어하고 새 낮이 시작되면 다운된 플레이어가 부활한다', () => {
+  it('밤 내내 쓰러져 있던 플레이어는 유령이 되어 아침에도 돌아오지 못한다', () => {
     const world = new World();
     world.addPlayer('p1', 0, 0);
     equipDefaultKit(world, 'p1');
@@ -419,7 +419,79 @@ describe('World — 전원 다운 = 즉시 패배', () => {
     }
 
     expect(world.getWavePhase()).toBe('day');
-    expect(world.getPlayers().get('p1')!.hp).toBe(jobsData.base.maxHp);
+
+    /*
+     * 쓰러진 지 30초가 지나 유령이 됐으므로 아침이 와도 일어나지 않는다 — 유령을
+     * 되돌리는 길은 낮에 코어에서 에너지를 치르는 것 하나뿐이다(reviveGhostAtCore).
+     * 여기서 공짜로 세워 주면 그 대가가 통째로 사라진다.
+     */
+    expect(world.getPlayers().get('p1')!.lifeState).toBe('ghost');
+    expect(world.getPlayers().get('p1')!.hp).toBe(0);
+  });
+
+  it('밤이 끝나는 순간에 쓰러진 플레이어는 아침에 절반 체력으로 일어난다', () => {
+    const world = new World();
+    world.addPlayer('p1', 0, 0);
+    equipDefaultKit(world, 'p1');
+    world.addPlayer('p2', 0, 0);
+    startFirstWave(world);
+
+    const monsters = world.getMonsters() as unknown as Map<string, unknown>;
+    const wave1 = wavesData.waves[0]!;
+    for (let i = 0; i < 5000 && world.getWavePhase() === 'night'; i += 1) {
+      /*
+       * 매 틱 다시 눕힌다 = **계속 얻어맞아 방금 쓰러진 상태**로 아침을 맞는다.
+       * 한 번만 눕히면 30초 뒤 유령이 되는데, 밤 길이는 웨이브 구성과 인원수
+       * 스케일링이 정하는 값이라 "유령이 되기 전에 아침이 오는" 밤을 테스트가
+       * 임의로 만들 수 없다.
+       */
+      const p1 = world.getPlayers().get('p1')!;
+      p1.hp = 0;
+      p1.lifeState = 'alive';
+      world.tick(wave1.groupIntervalSeconds / 4);
+      for (const id of [...monsters.keys()]) monsters.delete(id);
+    }
+
+    expect(world.getWavePhase()).toBe('day');
+
+    // 되살아나되 **가득 차지는 않는다** — 풀피로 되살리면 살아남는 것보다 죽는 편이
+    // 이득이 된다(World.REVIVE_HP_RATIO).
+    const revived = world.getPlayers().get('p1')!.hp;
+    expect(revived).toBeGreaterThan(0);
+    expect(revived).toBeLessThan(jobsData.base.maxHp);
+  });
+
+  it('새 낮이 와도 살아남은 플레이어의 체력은 채워주지 않는다', () => {
+    const world = new World();
+    world.addPlayer('p1', 0, 0);
+    equipDefaultKit(world, 'p1');
+    world.addPlayer('p2', 0, 0);
+    startFirstWave(world);
+
+    const hurt = Math.round(jobsData.base.maxHp * 0.4);
+    world.getPlayers().get('p1')!.hp = hurt;
+
+    const monsters = world.getMonsters() as unknown as Map<string, unknown>;
+    const wave1 = wavesData.waves[0]!;
+    for (let i = 0; i < 5000 && world.getWavePhase() === 'night'; i += 1) {
+      // 매 틱 다시 깎아 둔다 — 그래야 아침을 **다친 채로** 맞는다. 한 번만 깎으면
+      // 밤이 길어(웨이브 인원수 스케일링) 자연 재생만으로 가득 차 버려서, 아침이
+      // 채워 준 것인지 밤새 아문 것인지 구분할 수 없다.
+      world.getPlayers().get('p1')!.hp = hurt;
+      world.tick(wave1.groupIntervalSeconds / 4);
+      for (const id of [...monsters.keys()]) monsters.delete(id);
+    }
+
+    expect(world.getWavePhase()).toBe('day');
+    /*
+     * **전환 순간에 뛰지 않았는가**를 본다.
+     *
+     * 재생으로 차는 것과 아침이 채워 주는 것은 다른 얘기다 — 이 테스트가 못 박으려는
+     * 건 뒤쪽이라, 밤새 아무는 몫을 위에서 걷어내고 전환만 본다.
+     */
+    const dawn = world.getPlayers().get('p1')!.hp;
+    expect(dawn).toBeGreaterThan(0);
+    expect(dawn).toBeLessThan(jobsData.base.maxHp);
   });
 });
 
@@ -433,8 +505,8 @@ function forceDropItem(world: World, itemId: string, count: number, x: number, y
   ).dropItem(itemId, count, x, y);
 }
 
-describe('World — 다운된(hp 0) 플레이어는 이동 말고는 아무 동작도 할 수 없다', () => {
-  it('이동은 그대로 된다 — 도망/은신 등 최소한의 조작은 남겨둔다', () => {
+describe('World — 다운된(hp 0) 플레이어는 아무 동작도 할 수 없다', () => {
+  it('쓰러진 채로는 움직이지 못한다 — 기어다니면 동료가 구조를 채울 수 없다', () => {
     const world = new World();
     // 코어 발자국 밖(코어는 원점)에서 시작해야 이동 자체가 코어 충돌에 막히지 않는다.
     world.addPlayer('p1', 200, 200);
@@ -444,7 +516,8 @@ describe('World — 다운된(hp 0) 플레이어는 이동 말고는 아무 동�
     world.tick(0.5);
 
     const player = world.getPlayers().get('p1')!;
-    expect(player.x).toBeGreaterThan(200);
+    expect(player.lifeState).toBe('downed');
+    expect(player.x).toBe(200);
   });
 
   it('공격해도 투사체가 생기지 않는다', () => {
