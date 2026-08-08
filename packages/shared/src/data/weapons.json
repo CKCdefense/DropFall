@@ -15,7 +15,7 @@
     "tier": "normal",
     "damage": 14,
     "fireRate": 1.1,
-    "range": 55,
+    "range": 47,
     "arc": 100
   },
   "stone_spear": {
@@ -24,7 +24,7 @@
     "tier": "normal",
     "damage": 14,
     "fireRate": 1.5,
-    "range": 69,
+    "range": 64,
     "arc": 60
   },
   "fire_axe": {
@@ -33,7 +33,7 @@
     "tier": "rare",
     "damage": 20,
     "fireRate": 1.4,
-    "range": 49,
+    "range": 42,
     "arc": 110,
     "toolFamily": "axe",
     "gatherMultiplier": 1.0
@@ -44,7 +44,7 @@
     "tier": "rare",
     "damage": 24,
     "fireRate": 3.0,
-    "range": 35,
+    "range": 29,
     "arc": 70
   },
   "machete": {
@@ -53,7 +53,7 @@
     "tier": "epic",
     "damage": 30,
     "fireRate": 2.2,
-    "range": 58,
+    "range": 48,
     "arc": 120,
     "toolFamily": "axe",
     "gatherMultiplier": 1.0
@@ -64,7 +64,7 @@
     "tier": "epic",
     "damage": 40,
     "fireRate": 1.6,
-    "range": 50,
+    "range": 39,
     "arc": 110,
     "toolFamily": "axe",
     "gatherMultiplier": 1.6
@@ -75,7 +75,7 @@
     "tier": "legendary",
     "damage": 55,
     "fireRate": 2.4,
-    "range": 69,
+    "range": 60,
     "arc": 130,
     "lightRadius": 150
   },
@@ -89,7 +89,7 @@
     "reloadTime": 1.2,
     "projectileSpeed": 380,
     "maxRange": 280,
-    "muzzleOffset": 27
+    "muzzleOffset": 23
   },
   "shuriken": {
     "name": "표창",
@@ -101,7 +101,7 @@
     "reloadTime": 1.2,
     "projectileSpeed": 360,
     "maxRange": 200,
-    "muzzleOffset": 19
+    "muzzleOffset": 17
   },
   "crossbow": {
     "name": "석궁",
@@ -113,7 +113,7 @@
     "reloadTime": 1.8,
     "projectileSpeed": 480,
     "maxRange": 300,
-    "muzzleOffset": 45
+    "muzzleOffset": 42
   },
   "rifle": {
     "name": "장전식 소총",
@@ -125,7 +125,7 @@
     "reloadTime": 2.6,
     "projectileSpeed": 640,
     "maxRange": 400,
-    "muzzleOffset": 48
+    "muzzleOffset": 45
   },
   "revolver": {
     "name": "리볼버",
@@ -137,7 +137,7 @@
     "reloadTime": 1.5,
     "projectileSpeed": 520,
     "maxRange": 280,
-    "muzzleOffset": 35
+    "muzzleOffset": 29
   },
   "handgun": {
     "name": "권총",
@@ -149,7 +149,7 @@
     "reloadTime": 1.0,
     "projectileSpeed": 500,
     "maxRange": 280,
-    "muzzleOffset": 31
+    "muzzleOffset": 25
   },
   "smg": {
     "name": "기관단총",
@@ -161,7 +161,7 @@
     "reloadTime": 1.0,
     "projectileSpeed": 520,
     "maxRange": 210,
-    "muzzleOffset": 32
+    "muzzleOffset": 26
   },
   "double_barrel_shotgun": {
     "name": "더블배럴 샷건",
@@ -173,7 +173,7 @@
     "reloadTime": 2.2,
     "projectileSpeed": 460,
     "maxRange": 150,
-    "muzzleOffset": 49,
+    "muzzleOffset": 46,
     "pellets": 6,
     "spreadDeg": 24
   },
@@ -187,7 +187,7 @@
     "reloadTime": 1.6,
     "projectileSpeed": 600,
     "maxRange": 400,
-    "muzzleOffset": 38,
+    "muzzleOffset": 33,
     "burst": {
       "count": 3,
       "interval": 0.07
@@ -203,7 +203,7 @@
     "reloadTime": 1.8,
     "projectileSpeed": 460,
     "maxRange": 190,
-    "muzzleOffset": 47,
+    "muzzleOffset": 43,
     "pellets": 6,
     "spreadDeg": 20
   },

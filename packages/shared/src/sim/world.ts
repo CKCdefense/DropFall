@@ -49,9 +49,11 @@ import {
   type CompanionPersonaTurn,
 } from './companionPersona';
 import {
+  FULL_ARC,
   HIT_RADIUS,
   WeaponAmmo,
   WeaponCooldowns,
+  angleDifference,
   circlesOverlap,
   projectileSweepHits,
   resolveFire,
@@ -324,6 +326,9 @@ export type BossPatternState =
       /** 돌진(dash)이 있는 기술에서 이미 쓸고 지나간 대상. 한 번의 돌진에 한 사람이
        * 여러 번 맞지 않게 한다(매 틱 판정하면 가만히 선 사람이 수십 번 맞는다). */
       dashHitIds: Set<string>;
+      /** 돌진이 시작된 자리. 직사각형 판정이 "출발점부터 지금까지"를 덮으려면 필요하다. */
+      dashOriginX?: number;
+      dashOriginY?: number;
     }
   /** 판정 후 경직. 이 동안은 이동도 다음 공격도 없다 — 플레이어가 반격할 틈이다. */
   | { kind: 'meleeRecover'; timer: number }
@@ -2178,6 +2183,11 @@ export class World {
     data: MonsterData,
     target: BasicAttackTarget,
   ): void {
+    // 보스에게는 평타가 없다 — 패턴 3개(meleeAttacks)가 공격의 전부이고, 그중 하나가
+    // 자주 나오는 동작 역할을 한다. 예전엔 여기서 Attack01을 평타로 재생해서, 같은
+    // 그림이 "평타"와 "1번 기술" 양쪽으로 쓰이며 서로를 덮어썼다.
+    if (data.meleeAttacks) return;
+
     monster.attackCooldown = data.attackInterval;
     monster.pattern = { kind: 'basicSwing', timer: data.attackWindupSeconds, target };
     // 모션은 지금 켠다 — 맞은 뒤에 휘두르면 예고가 아니다.
@@ -2743,16 +2753,23 @@ export class World {
     monster.specialAttackCooldown = Math.max(0, monster.specialAttackCooldown - dtSeconds);
     if (monster.specialAttackCooldown > 0) return false;
 
-    const target = data.aggroRadius ? this.resolveAggroTarget(monster, data.aggroRadius) : undefined;
+    // 무엇을 향해 휘두를지 정한다. 사람이 우선이고, 아무도 없으면 코어를 부순다 —
+    // 보스에겐 별도의 평타가 없어서(패턴 3개가 전부다) 여기서 대상을 못 찾으면
+    // 코어를 때릴 방법 자체가 없어진다.
+    const target = this.bossPatternTarget(monster, data);
     if (!target) return false;
 
     const dxToTarget = target.x - monster.x;
     const dyToTarget = target.y - monster.y;
-    const targetDistance = Math.hypot(dxToTarget, dyToTarget);
+    // 방향은 중심까지의 거리로 정규화하고(단위벡터여야 한다), 사거리 비교만 대상의
+    // 덩치를 뺀 "가장자리까지의 거리"로 한다 — 코어처럼 발자국이 크면 중심 거리로는
+    // 검이 닿는데도 사거리 밖으로 판정된다.
+    const centreDistance = Math.hypot(dxToTarget, dyToTarget);
+    const targetDistance = Math.max(0, centreDistance - target.radius);
 
-    // 근접 검술을 가진 보스는 그쪽을 먼저 본다 — 사거리가 닿고 쿨다운이 끝난 기술
-    // 중에서 무작위로 하나. 거리로 후보가 갈리므로 붙으면 짧은 기술, 떨어지면 긴
-    // 기술이 나온다(항상 같은 순서면 패턴이 아니라 그냥 외우는 게 된다).
+    // 쿨다운이 끝났고 사거리가 닿는 기술 중에서 **가중치로** 하나 고른다. 거리로 후보가
+    // 갈리므로 붙으면 짧은 기술, 떨어지면 긴 기술이 나오고, 가중치가 "자주 나오는 동작"과
+    // "가끔 나오는 큰 동작"을 나눈다 — 평타와 스킬이 따로 있는 게 아니라 셋 다 패턴이다.
     if (data.meleeAttacks) {
       const ready: number[] = [];
       data.meleeAttacks.forEach((attack, index) => {
@@ -2769,10 +2786,10 @@ export class World {
       });
 
       if (ready.length > 0) {
-        const index = ready[Math.floor(this.rng() * ready.length)]!;
+        const index = this.pickWeightedAttack(data.meleeAttacks, ready);
         const chosen = data.meleeAttacks[index]!;
-        const dirX = targetDistance > 0 ? dxToTarget / targetDistance : monster.facingX;
-        const dirY = targetDistance > 0 ? dyToTarget / targetDistance : monster.facingY;
+        const dirX = centreDistance > 0 ? dxToTarget / centreDistance : monster.facingX;
+        const dirY = centreDistance > 0 ? dyToTarget / centreDistance : monster.facingY;
         monster.facingX = dirX;
         monster.facingY = dirY;
         monster.pattern = {
@@ -2797,6 +2814,59 @@ export class World {
     }
 
     return false;
+  }
+
+  /**
+   * 보스가 이번 패턴으로 노릴 대상. 사람 → 티모시 → 코어 순이다.
+   *
+   * 보스에겐 평타가 따로 없다(패턴 3개가 전부). 그래서 잡몹처럼 "쿨다운이면 평타"로
+   * 흘려보낼 곳이 없고, 대상 선택을 여기서 한 번에 해결해야 코어도 부술 수 있다.
+   * 반환하는 radius는 대상의 덩치다 — 코어는 발자국이 커서 중심까지의 거리로 재면
+   * 검이 닿는데도 사거리 밖으로 판정된다.
+   */
+  private bossPatternTarget(
+    monster: MonsterEntity,
+    data: MonsterData,
+  ): { x: number; y: number; radius: number } | undefined {
+    const player = data.aggroRadius
+      ? this.resolveAggroTarget(monster, data.aggroRadius)
+      : undefined;
+    if (player) return { x: player.x, y: player.y, radius: HIT_RADIUS };
+
+    // 티모시는 **이미 검이 닿는 거리에 있을 때만** 노린다. 아그로 반경(수백 px)으로
+    // 잡으면, 멀리 있는 티모시를 겨눈 채 사거리 밖이라 아무 기술도 못 쓰고, 그렇다고
+    // 코어 앞이라 움직이지도 않는 교착에 빠진다(실제로 그랬다). 쫓아갈 대상은 사람뿐이다.
+    if (this.companion.state !== 'downed') {
+      const distance = Math.hypot(this.companion.x - monster.x, this.companion.y - monster.y);
+      const reach = Math.max(
+        ...(data.meleeAttacks ?? []).flatMap((attack) => attack.hits.map((h) => h.range)),
+      );
+      if (distance - HIT_RADIUS <= reach) {
+        return { x: this.companion.x, y: this.companion.y, radius: HIT_RADIUS };
+      }
+    }
+
+    // 코어는 항상 원점이다. 중심까지의 거리에서 발자국 반경을 빼야 "가장자리까지의
+    // 거리"가 되므로, 몬스터 위치에서 잰 coreDistance로 반경을 역산한다.
+    const centreDistance = Math.hypot(monster.x, monster.y);
+    const edgeDistance = coreDistance(monster.x, monster.y);
+    return { x: 0, y: 0, radius: Math.max(0, centreDistance - edgeDistance) };
+  }
+
+  /**
+   * 쓸 수 있는 기술 중 하나를 가중치로 고른다. 가중치가 없으면 1로 본다 —
+   * 전부 없으면 예전과 같은 균등 추첨이 된다.
+   */
+  private pickWeightedAttack(attacks: readonly MeleeAttackData[], ready: readonly number[]): number {
+    let total = 0;
+    for (const index of ready) total += attacks[index]!.weight ?? 1;
+
+    let roll = this.rng() * total;
+    for (const index of ready) {
+      roll -= attacks[index]!.weight ?? 1;
+      if (roll <= 0) return index;
+    }
+    return ready[ready.length - 1]!;
   }
 
   /**
@@ -2855,11 +2925,18 @@ export class World {
     pattern: Extract<BossPatternState, { kind: 'meleeSwing' }>,
     dtSeconds: number,
   ): void {
+    // 출발점은 첫 틱에 한 번만 기록한다 — 직사각형 판정이 "여기서부터 지금까지"를 덮는다.
+    if (pattern.dashOriginX === undefined) {
+      pattern.dashOriginX = monster.x;
+      pattern.dashOriginY = monster.y;
+    }
     this.moveMonster(monster, pattern.dirX, pattern.dirY, dash.speed, dtSeconds);
+
+    const hits = (x: number, y: number): boolean => this.dashCovers(dash, pattern, monster, x, y);
 
     for (const player of this.players.values()) {
       if (player.hp <= 0 || pattern.dashHitIds.has(player.id)) continue;
-      if (!circlesOverlap(monster.x, monster.y, player.x, player.y, dash.radius + HIT_RADIUS)) continue;
+      if (!hits(player.x, player.y)) continue;
       this.damagePlayer(player, dash.damage);
       pattern.dashHitIds.add(player.id);
     }
@@ -2867,11 +2944,45 @@ export class World {
     if (
       this.companion.state !== 'downed' &&
       !pattern.dashHitIds.has('companion') &&
-      circlesOverlap(monster.x, monster.y, this.companion.x, this.companion.y, dash.radius + HIT_RADIUS)
+      hits(this.companion.x, this.companion.y)
     ) {
       this.damageCompanion(dash.damage);
       pattern.dashHitIds.add('companion');
     }
+  }
+
+  /**
+   * 돌진이 이 지점을 덮었는가.
+   *
+   * `halfWidth`가 있으면 **출발점에서 현재 위치까지의 직사각형**이다 — 진행 방향으로
+   * 얼마나 왔는지(along)와 옆으로 얼마나 벗어났는지(side)를 따로 재서, 길이는 돌진
+   * 거리로 폭은 데이터로 정한다. 원 판정은 폭이 곧 사거리라 길게 만들수록 사방이
+   * 넓어져 옆으로 피할 방향이 사라진다(골렘 돌격에서 실제로 그랬다).
+   *
+   * `halfWidth`가 없으면 예전처럼 몬스터를 중심으로 한 원이다.
+   */
+  private dashCovers(
+    dash: NonNullable<MeleeAttackData['dash']>,
+    pattern: Extract<BossPatternState, { kind: 'meleeSwing' }>,
+    monster: MonsterEntity,
+    x: number,
+    y: number,
+  ): boolean {
+    if (dash.halfWidth === undefined) {
+      return circlesOverlap(monster.x, monster.y, x, y, (dash.radius ?? 0) + HIT_RADIUS);
+    }
+
+    const originX = pattern.dashOriginX ?? monster.x;
+    const originY = pattern.dashOriginY ?? monster.y;
+    const travelled = (monster.x - originX) * pattern.dirX + (monster.y - originY) * pattern.dirY;
+    const along = (x - originX) * pattern.dirX + (y - originY) * pattern.dirY;
+    // 진행 방향의 수직 성분. dir은 단위벡터라 이 식이 곧 옆으로 벗어난 거리다.
+    const side = Math.abs((x - originX) * -pattern.dirY + (y - originY) * pattern.dirX);
+
+    // 앞뒤로는 몸통 반경만큼 여유를 준다 — 출발점 바로 앞이나 도착점 바로 뒤에 붙어
+    // 있는 대상이 통로 밖으로 새는 게 더 이상하다.
+    const margin = monsterRadius(monster);
+    return along >= -margin && along <= travelled + margin && side <= dash.halfWidth + HIT_RADIUS;
   }
 
   /** 검을 휘두른 뒤 경직. 그냥 시간만 흘려보낸다(이동·공격 없음). */
@@ -2919,6 +3030,26 @@ export class World {
     }
     if (this.companion.state !== 'downed' && withinMeleeArc(hit, this.companion.x, this.companion.y, HIT_RADIUS)) {
       this.damageCompanion(swing.damage);
+    }
+
+    // 코어와 앞을 막은 건축물도 같은 부채꼴에 든다. 보스는 평타가 없어졌으므로
+    // (§startBasicAttack) 이 판정이 없으면 코어를 부술 방법 자체가 사라진다 —
+    // 휘두른 자리에 있는 것은 사람이든 벽이든 다 맞는 게 자연스럽기도 하다.
+    const coreEdge = coreDistance(monster.x, monster.y);
+    if (coreEdge <= swing.range) {
+      const toCore = Math.atan2(-monster.y, -monster.x);
+      if (hit.halfArc >= FULL_ARC || angleDifference(toCore, hit.aimAngle) <= hit.halfArc) {
+        this.core.hp = Math.max(0, this.core.hp - swing.damage);
+      }
+    }
+    for (const building of this.buildings.values()) {
+      if (!buildingsData[building.type].blocksMovement) continue;
+      if (!withinMeleeArc(hit, building.x, building.y, TILE_SIZE / 2)) continue;
+      building.hp = Math.max(0, building.hp - swing.damage);
+      if (building.hp <= 0) {
+        this.buildings.remove(building.id);
+        this.recomputeFlowField();
+      }
     }
     // 여기서 markAttack을 다시 부르지 않는다 — 동작 시작 때 이미 켰고, 2연타에서
     // 다시 켜면 애니메이션이 첫 장부터 재시작해 두 번째 타격이 어긋난다.
@@ -3614,6 +3745,25 @@ export function describeBossTelegraph(
   const previousAt = pattern.nextHit > 0 ? attack.hits[pattern.nextHit - 1]!.atSeconds : 0;
   const total = Math.max(0.001, hit.atSeconds - previousAt);
   const remaining = Math.max(0, hit.atSeconds - pattern.elapsed);
+
+  // 돌격은 **지나갈 길**을 먼저 보여준다. 마무리 타격(전방향 광역)만 예고하면 화면에는
+  // 보스 발밑의 원만 뜨는데, 정작 위험한 건 그 앞으로 밀고 나가는 통로다 — 예고와
+  // 판정이 다르면 피할 방법이 없다. 아직 돌진이 시작되기 전(창 이전)에만 띄운다.
+  const dash = attack.dash;
+  if (dash?.halfWidth !== undefined && pattern.elapsed <= dash.toSeconds) {
+    const travel = dash.speed * (dash.toSeconds - dash.fromSeconds);
+    return {
+      kind: 'charge',
+      x: monster.x,
+      y: monster.y,
+      dirX: pattern.dirX,
+      dirY: pattern.dirY,
+      radius: dash.halfWidth,
+      range: travel,
+      remaining: Math.max(0, dash.fromSeconds - pattern.elapsed),
+      total: Math.max(0.001, dash.fromSeconds),
+    };
+  }
 
   if (hit.arc >= 360) {
     return {

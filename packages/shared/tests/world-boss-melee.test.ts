@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { World, type MonsterEntity } from '../src/sim/world';
+import { World, describeBossTelegraph, type MonsterEntity } from '../src/sim/world';
 import { monstersData, wavesData } from '../src/data';
 
 const MELEE = monstersData.boss_demon.meleeAttacks!;
@@ -288,9 +288,9 @@ describe('World — 3일차 보스(흑기사) 창술', () => {
 // ---------------------------------------------------------------- 4일차 화염 골렘
 
 const GOLEM = monstersData.boss_golem.meleeAttacks!;
-const JAB = GOLEM[0]!; // Attack01 — 평타
+const JAB = GOLEM[0]!; // Attack01 — 가장 자주 나오는 짧은 패턴
 const STOMP = GOLEM[1]!; // Attack02 — 광역 찍기(전방향)
-const RUSH = GOLEM[2]!; // Attack03 — 광역 돌진
+const RUSH = GOLEM[2]!; // Attack03 — 긴 직선 돌격 + 마무리 광역
 
 function spawnGolem(world: World): MonsterEntity {
   world.addPlayer('dev', 3000, 3000);
@@ -330,7 +330,7 @@ function forceGolemAttack(world: World, boss: MonsterEntity, index: number): voi
 }
 
 describe('World — 4일차 보스(화염 골렘)', () => {
-  it('평타는 셋 중 가장 짧고, 광역 찍기와 돌진은 전방향이라 옆으로 못 피한다', () => {
+  it('1번은 셋 중 가장 짧고, 광역 찍기와 돌격 마무리는 전방향이라 옆으로 못 피한다', () => {
     expect(reachOf(JAB)).toBeLessThan(reachOf(STOMP));
     expect(JAB.hits[0]!.arc).toBeLessThan(360);
     expect(STOMP.hits[0]!.arc).toBe(360);
@@ -339,6 +339,59 @@ describe('World — 4일차 보스(화염 골렘)', () => {
     expect(JAB.dash).toBeUndefined();
     expect(STOMP.dash).toBeUndefined();
     expect(RUSH.dash).toBeDefined();
+  });
+
+  it('돌격은 원이 아니라 길고 좁은 직사각형이다 — 옆으로 비키면 피할 수 있다', () => {
+    const dash = RUSH.dash!;
+    const travel = dash.speed * (dash.toSeconds - dash.fromSeconds);
+
+    // 판정 폭(좌우)이 돌진 길이보다 훨씬 좁아야 "통로"가 된다. 원 판정이면 폭이 곧
+    // 반지름이라 이 관계가 성립할 수 없다.
+    expect(dash.halfWidth).toBeDefined();
+    expect(dash.radius).toBeUndefined();
+    expect(travel).toBeGreaterThan(dash.halfWidth! * 3);
+  });
+
+  it('돌격 예고는 마무리 원이 아니라 지나갈 통로를 보여준다', () => {
+    const world = new World();
+    const boss = spawnGolem(world);
+    world.addPlayer('p1', boss.x - 150, boss.y);
+
+    forceGolemAttack(world, boss, 2);
+    const telegraph = describeBossTelegraph(boss, monstersData.boss_golem)!;
+
+    // 예고와 판정이 다르면 피할 방법이 없다 — 띠의 길이·폭이 돌진 데이터와 같아야 한다.
+    const dash = RUSH.dash!;
+    expect(telegraph.kind).toBe('charge');
+    expect(telegraph.radius).toBe(dash.halfWidth);
+    expect(telegraph.range).toBeCloseTo(dash.speed * (dash.toSeconds - dash.fromSeconds), 5);
+  });
+
+  it('돌격 경로 옆에 비켜서 있으면 맞지 않고, 경로 위에 있으면 맞는다', () => {
+    // 경로 위 — 정면에 서 있으면 쓸린다.
+    const onPath = new World();
+    const bossOn = spawnGolem(onPath);
+    onPath.addPlayer('p1', bossOn.x - 150, bossOn.y);
+    const hit = onPath.getPlayers().get('p1')!;
+    forceGolemAttack(onPath, bossOn, 2);
+    hit.hp = 500; // 기술이 시작된 뒤에 기준을 잡는다 — 유도 단계의 피해는 측정 대상이 아니다
+    for (let i = 0; i < 300 && bossOn.pattern.kind === 'meleeSwing'; i += 1) onPath.tick(0.01);
+    expect(hit.hp).toBeLessThan(500);
+
+    // 경로 옆 — 같은 거리지만 통로 폭 밖으로 비켜서면 안 맞는다. 마무리 광역(전방향
+    // 110px)까지 벗어나야 "돌격을 피했다"가 성립하므로 그만큼 넉넉히 비켜선다.
+    const beside = new World();
+    const bossBeside = spawnGolem(beside);
+    const side = RUSH.dash!.halfWidth! + RUSH.hits[0]!.range;
+    beside.addPlayer('p1', bossBeside.x - 150, bossBeside.y + side);
+    const dodged = beside.getPlayers().get('p1')!;
+    forceGolemAttack(beside, bossBeside, 2);
+    dodged.hp = 500;
+    for (let i = 0; i < 300 && bossBeside.pattern.kind === 'meleeSwing'; i += 1) {
+      beside.tick(0.01);
+      dodged.y = bossBeside.y + side; // 밀려나지 않게 옆자리를 유지한다
+    }
+    expect(dodged.hp).toBe(500);
   });
 
   it('3번 기술은 실제로 앞으로 돌진한다 — 제자리 기술과 달리 위치가 바뀐다', () => {

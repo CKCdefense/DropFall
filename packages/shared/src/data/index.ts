@@ -60,6 +60,15 @@ const MeleeHitSchema = z.object({
 const MeleeAttackSchema = z.object({
   /** 스프라이트 태그 번호(1=Attack01, 2=Attack02, 3=Attack03). 클라이언트가 어느 동작을 재생할지 고른다. */
   anim: z.number().int().positive(),
+  /**
+   * 뽑기 가중치. 쓸 수 있는 기술이 여럿일 때 이 비율로 고른다(없으면 1).
+   *
+   * 보스에겐 "평타 + 스킬"이라는 구분이 없다 — 세 동작 전부가 패턴이고, 자주 나오는
+   * 것과 드물게 나오는 것이 있을 뿐이다. 쿨다운이 "언제 다시 쓸 수 있나"를 정한다면
+   * 이 값은 "쓸 수 있을 때 얼마나 자주 고르나"를 정한다. 둘 다 있어야 큰 기술이
+   * 쿨다운이 도는 즉시 반드시 나오는 기계적인 순서가 되지 않는다.
+   */
+  weight: z.number().positive().optional(),
   /** 이 동작이 만드는 타격들. 시간순으로 넣는다. */
   hits: z.array(MeleeHitSchema).min(1),
   /**
@@ -76,8 +85,18 @@ const MeleeAttackSchema = z.object({
       toSeconds: z.number().positive(),
       /** 돌진 이동 속도(px/s). 평상시 speed와 무관하다. */
       speed: z.number().positive(),
-      /** 몸에 닿았다고 보는 반경(px). */
-      radius: z.number().positive(),
+      /** 몸에 닿았다고 보는 반경(px). halfWidth가 있으면 쓰이지 않는다. */
+      radius: z.number().positive().optional(),
+      /**
+       * 있으면 판정이 원이 아니라 **지나온 길 전체를 덮는 직사각형**이 된다 —
+       * 출발점에서 현재 위치까지, 진행 방향 좌우로 이만큼(px)씩.
+       *
+       * 원 판정은 "돌진"이 아니라 "몸통 박치기"로 느껴진다. 돌진은 옆으로 피하는 게
+       * 대응인데, 원은 폭이 곧 사거리라 길게 만들수록 사방이 넓어져서 피할 방향이
+       * 사라진다. 직사각형이면 길이(돌진 거리)와 폭을 따로 정할 수 있어서, 길고 좁은
+       * "밀고 지나가는 길"을 만들 수 있다.
+       */
+      halfWidth: z.number().positive().optional(),
       damage: z.number().nonnegative(),
     })
     .optional(),

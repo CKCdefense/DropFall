@@ -1107,7 +1107,7 @@ describe('World — 모든 공격은 시도 → 예고 → 판정 → 정산', (
     expect(player.hp).toBe(100);
   });
 
-  it('보스 평타도 같은 규칙을 탄다 — 검술 쿨다운 중이라고 즉사 피해가 나오지 않는다', () => {
+  it('보스는 평타를 쓰지 않는다 — 모든 기술이 쿨다운이면 아무것도 안 치고 기다린다', () => {
     const world = new World();
     world.addPlayer('dev', 3000, 3000);
     world.runDevCommand('dev', 'spawn boss_demon 1');
@@ -1116,21 +1116,33 @@ describe('World — 모든 공격은 시도 → 예고 → 판정 → 정산', (
     boss.y = 0;
     boss.facingX = -1;
     boss.facingY = 0;
-    // 검술을 전부 잠가서 평타 경로만 남긴다.
+    // 패턴 세 개를 전부 잠근다. 예전엔 이때 Attack01이 "평타"로 나왔다 — 같은 그림이
+    // 평타와 1번 기술 양쪽으로 쓰이면서 서로를 덮어썼다.
     boss.meleeCooldowns.forEach((_, i) => {
       boss.meleeCooldowns[i] = 999;
     });
-    boss.specialAttackCooldown = 999;
 
-    world.addPlayer('p1', boss.x - 40, boss.y); // 평타 사거리 안
+    world.addPlayer('p1', boss.x - 40, boss.y);
     const player = world.getPlayers().get('p1')!;
 
-    // 시도는 하되 예고가 끝나기 전에는 피해가 없어야 한다.
-    for (let i = 0; i < 40 && boss.pattern.kind !== 'basicSwing'; i += 1) world.tick(0.01);
-    expect(boss.pattern.kind).toBe('basicSwing');
+    for (let i = 0; i < 200; i += 1) {
+      world.tick(0.01);
+      expect(boss.pattern.kind).not.toBe('basicSwing');
+    }
     expect(player.hp).toBe(100);
+  });
 
-    tickSeconds(world, monstersData.boss_demon.attackWindupSeconds * 1.5, 0.01);
-    expect(player.hp).toBe(100 - monstersData.boss_demon.damage);
+  it('보스는 사람이 없으면 패턴으로 코어를 부순다 — 평타가 없어도 공격할 수 있다', () => {
+    const world = new World();
+    world.addPlayer('far', 3000, 3000); // 어그로 밖
+    world.runDevCommand('far', 'spawn boss_demon 1');
+    const boss = [...world.getMonsters().values()].find((m) => m.type === 'boss_demon')!;
+    boss.x = 70;
+    boss.y = 0;
+
+    const coreBefore = world.getCore().hp;
+    for (let i = 0; i < 400; i += 1) world.tick(0.05);
+
+    expect(world.getCore().hp).toBeLessThan(coreBefore);
   });
 });
