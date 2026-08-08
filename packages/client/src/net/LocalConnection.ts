@@ -388,6 +388,7 @@ export class LocalConnection implements GameConnection {
         statUpgradesUnlocked: this.world.isStatUpgradesUnlocked(),
         wavePhase: this.world.getWavePhase(),
         currentWave: this.world.getCurrentWave(),
+        bossWarningRemaining: this.world.getBossWarningRemaining(),
         phaseTimeRemaining: this.world.getPhaseTimeRemaining(),
         skipVoteCount: this.world.getSkipVoteCount(),
       },

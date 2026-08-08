@@ -53,6 +53,13 @@ export class WaveManager {
   private spawnPointCursor = 0;
   /** 이번 밤의 보스가 이미 소환됐는가. bossType이 없는 웨이브(1일차)에서는 안 쓴다. */
   private bossSpawned = false;
+  /**
+   * 보스 등장까지 남은 예고 시간(초). 0보다 크면 "잡몹은 다 죽었고 보스가 오는 중"이다.
+   *
+   * 예고 없이 떨어뜨리면 보스가 이미 붙어 있는 상태로 전투가 시작된다 — 자리를 잡거나
+   * 회복할 틈이 없다. 이 값은 그대로 화면에 내려가 경고 문구가 된다.
+   */
+  private bossWarning = 0;
 
   constructor(options: WaveManagerOptions = {}) {
     this.rng = options.rng ?? Math.random;
@@ -70,6 +77,11 @@ export class WaveManager {
 
   get phaseTimeRemaining(): number {
     return Math.max(0, this.phaseTimer);
+  }
+
+  /** 보스 등장까지 남은 예고 시간(초). 0이면 예고 중이 아니다. */
+  get bossWarningRemaining(): number {
+    return Math.max(0, this.bossWarning);
   }
 
   private currentWaveEntry(): WaveEntry | undefined {
@@ -99,6 +111,7 @@ export class WaveManager {
     this.spawnTimer = 0;
     this.spawnPointCursor = 0;
     this.bossSpawned = false;
+    this.bossWarning = 0;
     this.phase = 'night';
   }
 
@@ -125,6 +138,7 @@ export class WaveManager {
     if (this.phase !== 'night') return false;
 
     this.spawnQueue.length = 0;
+    this.bossWarning = 0;
     if (this.waveIndex >= wavesData.waves.length - 1) {
       this.phase = 'victory';
       return true;
@@ -182,6 +196,25 @@ export class WaveManager {
     // 첫 무리는 밤 시작 즉시(spawnTimer 0) 나온다. 무리 하나는 같은 스폰 지점에서
     // 함께 나와야 "무리"로 보인다 — 지점 순환은 무리 단위로 돈다.
     const entry = this.currentWaveEntry();
+
+    /*
+     * 보스 예고 중에는 이것만 진행한다. 잡몹은 이미 전멸했고 스폰 큐도 비었으므로
+     * 아래 루프는 어차피 할 일이 없다 — 여기서 먼저 끊어야 "예고가 도는 동안 낮으로
+     * 넘어가 버리는" 경로가 생기지 않는다.
+     */
+    if (this.bossWarning > 0) {
+      this.bossWarning -= dtSeconds;
+      if (this.bossWarning > 0) return;
+      this.bossWarning = 0;
+      this.bossSpawned = true;
+      const bossPoint = this.spawnPoints[Math.floor(this.rng() * this.spawnPoints.length)] ?? {
+        x: 0,
+        y: 0,
+      };
+      if (entry?.bossType) spawn(entry.bossType as MonsterType, bossPoint.x, bossPoint.y);
+      return;
+    }
+
     this.spawnTimer -= dtSeconds;
     while (this.spawnQueue.length > 0 && this.spawnTimer <= 0 && entry) {
       const point = this.spawnPoints[this.spawnPointCursor % this.spawnPoints.length] ?? {
@@ -202,13 +235,9 @@ export class WaveManager {
       // 보스 레이드: 잡몹을 전멸시키면 보스가 등장하고, 보스까지 잡아야 밤이 끝난다.
       // 보스를 스폰하면 다음 틱부터 remainingMonsters > 0이 되므로 아래 전환 분기는
       // 자연히 보스가 죽을 때까지 미뤄진다.
+      // 보스는 바로 나오지 않는다 — 예고를 먼저 띄우고 그 시간이 지나야 등장한다.
       if (entry?.bossType && !this.bossSpawned) {
-        this.bossSpawned = true;
-        const point = this.spawnPoints[Math.floor(this.rng() * this.spawnPoints.length)] ?? {
-          x: 0,
-          y: 0,
-        };
-        spawn(entry.bossType as MonsterType, point.x, point.y);
+        this.bossWarning = wavesData.bossWarningSeconds;
         return;
       }
 

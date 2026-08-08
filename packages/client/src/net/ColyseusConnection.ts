@@ -137,6 +137,7 @@ interface RemoteGameState {
   statUpgradesUnlocked: boolean;
   wavePhase: string;
   currentWave: number;
+  bossWarningRemaining: number;
   phaseTimeRemaining: number;
   skipVoteCount: number;
   players: {
@@ -555,6 +556,7 @@ export class ColyseusConnection implements GameConnection {
         statUpgradesUnlocked: state?.statUpgradesUnlocked ?? false,
         wavePhase: state?.wavePhase ?? 'day',
         currentWave: state?.currentWave ?? 0,
+        bossWarningRemaining: state?.bossWarningRemaining ?? 0,
         phaseTimeRemaining: state?.phaseTimeRemaining ?? 0,
         skipVoteCount: state?.skipVoteCount ?? 0,
         // 서버는 빈 칸을 itemId ''로 내려보낸다(길이 고정). 클라이언트 표현은 null이다.

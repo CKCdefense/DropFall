@@ -14,18 +14,23 @@
 -- 색은 theme.ts의 HUD 팔레트를 그대로 쓴다 — PANEL_FILL/PANEL_STROKE/BAR_BACK/SHADOW.
 --
 -- 산출물 (ui/hud/ → ui 아틀라스, 태그는 base 하나):
---   hud_bar_back_l  48x24  큰 바 틀(내 체력/스태미나, QuickSlotBar BAR_HEIGHT=24)
---   hud_bar_fill_l   6x20  큰 바 채움 (2px 인셋)
---   hud_bar_back_s  48x8   작은 바 틀(코어/보스 바, CORE·BOSS_BAR_HEIGHT=8)
+-- 크기는 **원본 픽셀**이다. 게임은 이걸 hudBar.HUD_BAR_SCALE(2배)로 확대해 그린다 —
+-- 1배로 그리면 외곽선·홈이 1px이라 월드(줌 2~4배)와 픽셀 굵기가 안 맞는다.
+--   hud_bar_back_l  48x16  큰 바 틀(내 체력/스태미나) → 화면 32px
+--   hud_bar_fill_l   6x12  큰 바 채움 (2px 인셋)
+--   hud_bar_back_s  48x8   작은 바 틀(코어/경험치/팀원) → 화면 16px
 --   hud_bar_fill_s   6x4   작은 바 채움
---   hud_bar_back_boss 64x18  보스전 전용 대형 바 틀(화면 중앙 상단) — 양끝 강철
---                            캡 + 크림슨 젬, 바닥 안쪽 크림슨 라인으로 위협감
---   hud_bar_fill_boss  6x14  보스 바 채움 (2px 인셋)
+--   hud_bar_back_boss 64x20  보스전 전용 대형 바 틀(화면 중앙 상단) — 양끝 8px 강철
+--                            브래킷(리벳 + 크림슨 젬), 바닥 안쪽 크림슨 라인
+--   hud_bar_fill_boss  6x16  보스 바 채움 (가로 10px / 세로 2px 인셋)
 --   hud_icon_heart  12x12  체력 라벨
 --   hud_icon_bolt   12x12  스태미나 라벨
 --   hud_icon_skull  12x12  보스 바 라벨(소형)
 --   hud_icon_skull_l 16x16 보스전 대형 바 옆에 붙는 뿔 달린 해골
---   hud_icon_core   12x12  코어 패널 라벨 (core_cell 결정과 같은 청록)
+--   hud_icon_core   12x12  코어 결정 (core_cell 아이템과 같은 청록)
+--   hud_icon_shield 12x12  코어 패널 — 내구도 게이지 표식
+--   hud_icon_resource 12x12 코어 패널 — 자원 게이지 표식(널빤지 + 돌)
+--   hud_icon_energy 12x12  코어 패널 — 에너지 게이지 표식(전지)
 --
 -- 실행 (저장소 루트에서 — outdir는 절대경로):
 --   "$ASE" -b --script-param outdir="$(pwd)/assets/ui/hud" --script assets/_generators/ui_hud.lua
@@ -96,37 +101,61 @@ local function barFill(img, w, h)
   end
 end
 
---- 보스전 대형 바 틀. 기본 틀 위에 양끝 7px 강철 캡(세로 밴드 + 크림슨 젬)을 얹고,
---- 바닥 안쪽에 크림슨 라인을 깔아 "위험한 바"로 읽히게 한다.
---- 9-slice로 늘일 때 좌우 보존 폭은 **7px**이다 (일반 바의 3px와 다름).
+--- 보스전 대형 바 틀.
+---
+--- 화면 폭의 40% 넘게 늘여 쓰는 물건이라 **끝을 확실히 마감해야** 한다 — 예전 4px
+--- 캡은 760px로 늘리자 양끝의 점 두 개로만 보였다. 그래서 캡을 8px 강철 브래킷으로
+--- 키우고 리벳·젬을 넣어, 멀리서도 "가운데가 늘어난 금속 틀"로 읽히게 했다.
+---
+--- 가운데(캡 사이)는 **모든 열이 같아야** 한다 — Phaser NineSlice는 가운데를 타일이
+--- 아니라 **늘여서** 채우기 때문에, 주기적인 눈금 같은 걸 넣으면 뭉개진다.
+--- 9-slice 보존 폭은 좌우 **10px**이다(일반 바의 3px와 다름 — hudBar.BAR_BOSS).
 local CRIMSON      = Color{ r = 0xD9, g = 0x75, b = 0x6B } -- DOWN_COLOR
 local CRIMSON_DARK = Color{ r = 0x7A, g = 0x2A, b = 0x28 }
 local CRIMSON_DEEP = Color{ r = 0x4A, g = 0x12, b = 0x18 }
-local STEEL_HI     = Color{ r = 0x6A, g = 0x73, b = 0x82 }
+local STEEL_HI     = Color{ r = 0x7C, g = 0x86, b = 0x96 }
+local STEEL_LO     = Color{ r = 0x30, g = 0x36, b = 0x42 }
 local WHITE_GEM    = Color{ r = 0xF2, g = 0xF5, b = 0xFA }
+
+-- 캡 몸통 폭(x=1..CAP). x=CAP+1이 트랙과의 경계선이라, 채움은 x=CAP+2부터 시작한다
+-- (hudBar.BAR_BOSS.insetX와 반드시 같아야 한다).
+local CAP = 8
 
 local function barBackBoss(img, w, h)
   barBack(img, w, h)
-  -- 바닥 안쪽 크림슨 라인 — 트랙에 살짝 배어나는 핏빛
+  -- 바닥 안쪽 크림슨 라인 — 트랙에 배어나는 핏빛. 체력이 닳은 쪽에서만 드러난다.
   rect(img, 2, h - 3, w - 3, h - 3, CRIMSON_DEEP)
-  -- 양끝 강철 캡 (좌우 대칭)
+
   for _, side in ipairs({ 0, 1 }) do
     local function X(x) return side == 0 and x or (w - 1 - x) end
+
+    -- 강철 브래킷: 위가 밝고 아래로 갈수록 어두운 단순한 3단 명암.
+    -- 단이 많으면 3~4배로 확대했을 때 줄무늬로 보인다.
     for y = 1, h - 2 do
-      img:drawPixel(X(1), y, STROKE)
-      img:drawPixel(X(2), y, y <= 2 and STEEL_HI or STROKE)   -- 윗부분 하이라이트
-      img:drawPixel(X(3), y, y == 1 and STEEL_HI or TRACK_DIM)
-      img:drawPixel(X(4), y, OUTLINE)                         -- 캡과 트랙의 경계선
+      local c = STROKE
+      if y <= 2 then c = STEEL_HI
+      elseif y >= h - 3 then c = STEEL_LO end
+      for x = 1, CAP do img:drawPixel(X(x), y, c) end
+      img:drawPixel(X(CAP + 1), y, OUTLINE) -- 캡과 트랙의 경계
     end
+    -- 바깥 모서리를 깎아 브래킷도 둥글게 — 틀 전체와 같은 모서리 규칙
     img:drawPixel(X(1), 1, OUTLINE)
     img:drawPixel(X(1), h - 2, OUTLINE)
-    -- 크림슨 젬 (캡 세로 중앙 2x4)
-    local gy = math.floor(h / 2) - 2
-    for i = 0, 3 do
-      local c = (i == 0) and CRIMSON or ((i == 3) and CRIMSON_DARK or CRIMSON)
-      img:drawPixel(X(2), gy + i, c)
-      img:drawPixel(X(3), gy + i, (i == 0) and WHITE_GEM or CRIMSON_DARK)
+
+    -- 리벳 둘(위·아래). 금속판이라는 걸 알려주는 최소한의 장치.
+    for _, ry in ipairs({ 3, h - 4 }) do
+      img:drawPixel(X(2), ry, STEEL_LO)
+      img:drawPixel(X(3), ry, OUTLINE)
     end
+
+    -- 크림슨 젬 — 캡 세로 중앙. 하이라이트 1px로 유리처럼 보이게 한다.
+    local gy = math.floor(h / 2) - 3
+    for i = 0, 5 do
+      local edge = i == 0 or i == 5
+      img:drawPixel(X(5), gy + i, edge and CRIMSON_DARK or CRIMSON)
+      img:drawPixel(X(6), gy + i, CRIMSON_DARK)
+    end
+    img:drawPixel(X(5), gy + 1, WHITE_GEM)
   end
 end
 
@@ -231,6 +260,73 @@ local function iconSkullL(img)
   img:drawPixel(11, 6, CRIMSON)
 end
 
+-- 코어 패널의 게이지 세 줄에 붙는 표식. 색이 아니라 **실루엣**으로 먼저 구분되게 그린다
+-- (items_consumable.lua와 같은 원칙) — 12px에서는 색보다 형태가 먼저 읽힌다.
+--   방패 = 코어 내구도 / 널빤지+돌 = 자원 / 전지 = 에너지
+
+local STEEL      = Color{ r = 0x9A, g = 0xA2, b = 0xB0 }
+local STEEL_DK   = Color{ r = 0x66, g = 0x6D, b = 0x7A }
+local WOOD       = Color{ r = 0xA9, g = 0x74, b = 0x3F }
+local WOOD_DARK  = Color{ r = 0x7A, g = 0x50, b = 0x29 }
+local ROCK       = Color{ r = 0x8A, g = 0x8F, b = 0x98 }
+local ROCK_DARK  = Color{ r = 0x5E, g = 0x63, b = 0x6C }
+local ENERGY     = Color{ r = 0x5C, g = 0xC6, b = 0xE8 }
+local ENERGY_DK  = Color{ r = 0x2F, g = 0x7E, b = 0x9B }
+
+--- 코어 내구도. 방패는 "지켜내는 것"이라 체력 게이지와 뜻이 곧바로 이어진다.
+local function iconShield(img)
+  fromMask(img, {
+    '............',
+    '.oooooooooo.',
+    '.osssssssso.',
+    '.osshrrhsso.',
+    '.osshrrhsso.',
+    '.ossdrrdsso.',
+    '..osdrrdso..',
+    '..osdrrdso..',
+    '...osddso...',
+    '....osso....',
+    '.....oo.....',
+    '............',
+  }, { o = OUTLINE, s = STEEL, d = STEEL_DK, r = RED, h = WHITE })
+end
+
+--- 자원. 널빤지 위에 돌 — 건축 재료 두 종류가 쌓인 모습이라 "모아 둔 것"으로 읽힌다.
+local function iconResource(img)
+  fromMask(img, {
+    '............',
+    '............',
+    '.oooooooooo.',
+    '.owwwwwwwwo.',
+    '.owddwwddwo.',
+    '.oooooooooo.',
+    '.orrrrrrrro.',
+    '.orgrrgrrgo.',
+    '.orrrrrrrro.',
+    '.oooooooooo.',
+    '............',
+    '............',
+  }, { o = OUTLINE, w = WOOD, d = WOOD_DARK, r = ROCK, g = ROCK_DARK })
+end
+
+--- 에너지. 꼭지 달린 전지 — 코어 결정(마름모)과 실루엣이 확실히 갈린다.
+local function iconEnergy(img)
+  fromMask(img, {
+    '............',
+    '....oooo....',
+    '....occo....',
+    '..oooooooo..',
+    '..ohhccddo..',
+    '..ohcccddo..',
+    '..occcccdo..',
+    '..occcccdo..',
+    '..occcccdo..',
+    '..oooooooo..',
+    '............',
+    '............',
+  }, { o = OUTLINE, c = ENERGY, d = ENERGY_DK, h = WHITE })
+end
+
 local function iconCore(img)
   fromMask(img, {
     '............',
@@ -250,14 +346,17 @@ end
 
 -- ---------------------------------------------------------------- 생성
 
-save('hud_bar_back_l', 48, 24, barBack)
+save('hud_bar_back_l', 48, 16, barBack)
 save('hud_bar_back_s', 48, 8, barBack)
-save('hud_bar_back_boss', 64, 18, barBackBoss)
-save('hud_bar_fill_l', 6, 20, function(img) barFill(img, 6, 20) end)
+save('hud_bar_back_boss', 64, 20, barBackBoss)
+save('hud_bar_fill_l', 6, 12, function(img) barFill(img, 6, 12) end)
 save('hud_bar_fill_s', 6, 4, function(img) barFill(img, 6, 4) end)
-save('hud_bar_fill_boss', 6, 14, function(img) barFill(img, 6, 14) end)
+save('hud_bar_fill_boss', 6, 16, function(img) barFill(img, 6, 16) end)
 save('hud_icon_heart', 12, 12, function(img) iconHeart(img) end)
 save('hud_icon_bolt', 12, 12, function(img) iconBolt(img) end)
 save('hud_icon_skull', 12, 12, function(img) iconSkull(img) end)
 save('hud_icon_skull_l', 16, 16, function(img) iconSkullL(img) end)
 save('hud_icon_core', 12, 12, function(img) iconCore(img) end)
+save('hud_icon_shield', 12, 12, function(img) iconShield(img) end)
+save('hud_icon_resource', 12, 12, function(img) iconResource(img) end)
+save('hud_icon_energy', 12, 12, function(img) iconEnergy(img) end)

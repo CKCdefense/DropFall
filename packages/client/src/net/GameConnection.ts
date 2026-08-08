@@ -202,6 +202,8 @@ export interface WorldStatus {
   /** GamePhase: 'day' | 'night' | 'victory' | 'defeat' */
   wavePhase: string;
   currentWave: number;
+  /** 보스 등장까지 남은 예고 시간(초). 0보다 크면 경고 문구를 띄운다. */
+  bossWarningRemaining: number;
   /** 현재 페이즈가 끝나기까지 남은 시간(초) */
   phaseTimeRemaining: number;
   /** 낮 스킵 투표 동의 인원. 필요 인원은 players.length(만장일치) */

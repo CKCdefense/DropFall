@@ -473,6 +473,7 @@ export class GameRoom extends Room {
     this.state.statUpgradesUnlocked = this.world.isStatUpgradesUnlocked();
     this.state.wavePhase = this.world.getWavePhase();
     this.state.currentWave = this.world.getCurrentWave();
+    this.state.bossWarningRemaining = this.world.getBossWarningRemaining();
     this.state.phaseTimeRemaining = this.world.getPhaseTimeRemaining();
     this.state.skipVoteCount = this.world.getSkipVoteCount();
 

@@ -357,6 +357,11 @@ const WavesDataSchema = z.object({
   spawnRadius: z.number().positive(),
   /** 낮 페이즈 길이(초). 스킵 투표는 별도 팀 협의 후 추가 예정(docs/backend/11 §4.2) */
   dayDuration: z.number().positive(),
+  /**
+   * 잡몹을 다 잡은 뒤 보스가 나오기까지의 예고 시간(초). 이 동안 화면에 경고가 뜬다 —
+   * 보스가 아무 예고 없이 떨어지면 이미 붙어 있는 상태로 전투가 시작된다.
+   */
+  bossWarningSeconds: z.number().nonnegative(),
   waves: z.array(WaveEntrySchema).min(1),
 });
 

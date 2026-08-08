@@ -2236,6 +2236,11 @@ export class World {
     return this.waveManager.phaseTimeRemaining;
   }
 
+  /** 보스 등장까지 남은 예고 시간(초). 0이면 예고 중이 아니다. */
+  getBossWarningRemaining(): number {
+    return this.waveManager.bossWarningRemaining;
+  }
+
   getCurrentWave(): number {
     return this.waveManager.currentWave;
   }

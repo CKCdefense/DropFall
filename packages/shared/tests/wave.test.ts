@@ -47,6 +47,26 @@ function drainMinionSpawns(
   return alive;
 }
 
+
+/**
+ * 잡몹 전멸 후 보스가 나올 때까지 예고 시간을 흘려보낸다.
+ *
+ * 보스는 잡몹이 죽은 **그 틱에** 나오지 않는다 — 먼저 `bossWarningSeconds`만큼 경고가
+ * 뜨고, 그 시간이 지나야 등장한다(docs/backend/59). 그동안은 아무것도 스폰되지 않는다.
+ */
+function drainBossWarning(manager: WaveManager, spawn: (type: string) => void): void {
+  const steps = Math.ceil(wavesData.bossWarningSeconds / 0.1) + 2;
+  for (let i = 0; i < steps; i += 1) {
+    let spawned = false;
+    manager.tick(0.1, () => 0, (type) => {
+      spawned = true;
+      spawn(type);
+    });
+    // 보스가 나온 순간 멈춘다 — 더 돌리면 "몬스터 0마리"로 읽혀 낮으로 넘어가 버린다.
+    if (spawned) return;
+  }
+}
+
 describe('WaveManager', () => {
   it('처음엔 day 페이즈로 시작하고 dayDuration만큼 카운트다운한다', () => {
     const manager = new WaveManager({ rng: seededRng(1) });
@@ -137,10 +157,15 @@ describe('WaveManager', () => {
       expect(type).not.toBe('boss_demon'); // 잡몹 페이즈에는 보스가 섞여 나오면 안 된다
     });
 
-    // 잡몹 전멸 → 이 틱에 보스가 소환된다(낮이 아니라).
+    // 잡몹 전멸 → 경고가 먼저 뜨고, 그 시간이 지나야 보스가 나온다(낮이 아니라).
     const bossSpawns: string[] = [];
     manager.tick(0.1, () => 0, (type) => bossSpawns.push(type));
+    expect(bossSpawns).toEqual([]); // 아직 예고 중
+    expect(manager.bossWarningRemaining).toBeGreaterThan(0);
+
+    drainBossWarning(manager, (type) => bossSpawns.push(type));
     expect(bossSpawns).toEqual(['boss_demon']);
+    expect(manager.bossWarningRemaining).toBe(0);
     expect(manager.currentPhase).toBe('night');
     expect(alive).toBeGreaterThanOrEqual(baseTotal(wave2));
 
@@ -153,6 +178,27 @@ describe('WaveManager', () => {
     expect(manager.currentPhase).toBe('day');
   });
 
+  it('보스 예고 동안에는 아무것도 스폰되지 않고 밤이 끝나지도 않는다', () => {
+    // 예고 시간을 "그냥 기다리는 틈"으로 두면 그 사이에 낮으로 넘어가 버릴 수 있다 —
+    // 잡몹이 0마리라 전멸 판정이 그대로 참이기 때문이다. 예고가 그걸 막는지 본다.
+    const manager = new WaveManager({ rng: seededRng(11) });
+    manager.debugJumpToWave(2);
+    const wave2 = wavesData.waves[1]!;
+    drainMinionSpawns(manager, wave2, () => {});
+
+    manager.tick(0.1, () => 0, () => {}); // 전멸 → 예고 시작
+    expect(manager.bossWarningRemaining).toBeGreaterThan(0);
+
+    const spawns: string[] = [];
+    // 예고가 끝나기 직전까지 돌린다.
+    const steps = Math.floor((wavesData.bossWarningSeconds - 0.2) / 0.1);
+    for (let i = 0; i < steps; i += 1) manager.tick(0.1, () => 0, (type) => spawns.push(type));
+
+    expect(spawns).toEqual([]); // 아직 아무것도 안 나왔다
+    expect(manager.currentPhase).toBe('night'); // 낮으로 새지 않았다
+    expect(manager.bossWarningRemaining).toBeGreaterThan(0);
+  });
+
   it('마지막 웨이브의 보스까지 잡으면 victory가 된다', () => {
     const manager = new WaveManager({ rng: seededRng(3) });
 
@@ -163,7 +209,8 @@ describe('WaveManager', () => {
 
       if (entry.bossType) {
         const bossSpawns: string[] = [];
-        manager.tick(0.1, () => 0, (type) => bossSpawns.push(type)); // 전멸 → 보스 소환
+        // 전멸 → 예고 → 보스 소환
+        drainBossWarning(manager, (type) => bossSpawns.push(type));
         expect(bossSpawns).toEqual([entry.bossType]);
       }
       manager.tick(0.1, () => 0, () => {}); // 보스(또는 잡몹) 전멸 → 다음 페이즈
@@ -291,6 +338,7 @@ describe('WaveManager', () => {
       // 전멸시키면 최종 보스가 나온다 — 다른 웨이브에서는 나올 수 없는 타입.
       const bossSpawns: string[] = [];
       manager.tick(0.1, () => 0, (type) => bossSpawns.push(type));
+      drainBossWarning(manager, (type) => bossSpawns.push(type));
       expect(bossSpawns).toEqual(['boss_dark_knight']);
     });
 

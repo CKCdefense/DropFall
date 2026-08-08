@@ -245,6 +245,8 @@ export class GameRoomState extends Schema {
   /** 'day' | 'night' | 'victory' | 'defeat' (shared/sim의 GamePhase) */
   @type('string') wavePhase = 'day';
   @type('number') currentWave = 0;
+  /** 보스 등장까지 남은 예고 시간(초). 0보다 크면 화면에 경고가 뜬다. */
+  @type('number') bossWarningRemaining = 0;
   /** 현재 페이즈가 끝나기까지 남은 시간(초) */
   @type('number') phaseTimeRemaining = 0;
   /** 낮 스킵 투표 동의 인원. 만장일치 기준이라 필요 인원은 players.size다. */

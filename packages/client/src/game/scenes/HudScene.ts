@@ -20,6 +20,7 @@ import {
 } from '../createGame';
 import type { InputController } from '../input/InputController';
 import { ChatBox } from '../ui/ChatBox';
+import { CinematicOverlay } from '../ui/CinematicOverlay';
 import { CoreModal } from '../ui/CoreModal';
 import { CharacterModal } from '../ui/CharacterModal';
 import { SlotDrag } from '../ui/SlotDrag';
@@ -33,6 +34,7 @@ import { WaveDial } from '../ui/WaveDial';
 import {
   BAR_BOSS,
   BAR_SMALL,
+  HUD_BAR_SCALE,
   HudBar,
   ICON_CORE,
   ICON_SKULL_LARGE,
@@ -72,17 +74,32 @@ const DIM_STYLE = { fontFamily: FONT, fontSize: `${SIZE_BODY}px`, color: DIM_TEX
 const SMALL_STYLE = { fontFamily: FONT_SMALL, fontSize: `${SIZE_SMALL}px`, color: DIM_TEXT } as const;
 const PAD = 12;
 const CORE_PANEL_WIDTH = 190;
-const CORE_PANEL_HEIGHT = 60;
+/** 게이지가 16px(BAR_SMALL × HUD_BAR_SCALE)로 두꺼워진 만큼 패널도 같이 키웠다. */
+const CORE_PANEL_HEIGHT = 68;
 /** 자기 체력 바 — 퀵슬롯 바로 위에 붙인다. */
 /**
  * 보스 HP바(상단 중앙, 웨이브 다이얼 아래) 규격.
  *
  * 보스전은 밤의 마지막 국면이고 이 바가 그 국면의 전부다 — 코어·팀원 게이지와 같은
  * 얇은 띠로 두면 "그냥 또 하나의 몹"으로 읽힌다. 그래서 **화면 중앙 상단의 주역**이
- * 되도록 폭·높이를 키우고 전용 그림(BAR_BOSS: 양끝 강철 캡 + 크림슨 젬)을 쓴다.
+ * 되도록 전용 그림(BAR_BOSS: 양끝 강철 캡 + 크림슨 젬)을 쓰고, 아래 세 값으로
+ * 다른 게이지보다 확실히 크게 잡는다.
+ *
+ * 폭을 고정값이 아니라 **화면 폭 비율**로 잡는 이유: 1920 화면에서 260px는 13%뿐이라
+ * 상단에 떠 있는 잡다한 표시 중 하나로 묻혔다. 상한을 같이 두는 건 초광폭 모니터에서
+ * 바가 화면을 가로지르지 않게 하기 위해서다.
  */
-const BOSS_BAR_WIDTH = 260;
+const BOSS_BAR_WIDTH_RATIO = 0.44;
+const BOSS_BAR_MAX_WIDTH = 760;
 const BOSS_BAR_HEIGHT = BAR_BOSS.height;
+/**
+ * 보스 바만 UI 배율에 한 번 더 곱하는 확대 배수.
+ *
+ * 픽셀아트는 **정수배로만** 키운다 — 1.5배는 픽셀이 뭉개진다. 1배로 두면 강철 브래킷과
+ * 크림슨 젬이 1px이라 큰 화면에서 아예 안 보였다. 배수를 올릴수록 픽셀이 굵어져
+ * "픽셀아트로 그린 보스 바"라는 게 살아난다(2배 = 1920 화면에서 760×40).
+ */
+const BOSS_BAR_SCALE = 2;
 /** 보스 체력은 색으로 상태를 알리지 않는다 — 처음부터 끝까지 위협적인 크림슨이다. */
 const BOSS_BAR_COLOR = 0xd94f4f;
 /** 보스 타입(monsters.json 키) → 표시 이름. 아직 데이터에 이름 필드가 없어 클라이언트 표만 둔다. */
@@ -135,6 +152,12 @@ export class HudScene extends Phaser.Scene {
   /** 보스 이름표의 중심/아랫선(화면 좌표). 해골 아이콘을 글자 옆에 붙일 때 쓴다. */
   private bossNameCenter = 0;
   private bossNameBaseline = 0;
+  /**
+   * 보스 바에 실제로 적용된 배율(uiScale × BOSS_BAR_SCALE).
+   * 채움을 갱신할 때 레이아웃과 **같은 값**을 넘겨야 한다 — uiScale을 넘기면 채움
+   * 높이가 틀 높이의 절반이 된다.
+   */
+  private bossScale = BOSS_BAR_SCALE;
   private bossWarnText!: Phaser.GameObjects.Text;
   /** 직전 프레임에 보인 보스 몬스터 id. 새 보스 등장(경고 연출) 감지용. */
   private lastBossId: string | undefined;
@@ -164,6 +187,12 @@ export class HudScene extends Phaser.Scene {
   private latestStorage: (InventorySlot | null)[] = [];
   private latestCharge: (InventorySlot | null)[] = [];
   private latestCraftOutput: InventorySlot | null = null;
+
+  /** 화면 연출(암전·DAY N·경고·클리어). */
+  private cinematic!: CinematicOverlay;
+  /** 직전 스냅샷의 페이즈와 웨이브 — 아침이 "언제 왔는지"는 전이로만 알 수 있다. */
+  private lastPhase = '';
+  private lastWave = -1;
   /** 코어 상호작용 반경 안에 있는지. update가 매 프레임 갱신한다. */
   private nearCore = false;
   /** 주울 수 있는 드롭이 발밑에 있는지. 코어 앞에서 E가 무엇을 할지 가른다. */
@@ -275,6 +304,10 @@ export class HudScene extends Phaser.Scene {
     ];
 
     this.layout();
+    this.cinematic = new CinematicOverlay(this);
+    // 게임에 들어서는 순간 한 번 — 검게 덮었다가 다시 열린다.
+    this.cinematic.playIntro();
+
     this.scale.on(Phaser.Scale.Events.RESIZE, this.layout, this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.scale.off(Phaser.Scale.Events.RESIZE, this.layout, this);
@@ -496,9 +529,35 @@ export class HudScene extends Phaser.Scene {
    * 캔버스가 창 크기를 따라가므로 좌표를 매번 다시 계산한다.
    * 월드가 정수배로 확대되는 만큼 UI도 같이 키워야 화면이 따로 놀지 않는다.
    */
+  /**
+   * 페이즈 전이에 맞춰 큰 문구를 띄운다.
+   *
+   * **전이로만 판단한다.** 매 프레임 "지금 낮이다"로 띄우면 낮 내내 계속 다시 시작한다 —
+   * 아침이 온 그 순간(밤→낮, 또는 게임 시작)에만 한 번이다. 웨이브 번호까지 같이 보는
+   * 이유는 낮이 이어지는 동안에도 번호가 바뀔 수 있어서다(개발 커맨드 `wave`).
+   */
+  private updateCinematic(status: WorldSnapshot['status']): void {
+    const phase = status.wavePhase;
+    const day = Math.max(1, status.currentWave + (phase === 'day' ? 1 : 0));
+
+    if (phase === 'victory') {
+      this.cinematic.showClear();
+    } else if (status.bossWarningRemaining > 0) {
+      this.cinematic.showWarning();
+    } else {
+      this.cinematic.hideWarning();
+      const morning = phase === 'day' && (this.lastPhase !== 'day' || this.lastWave !== day);
+      if (morning) this.cinematic.showDay(day);
+    }
+
+    this.lastPhase = phase;
+    if (phase === 'day') this.lastWave = day;
+  }
+
   private layout(): void {
     const width = this.scale.width;
     const height = this.scale.height;
+    this.cinematic?.layout(width, height);
     // 월드 줌 2~4 → UI 스케일 1~2. **정수만 쓴다** — 픽셀 폰트는 1.5배로 늘리면
     // 글자가 뭉개져서, 어중간하게 큰 것보다 작고 선명한 쪽이 훨씬 잘 읽힌다.
     const scale = Math.min(2, Math.max(1, Math.floor(computeCameraZoom(width, height) / 2)));
@@ -521,25 +580,31 @@ export class HudScene extends Phaser.Scene {
       .setPosition(pad + 8 * scale, pad + 30 * scale);
 
     const coreBarW = panelW - 16 * scale;
-    const coreBarY = pad + panelH - 14 * scale;
-    this.coreBar.layout(pad + 8 * scale, coreBarY, coreBarW, scale);
+    // 게이지 아랫변이 패널 안쪽 여백(6px)에 걸리도록 — 높이가 16px이라 22px 위에서 시작한다.
+    const coreBarY = pad + panelH - 22 * scale;
+    this.coreBar.layout(pad + 8 * scale, coreBarY, coreBarW, scale * HUD_BAR_SCALE);
 
     // --- 상단 중앙/우상단
     this.waveDial.layout(width / 2, pad, scale);
     this.minimap.layout(width - pad, pad, scale);
 
-    // 보스 바 — 웨이브 다이얼(지름 52) 바로 아래 중앙. 경고 문구는 화면 중앙 상단 1/3.
-    const bossBarY = pad + 64 * scale;
-    const bossBarW = BOSS_BAR_WIDTH * scale;
+    // 보스 바 — 화면 중앙 상단의 주역. 위에 붙는 이름표도 같은 배율로 커지므로,
+    // 다이얼 바닥(pad + 52)에 그 글자 높이(≈ SIZE_BODY × bossScale × 1.4)만큼
+    // 더 띄운 자리에 바를 놓는다. 경고 문구는 그대로 화면 중앙 상단 1/3.
+    this.bossScale = scale * BOSS_BAR_SCALE;
+    const bossScale = this.bossScale;
+    const bossBarY = pad + 112 * scale;
+    const bossBarW = Math.min(width * BOSS_BAR_WIDTH_RATIO, BOSS_BAR_MAX_WIDTH * scale);
     this.bossNameCenter = width / 2;
-    this.bossNameBaseline = bossBarY - 3 * scale;
+    this.bossNameBaseline = bossBarY - 4 * scale;
+    // 이름도 바와 같은 배율로 키운다 — 바만 커지면 글자가 붙어 있는 라벨처럼 작아 보인다.
     this.bossNameText
-      .setFontSize(SIZE_BODY * scale)
+      .setFontSize(SIZE_BODY * bossScale)
       .setPosition(this.bossNameCenter, this.bossNameBaseline);
-    this.bossBar.layout(width / 2 - bossBarW / 2, bossBarY, bossBarW, scale);
+    this.bossBar.layout(width / 2 - bossBarW / 2, bossBarY, bossBarW, bossScale);
     // 해골은 이름표 왼쪽에 붙는다. 글자 폭이 보스마다 달라서 최종 자리는 이름을 넣은
     // 뒤에 잡는다(placeBossIcon) — 여기서는 배율만 맞춰 둔다.
-    this.bossIcon?.setScale(scale);
+    this.bossIcon?.setScale(bossScale);
     this.placeBossIcon();
     this.bossWarnText.setFontSize((SIZE_BODY + 4) * scale).setPosition(width / 2, height / 3);
 
@@ -547,7 +612,7 @@ export class HudScene extends Phaser.Scene {
     this.aiToastText
       .setFontSize(SIZE_BODY * scale)
       .setWordWrapWidth(220 * scale)
-      .setPosition(width / 2, bossBarY + (BOSS_BAR_HEIGHT + 6) * scale);
+      .setPosition(width / 2, bossBarY + BOSS_BAR_HEIGHT * bossScale + 6 * scale);
 
     // --- 좌측 세로: 팀원 체력. 코어 패널 아래에서 시작한다.
     this.party.layout(pad, pad + panelH + 10 * scale, scale);
@@ -594,6 +659,7 @@ export class HudScene extends Phaser.Scene {
     );
     this.coreModal.setCoreStatus(status);
     this.coreModal.setChargeSlots(status.coreCharge, status.openChargeSlots);
+    this.updateCinematic(status);
     this.waveDial.update(status);
     this.updateBossBar(snapshot);
     // GameScene의 예측 좌표(있으면) — 없으면(로컬 모드 초기 프레임 등) 미니맵이
@@ -649,7 +715,7 @@ export class HudScene extends Phaser.Scene {
   ): void {
     const ratio = maxHp > 0 ? hp / maxHp : 1;
     // 코어가 위험하면 색으로 먼저 알린다 — 숫자를 읽기 전에 눈에 들어와야 한다.
-    this.coreBar.setValue(ratio, barColor(ratio), this.uiScale);
+    this.coreBar.setValue(ratio, barColor(ratio), this.uiScale * HUD_BAR_SCALE);
     this.coreLabel.setText(`CORE ${Math.ceil(hp)}`);
     // 창고에 쌓인 **충전 재료** 수량이다(게이지가 아니라). 사냥 중에 "얼마나 모았나"를
     // 보고 코어로 돌아갈지 정하게 된다 — 게이지 자체는 코어 탭에서 본다.
@@ -734,7 +800,7 @@ export class HudScene extends Phaser.Scene {
     this.bossNameText.setText(BOSS_NAME[boss.type] ?? '보스');
     this.placeBossIcon();
     const ratio = boss.maxHp > 0 ? Math.max(0, boss.hp / boss.maxHp) : 0;
-    this.bossBar.setValue(ratio, BOSS_BAR_COLOR, this.uiScale);
+    this.bossBar.setValue(ratio, BOSS_BAR_COLOR, this.bossScale);
   }
 
   /**
@@ -747,7 +813,7 @@ export class HudScene extends Phaser.Scene {
     const left = this.bossNameCenter - this.bossNameText.width / 2;
     // 아이콘은 origin(0, 0.5)라 세로는 이름표 중간에 맞춘다(이름표는 origin y=1).
     icon.setPosition(
-      left - icon.displayWidth - 4 * this.uiScale,
+      left - icon.displayWidth - 4 * this.bossScale,
       this.bossNameBaseline - this.bossNameText.height / 2,
     );
   }

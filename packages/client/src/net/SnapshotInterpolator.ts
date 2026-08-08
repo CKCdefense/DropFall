@@ -208,6 +208,7 @@ const EMPTY_STATUS: WorldStatus = {
   statUpgradesUnlocked: false,
   wavePhase: 'day',
   currentWave: 0,
+  bossWarningRemaining: 0,
   phaseTimeRemaining: 0,
   skipVoteCount: 0,
   coreStorage: [],
