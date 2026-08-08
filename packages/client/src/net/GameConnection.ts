@@ -291,6 +291,13 @@ export interface GameConnection {
   /** 매 프레임 호출된다. 구현체는 새 객체를 만들지 말고 내부 버퍼를 재사용할 것. */
   getSnapshot(): WorldSnapshot;
   /**
+   * 보간 없이, 가장 최근에 도착한 원본 패치에서 그대로 찾은 내 플레이어를 돌려준다.
+   * 클라이언트 예측 재조정(`PlayerPredictor`)이 쓴다 — `getSnapshot()`의 값은 두
+   * 스냅샷을 보간한 좌표라 `lastProcessedSeq`와 정확히 쌍이 맞지 않는다(둘 다 같은
+   * 원본 패치에서 나온 값이어야 재조정이 정확하다).
+   */
+  getRawSelf(): PlayerView | undefined;
+  /**
    * 테스트용: 지정한 웨이브(1-based)로 즉시 이동한다(docs/backend/23). 로컬 모드에서만
    * 제공한다 — 옵셔널이라 실제 멀티플레이(ColyseusConnection)에서는 아예 존재하지
    * 않으므로, UI는 `connection.debugJumpToWave`가 있는지 확인하는 것만으로 로컬

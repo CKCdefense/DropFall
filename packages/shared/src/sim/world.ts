@@ -68,7 +68,12 @@ import { Inventory } from './inventory';
 import { CoreStorage, STORAGE_SLOT_COUNT } from './storage';
 import { coreDistance, isWithinCoreInteract } from './coreShape';
 import { ExploredMap } from './explored';
-import { normalizeMoveVector, stepPosition } from './movement';
+import { normalizeMoveVector, resolvePlayerMove } from './movement';
+import {
+  isPlayerBlocked,
+  PLAYER_BUILDING_COLLISION_RADIUS,
+  PLAYER_COLONY_COLLISION_RADIUS,
+} from './playerCollision';
 import { SpatialGrid } from './spatialGrid';
 import { WaveManager, type GamePhase } from './wave';
 import { runDevCommand, type DevCommandResult, type DevWorldAccess } from './devCommands';
@@ -127,7 +132,9 @@ export const BARE_HANDS_WEAPON_ID = 'fist';
  * 밤에 몰리면 빠져나오는 데 쓴다. 배율이 너무 높으면 걷기가 무의미해지고, 너무 낮으면
  * 스태미나를 쓸 이유가 없다.
  */
-const SPRINT_SPEED_MULTIPLIER = 1.6;
+// export: 클라이언트 예측(PlayerPredictor)이 스프린트 입력을 즉시 반영하려면 서버와
+// 같은 배율을 알아야 한다 — 값이 갈라지면 스프린트 중 매 프레임 되당김이 보인다.
+export const SPRINT_SPEED_MULTIPLIER = 1.6;
 /** 달리는 동안 초당 소모되는 스태미나. 기본 100이면 약 5초 전력질주다. */
 const SPRINT_STAMINA_DRAIN = 20;
 /** 걷거나 멈춰 있을 때 초당 회복량. 소모보다 느려야 "아껴 쓴다"는 판단이 생긴다. */
@@ -189,21 +196,6 @@ const STUCK_ESCAPE_SECONDS = 1.5;
 const STUCK_ESCAPE_DISTANCE = 40;
 /** 탈출 점프 각도 재시도 횟수. world.ts의 다른 배치 재시도(`pickClusterNodePosition` 등)와 같은 값. */
 const STUCK_ESCAPE_ATTEMPTS = 8;
-/**
- * 플레이어와 이동 차단 건축물(벽/울타리) 사이의 하드 충돌 판정 반경(px) —
- * 플레이어 자신의 반경(`HIT_RADIUS`)과 건축물 자신의 반경(`TILE_SIZE / 2`)의 합이다.
- * 원-원 충돌은 "두 반경의 합보다 중심 간 거리가 가까우면 겹친다"는 규칙이라, 이
- * 상수 자체가 두 원이 맞닿는 지점을 뜻한다. `HIT_RADIUS`를 별도로 export하는 이유:
- * 클라이언트 디버그 테두리(EntityRenderer)가 플레이어 원과 건축물 원을 각각 그려서
- * "두 원이 닿으면 막힌다"를 그대로 보여주려면, 이 합산을 이루는 두 값 모두 서버와
- * 정확히 같아야 한다(값이 서버/시뮬레이션 쪽과 어긋나면 안 됨).
- */
-export const PLAYER_BUILDING_COLLISION_RADIUS = HIT_RADIUS + TILE_SIZE / 2;
-/** 플레이어-코어 하드 충돌 반경(px). 위와 같은 이유로 두 반경의 합을 상수로 export한다. */
-
-/** 플레이어-콜로니 하드 충돌 반경(px). */
-export const PLAYER_COLONY_COLLISION_RADIUS = HIT_RADIUS + COLONY_RADIUS;
-export { HIT_RADIUS };
 /**
  * 몬스터가 "처음" 플레이어를 발견할 때만 적용하는 시야각(120도, 바라보는 방향 기준 ±60도).
  * cos(60°)=0.5 — 내적(dot product)이 이 값 이상이면 시야각 안이다. atan2/acos 없이 내적
@@ -3233,24 +3225,20 @@ export class World {
    * 타입만 막지만 코어/자원/콜로니는 예외 없이 전부 막는다(사용자가 "코어, 나무,
    * 돌, 콜로니 다" 통과 못 하게 해달라고 명시).
    */
+  /**
+   * 실제 판정은 `playerCollision.ts`의 `isPlayerBlocked`다 — 클라이언트 예측
+   * (`PlayerPredictor`)이 같은 함수를 스냅샷 데이터로 그대로 호출해서 서버와
+   * 어긋나지 않게 하려고 순수 함수로 뽑아 뒀다. 이 메서드는 `World`가 들고 있는
+   * Map들을 그 함수가 받는 형태로 넘겨주는 얇은 어댑터일 뿐이다.
+   */
   private isBlockedForPlayer(x: number, y: number): boolean {
-    for (const building of this.buildings.values()) {
-      if (!buildingsData[building.type].blocksMovement) continue;
-      if (circlesOverlap(x, y, building.x, building.y, PLAYER_BUILDING_COLLISION_RADIUS)) {
-        return true;
-      }
-    }
-    for (const node of this.resourceNodes.values()) {
-      if (node.hp <= 0) continue; // 고갈된 자리는 통과할 수 있다(docs/backend/39)
-      const radius = HIT_RADIUS + resourcesData[node.type].hitRadius;
-      if (circlesOverlap(x, y, node.x, node.y, radius)) return true;
-    }
-    for (const colony of this.colonies.values()) {
-      if (circlesOverlap(x, y, colony.x, colony.y, PLAYER_COLONY_COLLISION_RADIUS)) return true;
-    }
-    // 코어는 원이 아니라 8각 발자국이다(coreShape.ts) — 스프라이트 윤곽 그대로 막는다.
-    if (coreDistance(x, y) < HIT_RADIUS) return true;
-    return false;
+    return isPlayerBlocked(
+      x,
+      y,
+      this.buildings.values(),
+      this.resourceNodes.values(),
+      this.colonies.values(),
+    );
   }
 
   /**
@@ -3386,25 +3374,11 @@ export class World {
     dtSeconds: number,
   ): void {
     const speed = this.playerSpeedMultiplier(player);
-    const full = stepPosition(player.x, player.y, moveX, moveY, dtSeconds, speed);
-    if (!this.isBlockedForPlayer(full.x, full.y)) {
-      player.x = full.x;
-      player.y = full.y;
-      return;
-    }
-
-    const xOnly = stepPosition(player.x, player.y, moveX, 0, dtSeconds, speed);
-    if (!this.isBlockedForPlayer(xOnly.x, xOnly.y)) {
-      player.x = xOnly.x;
-      player.y = xOnly.y;
-      return;
-    }
-
-    const yOnly = stepPosition(player.x, player.y, 0, moveY, dtSeconds, speed);
-    if (!this.isBlockedForPlayer(yOnly.x, yOnly.y)) {
-      player.x = yOnly.x;
-      player.y = yOnly.y;
-    }
+    const resolved = resolvePlayerMove(player.x, player.y, moveX, moveY, dtSeconds, speed, (x, y) =>
+      this.isBlockedForPlayer(x, y),
+    );
+    player.x = resolved.x;
+    player.y = resolved.y;
   }
 
   /**

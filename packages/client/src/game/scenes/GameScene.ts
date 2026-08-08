@@ -1,13 +1,22 @@
 import Phaser from 'phaser';
 import {
   MAP_SIZE_TILES,
+  SPRINT_SPEED_MULTIPLIER,
   TILE_SIZE,
   companionData,
   computeCameraZoom,
+  isPlayerBlocked,
   itemOfSlot,
   weaponsData,
 } from '@dropfall/shared';
-import type { GameConnection, WorldSnapshot } from '../../net/GameConnection';
+import type {
+  BuildingView,
+  ColonyView,
+  GameConnection,
+  ResourceNodeView,
+  WorldSnapshot,
+} from '../../net/GameConnection';
+import { PlayerPredictor } from '../../net/PlayerPredictor';
 import {
   CHAT_LOG_KEY,
   CONNECTION_KEY,
@@ -48,10 +57,24 @@ export class GameScene extends Phaser.Scene {
   private input_!: InputController;
   private isFollowing = false;
   private collisionDebugVisible = false;
+  /** 내 캐릭터 클라이언트 예측(docs/backend/53) — 첫 스냅샷에서 내 좌표로 지연 초기화한다. */
+  private predictor?: PlayerPredictor;
+  /** `isBlocked`가 참조하는 최신 장애물 목록. 매 프레임 스냅샷에서 갱신한다. */
+  private latestBuildings: BuildingView[] = [];
+  private latestResourceNodes: ResourceNodeView[] = [];
+  private latestColonies: ColonyView[] = [];
 
   constructor() {
     super(GAME_SCENE_KEY);
   }
+
+  /**
+   * 예측(및 재조정 재생)이 쓰는 충돌 판정. 서버(`World.isBlockedForPlayer`)와 같은
+   * `isPlayerBlocked`를 최신 스냅샷 데이터로 호출한다 — 규칙이 갈라지면 예측이 계속
+   * 빗나간다.
+   */
+  private readonly isBlocked = (x: number, y: number): boolean =>
+    isPlayerBlocked(x, y, this.latestBuildings, this.latestResourceNodes, this.latestColonies);
 
   init(): void {
     this.connection = this.registry.get(CONNECTION_KEY) as GameConnection;
@@ -105,6 +128,16 @@ export class GameScene extends Phaser.Scene {
           x,
           y,
         ) ?? false,
+      (input) => {
+        // 예측이 아직 초기화 전(첫 스냅샷 도착 전)이면 보낼 입력도 없다 — 조용히 무시.
+        this.predictor?.applyInput(
+          input.seq,
+          input.moveX,
+          input.moveY,
+          input.sprint ? SPRINT_SPEED_MULTIPLIER : 1,
+          this.isBlocked,
+        );
+      },
     );
     // HudScene은 매 프레임 registry에서 다시 읽으므로(HudScene.update), 씬 시작 순서와
     // 무관하게 늦어도 다음 프레임엔 값이 채워져 있다.
@@ -143,17 +176,39 @@ export class GameScene extends Phaser.Scene {
 
   update(_time: number, delta: number): void {
     const snapshot = this.connection.getSnapshot();
+    this.latestBuildings = snapshot.buildings;
+    this.latestResourceNodes = snapshot.resourceNodes;
+    this.latestColonies = snapshot.colonies;
+
+    const me = snapshot.players.find((player) => player.id === this.connection.sessionId);
+
+    // 예측 재조정 + 입력 처리를 sync보다 먼저 한다 — input_.update가 이번 프레임에
+    // 새 입력을 보내면(onInputSent) 예측 좌표가 갱신되는데, sync가 그 뒤에 와야
+    // 이번 프레임 화면에 바로 반영된다(한 프레임 지연 없이).
+    let localOverride: { id: string; x: number; y: number } | undefined;
+    if (me) {
+      // 재조정은 반드시 "같은 원본 패치"에서 나온 좌표/seq 쌍을 써야 한다 — 보간된
+      // snapshot(me.x/me.y)은 두 패치를 섞은 값이라 lastProcessedSeq와 안 맞는다
+      // (docs/backend/54 후속 수정 — 미세한 버벅임의 원인이었다).
+      const raw = this.connection.getRawSelf();
+      if (!this.predictor) this.predictor = new PlayerPredictor(raw?.x ?? me.x, raw?.y ?? me.y);
+      if (raw) this.predictor.reconcile(raw.lastProcessedSeq, raw.x, raw.y, this.isBlocked);
+      this.input_.update(delta, me);
+      // position이 아니라 renderPosition — 입력 전송 주기(60Hz)와 렌더 주기(모니터
+      // 주사율)가 어긋나는 프레임에도 계단식으로 안 보이게, 마지막 입력 방향으로
+      // 짧게 미리 내다본 값을 그린다(docs/backend/54 후속 수정).
+      const { x, y } = this.predictor.renderPosition(this.isBlocked);
+      localOverride = { id: me.id, x, y };
+    }
+
     // 휘두르기는 스냅샷이 아니라 시간으로 진행한다 — sync보다 먼저 갱신해야 이번 프레임에 반영된다.
     this.entityRenderer.advance(delta);
-    this.entityRenderer.sync(snapshot);
+    this.entityRenderer.sync(snapshot, localOverride);
     // 건축 구역 포장 — 반경이 바뀐 순간에만 실제로 다시 그린다(TerrainLayer 참고).
     this.terrain?.setBuildRadius(snapshot.status.coreBuildRadius);
     this.dayNight.update(snapshot.status, this.cameras.main, delta, portableLights(snapshot));
 
-    const me = snapshot.players.find((player) => player.id === this.connection.sessionId);
     if (!me) return;
-
-    this.input_.update(delta, me);
 
     if (!this.isFollowing) {
       const sprite = this.entityRenderer.getSprite(me.id);

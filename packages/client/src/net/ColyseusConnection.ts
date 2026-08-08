@@ -19,7 +19,7 @@ import {
   normalizeRoomCode,
 } from '@dropfall/shared';
 import { SERVER_HTTP_URL } from './config';
-import type { GameConnection, LobbyView, RoomInfo, WorldSnapshot } from './GameConnection';
+import type { GameConnection, LobbyView, PlayerView, RoomInfo, WorldSnapshot } from './GameConnection';
 import { SnapshotInterpolator } from './SnapshotInterpolator';
 
 /** 서버 상태가 오기 전에 쓸 빈 안개 — 전부 미탐색. */
@@ -360,6 +360,10 @@ export class ColyseusConnection implements GameConnection {
   /** 화면 렌더링용. TICK_RATE 상태를 60fps에 맞게 보간한, 몇 ms 지연된 스냅샷을 돌려준다. */
   getSnapshot(): WorldSnapshot {
     return this.interpolator.sample();
+  }
+
+  getRawSelf(): PlayerView | undefined {
+    return this.interpolator.getRawPlayer(this.sessionId);
   }
 
   /** 보간 버퍼에 쌓기 위해 서버 Schema를 평범한 배열로 변환한다. */

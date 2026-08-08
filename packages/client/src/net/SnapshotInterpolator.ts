@@ -223,6 +223,22 @@ export class SnapshotInterpolator {
     status: { ...EMPTY_STATUS },
   };
 
+  /**
+   * 보간 없이, **가장 최근에 도착한 원본 패치**에서 그대로 찾은 플레이어를 돌려준다.
+   *
+   * 클라이언트 예측 재조정(`PlayerPredictor.reconcile`)이 쓴다 — "서버가 이 좌표를
+   * 이 seq로 확정했다"는 사실은 **같은 원본 패치 안에서 나온 값끼리만** 쌍이 맞다.
+   * `sample()`이 돌려주는 `x`/`y`는 두 원본 스냅샷을 보간(lerp)한 값인데
+   * `lastProcessedSeq`는 보간 안 하고 더 최신 스냅샷 것을 그대로 쓰므로(§sample의
+   * blendList), 그 둘을 같이 재조정에 넘기면 "이 seq에서 서버가 실제로 있던 위치"가
+   * 아니라 "두 시점 사이 어딘가의 좌표에 다른 시점의 seq표"가 되어 매 재조정마다
+   * 조금씩 어긋난 값으로 스냅됐다 — 눈에 보이는 미세한 버벅임의 원인이었다.
+   */
+  getRawPlayer(id: string): PlayerView | undefined {
+    const last = this.buffer[this.buffer.length - 1];
+    return last?.players.find((player) => player.id === id);
+  }
+
   /** 새 네트워크/시뮬 상태가 들어올 때마다 호출한다. */
   push(snapshot: WorldSnapshot, now: number = performance.now()): void {
     this.buffer.push({

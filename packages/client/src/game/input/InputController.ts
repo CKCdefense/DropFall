@@ -103,6 +103,13 @@ export class InputController {
      * 모달에 차단막이 없어서(게임을 계속 보여줘야 한다) 좌표로 판정해야 한다.
      */
     private readonly isPointerOverHud?: (x: number, y: number) => boolean,
+    /**
+     * 서버로 입력을 보낼 때마다(전송 지점 두 곳 모두) 같이 호출된다 — 클라이언트
+     * 예측(`PlayerPredictor`)이 이 입력을 즉시 로컬에 반영하는 훅이다. 입력 자체를
+     * 여기서 만들지 않고 이미 만든 값을 그대로 넘긴다 — 정규화 규칙이 두 곳에서
+     * 갈라지면 예측이 서버와 어긋난다.
+     */
+    private readonly onInputSent?: (input: PlayerInputMessage) => void,
   ) {
     const keyboard = scene.input.keyboard;
     if (!keyboard) throw new Error('키보드 입력을 사용할 수 없습니다.');
@@ -196,7 +203,9 @@ export class InputController {
     this.keys.sprint.reset();
     this.fireTimer = 0;
     this.seq += 1;
-    this.connection.sendInput(this.buildInput());
+    const input = this.buildInput();
+    this.connection.sendInput(input);
+    this.onInputSent?.(input);
   }
 
   get weaponId(): string | undefined {
@@ -253,7 +262,9 @@ export class InputController {
     this.elapsed = 0;
 
     this.seq += 1;
-    this.connection.sendInput(this.buildInput());
+    const input = this.buildInput();
+    this.connection.sendInput(input);
+    this.onInputSent?.(input);
   }
 
   get currentAimAngle(): number {

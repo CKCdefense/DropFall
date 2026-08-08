@@ -13,7 +13,7 @@ import {
   type SlotContainer,
   type PlayerInputMessage,
 } from '@dropfall/shared';
-import type { GameConnection, LobbyView, RoomInfo, WorldSnapshot } from './GameConnection';
+import type { GameConnection, LobbyView, PlayerView, RoomInfo, WorldSnapshot } from './GameConnection';
 import { SnapshotInterpolator } from './SnapshotInterpolator';
 
 const LOCAL_SESSION_ID = 'local-player';
@@ -203,6 +203,10 @@ export class LocalConnection implements GameConnection {
 
   getSnapshot(): WorldSnapshot {
     return this.interpolator.sample();
+  }
+
+  getRawSelf(): PlayerView | undefined {
+    return this.interpolator.getRawPlayer(LOCAL_SESSION_ID);
   }
 
   private readRawSnapshot(): WorldSnapshot {

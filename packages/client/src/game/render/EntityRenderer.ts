@@ -504,9 +504,15 @@ export class EntityRenderer {
     companionSpeech?.setResolution(zoom);
   }
 
-  sync(snapshot: WorldSnapshot): void {
+  /**
+   * `localOverride`: 내 캐릭터(로컬 플레이어)의 위치를 스냅샷 값 대신 이걸로 그린다 —
+   * `PlayerPredictor`가 네트워크 도착 시각과 무관하게 계산한 예측 좌표다(docs/backend/53).
+   * 다른 필드(hp/조준각/장비)는 그대로 스냅샷을 쓴다. 원격 플레이어/몬스터 등 나머지는
+   * 영향받지 않는다 — 여전히 순수 보간이다.
+   */
+  sync(snapshot: WorldSnapshot, localOverride?: { id: string; x: number; y: number }): void {
     this.syncCore(snapshot.status.coreTier, snapshot.status.coreHp);
-    this.syncPlayers(snapshot.players);
+    this.syncPlayers(snapshot.players, localOverride);
     this.syncMonsters(snapshot.monsters);
     this.syncTelegraphs(snapshot.monsters);
     this.syncProjectiles(snapshot.projectiles);
@@ -560,7 +566,7 @@ export class EntityRenderer {
 
   // ---------------------------------------------------------------- 플레이어
 
-  private syncPlayers(views: PlayerView[]): void {
+  private syncPlayers(views: PlayerView[], localOverride?: { id: string; x: number; y: number }): void {
     const alive = new Set<string>();
 
     for (const player of views) {
@@ -578,10 +584,15 @@ export class EntityRenderer {
       if (lastHp !== undefined && player.hp < lastHp) this.playPlayerHurt(sprite);
       sprite.setData('hp', player.hp);
 
+      // 내 캐릭터면 예측 좌표를, 아니면(원격) 스냅샷(보간된) 좌표를 그대로 쓴다.
+      const useOverride = localOverride?.id === player.id;
+      const renderX = useOverride ? localOverride.x : player.x;
+      const renderY = useOverride ? localOverride.y : player.y;
+
       // 정수 스냅 — roundPixels와 함께 서브픽셀 흔들림을 막는다.
-      sprite.setPosition(Math.round(player.x), Math.round(player.y));
+      sprite.setPosition(Math.round(renderX), Math.round(renderY));
       // 탑다운 깊이 정렬: 아래에 있을수록 앞에 그린다.
-      sprite.setDepth(player.y);
+      sprite.setDepth(renderY);
       // 다운된 플레이어는 흐리게 — 부활 대상임을 한눈에 보이게 한다.
       sprite.setAlpha(player.hp > 0 ? 1 : 0.35);
 
@@ -603,7 +614,7 @@ export class EntityRenderer {
         aim.setPosition(Math.cos(player.aimAngle) * 12, Math.sin(player.aimAngle) * 12);
       }
 
-      if (this.hasSprite) this.updatePlayerSprite(sprite, player);
+      if (this.hasSprite) this.updatePlayerSprite(sprite, player, renderX, renderY);
     }
 
     for (const map of [this.lastPositions, this.swings, this.equipped]) {
@@ -858,7 +869,18 @@ export class EntityRenderer {
    * 방향은 조준각으로 정하고, 걷기 애니메이션은 실제로 움직일 때만 재생한다.
    * 스냅샷에 속도가 없어서 직전 프레임 좌표와의 차이로 이동 여부를 판단한다.
    */
-  private updatePlayerSprite(container: Phaser.GameObjects.Container, player: PlayerView): void {
+  /**
+   * `x`/`y`는 스냅샷의 `player.x`/`player.y`가 아니라 **실제로 화면에 그려지는**
+   * 좌표를 받는다(`syncPlayers`가 계산한 renderX/renderY — 내 캐릭터면 예측 좌표).
+   * 걷기/정지 애니메이션 판정을 렌더 좌표로 해야, 예측으로는 부드럽게 움직이는데
+   * 애니메이션만 옛 보간 신호를 보고 멈춰 있는 것처럼 보이는 불일치가 안 생긴다.
+   */
+  private updatePlayerSprite(
+    container: Phaser.GameObjects.Container,
+    player: PlayerView,
+    x: number,
+    y: number,
+  ): void {
     const body = container.getByName('body');
     if (!(body instanceof Phaser.GameObjects.Sprite)) return;
 
@@ -867,10 +889,8 @@ export class EntityRenderer {
     body.setFlipX(flipX);
 
     const previous = this.lastPositions.get(player.id);
-    const moved = previous
-      ? Math.hypot(player.x - previous.x, player.y - previous.y) > MOVE_EPSILON
-      : false;
-    this.lastPositions.set(player.id, { x: player.x, y: player.y });
+    const moved = previous ? Math.hypot(x - previous.x, y - previous.y) > MOVE_EPSILON : false;
+    this.lastPositions.set(player.id, { x, y });
 
     if (moved && player.hp > 0) {
       const key = walkAnimKey(job, direction);
