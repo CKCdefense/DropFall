@@ -1,6 +1,6 @@
 {
   "name": "티모시",
-  "moveSpeed": 55,
+  "moveSpeed": 83,
   "harvestRange": 32,
   "harvestDamage": 6,
   "harvestIntervalSeconds": 0.5,
