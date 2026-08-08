@@ -45,6 +45,79 @@ describe('companionData — 데이터 불변식', () => {
   });
 });
 
+describe('World — 티모시가 코어 자체에 막혀 이동을 못 하는 버그', () => {
+  /**
+   * moveCompanionToward의 목적지(코어로 돌아갈 땐 원점, 자원 노드로 갈 땐 그 노드)가
+   * 코어를 정확히 가로지르는 수평선 위에 있으면, 축 슬라이딩(전체→X만→Y만) 두
+   * 단계만으로는 영원히 멈춘다 — 코어 서쪽 벽(수직 평면)을 정면으로 마주 보는
+   * 경우 X축 이동은 그대로 벽을 파고들어 막히고, Y축 이동은 방향 성분이 정확히
+   * 0이라(dirY===0) 애초에 시도조차 안 된다. 실제로 수정 전 코드로 재현했다 —
+   * -70,0에서 70,0의 노드로 가려 하면 -62.67,0(코어 서쪽 경계 바로 앞)에서 멈춰
+   * 선 채 그대로 있었다. 접선 미끄러짐 + 탈출 점프(몬스터의 docs/backend/40과
+   * 같은 해법)를 추가한 뒤로는 결국 도달해야 한다.
+   */
+  it('코어를 정면으로 관통하는 경로로 자원 노드를 찾아가도 결국 도착한다', () => {
+    const world = createTestWorld();
+    const companion = mutableCompanion(world);
+    const [node] = [...world.getResourceNodes().values()];
+    node!.x = 70;
+    node!.y = 0;
+    companion.x = -70;
+    companion.y = 0;
+    companion.state = 'traveling';
+    companion.targetNodeId = node!.id;
+
+    let reached = false;
+    for (let tick = 0; tick < 1800 && !reached; tick += 1) {
+      // 최대 30초(탈출 임계값 1.5초보다 훨씬 넉넉하게) — 실제 서버 틱레이트로.
+      world.tick(1 / 60);
+      if (world.getCompanion().state !== 'traveling') reached = true; // harvesting 등으로 전환됨
+    }
+
+    expect(reached).toBe(true);
+  });
+
+  it('코어를 정면으로 관통하는 경로로 코어에 복귀해도 결국 도착한다', () => {
+    const world = createTestWorld();
+    const companion = mutableCompanion(world);
+    companion.x = -70;
+    companion.y = 0;
+    companion.state = 'returning';
+    companion.carriedWood = companionData.capacity;
+
+    let reached = false;
+    for (let tick = 0; tick < 1800 && !reached; tick += 1) {
+      world.tick(1 / 60);
+      if (world.getCompanion().state !== 'returning') reached = true; // depositing 등으로 전환됨
+    }
+
+    expect(reached).toBe(true);
+  });
+
+  it('코어 주변 어느 각도에서 복귀를 시작해도 결국 코어 상호작용 반경 안에 도달한다', () => {
+    const ANGLE_SAMPLES = 16;
+    const START_RADIUS = 70; // 코어 발자국(최대 반경 52) 바로 바깥
+
+    for (let i = 0; i < ANGLE_SAMPLES; i += 1) {
+      const angle = (i / ANGLE_SAMPLES) * Math.PI * 2;
+      const world = createTestWorld();
+      const companion = mutableCompanion(world);
+      companion.x = Math.cos(angle) * START_RADIUS;
+      companion.y = Math.sin(angle) * START_RADIUS;
+      companion.state = 'returning';
+      companion.carriedWood = companionData.capacity;
+
+      let reached = false;
+      for (let tick = 0; tick < 1800 && !reached; tick += 1) {
+        world.tick(1 / 60);
+        if (world.getCompanion().state !== 'returning') reached = true;
+      }
+
+      expect(reached, `각도 ${i}/${ANGLE_SAMPLES}에서 갇힘`).toBe(true);
+    }
+  });
+});
+
 describe('World — 티모시(AI 동반자) 생성/탐색', () => {
   it('처음엔 seeking 상태이고, 틱하면 가장 가까운 노드를 찾아 traveling으로 전환한다', () => {
     const world = createTestWorld();

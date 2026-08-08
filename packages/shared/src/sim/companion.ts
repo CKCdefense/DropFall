@@ -26,6 +26,12 @@ export interface CompanionEntity {
   maxHp: number;
   /** harvestIntervalSeconds 쿨다운. */
   harvestTimer: number;
+  /**
+   * `moveCompanionToward`가 이동을 전혀 못 시킨 채 연속으로 흐른 시간(초). 몬스터의
+   * `stuckSeconds`(world.ts moveMonsterInner)와 같은 용도 — 코어처럼 둥글지 않은
+   * 장애물 바로 앞에서 축 슬라이딩만으로는 못 빠져나가는 경우를 대비한 탈출 트리거다.
+   */
+  stuckSeconds: number;
 }
 
 export function createCompanion(coreX: number, coreY: number): CompanionEntity {
@@ -41,5 +47,6 @@ export function createCompanion(coreX: number, coreY: number): CompanionEntity {
     hp: companionData.maxHp,
     maxHp: companionData.maxHp,
     harvestTimer: 0,
+    stuckSeconds: 0,
   };
 }

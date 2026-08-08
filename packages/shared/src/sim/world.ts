@@ -2195,9 +2195,15 @@ export class World {
   }
 
   /**
-   * 티모시를 (targetX, targetY) 방향으로 한 스텝 이동시킨다. `movePlayer`와 같은
-   * 3단계 폴백(전체 이동 → X축만 → Y축만)을 쓰고, 장애물 판정도 플레이어와 같은
-   * `isBlockedForPlayer`를 그대로 쓴다 — 몬스터 전용 판정/분리 벡터는 필요 없다(1마리뿐).
+   * 티모시를 (targetX, targetY) 방향으로 한 스텝 이동시킨다. `movePlayer`처럼 3단계
+   * 폴백(전체 이동 → X축만 → Y축만)을 쓰지만, 그것도 다 막히면 몬스터(`moveMonsterInner`,
+   * docs/backend/40)와 같은 접선 미끄러짐 + 탈출 점프까지 이어받는다 — "코어로
+   * 돌아가는" 게 티모시의 정상적인 목적지 자체라(§tickCompanion의 returning 상태가
+   * 코어 원점을 향해 곧장 걷는다), 축 슬라이딩만으로는 못 빠져나가는 각도에서
+   * 코어 자체에 막혀 영원히 멈추는 버그가 실제로 있었다. 장애물 판정은 플레이어와
+   * 같은 `isBlockedForPlayer`를 쓰고(1마리뿐이라 몬스터 전용 분리 벡터는 필요 없다),
+   * 접선/탈출 계산은 플레이어·티모시가 막히는 대상(건축물·자원·콜로니·코어)까지
+   * 다루는 `findNearestObstacleCenterForPlayer`를 쓴다.
    */
   private moveCompanionToward(targetX: number, targetY: number, dtSeconds: number): void {
     const companion = this.companion;
@@ -2212,22 +2218,78 @@ export class World {
     companion.facingY = dirY;
 
     const step = companionData.moveSpeed * dtSeconds;
-    const full = { x: companion.x + dirX * step, y: companion.y + dirY * step };
-    if (!this.isBlockedForPlayer(full.x, full.y)) {
-      companion.x = full.x;
-      companion.y = full.y;
+    const fullX = companion.x + dirX * step;
+    const fullY = companion.y + dirY * step;
+    if (!this.isBlockedForPlayer(fullX, fullY)) {
+      companion.x = fullX;
+      companion.y = fullY;
+      companion.stuckSeconds = 0; // 완전히 자유로운 이동 — 확실히 안 막혔다
       return;
     }
 
-    const xOnly = { x: companion.x + dirX * step, y: companion.y };
-    if (!this.isBlockedForPlayer(xOnly.x, xOnly.y)) {
-      companion.x = xOnly.x;
-      return;
+    // 여기부터는 뭔가 막혀서 폴백이 필요한 상태다 — moveMonsterInner와 같은 이유로
+    // 폴백이 성공해도 stuckSeconds는 리셋하지 않는다(여러 장애물에 둘러싸인 "주머니"에서
+    // 매 틱 조금씩만 미끄러지며 계속 폴백에 의존하는 상태를 놓치지 않기 위함).
+    companion.stuckSeconds += dtSeconds;
+
+    // dirX/dirY가 정확히 0이면 그 축 "이동"은 제자리라(현재 좌표 그대로), 우연히
+    // 막힘 검사를 통과해도 실제로는 안 움직인 것이다 — 방향 성분이 실제로 있을 때만
+    // 그 축 결과를 인정한다(moveMonsterInner와 같은 안전장치).
+    if (dirX !== 0 && !this.isBlockedForPlayer(fullX, companion.y)) {
+      companion.x = fullX;
+    } else if (dirY !== 0 && !this.isBlockedForPlayer(companion.x, fullY)) {
+      companion.y = fullY;
+    } else {
+      const obstacle = this.findNearestObstacleCenterForPlayer(companion.x, companion.y);
+      if (obstacle) {
+        const radialX = companion.x - obstacle.x;
+        const radialY = companion.y - obstacle.y;
+        const radialLength = Math.hypot(radialX, radialY);
+
+        if (radialLength > 0) {
+          const tangentAX = -radialY / radialLength;
+          const tangentAY = radialX / radialLength;
+          const tangentBX = radialY / radialLength;
+          const tangentBY = -radialX / radialLength;
+          const useTangentA = tangentAX * dirX + tangentAY * dirY >= tangentBX * dirX + tangentBY * dirY;
+          const tangentX = useTangentA ? tangentAX : tangentBX;
+          const tangentY = useTangentA ? tangentAY : tangentBY;
+
+          const tangentFullX = companion.x + tangentX * step;
+          const tangentFullY = companion.y + tangentY * step;
+          if (!this.isBlockedForPlayer(tangentFullX, tangentFullY)) {
+            companion.x = tangentFullX;
+            companion.y = tangentFullY;
+          }
+        }
+      }
     }
 
-    const yOnly = { x: companion.x, y: companion.y + dirY * step };
-    if (!this.isBlockedForPlayer(yOnly.x, yOnly.y)) {
-      companion.y = yOnly.y;
+    if (companion.stuckSeconds >= STUCK_ESCAPE_SECONDS) {
+      this.tryEscapeStuckCompanion(dirX, dirY);
+      companion.stuckSeconds = 0;
+    }
+  }
+
+  /** `tryEscapeStuckMonster`의 티모시 버전 — 원래 가려던 방향을 정면으로 두고
+   * 좌우로 부채꼴을 넓혀가며 처음 안 막힌 자리로 점프한다. */
+  private tryEscapeStuckCompanion(normX: number, normY: number): void {
+    const companion = this.companion;
+    const desiredAngle =
+      normX !== 0 || normY !== 0 ? Math.atan2(normY, normX) : Math.atan2(companion.y, companion.x);
+
+    const ANGLE_STEP = Math.PI / 8; // 22.5도
+    for (let attempt = 0; attempt < STUCK_ESCAPE_ATTEMPTS; attempt += 1) {
+      const side = attempt % 2 === 0 ? 1 : -1;
+      const magnitude = Math.ceil(attempt / 2);
+      const angle = desiredAngle + side * magnitude * ANGLE_STEP + (this.rng() - 0.5) * 0.1;
+      const candidateX = companion.x + Math.cos(angle) * STUCK_ESCAPE_DISTANCE;
+      const candidateY = companion.y + Math.sin(angle) * STUCK_ESCAPE_DISTANCE;
+      if (!this.isBlockedForPlayer(candidateX, candidateY)) {
+        companion.x = candidateX;
+        companion.y = candidateY;
+        return;
+      }
     }
   }
 
@@ -2788,6 +2850,57 @@ export class World {
         nearestGap = gap;
         nearest = { x: colony.x, y: colony.y };
       }
+    }
+
+    return nearest;
+  }
+
+  /**
+   * `findNearestObstacleCenter`의 플레이어/티모시용 버전 — `isBlockedForPlayer`가
+   * 막는 것과 정확히 같은 대상(이동을 막는 건축물, 자원 노드, 콜로니, 코어)을 본다.
+   * 몬스터용은 코어/건축물을 안 다루는데(몬스터에게 코어는 목표, 건축물은 부수는
+   * 대상이라 따로 처리), 티모시는 코어로 "돌아가는" 것 자체가 목적지라 코어 자체가
+   * 장애물로 잡힐 일이 흔하다 — 실제로 이 케이스에서 막혀서 못 움직이는 버그가
+   * 있었다.
+   *
+   * 코어는 원이 아니라 8각형(coreShape.ts)이지만, 접선 방향만 필요한 이 용도로는
+   * 원점을 중심으로 근사해도 충분하다(받침대가 원점 대칭에 가깝게 설계됨,
+   * §CORE_ORIGIN_Y). 거리 자체(gap)는 `coreDistance`가 실제 윤곽 기준으로 정확히
+   * 재준다.
+   */
+  private findNearestObstacleCenterForPlayer(
+    x: number,
+    y: number,
+  ): { x: number; y: number } | undefined {
+    let nearest: { x: number; y: number } | undefined;
+    let nearestGap = Infinity;
+
+    for (const building of this.buildings.values()) {
+      if (!buildingsData[building.type].blocksMovement) continue;
+      const gap = Math.hypot(building.x - x, building.y - y) - PLAYER_BUILDING_COLLISION_RADIUS;
+      if (gap < nearestGap) {
+        nearestGap = gap;
+        nearest = { x: building.x, y: building.y };
+      }
+    }
+    for (const node of this.resourceNodes.values()) {
+      if (node.hp <= 0) continue;
+      const gap = Math.hypot(node.x - x, node.y - y) - (HIT_RADIUS + resourcesData[node.type].hitRadius);
+      if (gap < nearestGap) {
+        nearestGap = gap;
+        nearest = { x: node.x, y: node.y };
+      }
+    }
+    for (const colony of this.colonies.values()) {
+      const gap = Math.hypot(colony.x - x, colony.y - y) - PLAYER_COLONY_COLLISION_RADIUS;
+      if (gap < nearestGap) {
+        nearestGap = gap;
+        nearest = { x: colony.x, y: colony.y };
+      }
+    }
+    // 마지막 후보라 갱신 후 다시 비교할 일이 없다 — nearestGap을 더 안 건드린다.
+    if (coreDistance(x, y) < nearestGap) {
+      nearest = { x: 0, y: 0 };
     }
 
     return nearest;
