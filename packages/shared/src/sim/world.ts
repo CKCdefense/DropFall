@@ -7,6 +7,7 @@ import {
   coreUpgradesData,
   craftingData,
   itemsData,
+  jobStats,
   shopData,
   loadoutData,
   monstersData,
@@ -49,12 +50,17 @@ import {
   type CompanionPersonaTurn,
 } from './companionPersona';
 import {
+  FULL_ARC,
   HIT_RADIUS,
+  WeaponAmmo,
   WeaponCooldowns,
+  angleDifference,
   circlesOverlap,
+  projectileSweepHits,
   resolveFire,
   tickProjectiles,
   withinMeleeArc,
+  type FireResult,
   type MeleeHit,
   type ProjectileEntity,
 } from './combat';
@@ -62,7 +68,12 @@ import { Inventory } from './inventory';
 import { CoreStorage, STORAGE_SLOT_COUNT } from './storage';
 import { coreDistance, isWithinCoreInteract } from './coreShape';
 import { ExploredMap } from './explored';
-import { normalizeMoveVector, stepPosition } from './movement';
+import { normalizeMoveVector, resolvePlayerMove } from './movement';
+import {
+  isPlayerBlocked,
+  PLAYER_BUILDING_COLLISION_RADIUS,
+  PLAYER_COLONY_COLLISION_RADIUS,
+} from './playerCollision';
 import { SpatialGrid } from './spatialGrid';
 import { WaveManager, type GamePhase } from './wave';
 import { runDevCommand, type DevCommandResult, type DevWorldAccess } from './devCommands';
@@ -116,6 +127,30 @@ export const PICKUP_RADIUS = 22;
  */
 export const BARE_HANDS_WEAPON_ID = 'fist';
 
+/**
+ * 달리기(Shift). 스태미나를 태워 이동속도를 올린다 — 낮에 자원을 찾아 멀리 나가고,
+ * 밤에 몰리면 빠져나오는 데 쓴다. 배율이 너무 높으면 걷기가 무의미해지고, 너무 낮으면
+ * 스태미나를 쓸 이유가 없다.
+ */
+// export: 클라이언트 예측(PlayerPredictor)이 스프린트 입력을 즉시 반영하려면 서버와
+// 같은 배율을 알아야 한다 — 값이 갈라지면 스프린트 중 매 프레임 되당김이 보인다.
+export const SPRINT_SPEED_MULTIPLIER = 1.6;
+/** 달리는 동안 초당 소모되는 스태미나. 기본 100이면 약 5초 전력질주다. */
+const SPRINT_STAMINA_DRAIN = 20;
+/** 걷거나 멈춰 있을 때 초당 회복량. 소모보다 느려야 "아껴 쓴다"는 판단이 생긴다. */
+const STAMINA_REGEN = 12;
+/**
+ * 달리기를 멈춘 뒤 회복이 시작되기까지의 지연(초). 없으면 달리기·놓기를 반복해서
+ * 사실상 무한히 달릴 수 있다.
+ */
+const STAMINA_REGEN_DELAY = 0.8;
+/**
+ * 자연 회복 속도(hp/초). "2초당 1"이라 아주 느리다 — 전투 중에 의미 있는 양이 아니라,
+ * 밤을 넘기지 않고도 붕대 없이 조금씩 아무는 정도다. 다운(hp 0) 상태에서는 돌지 않는다:
+ * 부활은 동료가 해야 하는 일이다(§revivePlayers).
+ */
+const HP_REGEN_PER_SECOND = 0.5;
+
 /** 개발 커맨드로 몬스터를 부를 때 코어에서 띄우는 거리(px). 바로 옆에 붙여 놓으면 코어가 즉사한다. */
 const DEV_SPAWN_RADIUS = 160;
 
@@ -161,21 +196,6 @@ const STUCK_ESCAPE_SECONDS = 1.5;
 const STUCK_ESCAPE_DISTANCE = 40;
 /** 탈출 점프 각도 재시도 횟수. world.ts의 다른 배치 재시도(`pickClusterNodePosition` 등)와 같은 값. */
 const STUCK_ESCAPE_ATTEMPTS = 8;
-/**
- * 플레이어와 이동 차단 건축물(벽/울타리) 사이의 하드 충돌 판정 반경(px) —
- * 플레이어 자신의 반경(`HIT_RADIUS`)과 건축물 자신의 반경(`TILE_SIZE / 2`)의 합이다.
- * 원-원 충돌은 "두 반경의 합보다 중심 간 거리가 가까우면 겹친다"는 규칙이라, 이
- * 상수 자체가 두 원이 맞닿는 지점을 뜻한다. `HIT_RADIUS`를 별도로 export하는 이유:
- * 클라이언트 디버그 테두리(EntityRenderer)가 플레이어 원과 건축물 원을 각각 그려서
- * "두 원이 닿으면 막힌다"를 그대로 보여주려면, 이 합산을 이루는 두 값 모두 서버와
- * 정확히 같아야 한다(값이 서버/시뮬레이션 쪽과 어긋나면 안 됨).
- */
-export const PLAYER_BUILDING_COLLISION_RADIUS = HIT_RADIUS + TILE_SIZE / 2;
-/** 플레이어-코어 하드 충돌 반경(px). 위와 같은 이유로 두 반경의 합을 상수로 export한다. */
-
-/** 플레이어-콜로니 하드 충돌 반경(px). */
-export const PLAYER_COLONY_COLLISION_RADIUS = HIT_RADIUS + COLONY_RADIUS;
-export { HIT_RADIUS };
 /**
  * 몬스터가 "처음" 플레이어를 발견할 때만 적용하는 시야각(120도, 바라보는 방향 기준 ±60도).
  * cos(60°)=0.5 — 내적(dot product)이 이 값 이상이면 시야각 안이다. atan2/acos 없이 내적
@@ -243,6 +263,35 @@ export interface PlayerEntity {
   inventory: Inventory;
   /** 이번 틱에 몬스터에게 맞았는지. 매 틱 시작 시 초기화되고, damagePlayer()가 세팅한다. */
   tookDamageThisTick: boolean;
+
+  /**
+   * 고른 직업. 기초 스탯(체력·공격력·스태미나)이 여기서 나온다. 로비에서 정해지므로
+   * 참가 시점엔 비어 있고, 게임이 시작될 때 호출자가 setPlayerJob으로 알려준다.
+   */
+  job: string;
+  /** 남은 스태미나. 달리면 줄고 걷거나 멈추면 찬다. */
+  stamina: number;
+  /** 이번 틱에 달리기를 눌렀는가(입력). 실제로 달렸는지는 스태미나가 정한다. */
+  sprinting: boolean;
+  /** 달리기를 멈춘 뒤 회복이 시작되기까지 남은 시간(초). */
+  staminaRegenDelay: number;
+  /** 음식(도넛/당근케이크)으로 늘어난 최대 체력. 직업 기초 체력에 더해진다. */
+  maxHpBonus: number;
+  /**
+   * 음식(너겟/라자냐)으로 쌓인 공격력. 직업 기초 공격력과 같은 축이라 **고정값**으로
+   * 더한다 — 배율과 고정값을 섞으면 "공격력 스탯"이 무엇을 뜻하는지 화면에서 설명할
+   * 수 없다(HUD에 숫자 하나로 나와야 한다).
+   */
+  attackFlatBonus: number;
+  /** 음식(초콜릿/사과주스)으로 쌓인 이동속도 증가율의 합. 스태미나 게이지 도입 전의 해석. */
+  staminaBonus: number;
+  /** 진통제: 남은 시간(초) 동안 체력이 1 아래로 떨어지지 않는다. */
+  hpFloorTimer: number;
+  /** 아드레날린: 남은 시간(초) 동안 이동속도에 speedBuffMultiplier를 곱한다. */
+  speedBuffTimer: number;
+  speedBuffMultiplier: number;
+  /** 점사 모드(돌격소총 전용 토글). burst 스펙이 없는 무기를 들면 무시된다. */
+  burstMode: boolean;
 }
 
 export interface ResourceNodeEntity {
@@ -307,6 +356,9 @@ export type BossPatternState =
       /** 돌진(dash)이 있는 기술에서 이미 쓸고 지나간 대상. 한 번의 돌진에 한 사람이
        * 여러 번 맞지 않게 한다(매 틱 판정하면 가만히 선 사람이 수십 번 맞는다). */
       dashHitIds: Set<string>;
+      /** 돌진이 시작된 자리. 직사각형 판정이 "출발점부터 지금까지"를 덮으려면 필요하다. */
+      dashOriginX?: number;
+      dashOriginY?: number;
     }
   /** 판정 후 경직. 이 동안은 이동도 다음 공격도 없다 — 플레이어가 반격할 틈이다. */
   | { kind: 'meleeRecover'; timer: number }
@@ -378,6 +430,18 @@ export interface MonsterEntity {
    * 재생할 시점을 알려주기 위해서만 존재한다(그림 없이는 알 방법이 없다).
    */
   attackAnimTimer: number;
+  /**
+   * 공격을 시작할 때마다 1씩 오르는 번호. 클라이언트는 이 값이 **바뀌는 순간** 공격
+   * 애니메이션을 재생한다.
+   *
+   * 예전엔 "공격 중인가"(attackAnimTimer > 0) 불리언의 false→true 전이만 보고 재생했는데,
+   * 모션 길이(예고 0.36 + 0.4초)가 공격 주기(헬하운드 0.8초)와 거의 같아 **꺼져 있는
+   * 구간이 40ms**밖에 안 됐다. 상태 동기화는 20Hz(50ms)라 그 창을 통째로 건너뛰면
+   * 클라이언트 눈에는 플래그가 계속 켜져 있는 것처럼 보여서, 첫 공격 이후 모션이
+   * 영영 재생되지 않았다(코어처럼 쉬지 않고 때리는 상황에서 실제로 그랬다).
+   * 번호는 값이 달라진 사실만으로 판정되므로 샘플 타이밍과 무관하다.
+   */
+  attackSeq: number;
 }
 
 export interface CoreState {
@@ -443,6 +507,12 @@ export class World {
   private readonly monsterGrid = new SpatialGrid(MONSTER_GRID_CELL_SIZE);
   private projectiles = new Map<string, ProjectileEntity>();
   private readonly cooldowns = new WeaponCooldowns();
+  private readonly ammo = new WeaponAmmo();
+  /**
+   * 진행 중인 점사(burst). 방아쇠 1번에 count발이 interval 간격으로 나가야 해서
+   * 첫 발 이후의 나머지를 틱에서 예약 발사한다. 플레이어당 하나만 진행된다.
+   */
+  private readonly bursts = new Map<string, { weaponId: string; shotsLeft: number; timer: number }>();
   private readonly waveManager = new WaveManager();
   private readonly buildings = new BuildingRegistry();
   /** 코어 AI 페르소나 트레잇. 웨이브 종료/콜로니 파괴/코어 상호작용마다 조금씩 바뀐다. */
@@ -601,16 +671,113 @@ export class World {
     const inventory = new Inventory();
     for (const entry of loadoutData.playerStarting) inventory.add(entry.itemId, entry.count);
 
+    const stats = jobStats('');
     this.players.set(id, {
       id,
       x,
       y,
       aimAngle: 0,
       lastProcessedSeq: 0,
-      hp: wavesData.playerHp,
+      hp: stats.maxHp,
       inventory,
       tookDamageThisTick: false,
+      job: '',
+      stamina: stats.maxStamina,
+      sprinting: false,
+      staminaRegenDelay: 0,
+      maxHpBonus: 0,
+      attackFlatBonus: 0,
+      staminaBonus: 0,
+      hpFloorTimer: 0,
+      speedBuffTimer: 0,
+      speedBuffMultiplier: 1,
+      burstMode: false,
     });
+  }
+
+  /**
+   * 직업을 확정한다. 로비에서 고르므로 참가 시점엔 알 수 없다 — 게임이 시작될 때
+   * 호출자가 정확히 한 번 알려준다. 체력·스태미나는 새 최대치로 가득 채운다(시작 전이다).
+   */
+  setPlayerJob(playerId: string, job: string): void {
+    const player = this.players.get(playerId);
+    if (!player) return;
+    player.job = job;
+    const stats = jobStats(job);
+    player.hp = stats.maxHp + player.maxHpBonus;
+    player.stamina = this.playerMaxStamina(player);
+  }
+
+  /**
+   * 스태미나 소모·회복. **실제로 달리고 있을 때만** 탄다 — 제자리에서 Shift를 누르고
+   * 있다고 줄면 플레이어는 이유를 알 수 없다.
+   */
+  private tickStamina(player: PlayerEntity, dtSeconds: number): void {
+    const input = this.inputs.get(player.id);
+    const moving = input !== undefined && (input.moveX !== 0 || input.moveY !== 0);
+    const running = player.sprinting && moving && player.stamina > 0 && player.hp > 0;
+
+    if (running) {
+      player.stamina = Math.max(0, player.stamina - SPRINT_STAMINA_DRAIN * dtSeconds);
+      player.staminaRegenDelay = STAMINA_REGEN_DELAY;
+      return;
+    }
+
+    // 지연이 남아 있으면 먼저 깎고, **남은 시간만큼은 같은 틱에 회복시킨다** — 지연만
+    // 깎고 끝내면 한 틱이 길 때(테스트의 큰 dt, 프레임 드랍) 그 틱의 회복이 통째로 증발한다.
+    let seconds = dtSeconds;
+    if (player.staminaRegenDelay > 0) {
+      const spent = Math.min(player.staminaRegenDelay, seconds);
+      player.staminaRegenDelay -= spent;
+      seconds -= spent;
+      if (seconds <= 0) return;
+    }
+    player.stamina = Math.min(
+      this.playerMaxStamina(player),
+      player.stamina + STAMINA_REGEN * seconds,
+    );
+  }
+
+  /**
+   * 아주 느린 자연 회복. 소수점을 그대로 들고 다닌다 — 정수로 깎아 저장하면 0.5씩
+   * 오르는 값이 매 틱 버려져서 영영 차지 않는다(틱당 0.025hp).
+   */
+  private tickHpRegen(player: PlayerEntity, dtSeconds: number): void {
+    if (player.hp <= 0) return; // 다운 상태는 동료가 일으켜야 한다
+    const maxHp = this.playerMaxHp(player);
+    if (player.hp >= maxHp) return;
+    player.hp = Math.min(maxHp, player.hp + HP_REGEN_PER_SECOND * dtSeconds);
+  }
+
+  /** 직업 기초 체력 + 음식 보너스. 회복 상한·부활·HP바가 전부 이 값을 쓴다. */
+  playerMaxHp(player: PlayerEntity): number {
+    return jobStats(player.job).maxHp + player.maxHpBonus;
+  }
+
+  /** 직업 기초 스태미나. 음식의 "스태미나" 보너스는 이동속도로 가고 최대치는 안 건드린다. */
+  playerMaxStamina(player: PlayerEntity): number {
+    return jobStats(player.job).maxStamina;
+  }
+
+  /**
+   * 무기 데미지에 더해지는 고정 공격력. 직업 기초값 + 음식(너겟/라자냐)으로 쌓은 몫이다.
+   * 배율(attackBonus)과 달리 약한 무기일수록 체감이 크다.
+   */
+  playerAttack(player: PlayerEntity): number {
+    return jobStats(player.job).attack + player.attackFlatBonus;
+  }
+
+  /**
+   * 이동속도 배율 = 영구 스태미나 보너스 × 아드레날린 × 달리기.
+   * 달리기는 **스태미나가 남아 있고 실제로 달리기를 누른 동안**에만 곱해진다.
+   */
+  playerSpeedMultiplier(player: PlayerEntity): number {
+    const sprint = player.sprinting && player.stamina > 0 ? SPRINT_SPEED_MULTIPLIER : 1;
+    return (
+      (1 + player.staminaBonus) *
+      (player.speedBuffTimer > 0 ? player.speedBuffMultiplier : 1) *
+      sprint
+    );
   }
 
   removePlayer(id: string): void {
@@ -618,6 +785,8 @@ export class World {
     this.players.delete(id);
     this.inputs.delete(id);
     this.cooldowns.removePlayer(id);
+    this.ammo.removePlayer(id);
+    this.bursts.delete(id);
     this.skipVotes.delete(id);
   }
 
@@ -648,6 +817,10 @@ export class World {
       moveY,
       aimAngle: input.aimAngle,
     });
+    // 달리기는 이동 입력과 달리 되감기 대상이 아니라 "지금 누르고 있나"라는 상태다 —
+    // 순서가 뒤바뀐 입력에서도 마지막으로 받은 값을 그대로 쓴다.
+    const player = this.players.get(id);
+    if (player) player.sprinting = input.sprint === true;
   }
 
   /**
@@ -672,10 +845,18 @@ export class World {
 
     // 효과가 없는 상황이면 **소모하지 않는다.** 체력이 가득인데 붕대만 날리는 일이
     // 없어야 한다 — 어떤 효과든 "지금 의미가 있는가"를 먼저 묻고 나서 꺼낸다.
-    if (selected.healAmount !== undefined && player.hp >= wavesData.playerHp) return;
+    // 버프(진통제/아드레날린)·영구 스탯(음식)은 언제 써도 의미가 있어 검사하지 않는다.
+    const maxHp = this.playerMaxHp(player);
+    const heals = selected.healAmount !== undefined || selected.healPercent !== undefined;
+    const hasBuffOrStat =
+      selected.hpFloorSeconds !== undefined ||
+      selected.speedMultiplier !== undefined ||
+      selected.statBonus !== undefined;
+    if (heals && !hasBuffOrStat && player.hp >= maxHp) return;
     if (selected.coreHealAmount !== undefined && this.core.hp >= this.core.maxHp) return;
     if (
-      selected.healAmount === undefined &&
+      !heals &&
+      !hasBuffOrStat &&
       selected.coreHealAmount === undefined &&
       selected.energyAmount === undefined
     ) {
@@ -686,7 +867,30 @@ export class World {
     if (!item) return;
 
     if (item.healAmount !== undefined) {
-      player.hp = Math.min(wavesData.playerHp, player.hp + item.healAmount);
+      player.hp = Math.min(maxHp, player.hp + item.healAmount);
+    }
+    if (item.healPercent !== undefined) {
+      // 비율 회복은 최대 체력 기준이다 — 음식으로 최대치가 늘면 회복량도 같이 는다.
+      player.hp = Math.min(maxHp, player.hp + Math.round(maxHp * item.healPercent));
+    }
+    if (item.hpFloorSeconds !== undefined) {
+      // 겹쳐 쓰면 남은 시간과 새 시간 중 긴 쪽 — 더하기로 하면 쟁여놓고 연타해 사실상 무적이 된다.
+      player.hpFloorTimer = Math.max(player.hpFloorTimer, item.hpFloorSeconds);
+    }
+    if (item.speedMultiplier !== undefined && item.speedSeconds !== undefined) {
+      player.speedBuffMultiplier = item.speedMultiplier;
+      player.speedBuffTimer = Math.max(player.speedBuffTimer, item.speedSeconds);
+    }
+    if (item.statBonus !== undefined) {
+      if (item.statBonus.stat === 'maxHp') {
+        player.maxHpBonus += item.statBonus.amount;
+        // 최대치만 늘고 현재 체력이 그대로면 "먹었는데 체감이 없다" — 늘어난 만큼 같이 채운다.
+        player.hp = Math.min(this.playerMaxHp(player), player.hp + item.statBonus.amount);
+      } else if (item.statBonus.stat === 'attack') {
+        player.attackFlatBonus += item.statBonus.amount;
+      } else {
+        player.staminaBonus += item.statBonus.amount;
+      }
     }
     if (item.coreHealAmount !== undefined) {
       this.core.hp = Math.min(this.core.maxHp, this.core.hp + item.coreHealAmount);
@@ -719,17 +923,45 @@ export class World {
     // "사용"이라 여기까지 오지 않는다(클라이언트가 useSlot으로 보낸다).
     const weaponId = player.inventory.equippedWeaponId ?? BARE_HANDS_WEAPON_ID;
     if (!this.cooldowns.canFire(playerId, weaponId, this.elapsedSeconds)) return;
+    // 탄창 검사(원거리만 해당). 재장전 중이거나 빈 탄창이면 발사되지 않고, 빈 탄창은
+    // 이 호출 안에서 자동 재장전이 시작된다. 쿨다운보다 뒤에 검사해야 실패한 시도가
+    // 발사 주기를 밀어내지 않는다.
+    if (!this.ammo.tryConsume(playerId, weaponId)) return;
 
     this.cooldowns.recordFire(playerId, weaponId, this.elapsedSeconds);
-    const result = resolveFire({
-      playerId,
+    this.fireOneShot(player, weaponId);
+
+    // 점사 모드: 방아쇠 1번 = burst.count발. 첫 발은 방금 나갔고, 나머지는 틱에서
+    // interval 간격으로 이어 쏜다(탄약은 발마다 소모).
+    const weapon = weaponsData[weaponId];
+    if (weapon?.burst && player.burstMode) {
+      this.bursts.set(playerId, {
+        weaponId,
+        shotsLeft: weapon.burst.count - 1,
+        timer: weapon.burst.interval,
+      });
+    }
+  }
+
+  /**
+   * 한 발 발사의 공통 경로 — 즉시 발사(fireWeapon)와 점사 후속탄(tickBursts)이 같이 쓴다.
+   * 음식으로 쌓은 공격력 보너스도 여기서 곱한다(근접·투사체·산탄 전부 일관되게).
+   */
+  private fireOneShot(player: PlayerEntity, weaponId: string): void {
+    const result: FireResult = resolveFire({
+      playerId: player.id,
       weaponId,
       x: player.x,
       y: player.y,
       aimAngle: player.aimAngle,
     });
 
-    if (result.projectile) {
+    // 공격력 스탯은 **한 번의 공격**에 더한다. 산탄은 펠릿마다 더하면 6배로 불어나므로
+    // 나눠 싣는다 — "한 발의 총 위력 = 무기 위력 + 공격력"이 어느 무기에서나 같아야 한다.
+    const attack = this.playerAttack(player);
+    const pellets = result.projectiles?.length ?? 1;
+    for (const projectile of result.projectiles ?? []) {
+      projectile.damage += attack / pellets;
       // 총구가 플레이어 좌표에서 muzzleOffset만큼 떨어진 곳에서 "순간이동하듯" 생겨난다
       // (연출용 총구 위치 보정, backend/frontend 병합분). 그런데 몬스터가 그 사이
       // 간격(0~muzzleOffset)에 딱 붙어 있으면, 투사체가 몬스터를 지나친 자리에서
@@ -737,14 +969,73 @@ export class World {
       // 사거리까지 파고든 뒤 총으로는 못 잡는 버그로 제보받음). 총구가 "생겨나기 전"
       // 그 간격을 지나가는 순간 몬스터가 있었을지를 먼저 검사해서, 있었으면 투사체를
       // 날리는 대신 그 자리에서 바로 맞힌 것으로 처리한다.
-      if (!this.resolveMuzzleGapHit(player, result.projectile)) {
-        this.projectiles.set(result.projectile.id, result.projectile);
+      if (!this.resolveMuzzleGapHit(player, projectile)) {
+        this.projectiles.set(projectile.id, projectile);
       }
     }
     if (result.meleeHit) {
+      result.meleeHit.damage += attack;
       this.applyMeleeHit(result.meleeHit);
       this.applyMeleeHitToResourceNode(player, result.meleeHit, weaponId);
     }
+  }
+
+  /** 진행 중인 점사의 후속탄을 발사한다. 무기를 바꾸거나 다운되면 남은 점사는 버린다. */
+  private tickBursts(dtSeconds: number): void {
+    for (const [playerId, burst] of this.bursts) {
+      const player = this.players.get(playerId);
+      const equipped = player?.inventory.equippedWeaponId ?? BARE_HANDS_WEAPON_ID;
+      if (!player || player.hp <= 0 || equipped !== burst.weaponId) {
+        this.bursts.delete(playerId);
+        continue;
+      }
+      burst.timer -= dtSeconds;
+      // 한 틱에 interval이 여러 번 지나도 발사는 틱당 한 발이면 충분하다(틱 50ms,
+      // interval 70ms — 실제로 겹칠 일이 없고, 겹쳐도 다음 틱에 이어 쏜다).
+      if (burst.timer > 0) continue;
+      if (this.ammo.tryConsume(playerId, burst.weaponId)) {
+        this.rebuildMonsterGrid();
+        this.fireOneShot(player, burst.weaponId);
+        burst.shotsLeft -= 1;
+        burst.timer += weaponsData[burst.weaponId]?.burst?.interval ?? 0;
+      } else {
+        burst.shotsLeft = 0; // 탄이 떨어졌다 — 남은 점사는 없던 일로 하고 재장전에 맡긴다
+      }
+      if (burst.shotsLeft <= 0) this.bursts.delete(playerId);
+    }
+  }
+
+  /** 수동 재장전(R). 장착 중인 원거리 무기가 대상이다. 가득이거나 이미 장전 중이면 무시. */
+  reloadWeapon(playerId: string): void {
+    const player = this.players.get(playerId);
+    if (!player || player.hp <= 0) return;
+    const weaponId = player.inventory.equippedWeaponId;
+    if (!weaponId) return;
+    this.ammo.startReload(playerId, weaponId);
+  }
+
+  /**
+   * 점사 모드 토글(돌격소총). burst 스펙이 있는 무기를 들고 있을 때만 뒤집는다 —
+   * 아무 무기에서나 눌러 켜지면 나중에 돌격소총을 들었을 때 의도치 않게 점사가 된다.
+   */
+  toggleFireMode(playerId: string): void {
+    const player = this.players.get(playerId);
+    if (!player) return;
+    const weaponId = player.inventory.equippedWeaponId;
+    if (!weaponId || !weaponsData[weaponId]?.burst) return;
+    player.burstMode = !player.burstMode;
+  }
+
+  /** HUD 동기화용 탄약 조회. 근접/맨손이면 null. */
+  ammoView(playerId: string): { loaded: number; magazine: number; reloadRemaining: number } | null {
+    const player = this.players.get(playerId);
+    if (!player) return null;
+    const weaponId = player.inventory.equippedWeaponId ?? BARE_HANDS_WEAPON_ID;
+    const weapon = weaponsData[weaponId];
+    if (!weapon?.magazine) return null;
+    const view = this.ammo.view(playerId, weaponId);
+    if (!view) return null;
+    return { loaded: view.loaded, magazine: weapon.magazine, reloadRemaining: view.reloadRemaining };
   }
 
   /**
@@ -793,7 +1084,10 @@ export class World {
     if (!target) return;
 
     const data = resourcesData[target.type];
-    target.hp = Math.max(0, target.hp - hit.damage);
+    // 채집 효율(gatherMultiplier)은 노드에만 적용된다 — 전투 데미지와 분리된 축이라
+    // "효율 좋음" 도구가 몬스터까지 세게 때리지 않는다.
+    const gather = weaponsData[weaponId]?.gatherMultiplier ?? 1;
+    target.hp = Math.max(0, target.hp - hit.damage * gather);
     if (target.hp > 0) return;
 
     target.respawnTimer = data.respawnSeconds;
@@ -896,6 +1190,31 @@ export class World {
    * (`removeAt`), 하나도 못 옮기면 원래 칸을 그대로 둔다 — `moveItem`의 "다 못
    * 들어가면 되돌린다" 원칙과 같은 결과다.
    */
+  /**
+   * 창고 칸 하나를 비운다(폐기).
+   *
+   * **없애지 않고 바닥에 떨군다.** 창고가 꽉 차서 자리를 만들려는 게 목적인데, 아주
+   * 지우면 잘못 누른 순간 되돌릴 방법이 없다. 바닥에 나오면 마음이 바뀌었을 때 다시
+   * 주우면 되고, 놔두면 어차피 사라지는 것도 아니다 — "자리를 비운다"는 목적은 그대로
+   * 달성된다.
+   */
+  discardFromStorage(playerId: string, index: unknown): void {
+    const player = this.players.get(playerId);
+    if (!player || player.hp <= 0) return;
+    if (!Number.isInteger(index)) return;
+    // 창고를 만지는 다른 조작(moveItem/quickMoveItem)과 같은 규칙 — 코어 앞이어야 한다.
+    if (!this.isNearCore(player)) return;
+
+    const slot = this.core.storage.slotAt(index as number);
+    if (!slot) return;
+
+    // 칸을 비우기 **전에** 내용을 복사해 둔다 — slotAt은 살아 있는 칸을 그대로 돌려주므로,
+    // 먼저 지우면 그 참조의 count가 0이 되어 아무것도 안 떨어진다(실제로 그랬다).
+    const { itemId, count } = slot;
+    this.core.storage.removeAt(index as number, count);
+    this.dropItem(itemId, count, player.x, player.y);
+  }
+
   quickMoveItem(playerId: string, container: unknown, index: unknown): void {
     const player = this.players.get(playerId);
     if (!player || player.hp <= 0) return;
@@ -976,8 +1295,12 @@ export class World {
     }
 
     // 창고가 꽉 차 결과물이 못 들어가면 재료만 날아간다 — 미리 자리를 확인한다.
-    const leftover = storage.add(recipe.itemId, 1);
+    // 한 번에 여러 개 나오는 레시피(울타리 등)는 **일부만 들어가도 실패로 되돌린다** —
+    // "다섯 개 만들었는데 두 개만 생겼다"를 설명할 방법이 없다.
+    const produced = recipe.count ?? 1;
+    const leftover = storage.add(recipe.itemId, produced);
     if (leftover > 0) {
+      storage.consume(recipe.itemId, produced - leftover);
       for (const [itemId, count] of Object.entries(recipe.cost)) storage.add(itemId, count);
     }
   }
@@ -1115,36 +1438,10 @@ export class World {
    * (자원채집 도구 도입에 맞춘 재설계 — 예전엔 요청자 개인 지갑에서만 나갔다).
    */
   placeBuilding(playerId: string, buildingType: unknown, cx: unknown, cy: unknown): void {
-    if (typeof buildingType !== 'string' || !isFiniteNumber(cx) || !isFiniteNumber(cy)) return;
-    if (!Number.isInteger(cx) || !Number.isInteger(cy)) return;
-
+    if (typeof buildingType !== 'string') return;
     const data = buildingsData[buildingType as BuildingType];
     if (!data) return;
-    if (cx < 0 || cy < 0 || cx >= MAP_SIZE_TILES || cy >= MAP_SIZE_TILES) return;
-    if (!this.buildings.canPlace(cx, cy)) return;
-
-    const { x, y } = cellCenterWorld(cx, cy);
-    // 코어 업그레이드로 건설 가능 구역이 늘어난다(docs/backend/38) — 구역 밖은 아직 못 짓는다.
-    // 구역은 원이 아니라 **정사각형**(변의 절반 = getBuildRadius)이다. 격자에 짓는
-    // 게임에서 원형 경계는 모서리 칸이 애매하게 잘리는데, 정사각형은 칸 단위로
-    // 딱 떨어진다.
-    if (Math.max(Math.abs(x), Math.abs(y)) > this.getBuildRadius()) return;
-
-    // 코어 발자국과 겹치는 셀은 전부 금지다 — 스프라이트에 파묻히는 벽이 지어지면 안 된다.
-    if (coreDistance(x, y) <= TILE_SIZE / 2) return;
-
-    for (const node of this.resourceNodes.values()) {
-      const nodeCell = worldToCell(node.x, node.y);
-      if (nodeCell.cx === cx && nodeCell.cy === cy) return;
-    }
-
-    for (const other of this.players.values()) {
-      const otherCell = worldToCell(other.x, other.y);
-      if (otherCell.cx === cx && otherCell.cy === cy) return;
-    }
-
-    const player = this.players.get(playerId);
-    if (!player || player.hp <= 0) return;
+    if (!this.canPlaceBuildingAt(playerId, cx, cy)) return;
 
     // 비용은 코어 창고에서 나간다. 둘 중 하나라도 모자라면 아무것도 소비하지 않는다 —
     // 나무만 깎이고 실패하면 자원이 조용히 증발한다.
@@ -1155,8 +1452,71 @@ export class World {
     storage.consume('wood', data.woodCost);
     storage.consume('stone', data.stoneCost);
 
+    this.spawnBuilding(buildingType as BuildingType, cx as number, cy as number);
+  }
+
+  /**
+   * 손에 든 건축 아이템으로 설치한다(아이템 한 개 = 비용).
+   *
+   * 건축 모드(B)와 규칙은 같지만 **비용을 내는 곳이 다르다** — 이쪽은 코어 창고가 아니라
+   * 내 인벤토리에서 한 개가 빠진다. 그래서 낮에 미리 만들어 들고 나가면 코어에서 멀리
+   * 떨어진 곳에서도 벽을 세울 수 있다(창고 자원은 코어 앞에서만 쓸 수 있는 것과 다르다).
+   *
+   * 무엇을 지을지는 클라이언트가 고르지 않는다 — 선택된 칸에 실제로 무엇이 들어 있는지
+   * 서버가 읽는다(무기와 같은 규칙, §fireWeapon).
+   */
+  placeHeldBuilding(playerId: string, cx: unknown, cy: unknown): void {
+    const player = this.players.get(playerId);
+    if (!player) return;
+
+    const held = player.inventory.heldItem();
+    if (!held || held.kind !== 'building' || !held.buildingType) return;
+    if (!buildingsData[held.buildingType as BuildingType]) return;
+    if (!this.canPlaceBuildingAt(playerId, cx, cy)) return;
+
+    // 아이템을 먼저 뺀다. 설치는 위 검사를 통과한 뒤라 실패하지 않는다.
+    if (!player.inventory.consumeSelectedOne()) return;
+    this.spawnBuilding(held.buildingType as BuildingType, cx as number, cy as number);
+  }
+
+  /**
+   * 이 칸에 건축물을 세울 수 있는가. 비용을 어디서 내든(창고/아이템) 자리 규칙은 같아야
+   * 하므로 한 곳에 모았다 — 규칙이 두 벌이면 한쪽만 고쳐져서 조용히 갈라진다.
+   */
+  canPlaceBuildingAt(playerId: string, cx: unknown, cy: unknown): boolean {
+    if (!isFiniteNumber(cx) || !isFiniteNumber(cy)) return false;
+    if (!Number.isInteger(cx) || !Number.isInteger(cy)) return false;
+    if (cx < 0 || cy < 0 || cx >= MAP_SIZE_TILES || cy >= MAP_SIZE_TILES) return false;
+    if (!this.buildings.canPlace(cx, cy)) return false;
+
+    const { x, y } = cellCenterWorld(cx, cy);
+    // 코어 업그레이드로 건설 가능 구역이 늘어난다(docs/backend/38) — 구역 밖은 아직 못 짓는다.
+    // 구역은 원이 아니라 **정사각형**(변의 절반 = getBuildRadius)이다. 격자에 짓는
+    // 게임에서 원형 경계는 모서리 칸이 애매하게 잘리는데, 정사각형은 칸 단위로
+    // 딱 떨어진다.
+    if (Math.max(Math.abs(x), Math.abs(y)) > this.getBuildRadius()) return false;
+
+    // 코어 발자국과 겹치는 셀은 전부 금지다 — 스프라이트에 파묻히는 벽이 지어지면 안 된다.
+    if (coreDistance(x, y) <= TILE_SIZE / 2) return false;
+
+    for (const node of this.resourceNodes.values()) {
+      const nodeCell = worldToCell(node.x, node.y);
+      if (nodeCell.cx === cx && nodeCell.cy === cy) return false;
+    }
+
+    for (const other of this.players.values()) {
+      const otherCell = worldToCell(other.x, other.y);
+      if (otherCell.cx === cx && otherCell.cy === cy) return false;
+    }
+
+    const player = this.players.get(playerId);
+    return player !== undefined && player.hp > 0;
+  }
+
+  private spawnBuilding(type: BuildingType, cx: number, cy: number): void {
+    const { x, y } = cellCenterWorld(cx, cy);
     const id = `building_${nextBuildingId++}`;
-    this.buildings.place(id, buildingType as BuildingType, cx, cy, x, y);
+    this.buildings.place(id, type, cx, cy, x, y);
     this.recomputeFlowField();
   }
 
@@ -1324,7 +1684,7 @@ export class World {
 
       healPlayer: (playerId) => {
         const player = this.players.get(playerId);
-        if (player) player.hp = wavesData.playerHp;
+        if (player) player.hp = this.playerMaxHp(player);
       },
       setPlayerHp: (playerId, amount) => {
         const player = this.players.get(playerId);
@@ -1348,7 +1708,16 @@ export class World {
 
     // 이번 틱의 피격 여부를 새로 센다 — damagePlayer()가 이번 틱 중 세팅하고,
     // tickChannels()가 tickMonsters() 이후(=피격이 이미 반영된 뒤)에 읽는다.
-    for (const player of this.players.values()) player.tookDamageThisTick = false;
+    // 소모품 버프 타이머(진통제/아드레날린)도 같은 자리에서 감소시킨다.
+    for (const player of this.players.values()) {
+      player.tookDamageThisTick = false;
+      if (player.hpFloorTimer > 0) player.hpFloorTimer -= dtSeconds;
+      if (player.speedBuffTimer > 0) player.speedBuffTimer -= dtSeconds;
+      this.tickStamina(player, dtSeconds);
+      this.tickHpRegen(player, dtSeconds);
+    }
+    this.ammo.tick(dtSeconds);
+    this.tickBursts(dtSeconds);
 
     for (const [id, player] of this.players) {
       const input = this.inputs.get(id);
@@ -1754,6 +2123,7 @@ export class World {
       stuckSeconds: 0,
       guardReturnTimer: 0,
       attackAnimTimer: 0,
+      attackSeq: 0,
       attackAnim: 0,
       meleeCooldowns: (data.meleeAttacks ?? []).map(() => 0),
     });
@@ -1797,14 +2167,16 @@ export class World {
    * 경로(추격 공격, 보스 돌진/광역)가 반드시 이 메서드를 거쳐야 한다.
    */
   private damagePlayer(player: PlayerEntity, amount: number): void {
-    player.hp = Math.max(0, player.hp - amount);
+    // 진통제 지속 중에는 체력이 1 아래로 떨어지지 않는다 — 다운을 3초 미루는 보험.
+    const floor = player.hpFloorTimer > 0 ? 1 : 0;
+    player.hp = Math.max(floor, player.hp - amount);
     player.tookDamageThisTick = true;
   }
 
   /** 웨이브를 클리어하고 새 낮이 시작될 때 다운된 플레이어를 전원 부활시킨다. */
   private revivePlayers(): void {
     for (const player of this.players.values()) {
-      player.hp = wavesData.playerHp;
+      player.hp = this.playerMaxHp(player);
     }
   }
 
@@ -1996,6 +2368,11 @@ export class World {
     data: MonsterData,
     target: BasicAttackTarget,
   ): void {
+    // 보스에게는 평타가 없다 — 패턴 3개(meleeAttacks)가 공격의 전부이고, 그중 하나가
+    // 자주 나오는 동작 역할을 한다. 예전엔 여기서 Attack01을 평타로 재생해서, 같은
+    // 그림이 "평타"와 "1번 기술" 양쪽으로 쓰이며 서로를 덮어썼다.
+    if (data.meleeAttacks) return;
+
     monster.attackCooldown = data.attackInterval;
     monster.pattern = { kind: 'basicSwing', timer: data.attackWindupSeconds, target };
     // 모션은 지금 켠다 — 맞은 뒤에 휘두르면 예고가 아니다.
@@ -2080,6 +2457,8 @@ export class World {
   private markAttack(monster: MonsterEntity, anim = 1, seconds = ATTACK_ANIM_SECONDS): void {
     monster.attackAnimTimer = seconds;
     monster.attackAnim = anim;
+    // uint8로 실려 나가므로 한 바퀴 돌려 쓴다 — 클라이언트는 크기가 아니라 "달라졌는가"만 본다.
+    monster.attackSeq = (monster.attackSeq + 1) % 256;
   }
 
   /** 정화 처리: 단계 보상 지급 후 1단계 빈 껍데기로. 다음 낮에 재보급된다(onDayBegan). */
@@ -2195,9 +2574,15 @@ export class World {
   }
 
   /**
-   * 티모시를 (targetX, targetY) 방향으로 한 스텝 이동시킨다. `movePlayer`와 같은
-   * 3단계 폴백(전체 이동 → X축만 → Y축만)을 쓰고, 장애물 판정도 플레이어와 같은
-   * `isBlockedForPlayer`를 그대로 쓴다 — 몬스터 전용 판정/분리 벡터는 필요 없다(1마리뿐).
+   * 티모시를 (targetX, targetY) 방향으로 한 스텝 이동시킨다. `movePlayer`처럼 3단계
+   * 폴백(전체 이동 → X축만 → Y축만)을 쓰지만, 그것도 다 막히면 몬스터(`moveMonsterInner`,
+   * docs/backend/40)와 같은 접선 미끄러짐 + 탈출 점프까지 이어받는다 — "코어로
+   * 돌아가는" 게 티모시의 정상적인 목적지 자체라(§tickCompanion의 returning 상태가
+   * 코어 원점을 향해 곧장 걷는다), 축 슬라이딩만으로는 못 빠져나가는 각도에서
+   * 코어 자체에 막혀 영원히 멈추는 버그가 실제로 있었다. 장애물 판정은 플레이어와
+   * 같은 `isBlockedForPlayer`를 쓰고(1마리뿐이라 몬스터 전용 분리 벡터는 필요 없다),
+   * 접선/탈출 계산은 플레이어·티모시가 막히는 대상(건축물·자원·콜로니·코어)까지
+   * 다루는 `findNearestObstacleCenterForPlayer`를 쓴다.
    */
   private moveCompanionToward(targetX: number, targetY: number, dtSeconds: number): void {
     const companion = this.companion;
@@ -2212,22 +2597,78 @@ export class World {
     companion.facingY = dirY;
 
     const step = companionData.moveSpeed * dtSeconds;
-    const full = { x: companion.x + dirX * step, y: companion.y + dirY * step };
-    if (!this.isBlockedForPlayer(full.x, full.y)) {
-      companion.x = full.x;
-      companion.y = full.y;
+    const fullX = companion.x + dirX * step;
+    const fullY = companion.y + dirY * step;
+    if (!this.isBlockedForPlayer(fullX, fullY)) {
+      companion.x = fullX;
+      companion.y = fullY;
+      companion.stuckSeconds = 0; // 완전히 자유로운 이동 — 확실히 안 막혔다
       return;
     }
 
-    const xOnly = { x: companion.x + dirX * step, y: companion.y };
-    if (!this.isBlockedForPlayer(xOnly.x, xOnly.y)) {
-      companion.x = xOnly.x;
-      return;
+    // 여기부터는 뭔가 막혀서 폴백이 필요한 상태다 — moveMonsterInner와 같은 이유로
+    // 폴백이 성공해도 stuckSeconds는 리셋하지 않는다(여러 장애물에 둘러싸인 "주머니"에서
+    // 매 틱 조금씩만 미끄러지며 계속 폴백에 의존하는 상태를 놓치지 않기 위함).
+    companion.stuckSeconds += dtSeconds;
+
+    // dirX/dirY가 정확히 0이면 그 축 "이동"은 제자리라(현재 좌표 그대로), 우연히
+    // 막힘 검사를 통과해도 실제로는 안 움직인 것이다 — 방향 성분이 실제로 있을 때만
+    // 그 축 결과를 인정한다(moveMonsterInner와 같은 안전장치).
+    if (dirX !== 0 && !this.isBlockedForPlayer(fullX, companion.y)) {
+      companion.x = fullX;
+    } else if (dirY !== 0 && !this.isBlockedForPlayer(companion.x, fullY)) {
+      companion.y = fullY;
+    } else {
+      const obstacle = this.findNearestObstacleCenterForPlayer(companion.x, companion.y);
+      if (obstacle) {
+        const radialX = companion.x - obstacle.x;
+        const radialY = companion.y - obstacle.y;
+        const radialLength = Math.hypot(radialX, radialY);
+
+        if (radialLength > 0) {
+          const tangentAX = -radialY / radialLength;
+          const tangentAY = radialX / radialLength;
+          const tangentBX = radialY / radialLength;
+          const tangentBY = -radialX / radialLength;
+          const useTangentA = tangentAX * dirX + tangentAY * dirY >= tangentBX * dirX + tangentBY * dirY;
+          const tangentX = useTangentA ? tangentAX : tangentBX;
+          const tangentY = useTangentA ? tangentAY : tangentBY;
+
+          const tangentFullX = companion.x + tangentX * step;
+          const tangentFullY = companion.y + tangentY * step;
+          if (!this.isBlockedForPlayer(tangentFullX, tangentFullY)) {
+            companion.x = tangentFullX;
+            companion.y = tangentFullY;
+          }
+        }
+      }
     }
 
-    const yOnly = { x: companion.x, y: companion.y + dirY * step };
-    if (!this.isBlockedForPlayer(yOnly.x, yOnly.y)) {
-      companion.y = yOnly.y;
+    if (companion.stuckSeconds >= STUCK_ESCAPE_SECONDS) {
+      this.tryEscapeStuckCompanion(dirX, dirY);
+      companion.stuckSeconds = 0;
+    }
+  }
+
+  /** `tryEscapeStuckMonster`의 티모시 버전 — 원래 가려던 방향을 정면으로 두고
+   * 좌우로 부채꼴을 넓혀가며 처음 안 막힌 자리로 점프한다. */
+  private tryEscapeStuckCompanion(normX: number, normY: number): void {
+    const companion = this.companion;
+    const desiredAngle =
+      normX !== 0 || normY !== 0 ? Math.atan2(normY, normX) : Math.atan2(companion.y, companion.x);
+
+    const ANGLE_STEP = Math.PI / 8; // 22.5도
+    for (let attempt = 0; attempt < STUCK_ESCAPE_ATTEMPTS; attempt += 1) {
+      const side = attempt % 2 === 0 ? 1 : -1;
+      const magnitude = Math.ceil(attempt / 2);
+      const angle = desiredAngle + side * magnitude * ANGLE_STEP + (this.rng() - 0.5) * 0.1;
+      const candidateX = companion.x + Math.cos(angle) * STUCK_ESCAPE_DISTANCE;
+      const candidateY = companion.y + Math.sin(angle) * STUCK_ESCAPE_DISTANCE;
+      if (!this.isBlockedForPlayer(candidateX, candidateY)) {
+        companion.x = candidateX;
+        companion.y = candidateY;
+        return;
+      }
     }
   }
 
@@ -2497,16 +2938,23 @@ export class World {
     monster.specialAttackCooldown = Math.max(0, monster.specialAttackCooldown - dtSeconds);
     if (monster.specialAttackCooldown > 0) return false;
 
-    const target = data.aggroRadius ? this.resolveAggroTarget(monster, data.aggroRadius) : undefined;
+    // 무엇을 향해 휘두를지 정한다. 사람이 우선이고, 아무도 없으면 코어를 부순다 —
+    // 보스에겐 별도의 평타가 없어서(패턴 3개가 전부다) 여기서 대상을 못 찾으면
+    // 코어를 때릴 방법 자체가 없어진다.
+    const target = this.bossPatternTarget(monster, data);
     if (!target) return false;
 
     const dxToTarget = target.x - monster.x;
     const dyToTarget = target.y - monster.y;
-    const targetDistance = Math.hypot(dxToTarget, dyToTarget);
+    // 방향은 중심까지의 거리로 정규화하고(단위벡터여야 한다), 사거리 비교만 대상의
+    // 덩치를 뺀 "가장자리까지의 거리"로 한다 — 코어처럼 발자국이 크면 중심 거리로는
+    // 검이 닿는데도 사거리 밖으로 판정된다.
+    const centreDistance = Math.hypot(dxToTarget, dyToTarget);
+    const targetDistance = Math.max(0, centreDistance - target.radius);
 
-    // 근접 검술을 가진 보스는 그쪽을 먼저 본다 — 사거리가 닿고 쿨다운이 끝난 기술
-    // 중에서 무작위로 하나. 거리로 후보가 갈리므로 붙으면 짧은 기술, 떨어지면 긴
-    // 기술이 나온다(항상 같은 순서면 패턴이 아니라 그냥 외우는 게 된다).
+    // 쿨다운이 끝났고 사거리가 닿는 기술 중에서 **가중치로** 하나 고른다. 거리로 후보가
+    // 갈리므로 붙으면 짧은 기술, 떨어지면 긴 기술이 나오고, 가중치가 "자주 나오는 동작"과
+    // "가끔 나오는 큰 동작"을 나눈다 — 평타와 스킬이 따로 있는 게 아니라 셋 다 패턴이다.
     if (data.meleeAttacks) {
       const ready: number[] = [];
       data.meleeAttacks.forEach((attack, index) => {
@@ -2523,10 +2971,10 @@ export class World {
       });
 
       if (ready.length > 0) {
-        const index = ready[Math.floor(this.rng() * ready.length)]!;
+        const index = this.pickWeightedAttack(data.meleeAttacks, ready);
         const chosen = data.meleeAttacks[index]!;
-        const dirX = targetDistance > 0 ? dxToTarget / targetDistance : monster.facingX;
-        const dirY = targetDistance > 0 ? dyToTarget / targetDistance : monster.facingY;
+        const dirX = centreDistance > 0 ? dxToTarget / centreDistance : monster.facingX;
+        const dirY = centreDistance > 0 ? dyToTarget / centreDistance : monster.facingY;
         monster.facingX = dirX;
         monster.facingY = dirY;
         monster.pattern = {
@@ -2551,6 +2999,59 @@ export class World {
     }
 
     return false;
+  }
+
+  /**
+   * 보스가 이번 패턴으로 노릴 대상. 사람 → 티모시 → 코어 순이다.
+   *
+   * 보스에겐 평타가 따로 없다(패턴 3개가 전부). 그래서 잡몹처럼 "쿨다운이면 평타"로
+   * 흘려보낼 곳이 없고, 대상 선택을 여기서 한 번에 해결해야 코어도 부술 수 있다.
+   * 반환하는 radius는 대상의 덩치다 — 코어는 발자국이 커서 중심까지의 거리로 재면
+   * 검이 닿는데도 사거리 밖으로 판정된다.
+   */
+  private bossPatternTarget(
+    monster: MonsterEntity,
+    data: MonsterData,
+  ): { x: number; y: number; radius: number } | undefined {
+    const player = data.aggroRadius
+      ? this.resolveAggroTarget(monster, data.aggroRadius)
+      : undefined;
+    if (player) return { x: player.x, y: player.y, radius: HIT_RADIUS };
+
+    // 티모시는 **이미 검이 닿는 거리에 있을 때만** 노린다. 아그로 반경(수백 px)으로
+    // 잡으면, 멀리 있는 티모시를 겨눈 채 사거리 밖이라 아무 기술도 못 쓰고, 그렇다고
+    // 코어 앞이라 움직이지도 않는 교착에 빠진다(실제로 그랬다). 쫓아갈 대상은 사람뿐이다.
+    if (this.companion.state !== 'downed') {
+      const distance = Math.hypot(this.companion.x - monster.x, this.companion.y - monster.y);
+      const reach = Math.max(
+        ...(data.meleeAttacks ?? []).flatMap((attack) => attack.hits.map((h) => h.range)),
+      );
+      if (distance - HIT_RADIUS <= reach) {
+        return { x: this.companion.x, y: this.companion.y, radius: HIT_RADIUS };
+      }
+    }
+
+    // 코어는 항상 원점이다. 중심까지의 거리에서 발자국 반경을 빼야 "가장자리까지의
+    // 거리"가 되므로, 몬스터 위치에서 잰 coreDistance로 반경을 역산한다.
+    const centreDistance = Math.hypot(monster.x, monster.y);
+    const edgeDistance = coreDistance(monster.x, monster.y);
+    return { x: 0, y: 0, radius: Math.max(0, centreDistance - edgeDistance) };
+  }
+
+  /**
+   * 쓸 수 있는 기술 중 하나를 가중치로 고른다. 가중치가 없으면 1로 본다 —
+   * 전부 없으면 예전과 같은 균등 추첨이 된다.
+   */
+  private pickWeightedAttack(attacks: readonly MeleeAttackData[], ready: readonly number[]): number {
+    let total = 0;
+    for (const index of ready) total += attacks[index]!.weight ?? 1;
+
+    let roll = this.rng() * total;
+    for (const index of ready) {
+      roll -= attacks[index]!.weight ?? 1;
+      if (roll <= 0) return index;
+    }
+    return ready[ready.length - 1]!;
   }
 
   /**
@@ -2609,11 +3110,18 @@ export class World {
     pattern: Extract<BossPatternState, { kind: 'meleeSwing' }>,
     dtSeconds: number,
   ): void {
+    // 출발점은 첫 틱에 한 번만 기록한다 — 직사각형 판정이 "여기서부터 지금까지"를 덮는다.
+    if (pattern.dashOriginX === undefined) {
+      pattern.dashOriginX = monster.x;
+      pattern.dashOriginY = monster.y;
+    }
     this.moveMonster(monster, pattern.dirX, pattern.dirY, dash.speed, dtSeconds);
+
+    const hits = (x: number, y: number): boolean => this.dashCovers(dash, pattern, monster, x, y);
 
     for (const player of this.players.values()) {
       if (player.hp <= 0 || pattern.dashHitIds.has(player.id)) continue;
-      if (!circlesOverlap(monster.x, monster.y, player.x, player.y, dash.radius + HIT_RADIUS)) continue;
+      if (!hits(player.x, player.y)) continue;
       this.damagePlayer(player, dash.damage);
       pattern.dashHitIds.add(player.id);
     }
@@ -2621,11 +3129,45 @@ export class World {
     if (
       this.companion.state !== 'downed' &&
       !pattern.dashHitIds.has('companion') &&
-      circlesOverlap(monster.x, monster.y, this.companion.x, this.companion.y, dash.radius + HIT_RADIUS)
+      hits(this.companion.x, this.companion.y)
     ) {
       this.damageCompanion(dash.damage);
       pattern.dashHitIds.add('companion');
     }
+  }
+
+  /**
+   * 돌진이 이 지점을 덮었는가.
+   *
+   * `halfWidth`가 있으면 **출발점에서 현재 위치까지의 직사각형**이다 — 진행 방향으로
+   * 얼마나 왔는지(along)와 옆으로 얼마나 벗어났는지(side)를 따로 재서, 길이는 돌진
+   * 거리로 폭은 데이터로 정한다. 원 판정은 폭이 곧 사거리라 길게 만들수록 사방이
+   * 넓어져 옆으로 피할 방향이 사라진다(골렘 돌격에서 실제로 그랬다).
+   *
+   * `halfWidth`가 없으면 예전처럼 몬스터를 중심으로 한 원이다.
+   */
+  private dashCovers(
+    dash: NonNullable<MeleeAttackData['dash']>,
+    pattern: Extract<BossPatternState, { kind: 'meleeSwing' }>,
+    monster: MonsterEntity,
+    x: number,
+    y: number,
+  ): boolean {
+    if (dash.halfWidth === undefined) {
+      return circlesOverlap(monster.x, monster.y, x, y, (dash.radius ?? 0) + HIT_RADIUS);
+    }
+
+    const originX = pattern.dashOriginX ?? monster.x;
+    const originY = pattern.dashOriginY ?? monster.y;
+    const travelled = (monster.x - originX) * pattern.dirX + (monster.y - originY) * pattern.dirY;
+    const along = (x - originX) * pattern.dirX + (y - originY) * pattern.dirY;
+    // 진행 방향의 수직 성분. dir은 단위벡터라 이 식이 곧 옆으로 벗어난 거리다.
+    const side = Math.abs((x - originX) * -pattern.dirY + (y - originY) * pattern.dirX);
+
+    // 앞뒤로는 몸통 반경만큼 여유를 준다 — 출발점 바로 앞이나 도착점 바로 뒤에 붙어
+    // 있는 대상이 통로 밖으로 새는 게 더 이상하다.
+    const margin = monsterRadius(monster);
+    return along >= -margin && along <= travelled + margin && side <= dash.halfWidth + HIT_RADIUS;
   }
 
   /** 검을 휘두른 뒤 경직. 그냥 시간만 흘려보낸다(이동·공격 없음). */
@@ -2674,6 +3216,26 @@ export class World {
     if (this.companion.state !== 'downed' && withinMeleeArc(hit, this.companion.x, this.companion.y, HIT_RADIUS)) {
       this.damageCompanion(swing.damage);
     }
+
+    // 코어와 앞을 막은 건축물도 같은 부채꼴에 든다. 보스는 평타가 없어졌으므로
+    // (§startBasicAttack) 이 판정이 없으면 코어를 부술 방법 자체가 사라진다 —
+    // 휘두른 자리에 있는 것은 사람이든 벽이든 다 맞는 게 자연스럽기도 하다.
+    const coreEdge = coreDistance(monster.x, monster.y);
+    if (coreEdge <= swing.range) {
+      const toCore = Math.atan2(-monster.y, -monster.x);
+      if (hit.halfArc >= FULL_ARC || angleDifference(toCore, hit.aimAngle) <= hit.halfArc) {
+        this.core.hp = Math.max(0, this.core.hp - swing.damage);
+      }
+    }
+    for (const building of this.buildings.values()) {
+      if (!buildingsData[building.type].blocksMovement) continue;
+      if (!withinMeleeArc(hit, building.x, building.y, TILE_SIZE / 2)) continue;
+      building.hp = Math.max(0, building.hp - swing.damage);
+      if (building.hp <= 0) {
+        this.buildings.remove(building.id);
+        this.recomputeFlowField();
+      }
+    }
     // 여기서 markAttack을 다시 부르지 않는다 — 동작 시작 때 이미 켰고, 2연타에서
     // 다시 켜면 애니메이션이 첫 장부터 재시작해 두 번째 타격이 어긋난다.
   }
@@ -2704,24 +3266,20 @@ export class World {
    * 타입만 막지만 코어/자원/콜로니는 예외 없이 전부 막는다(사용자가 "코어, 나무,
    * 돌, 콜로니 다" 통과 못 하게 해달라고 명시).
    */
+  /**
+   * 실제 판정은 `playerCollision.ts`의 `isPlayerBlocked`다 — 클라이언트 예측
+   * (`PlayerPredictor`)이 같은 함수를 스냅샷 데이터로 그대로 호출해서 서버와
+   * 어긋나지 않게 하려고 순수 함수로 뽑아 뒀다. 이 메서드는 `World`가 들고 있는
+   * Map들을 그 함수가 받는 형태로 넘겨주는 얇은 어댑터일 뿐이다.
+   */
   private isBlockedForPlayer(x: number, y: number): boolean {
-    for (const building of this.buildings.values()) {
-      if (!buildingsData[building.type].blocksMovement) continue;
-      if (circlesOverlap(x, y, building.x, building.y, PLAYER_BUILDING_COLLISION_RADIUS)) {
-        return true;
-      }
-    }
-    for (const node of this.resourceNodes.values()) {
-      if (node.hp <= 0) continue; // 고갈된 자리는 통과할 수 있다(docs/backend/39)
-      const radius = HIT_RADIUS + resourcesData[node.type].hitRadius;
-      if (circlesOverlap(x, y, node.x, node.y, radius)) return true;
-    }
-    for (const colony of this.colonies.values()) {
-      if (circlesOverlap(x, y, colony.x, colony.y, PLAYER_COLONY_COLLISION_RADIUS)) return true;
-    }
-    // 코어는 원이 아니라 8각 발자국이다(coreShape.ts) — 스프라이트 윤곽 그대로 막는다.
-    if (coreDistance(x, y) < HIT_RADIUS) return true;
-    return false;
+    return isPlayerBlocked(
+      x,
+      y,
+      this.buildings.values(),
+      this.resourceNodes.values(),
+      this.colonies.values(),
+    );
   }
 
   /**
@@ -2794,6 +3352,57 @@ export class World {
   }
 
   /**
+   * `findNearestObstacleCenter`의 플레이어/티모시용 버전 — `isBlockedForPlayer`가
+   * 막는 것과 정확히 같은 대상(이동을 막는 건축물, 자원 노드, 콜로니, 코어)을 본다.
+   * 몬스터용은 코어/건축물을 안 다루는데(몬스터에게 코어는 목표, 건축물은 부수는
+   * 대상이라 따로 처리), 티모시는 코어로 "돌아가는" 것 자체가 목적지라 코어 자체가
+   * 장애물로 잡힐 일이 흔하다 — 실제로 이 케이스에서 막혀서 못 움직이는 버그가
+   * 있었다.
+   *
+   * 코어는 원이 아니라 8각형(coreShape.ts)이지만, 접선 방향만 필요한 이 용도로는
+   * 원점을 중심으로 근사해도 충분하다(받침대가 원점 대칭에 가깝게 설계됨,
+   * §CORE_ORIGIN_Y). 거리 자체(gap)는 `coreDistance`가 실제 윤곽 기준으로 정확히
+   * 재준다.
+   */
+  private findNearestObstacleCenterForPlayer(
+    x: number,
+    y: number,
+  ): { x: number; y: number } | undefined {
+    let nearest: { x: number; y: number } | undefined;
+    let nearestGap = Infinity;
+
+    for (const building of this.buildings.values()) {
+      if (!buildingsData[building.type].blocksMovement) continue;
+      const gap = Math.hypot(building.x - x, building.y - y) - PLAYER_BUILDING_COLLISION_RADIUS;
+      if (gap < nearestGap) {
+        nearestGap = gap;
+        nearest = { x: building.x, y: building.y };
+      }
+    }
+    for (const node of this.resourceNodes.values()) {
+      if (node.hp <= 0) continue;
+      const gap = Math.hypot(node.x - x, node.y - y) - (HIT_RADIUS + resourcesData[node.type].hitRadius);
+      if (gap < nearestGap) {
+        nearestGap = gap;
+        nearest = { x: node.x, y: node.y };
+      }
+    }
+    for (const colony of this.colonies.values()) {
+      const gap = Math.hypot(colony.x - x, colony.y - y) - PLAYER_COLONY_COLLISION_RADIUS;
+      if (gap < nearestGap) {
+        nearestGap = gap;
+        nearest = { x: colony.x, y: colony.y };
+      }
+    }
+    // 마지막 후보라 갱신 후 다시 비교할 일이 없다 — nearestGap을 더 안 건드린다.
+    if (coreDistance(x, y) < nearestGap) {
+      nearest = { x: 0, y: 0 };
+    }
+
+    return nearest;
+  }
+
+  /**
    * 플레이어를 건축물과 겹치지 않는 선에서 이동시킨다.
    *
    * 전체 이동이 막히면 X축만, 그것도 막히면 Y축만 시도한다(축 슬라이딩) — 벽에 대각선으로
@@ -2805,25 +3414,12 @@ export class World {
     moveY: number,
     dtSeconds: number,
   ): void {
-    const full = stepPosition(player.x, player.y, moveX, moveY, dtSeconds);
-    if (!this.isBlockedForPlayer(full.x, full.y)) {
-      player.x = full.x;
-      player.y = full.y;
-      return;
-    }
-
-    const xOnly = stepPosition(player.x, player.y, moveX, 0, dtSeconds);
-    if (!this.isBlockedForPlayer(xOnly.x, xOnly.y)) {
-      player.x = xOnly.x;
-      player.y = xOnly.y;
-      return;
-    }
-
-    const yOnly = stepPosition(player.x, player.y, 0, moveY, dtSeconds);
-    if (!this.isBlockedForPlayer(yOnly.x, yOnly.y)) {
-      player.x = yOnly.x;
-      player.y = yOnly.y;
-    }
+    const speed = this.playerSpeedMultiplier(player);
+    const resolved = resolvePlayerMove(player.x, player.y, moveX, moveY, dtSeconds, speed, (x, y) =>
+      this.isBlockedForPlayer(x, y),
+    );
+    player.x = resolved.x;
+    player.y = resolved.y;
   }
 
   /**
@@ -3165,41 +3761,51 @@ export class World {
   private projectileHitsMonster(projectileId: string, projectile: ProjectileEntity): boolean {
     // 전체 몬스터 대신 격자 후보만 본다(docs/backend/45) — 후보 반경에 몬스터 최대
     // 히트박스를 더해야, 큰(보스급) 몬스터의 중심이 격자 반경 밖이어도 몸이 걸치는
-    // 경우를 놓치지 않는다.
+    // 경우를 놓치지 않는다. 판정이 선분(직전 위치→현재 위치)이므로 이번 틱에 이동한
+    // 거리도 반경에 더해야 그 구간에 있던 몬스터가 후보에서 빠지지 않는다.
+    const travelled = Math.hypot(projectile.x - projectile.prevX, projectile.y - projectile.prevY);
     const candidateIds = this.monsterGrid.queryRadius(
       projectile.x,
       projectile.y,
-      MAX_MONSTER_HIT_RADIUS,
+      MAX_MONSTER_HIT_RADIUS + travelled,
     );
+    let hitAny = false;
     for (const monsterId of candidateIds) {
       const monster = this.monsters.get(monsterId);
       if (!monster) continue;
-      if (circlesOverlap(projectile.x, projectile.y, monster.x, monster.y, monsterRadius(monster))) {
+      // 관통탄이 이미 때린 몬스터는 건너뛴다 — 한 발이 같은 몸을 두 번 뚫지 않는다.
+      if (projectile.hitIds?.has(monsterId)) continue;
+      if (projectileSweepHits(projectile, monster.x, monster.y, monsterRadius(monster))) {
         this.damageMonster(monsterId, monster.hp - projectile.damage);
-        this.projectiles.delete(projectileId);
-        return true;
+        if (!projectile.pierce) {
+          this.projectiles.delete(projectileId);
+          return true;
+        }
+        projectile.hitIds?.add(monsterId);
+        hitAny = true;
       }
     }
-    return false;
+    return hitAny;
   }
 
   private projectileHitsObstacle(projectileId: string, projectile: ProjectileEntity): void {
+    // 몬스터와 같은 이유로 선분 판정을 쓴다 — 빠른 총알이 벽을 뚫고 지나가면 안 된다.
     for (const building of this.buildings.values()) {
       if (!buildingsData[building.type].blocksProjectile) continue;
-      if (circlesOverlap(projectile.x, projectile.y, building.x, building.y, TILE_SIZE / 2)) {
+      if (projectileSweepHits(projectile, building.x, building.y, TILE_SIZE / 2)) {
         this.projectiles.delete(projectileId);
         return;
       }
     }
     for (const node of this.resourceNodes.values()) {
       if (node.hp <= 0) continue; // 고갈된 자리는 투사체도 그냥 통과한다(docs/backend/39)
-      if (circlesOverlap(projectile.x, projectile.y, node.x, node.y, resourcesData[node.type].hitRadius)) {
+      if (projectileSweepHits(projectile, node.x, node.y, resourcesData[node.type].hitRadius)) {
         this.projectiles.delete(projectileId);
         return;
       }
     }
     for (const colony of this.colonies.values()) {
-      if (circlesOverlap(projectile.x, projectile.y, colony.x, colony.y, COLONY_RADIUS)) {
+      if (projectileSweepHits(projectile, colony.x, colony.y, COLONY_RADIUS)) {
         this.projectiles.delete(projectileId);
         return;
       }
@@ -3306,6 +3912,25 @@ export function describeBossTelegraph(
   const previousAt = pattern.nextHit > 0 ? attack.hits[pattern.nextHit - 1]!.atSeconds : 0;
   const total = Math.max(0.001, hit.atSeconds - previousAt);
   const remaining = Math.max(0, hit.atSeconds - pattern.elapsed);
+
+  // 돌격은 **지나갈 길**을 먼저 보여준다. 마무리 타격(전방향 광역)만 예고하면 화면에는
+  // 보스 발밑의 원만 뜨는데, 정작 위험한 건 그 앞으로 밀고 나가는 통로다 — 예고와
+  // 판정이 다르면 피할 방법이 없다. 아직 돌진이 시작되기 전(창 이전)에만 띄운다.
+  const dash = attack.dash;
+  if (dash?.halfWidth !== undefined && pattern.elapsed <= dash.toSeconds) {
+    const travel = dash.speed * (dash.toSeconds - dash.fromSeconds);
+    return {
+      kind: 'charge',
+      x: monster.x,
+      y: monster.y,
+      dirX: pattern.dirX,
+      dirY: pattern.dirY,
+      radius: dash.halfWidth,
+      range: travel,
+      remaining: Math.max(0, dash.fromSeconds - pattern.elapsed),
+      total: Math.max(0.001, dash.fromSeconds),
+    };
+  }
 
   if (hit.arc >= 360) {
     return {

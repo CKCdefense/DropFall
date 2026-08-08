@@ -1,6 +1,22 @@
 import Phaser from 'phaser';
-import { MAP_SIZE_TILES, TILE_SIZE, companionData, computeCameraZoom } from '@dropfall/shared';
-import type { GameConnection } from '../../net/GameConnection';
+import {
+  MAP_SIZE_TILES,
+  SPRINT_SPEED_MULTIPLIER,
+  TILE_SIZE,
+  companionData,
+  computeCameraZoom,
+  isPlayerBlocked,
+  itemOfSlot,
+  weaponsData,
+} from '@dropfall/shared';
+import type {
+  BuildingView,
+  ColonyView,
+  GameConnection,
+  ResourceNodeView,
+  WorldSnapshot,
+} from '../../net/GameConnection';
+import { PlayerPredictor } from '../../net/PlayerPredictor';
 import {
   CHAT_LOG_KEY,
   CONNECTION_KEY,
@@ -11,10 +27,13 @@ import {
 import { DayNightOverlay } from '../render/DayNightOverlay';
 import { EntityRenderer } from '../render/EntityRenderer';
 import { queueGameAtlas } from '../render/playerSprite';
+import { queueUiFrames } from '../ui/uiFrame';
+import { PlacementPreview, holdsBuilding } from '../render/PlacementPreview';
 import { queueMonsterAtlas } from '../render/monsterSprite';
 import { TerrainLayer, hasTerrainTileset, queueTerrainTileset } from '../render/TerrainLayer';
 import { InputController } from '../input/InputController';
 import { HUD_SCENE_KEY } from './HudScene';
+import { ACTION_PLANE_Y } from '../render/plane';
 
 export const GAME_SCENE_KEY = 'Game';
 
@@ -36,13 +55,29 @@ export class GameScene extends Phaser.Scene {
   private entityRenderer!: EntityRenderer;
   private terrain?: TerrainLayer;
   private dayNight!: DayNightOverlay;
+  /** 건축 아이템을 들었을 때 커서 칸을 비추는 표시. */
+  private placement!: PlacementPreview;
   private input_!: InputController;
   private isFollowing = false;
   private collisionDebugVisible = false;
+  /** 내 캐릭터 클라이언트 예측(docs/backend/55) — 첫 스냅샷에서 내 좌표로 지연 초기화한다. */
+  private predictor?: PlayerPredictor;
+  /** `isBlocked`가 참조하는 최신 장애물 목록. 매 프레임 스냅샷에서 갱신한다. */
+  private latestBuildings: BuildingView[] = [];
+  private latestResourceNodes: ResourceNodeView[] = [];
+  private latestColonies: ColonyView[] = [];
 
   constructor() {
     super(GAME_SCENE_KEY);
   }
+
+  /**
+   * 예측(및 재조정 재생)이 쓰는 충돌 판정. 서버(`World.isBlockedForPlayer`)와 같은
+   * `isPlayerBlocked`를 최신 스냅샷 데이터로 호출한다 — 규칙이 갈라지면 예측이 계속
+   * 빗나간다.
+   */
+  private readonly isBlocked = (x: number, y: number): boolean =>
+    isPlayerBlocked(x, y, this.latestBuildings, this.latestResourceNodes, this.latestColonies);
 
   init(): void {
     this.connection = this.registry.get(CONNECTION_KEY) as GameConnection;
@@ -54,6 +89,9 @@ export class GameScene extends Phaser.Scene {
     // 라이센스 에셋이라 저장소에 없을 수 있다 — 없으면 도형 플레이스홀더로 떨어진다.
     queueMonsterAtlas(this);
     queueTerrainTileset(this);
+    // HUD 모달의 돌 테두리. 텍스처는 게임 전체가 공유하므로 여기서 한 번 올리면
+    // 나중에 뜨는 HudScene에서도 그대로 쓴다.
+    queueUiFrames(this);
   }
 
   create(): void {
@@ -82,6 +120,7 @@ export class GameScene extends Phaser.Scene {
     });
     // 낮·밤 하늘. 모든 월드 오브젝트 위에 얹히는 화면 고정 오버레이라 depth로 관리한다.
     this.dayNight = new DayNightOverlay(this);
+    this.placement = new PlacementPreview(this);
     this.input_ = new InputController(
       this,
       this.connection,
@@ -93,6 +132,16 @@ export class GameScene extends Phaser.Scene {
           x,
           y,
         ) ?? false,
+      (input) => {
+        // 예측이 아직 초기화 전(첫 스냅샷 도착 전)이면 보낼 입력도 없다 — 조용히 무시.
+        this.predictor?.applyInput(
+          input.seq,
+          input.moveX,
+          input.moveY,
+          input.sprint ? SPRINT_SPEED_MULTIPLIER : 1,
+          this.isBlocked,
+        );
+      },
     );
     // HudScene은 매 프레임 registry에서 다시 읽으므로(HudScene.update), 씬 시작 순서와
     // 무관하게 늦어도 다음 프레임엔 값이 채워져 있다.
@@ -131,17 +180,46 @@ export class GameScene extends Phaser.Scene {
 
   update(_time: number, delta: number): void {
     const snapshot = this.connection.getSnapshot();
-    // 휘두르기는 스냅샷이 아니라 시간으로 진행한다 — sync보다 먼저 갱신해야 이번 프레임에 반영된다.
-    this.entityRenderer.advance(delta);
-    this.entityRenderer.sync(snapshot);
-    // 건축 구역 포장 — 반경이 바뀐 순간에만 실제로 다시 그린다(TerrainLayer 참고).
-    this.terrain?.setBuildRadius(snapshot.status.coreBuildRadius);
-    this.dayNight.update(snapshot.status, this.cameras.main, delta);
+    this.latestBuildings = snapshot.buildings;
+    this.latestResourceNodes = snapshot.resourceNodes;
+    this.latestColonies = snapshot.colonies;
 
     const me = snapshot.players.find((player) => player.id === this.connection.sessionId);
+
+    // 예측 재조정 + 입력 처리를 sync보다 먼저 한다 — input_.update가 이번 프레임에
+    // 새 입력을 보내면(onInputSent) 예측 좌표가 갱신되는데, sync가 그 뒤에 와야
+    // 이번 프레임 화면에 바로 반영된다(한 프레임 지연 없이).
+    let localOverride: { id: string; x: number; y: number } | undefined;
+    if (me) {
+      // 재조정은 반드시 "같은 원본 패치"에서 나온 좌표/seq 쌍을 써야 한다 — 보간된
+      // snapshot(me.x/me.y)은 두 패치를 섞은 값이라 lastProcessedSeq와 안 맞는다
+      // (docs/backend/55 후속 수정 — 미세한 버벅임의 원인이었다).
+      const raw = this.connection.getRawSelf();
+      if (!this.predictor) this.predictor = new PlayerPredictor(raw?.x ?? me.x, raw?.y ?? me.y);
+      if (raw) this.predictor.reconcile(raw.lastProcessedSeq, raw.x, raw.y, this.isBlocked);
+      this.input_.update(delta, me);
+      // position이 아니라 renderPosition — 입력 전송 주기(60Hz)와 렌더 주기(모니터
+      // 주사율)가 어긋나는 프레임에도 계단식으로 안 보이게, 마지막 입력 방향으로
+      // 짧게 미리 내다본 값을 그린다(docs/backend/55 후속 수정).
+      const { x, y } = this.predictor.renderPosition(this.isBlocked);
+      localOverride = { id: me.id, x, y };
+    }
+
+    // 휘두르기는 스냅샷이 아니라 시간으로 진행한다 — sync보다 먼저 갱신해야 이번 프레임에 반영된다.
+    this.entityRenderer.advance(delta);
+    this.entityRenderer.sync(snapshot, localOverride);
+    // 건축 구역 포장 — 반경이 바뀐 순간에만 실제로 다시 그린다(TerrainLayer 참고).
+    this.terrain?.setBuildRadius(snapshot.status.coreBuildRadius);
+    this.dayNight.update(snapshot.status, this.cameras.main, delta, portableLights(snapshot));
+
     if (!me) return;
 
-    this.input_.update(delta, me);
+    // 건축 아이템을 들고 있을 때만 커서 칸을 비춘다. 건축 모드(B)로도 같은 표시를 쓴다 —
+    // 두 경로가 결국 같은 칸에 같은 규칙으로 짓는데 표시가 다르면 헷갈린다.
+    // (input_.update는 위 예측 재조정 블록에서 이미 호출했다 — 두 번 부르지 않는다.)
+    const showPlacement = holdsBuilding(me) || this.input_.buildMode === 'fence' ||
+      this.input_.buildMode === 'wall';
+    this.placement.update(showPlacement ? this.input_.cursorCell() : null, snapshot, me);
 
     if (!this.isFollowing) {
       const sprite = this.entityRenderer.getSprite(me.id);
@@ -207,4 +285,19 @@ export class GameScene extends Phaser.Scene {
     );
     grid.setDepth(-1000);
   }
+}
+
+/**
+ * 들고 있는 무기가 밤을 밝히는 플레이어들의 광원(빔소드). 서버가 따로 알려주지 않아도
+ * 스냅샷의 선택 슬롯 → weapons.json의 lightRadius만 보면 되므로 동기화 필드가 늘지 않는다.
+ */
+function portableLights(snapshot: WorldSnapshot): { x: number; y: number; radius: number }[] {
+  const lights: { x: number; y: number; radius: number }[] = [];
+  for (const player of snapshot.players) {
+    const weaponId = itemOfSlot(player.slots[player.selectedSlot] ?? null)?.weaponId;
+    const radius = weaponId ? weaponsData[weaponId]?.lightRadius : undefined;
+    // 광원은 몸통 높이에서 나온다 — 발밑에서 뿜으면 캐릭터가 빛 가장자리에 걸린다.
+    if (radius) lights.push({ x: player.x, y: player.y + ACTION_PLANE_Y, radius });
+  }
+  return lights;
 }

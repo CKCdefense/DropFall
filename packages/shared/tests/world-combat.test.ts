@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { World } from '../src/sim/world';
-import { craftingData, monstersData, wavesData } from '../src/data';
+import { craftingData, jobsData, monstersData, wavesData } from '../src/data';
+import { SLOT_COUNT } from '../src/sim/inventory';
 
 /** 1웨이브가 시작될 때까지(day → night) 틱을 진행시킨다. */
 function startFirstWave(world: World): void {
@@ -16,9 +17,9 @@ function spawnAtLeast(world: World, count: number): void {
 }
 
 /**
- * 예전 시작 지급품(권총/도끼/곡괭이/붕대)을 손에 쥐여준다. 이제 도구는 팀 창고에서
- * 시작하므로(loadout.coreStorage), 장착을 전제하는 테스트는 명시적으로 꺼내 쓴다.
- * 슬롯 순서는 예전과 같아서 기존 selectSlot 번호가 그대로 유효하다.
+ * 고정된 4칸 구성(권총/도끼/곡괭이/붕대)을 손에 쥐여준다. 실제 시작 지급품은 창고
+ * (loadout.coreStorage)와 붕대 1개뿐이라, 장착을 전제하는 테스트는 여기서 직접 채운다.
+ * 슬롯 번호가 고정되어야 selectSlot으로 특정 무기를 지목할 수 있다.
  */
 /** 인벤토리 전체에서 특정 아이템 개수. 자원이 전용 숫자 필드에서 아이템이 됐다. */
 function carriedCount(world: World, playerId: string, itemId: string): number {
@@ -36,7 +37,9 @@ function droppedCount(world: World, itemId: string): number {
 
 function equipDefaultKit(world: World, playerId: string): void {
   const inventory = world.getPlayers().get(playerId)!.inventory;
-  inventory.add('pistol', 1);
+  // 참가 지급품(붕대 1개)을 먼저 비운다 — 슬롯 번호를 고정해야 selectSlot 테스트가 성립한다.
+  for (let index = 0; index < SLOT_COUNT; index += 1) inventory.takeAt(index);
+  inventory.add('handgun', 1);
   inventory.add('axe_t1', 1);
   inventory.add('pickax_t1', 1);
   inventory.add('bandage', 3);
@@ -416,7 +419,7 @@ describe('World — 전원 다운 = 즉시 패배', () => {
     }
 
     expect(world.getWavePhase()).toBe('day');
-    expect(world.getPlayers().get('p1')!.hp).toBe(wavesData.playerHp);
+    expect(world.getPlayers().get('p1')!.hp).toBe(jobsData.base.maxHp);
   });
 });
 
@@ -906,10 +909,10 @@ describe('World — 몬스터 처치 보상(부품/에너지)', () => {
   it('부품은 인벤토리에 들어오고, 창고로 끌어다 놓으면 팀 공유분이 된다', () => {
     const world = new World();
     world.addPlayer('p1', 10, 0); // 코어 상호작용 반경 안
-    world.getPlayers().get('p1')!.inventory.add('drop_normal', 5);
+    world.getPlayers().get('p1')!.inventory.add('drop_normal', 5); // 0번은 참가 지급 붕대
 
-    // 인벤토리 0번 → 창고 첫 빈 칸(초기 지급품 4개 다음)
-    world.moveItem('p1', 'inventory', 0, 'storage', 4);
+    // 인벤토리 1번 → 창고 첫 빈 칸(초기 지급품 도구 3종 다음)
+    world.moveItem('p1', 'inventory', 1, 'storage', 3);
 
     expect(carriedCount(world, 'p1', 'drop_normal')).toBe(0);
     expect(world.getCore().storage.countOf('drop_normal')).toBe(5);
@@ -998,9 +1001,56 @@ describe('World — 어그로 규칙(공격 1회 → 재탐색)', () => {
     world.getPlayers().get('far')!.y = 0;
     monster.facingX = -1;
     monster.facingY = 0;
-    world.tick(0.05);
+    // 한 틱만 돌리면 하필 공격 예고·쿨다운 중일 때 탐색까지 가지 않는다 — 공격 주기가
+    // 바뀌어도 깨지지 않게, 타겟을 잡을 때까지 짧게 돌린다(한 주기면 충분하다).
+    for (let i = 0; i < 60 && monster.targetPlayerId === undefined; i += 1) world.tick(0.05);
 
     expect(monster.targetPlayerId).toBe('far');
+  });
+});
+
+describe('World — 공격 모션 신호(attackSeq)', () => {
+  /**
+   * 예전엔 "공격 중"(attacking) 불리언의 false→true 전이로 모션을 재생했다. 그런데
+   * 모션 길이(예고 + 0.4초)가 공격 주기와 거의 같은 몬스터는 꺼져 있는 구간이 수십 ms뿐이라,
+   * 20Hz 상태 동기화가 그 창을 통째로 건너뛰면 클라이언트 눈에는 플래그가 계속 켜져 있어
+   * 첫 공격 이후 모션이 영영 안 나왔다(코어를 쉬지 않고 때릴 때 실제로 그랬다).
+   */
+  it('공격할 때마다 번호가 올라간다 — 모션이 꺼지는 순간을 놓쳐도 재생 시점을 알 수 있다', () => {
+    const world = new World();
+    world.addPlayer('far', 2000, 2000); // 어그로 밖 — 몬스터가 코어를 노린다
+    world.runDevCommand('far', 'spawn demon 1');
+    const monster = [...world.getMonsters().values()][0]!;
+    monster.x = 60;
+    monster.y = 0;
+
+    const seqs = new Set<number>();
+    const coreBefore = world.getCore().hp;
+    // 20Hz(50ms)로만 관측한다 — 실제 클라이언트가 상태를 보는 주기와 같게.
+    for (let i = 0; i < 200; i += 1) {
+      world.tick(0.05);
+      seqs.add(monster.attackSeq);
+    }
+
+    expect(world.getCore().hp).toBeLessThan(coreBefore); // 실제로 계속 때리고 있다
+    expect(seqs.size).toBeGreaterThan(2); // 때린 횟수만큼 번호가 달라졌다
+  });
+
+  it('코어를 때릴 때도 공격 모션이 켜진다', () => {
+    const world = new World();
+    world.addPlayer('far', 2000, 2000);
+    world.runDevCommand('far', 'spawn demon 1');
+    const monster = [...world.getMonsters().values()][0]!;
+    monster.x = 60;
+    monster.y = 0;
+
+    let sawMotion = false;
+    for (let i = 0; i < 200; i += 1) {
+      world.tick(0.05);
+      if (monster.attackAnimTimer > 0) sawMotion = true;
+    }
+
+    expect(sawMotion).toBe(true);
   });
 });
 
@@ -1027,9 +1077,9 @@ describe('World — 모든 공격은 시도 → 예고 → 판정 → 정산', (
     tickSeconds(world, windup * 0.6, 0.01);
     expect(player.hp).toBe(100);
 
-    // 예고를 넘기면 그때 정산된다.
+    // 예고를 넘기면 그때 정산된다(자연 회복분 때문에 정수로 딱 떨어지지는 않는다).
     tickSeconds(world, windup, 0.01);
-    expect(player.hp).toBe(100 - monstersData.demon.damage);
+    expect(player.hp).toBeCloseTo(100 - monstersData.demon.damage, 0);
   });
 
   it('예고 중에 사거리 밖으로 빠지면 헛친다', () => {
@@ -1057,7 +1107,7 @@ describe('World — 모든 공격은 시도 → 예고 → 판정 → 정산', (
     expect(player.hp).toBe(100);
   });
 
-  it('보스 평타도 같은 규칙을 탄다 — 검술 쿨다운 중이라고 즉사 피해가 나오지 않는다', () => {
+  it('보스는 평타를 쓰지 않는다 — 모든 기술이 쿨다운이면 아무것도 안 치고 기다린다', () => {
     const world = new World();
     world.addPlayer('dev', 3000, 3000);
     world.runDevCommand('dev', 'spawn boss_demon 1');
@@ -1066,21 +1116,33 @@ describe('World — 모든 공격은 시도 → 예고 → 판정 → 정산', (
     boss.y = 0;
     boss.facingX = -1;
     boss.facingY = 0;
-    // 검술을 전부 잠가서 평타 경로만 남긴다.
+    // 패턴 세 개를 전부 잠근다. 예전엔 이때 Attack01이 "평타"로 나왔다 — 같은 그림이
+    // 평타와 1번 기술 양쪽으로 쓰이면서 서로를 덮어썼다.
     boss.meleeCooldowns.forEach((_, i) => {
       boss.meleeCooldowns[i] = 999;
     });
-    boss.specialAttackCooldown = 999;
 
-    world.addPlayer('p1', boss.x - 40, boss.y); // 평타 사거리 안
+    world.addPlayer('p1', boss.x - 40, boss.y);
     const player = world.getPlayers().get('p1')!;
 
-    // 시도는 하되 예고가 끝나기 전에는 피해가 없어야 한다.
-    for (let i = 0; i < 40 && boss.pattern.kind !== 'basicSwing'; i += 1) world.tick(0.01);
-    expect(boss.pattern.kind).toBe('basicSwing');
+    for (let i = 0; i < 200; i += 1) {
+      world.tick(0.01);
+      expect(boss.pattern.kind).not.toBe('basicSwing');
+    }
     expect(player.hp).toBe(100);
+  });
 
-    tickSeconds(world, monstersData.boss_demon.attackWindupSeconds * 1.5, 0.01);
-    expect(player.hp).toBe(100 - monstersData.boss_demon.damage);
+  it('보스는 사람이 없으면 패턴으로 코어를 부순다 — 평타가 없어도 공격할 수 있다', () => {
+    const world = new World();
+    world.addPlayer('far', 3000, 3000); // 어그로 밖
+    world.runDevCommand('far', 'spawn boss_demon 1');
+    const boss = [...world.getMonsters().values()].find((m) => m.type === 'boss_demon')!;
+    boss.x = 70;
+    boss.y = 0;
+
+    const coreBefore = world.getCore().hp;
+    for (let i = 0; i < 400; i += 1) world.tick(0.05);
+
+    expect(world.getCore().hp).toBeLessThan(coreBefore);
   });
 });

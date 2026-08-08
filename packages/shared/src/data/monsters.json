@@ -6,7 +6,7 @@
     "damage": 5,
     "speed": 60,
     "attackRange": 20,
-    "attackInterval": 1,
+    "attackInterval": 1.5,
     "attackWindupSeconds": 0.36,
     "aggroRadius": 110,
     "itemDrops": [
@@ -31,7 +31,7 @@
     "damage": 6,
     "speed": 130,
     "attackRange": 20,
-    "attackInterval": 0.8,
+    "attackInterval": 1.2,
     "attackWindupSeconds": 0.36,
     "aggroRadius": 240,
     "itemDrops": [
@@ -56,7 +56,7 @@
     "damage": 7,
     "speed": 60,
     "attackRange": 20,
-    "attackInterval": 1,
+    "attackInterval": 1.4,
     "attackWindupSeconds": 0.29,
     "aggroRadius": 36,
     "itemDrops": [
@@ -81,7 +81,7 @@
     "damage": 16,
     "speed": 70,
     "attackRange": 24,
-    "attackInterval": 1.2,
+    "attackInterval": 1.7,
     "attackWindupSeconds": 0.43,
     "aggroRadius": 130,
     "itemDrops": [
@@ -106,7 +106,7 @@
     "damage": 8,
     "speed": 28,
     "attackRange": 20,
-    "attackInterval": 1.5,
+    "attackInterval": 2.0,
     "attackWindupSeconds": 0.21,
     "aggroRadius": 120,
     "itemDrops": [
@@ -131,7 +131,7 @@
     "damage": 14,
     "speed": 75,
     "attackRange": 24,
-    "attackInterval": 1.2,
+    "attackInterval": 1.7,
     "attackWindupSeconds": 0.43,
     "aggroRadius": 180,
     "energyDrop": {
@@ -177,7 +177,8 @@
           }
         ],
         "recoverSeconds": 0.35,
-        "cooldown": 7
+        "cooldown": 2.2,
+        "weight": 5
       },
       {
         "$comment": "Attack02 내려치기 — 앞으로는 28px(×3=84)로 짧고 아래로 내리찍는다. 대신 묵직하다.",
@@ -191,7 +192,8 @@
           }
         ],
         "recoverSeconds": 1.0,
-        "cooldown": 9
+        "cooldown": 5.0,
+        "weight": 3
       },
       {
         "$comment": "Attack03 양손 베기 — 39px(×3=117)로 가장 멀리, 가장 넓게 쓸어낸다. 예고가 길어 피할 틈이 있다.",
@@ -205,7 +207,8 @@
           }
         ],
         "recoverSeconds": 0.35,
-        "cooldown": 13
+        "cooldown": 9.0,
+        "weight": 1
       }
     ],
     "energyDrop": {
@@ -257,7 +260,8 @@
           }
         ],
         "recoverSeconds": 0.44,
-        "cooldown": 9
+        "cooldown": 2.6,
+        "weight": 5
       },
       {
         "$comment": "Attack02 — 창을 한 바퀴 돌린 뒤(프레임2~5) 프레임11에 최장거리 찌르기 1회(50px). 예고가 길고 매우 좁다.",
@@ -271,7 +275,8 @@
           }
         ],
         "recoverSeconds": 0.44,
-        "cooldown": 11
+        "cooldown": 6.0,
+        "weight": 3
       },
       {
         "$comment": "Attack03 — 프레임4~9에 공중(머리높이 -59)으로 떴다가 프레임10에 착지. 바닥에서 가시가 솟아 전방향 광역(arc 360, 49px)이라 옆으로 못 피한다 — 거리를 벌려야 한다.",
@@ -285,7 +290,8 @@
           }
         ],
         "recoverSeconds": 0.56,
-        "cooldown": 16
+        "cooldown": 11.0,
+        "weight": 1
       }
     ],
     "energyDrop": {
@@ -331,7 +337,8 @@
           }
         ],
         "recoverSeconds": 0.35,
-        "cooldown": 6
+        "cooldown": 2.8,
+        "weight": 5
       },
       {
         "$comment": "Attack02 광역 찍기 — 프레임6에 앞 37px·뒤 -20px로 **양쪽으로 동시에** 퍼진다. 옆으로 피할 수 없어 전방향(arc 360, ×4=148)으로 잡았다.",
@@ -345,28 +352,30 @@
           }
         ],
         "recoverSeconds": 0.35,
-        "cooldown": 12
+        "cooldown": 7.0,
+        "weight": 3
       },
       {
         "$comment": "Attack03 광역 돌진 — 프레임4~7에 몸통 중심이 1→18px로 실제로 앞으로 나아간다. 그 구간을 돌진으로 옮기고(×4), 멈추는 순간 전방향 충격(arc 360)을 준다.",
         "anim": 3,
         "hits": [
           {
-            "atSeconds": 0.67,
-            "range": 117,
+            "atSeconds": 0.89,
+            "range": 110,
             "arc": 360,
-            "damage": 32
+            "damage": 30
           }
         ],
         "dash": {
           "fromSeconds": 0.44,
-          "toSeconds": 0.67,
-          "speed": 196,
-          "radius": 75,
-          "damage": 34
+          "toSeconds": 0.89,
+          "speed": 420,
+          "halfWidth": 46,
+          "damage": 38
         },
-        "recoverSeconds": 0.35,
-        "cooldown": 16
+        "recoverSeconds": 0.55,
+        "cooldown": 12.0,
+        "weight": 1
       }
     ],
     "energyDrop": {
@@ -412,7 +421,8 @@
           }
         ],
         "recoverSeconds": 0.35,
-        "cooldown": 8
+        "cooldown": 2.0,
+        "weight": 5
       },
       {
         "$comment": "Attack02 — 프레임4에 칼을 뒤로 크게 젖혔다가(뒤 -23px) 프레임5에 머리 위에서 내리치는 다른 모션(37px, ×4=148). 사거리는 짧지만 휘두르는 각이 넓다.",
@@ -426,7 +436,8 @@
           }
         ],
         "recoverSeconds": 0.44,
-        "cooldown": 10
+        "cooldown": 5.5,
+        "weight": 3
       },
       {
         "$comment": "Attack03 — 프레임4~9에 공중(머리 -60)에서 앞으로 뛰며(중심 4→28) 프레임6에 칼을 내리찍고, 프레임7~9에 그 자리에서 화염 기둥이 솟는다. 내리찍기는 전방향, 뒤이은 기둥은 앞쪽이라 착지 후 뒤로 빠지면 두 번째는 피할 수 있다.",
@@ -453,7 +464,8 @@
           "damage": 30
         },
         "recoverSeconds": 0.44,
-        "cooldown": 18
+        "cooldown": 12.0,
+        "weight": 1
       }
     ],
     "energyDrop": {

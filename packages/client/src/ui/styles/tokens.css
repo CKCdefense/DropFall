@@ -67,6 +67,8 @@
   --logo-w: min(960px, 92vw);
   --logo-ratio: 2.66; /* 가로 / 세로 — logo_title.png 원본 814x306 기준 */
   --logo-max-h: 42vh; /* 세로가 짧은 창에서 로고가 화면을 다 먹지 않게 */
+  /* 실제로 그려지는 로고 상자의 가로폭. 랜딩의 닉네임·버튼 줄이 이 폭에 맞춰 정렬된다 */
+  --logo-box-w: min(var(--logo-w), calc(var(--logo-max-h) * var(--logo-ratio)));
 
   /* 랜딩 배경 이미지 */
   --asset-landing-bg: none;

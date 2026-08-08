@@ -23,16 +23,53 @@ export function normalizeMoveVector(moveX: number, moveY: number): { moveX: numb
   return { moveX: x, moveY: y };
 }
 
-/** 정규화된 입력 벡터로 한 스텝(dtSeconds) 이동시킨 결과 좌표를 반환한다. */
+/**
+ * 정규화된 입력 벡터로 한 스텝(dtSeconds) 이동시킨 결과 좌표를 반환한다.
+ * speedMultiplier: 음식 스태미나·아드레날린 배율. 클라이언트 예측도 서버가 동기화해 준
+ * 같은 배율을 넘겨야 한다 — 다르면 버프 지속 중 계속 되감긴다(rubber-banding).
+ */
 export function stepPosition(
   x: number,
   y: number,
   moveX: number,
   moveY: number,
   dtSeconds: number,
+  speedMultiplier = 1,
 ): { x: number; y: number } {
   return {
-    x: x + moveX * PLAYER_SPEED * dtSeconds,
-    y: y + moveY * PLAYER_SPEED * dtSeconds,
+    x: x + moveX * PLAYER_SPEED * speedMultiplier * dtSeconds,
+    y: y + moveY * PLAYER_SPEED * speedMultiplier * dtSeconds,
   };
+}
+
+/**
+ * 플레이어를 장애물과 겹치지 않는 선에서 이동시킨다(축 슬라이딩).
+ *
+ * `World.movePlayer`와 클라이언트 예측(`PlayerPredictor`)이 **같은 함수**를 쓴다 —
+ * 그래서 충돌 판정을 인자로 받는다(`isBlocked`). 서버는 `World.isBlockedForPlayer`를,
+ * 클라이언트는 최근 스냅샷으로 만든 동등한 함수를 넘긴다. 둘이 같은 판정 규칙
+ * (`isPlayerBlocked`, playerCollision.ts)을 쓰는 한 예측이 서버와 어긋나지 않는다.
+ *
+ * 전체 이동이 막히면 X축만, 그것도 막히면 Y축만 시도한다 — 벽에 대각선으로 부딪혔을 때
+ * 완전히 멈추는 대신 벽을 따라 미끄러지듯 이동하게 하기 위함이다.
+ */
+export function resolvePlayerMove(
+  x: number,
+  y: number,
+  moveX: number,
+  moveY: number,
+  dtSeconds: number,
+  speedMultiplier: number,
+  isBlocked: (x: number, y: number) => boolean,
+): { x: number; y: number } {
+  const full = stepPosition(x, y, moveX, moveY, dtSeconds, speedMultiplier);
+  if (!isBlocked(full.x, full.y)) return full;
+
+  const xOnly = stepPosition(x, y, moveX, 0, dtSeconds, speedMultiplier);
+  if (!isBlocked(xOnly.x, xOnly.y)) return xOnly;
+
+  const yOnly = stepPosition(x, y, 0, moveY, dtSeconds, speedMultiplier);
+  if (!isBlocked(yOnly.x, yOnly.y)) return yOnly;
+
+  return { x, y };
 }

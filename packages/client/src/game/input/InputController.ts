@@ -32,6 +32,7 @@ interface EquippedItem {
 function readEquipped(self: PlayerView): EquippedItem {
   const item = itemOfSlot(self.slots[self.selectedSlot]);
   if (item?.kind === 'consumable') return { kind: 'consumable', weaponId: undefined };
+  if (item?.kind === 'building') return { kind: 'building', weaponId: undefined };
   return { kind: 'weapon', weaponId: item?.weaponId ?? BARE_HANDS_WEAPON_ID };
 }
 
@@ -74,7 +75,7 @@ type BuildMode = (typeof BUILD_MODES)[number];
  */
 export class InputController {
   private readonly keys: Record<
-    'up' | 'down' | 'left' | 'right',
+    'up' | 'down' | 'left' | 'right' | 'sprint',
     Phaser.Input.Keyboard.Key
   >;
   private seq = 0;
@@ -103,6 +104,13 @@ export class InputController {
      * 모달에 차단막이 없어서(게임을 계속 보여줘야 한다) 좌표로 판정해야 한다.
      */
     private readonly isPointerOverHud?: (x: number, y: number) => boolean,
+    /**
+     * 서버로 입력을 보낼 때마다(전송 지점 두 곳 모두) 같이 호출된다 — 클라이언트
+     * 예측(`PlayerPredictor`)이 이 입력을 즉시 로컬에 반영하는 훅이다. 입력 자체를
+     * 여기서 만들지 않고 이미 만든 값을 그대로 넘긴다 — 정규화 규칙이 두 곳에서
+     * 갈라지면 예측이 서버와 어긋난다.
+     */
+    private readonly onInputSent?: (input: PlayerInputMessage) => void,
   ) {
     const keyboard = scene.input.keyboard;
     if (!keyboard) throw new Error('키보드 입력을 사용할 수 없습니다.');
@@ -112,6 +120,8 @@ export class InputController {
       down: keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.S),
       left: keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A),
       right: keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D),
+      // 달리기. 누르고 있는 동안만 유효한 상태라 이벤트가 아니라 매 틱 입력에 실어 보낸다.
+      sprint: keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT),
     };
 
     // 낮 넘기기 투표(만장일치). 서버가 중복 투표를 무시하므로 한 번만 보내면 된다.
@@ -143,6 +153,16 @@ export class InputController {
       this.buildModeIndex = (this.buildModeIndex + 1) % BUILD_MODES.length;
     });
 
+    // 수동 재장전(R). 대상 무기·가득 여부 판정은 서버가 한다.
+    keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.R).on('down', () => {
+      this.connection.reload();
+    });
+
+    // 점사 모드 토글(X, 돌격소총 전용). burst 스펙 없는 무기면 서버가 무시한다.
+    keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.X).on('down', () => {
+      this.connection.toggleFireMode();
+    });
+
     // 우클릭으로 건축모드를 바로 취소할 수 있게, 브라우저 기본 우클릭 메뉴부터 끈다.
     scene.input.mouse?.disableContextMenu();
     scene.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
@@ -154,8 +174,7 @@ export class InputController {
         return;
       }
       if (pointer.leftButtonDown()) {
-        const world = this.scene.cameras.main.getWorldPoint(pointer.x, pointer.y);
-        const { cx, cy } = worldToCell(world.x, world.y);
+        const { cx, cy } = this.cursorCell();
         if (this.buildMode === 'demolish') {
           this.connection.demolishBuilding(cx, cy);
         } else {
@@ -163,6 +182,23 @@ export class InputController {
         }
       }
     });
+  }
+
+  /**
+   * 지금 커서가 가리키는 격자 칸.
+   *
+   * 조준(updateAim)과 달리 **ACTION_PLANE_Y 보정을 하지 않는다** — 건축물은 캐릭터·총알이
+   * 올라간 전투 평면이 아니라 바닥에 놓이므로, 커서가 가리키는 바닥 칸이 그대로 정답이다.
+   */
+  cursorCell(): { cx: number; cy: number } {
+    const pointer = this.scene.input.activePointer;
+    const world = this.scene.cameras.main.getWorldPoint(pointer.x, pointer.y);
+    return worldToCell(world.x, world.y);
+  }
+
+  /** 지금 손에 든 것의 종류. HUD가 설치 미리보기를 띄울지 정할 때 쓴다. */
+  get equippedKind(): ItemKind | null {
+    return this.equipped.kind;
   }
 
   get buildMode(): BuildMode {
@@ -181,9 +217,12 @@ export class InputController {
     this.keys.down.reset();
     this.keys.left.reset();
     this.keys.right.reset();
+    this.keys.sprint.reset();
     this.fireTimer = 0;
     this.seq += 1;
-    this.connection.sendInput(this.buildInput());
+    const input = this.buildInput();
+    this.connection.sendInput(input);
+    this.onInputSent?.(input);
   }
 
   get weaponId(): string | undefined {
@@ -221,6 +260,14 @@ export class InputController {
       return;
     }
 
+    if (kind === 'building') {
+      // 건축물도 홀드 연타를 막는다 — 커서를 조금 움직이는 사이에 인벤토리가 비어버린다.
+      this.fireTimer = Infinity;
+      const cell = this.cursorCell();
+      this.connection.placeHeldBuilding(cell.cx, cell.cy);
+      return;
+    }
+
     if (kind !== 'weapon' || !weaponId) return;
 
     this.connection.fire();
@@ -240,7 +287,9 @@ export class InputController {
     this.elapsed = 0;
 
     this.seq += 1;
-    this.connection.sendInput(this.buildInput());
+    const input = this.buildInput();
+    this.connection.sendInput(input);
+    this.onInputSent?.(input);
   }
 
   get currentAimAngle(): number {
@@ -285,6 +334,7 @@ export class InputController {
       seq: this.seq,
       ...normalized,
       aimAngle: this.aimAngle,
+      sprint: this.keys.sprint.isDown,
     };
   }
 }

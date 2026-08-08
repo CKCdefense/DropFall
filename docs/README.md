@@ -37,6 +37,10 @@
 | [backend/46-work-report-resource-node-position-sync.md](backend/46-work-report-resource-node-position-sync.md) | 작업 보고서 — 자원 노드 리스폰 시 서버가 새 좌표를 클라이언트에 재동기화 안 하던 버그 |
 | [backend/47-work-report-patch-rate-bandwidth.md](backend/47-work-report-patch-rate-bandwidth.md) | 작업 보고서 — PATCH_RATE 60→20Hz, 2인 이상 실접속 렉의 원인(대역폭이 인원수에 비례) |
 | [backend/48-work-report-cicd-deployment-pipeline.md](backend/48-work-report-cicd-deployment-pipeline.md) | 작업 보고서 — CI/CD 구축(GitHub Pages + 개인 서버 SSH), Node/corepack/sudoers/SSH키/Tailscale Funnel 전환 등 실서버 적용 과정 |
+| [backend/49-work-report-core-blind-zone-and-hit-alert.md](backend/49-work-report-core-blind-zone-and-hit-alert.md) | 작업 보고서 — 코어 북쪽 사각지대 반투명 처리(12시 방향 공격 안 보이던 버그) + 피격 알림(월드+HUD) |
+| [backend/50-work-report-downed-player-action-lockout.md](backend/50-work-report-downed-player-action-lockout.md) | 작업 보고서 — 다운된(hp 0) 플레이어가 이동 말고는 아무 동작도 못 하게 막음 |
+| [backend/51-work-report-companion-core-stuck-movement.md](backend/51-work-report-companion-core-stuck-movement.md) | 작업 보고서 — 티모시가 코어에 막혀 영원히 멈추는 이동 버그(접선 미끄러짐+탈출 점프 이식) |
+| [backend/55-work-report-player-client-prediction.md](backend/55-work-report-player-client-prediction.md) | 작업 보고서 — 내 캐릭터 클라이언트 예측+재조정(멀티플레이 텔레포트/끊김 원인 분석 및 해결) |
 
 ### 역할 C — 클라이언트/렌더/UI 작업 문서 ([frontend/](frontend/))
 

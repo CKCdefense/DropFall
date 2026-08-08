@@ -8,7 +8,6 @@ import {
   SLOT_COUNT,
   computeCameraZoom,
   coreUpgradesData,
-  wavesData,
 } from '@dropfall/shared';
 import type { GameConnection, PlayerView, WorldSnapshot } from '../../net/GameConnection';
 import {
@@ -21,16 +20,14 @@ import {
 import type { InputController } from '../input/InputController';
 import { ChatBox } from '../ui/ChatBox';
 import { CoreModal } from '../ui/CoreModal';
-import { WarehouseModal } from '../ui/WarehouseModal';
+import { CharacterModal } from '../ui/CharacterModal';
 import { SlotDrag } from '../ui/SlotDrag';
 import type { Modal } from '../ui/Modal';
-import { CraftModal } from '../ui/CraftModal';
 import { DevConsole } from '../ui/DevConsole';
 import { DevItemModal } from '../ui/DevItemModal';
 import { Minimap } from '../ui/Minimap';
 import { PartyPanel } from '../ui/PartyPanel';
-import { QuickSlotBar } from '../ui/QuickSlotBar';
-import { StoreModal } from '../ui/StoreModal';
+import { BOTTOM_BAR_RESERVED, QuickSlotBar } from '../ui/QuickSlotBar';
 import { UpgradeModal } from '../ui/UpgradeModal';
 import { WaveDial } from '../ui/WaveDial';
 import {
@@ -38,6 +35,7 @@ import {
   BAR_BACK,
   BODY_TEXT,
   DIM_TEXT,
+  DOWN_COLOR,
   FONT,
   FONT_SMALL,
   PANEL_FILL,
@@ -70,8 +68,6 @@ const CORE_PANEL_WIDTH = 190;
 const CORE_PANEL_HEIGHT = 60;
 const CORE_BAR_HEIGHT = 8;
 /** 자기 체력 바 — 퀵슬롯 바로 위에 붙인다. */
-const SELF_BAR_WIDTH = 180;
-const SELF_BAR_HEIGHT = 6;
 /** 보스 HP바(상단 중앙, 웨이브 다이얼 아래) 규격. */
 const BOSS_BAR_WIDTH = 200;
 const BOSS_BAR_HEIGHT = 8;
@@ -116,8 +112,7 @@ export class HudScene extends Phaser.Scene {
   private party!: PartyPanel;
   private quickSlots!: QuickSlotBar;
 
-  private selfBarBack!: Phaser.GameObjects.Rectangle;
-  private selfBar!: Phaser.GameObjects.Rectangle;
+  private ammoText!: Phaser.GameObjects.Text;
 
   /** 보스 레이드 표시 — 보스가 살아있는 동안만 보인다. */
   private bossBarBack!: Phaser.GameObjects.Rectangle;
@@ -144,10 +139,8 @@ export class HudScene extends Phaser.Scene {
   /** 바 너비를 다시 계산할 때 필요해서 보관한다. */
   private uiScale = 1;
 
-  // 코어 상호작용 모달 4종(docs/frontend/09) — [F]로 코어 모달을 열고, 거기서
-  // 나머지 셋으로 이동한다. 아직 선작업 단계라 실제 데이터/효과는 없다.
+  // 코어 허브 창 — [F]/[E]로 열고, 안에서 탭(코어/제작/상점/창고)으로 오간다.
   private coreModal!: CoreModal;
-  private warehouseModal!: WarehouseModal;
   private slotDrag!: SlotDrag;
   /** 최신 스냅샷의 내 슬롯/창고. 드래그가 "빈 칸인지"를 물어볼 때 쓴다. */
   private latestInventory: (InventorySlot | null)[] = [];
@@ -158,9 +151,10 @@ export class HudScene extends Phaser.Scene {
   private dropInReach = false;
   /** 티모시 상호작용 반경(companionData.interactRange) 안에 있는지. */
   private nearCompanion = false;
+  /** 코어 티어업만 아직 별도 창이다(탭 넷에 들어가지 않는다). */
   private upgradeModal!: UpgradeModal;
-  private storeModal!: StoreModal;
-  private craftModal!: CraftModal;
+  /** 캐릭터 정보(직업·스탯·스킬). 하단 바의 직업/스탯 버튼으로 연다. */
+  private characterModal!: CharacterModal;
   /**
    * 개발 모드 전용. 프로덕션 빌드에서는 아예 만들어지지 않는다 —
    * `isDevBuild()` 참고.
@@ -223,9 +217,9 @@ export class HudScene extends Phaser.Scene {
     // 하단 중앙 — 퀵슬롯
     this.quickSlots = new QuickSlotBar(this, SLOT_COUNT);
 
-    // 내 체력은 퀵슬롯 바로 위에 붙인다. 팀원 칸과 섞으면 "누구 체력인지" 헷갈린다.
-    this.selfBarBack = this.add.rectangle(0, 0, 10, SELF_BAR_HEIGHT, BAR_BACK).setOrigin(0.5, 1);
-    this.selfBar = this.add.rectangle(0, 0, 10, SELF_BAR_HEIGHT, 0x6fd08c).setOrigin(0, 1);
+
+    // 탄약은 체력 바 오른쪽 끝에 붙인다 — 쏘는 동안 눈이 화면 아래 중앙을 벗어나지 않게.
+    this.ammoText = this.add.text(0, 0, '', DIM_STYLE).setOrigin(1, 1);
 
     this.resourceText = this.add.text(0, 0, '휴대 나무 0 · 돌 0 · 부품 0', DIM_STYLE);
     this.buildModeText = this.add.text(0, 0, '건축모드: 꺼짐', DIM_STYLE);
@@ -287,9 +281,12 @@ export class HudScene extends Phaser.Scene {
       this.showAiToast(text);
     });
     this.upgradeModal = new UpgradeModal(this);
-    this.storeModal = new StoreModal(this);
-    this.craftModal = new CraftModal(this);
-    this.warehouseModal = new WarehouseModal(this);
+    this.characterModal = new CharacterModal(this);
+    // 하단 바의 직업/스탯 칸이 이 창을 연다 — 스탯을 보는 곳이 한 군데여야 한다.
+    this.quickSlots.onProfile = () => {
+      if (this.characterModal.isOpen()) this.characterModal.close();
+      else this.characterModal.open();
+    };
 
     // 창고 격자와 하단 퀵슬롯을 **하나의 드래그 공간**으로 묶는다. 둘은 별개 UI지만
     // 아이템이 그 사이를 오가야 해서, 드래그 로직을 모달이 아니라 공용 컨트롤러에 둔다.
@@ -301,41 +298,32 @@ export class HudScene extends Phaser.Scene {
     this.slotDrag.getSlot = (container, index) =>
       (container === 'storage' ? this.latestStorage : this.latestInventory)[index] ?? null;
 
-    for (const cell of this.warehouseModal.storageCells) {
-      // 창고 칸은 모달이 열려 있을 때만 살아 있다 — 닫힌 모달의 칸이 드래그를 먹으면 안 된다.
+    for (const cell of this.coreModal.storageCells) {
+      // 창고 칸은 **창고 탭이 보일 때만** 살아 있다. 다른 탭에 가려진 칸은 Phaser의
+      // box.visible이 그대로 true라(가려진 건 부모 컨테이너다) 탭까지 봐야 한다 —
+      // 안 그러면 제작 탭에서 드래그가 보이지도 않는 창고 칸에 떨어진다.
       this.slotDrag.register({
         container: 'storage',
         index: cell.index,
         box: cell.box,
-        isActive: () => this.warehouseModal.isOpen(),
+        isActive: () => this.coreModal.isWarehouseVisible(),
       });
     }
     this.quickSlots.cells.forEach((box, index) => {
       this.slotDrag.register({ container: 'inventory', index, box, isActive: () => true });
     });
 
+    // 코어 관리(티어업)만 아직 별도 창이다 — 와이어프레임의 탭 넷에 들어가지 않는다.
     this.coreModal.onManage = () => {
       this.coreModal.close();
       this.upgradeModal.open();
     };
-    this.coreModal.onStore = () => {
-      this.coreModal.close();
-      this.storeModal.open();
-    };
-    this.coreModal.onCraft = () => {
-      this.coreModal.close();
-      // 해금 여부로 창 자체를 막지 않는다 — 레시피마다 요구 티어가 따로 있고(T1 도구는
-      // 처음부터 만들 수 있다), 잠긴 것도 회색으로 보여줘야 코어를 왜 올리는지 알 수 있다.
-      this.craftModal.open();
-    };
     this.upgradeModal.onTierUp = () => this.connection.upgradeCore();
-    this.craftModal.onCraft = (recipeId) => this.connection.craft(recipeId);
-    this.storeModal.onPurchase = (itemId) => this.connection.shopBuy(itemId);
-    this.storeModal.onSell = (itemId, count) => this.connection.shopSell(itemId, count);
-    this.coreModal.onWarehouse = () => {
-      this.coreModal.close();
-      this.warehouseModal.open();
-    };
+    this.coreModal.onCraft = (recipeId: string) => this.connection.craft(recipeId);
+    this.coreModal.onPurchase = (itemId: string) => this.connection.shopBuy(itemId);
+    this.coreModal.onSell = (itemId: string, count: number) =>
+      this.connection.shopSell(itemId, count);
+    this.coreModal.onDiscard = (index: number) => this.connection.discardStorageItem(index);
 
     // 낮/밤 무관하게 언제든 열어볼 수 있다 — 아직 실제 효과가 없는 선작업 UI라
     // 페이즈로 막을 이유가 없다(효과가 생기면 그때 막을지 정하면 된다).
@@ -427,15 +415,18 @@ export class HudScene extends Phaser.Scene {
     });
   }
 
-  private openModals(): Modal[] {
+  /** 화면에 존재하는 창 전부(열려 있는지와 무관). 위치 재계산처럼 전부에 걸 때 쓴다. */
+  private allModals(): Modal[] {
     return [
       this.coreModal,
-      this.warehouseModal,
       this.upgradeModal,
-      this.storeModal,
-      this.craftModal,
+      this.characterModal,
       ...(this.devItemModal ? [this.devItemModal] : []),
-    ].filter((modal) => modal.isOpen());
+    ];
+  }
+
+  private openModals(): Modal[] {
+    return this.allModals().filter((modal) => modal.isOpen());
   }
 
   private anyModalOpen(): boolean {
@@ -444,10 +435,8 @@ export class HudScene extends Phaser.Scene {
 
   private closeAllModals(): void {
     this.coreModal.close();
-    this.warehouseModal.close();
     this.upgradeModal.close();
-    this.storeModal.close();
-    this.craftModal.close();
+    this.characterModal.close();
     this.devItemModal?.close();
   }
 
@@ -509,14 +498,15 @@ export class HudScene extends Phaser.Scene {
     const slotsBottom = height - pad - 20 * scale;
     this.quickSlots.layout(width / 2, slotsBottom, scale);
 
-    const selfBarY = slotsBottom - this.quickSlots.height - 6 * scale;
-    const selfBarW = SELF_BAR_WIDTH * scale;
-    this.selfBarBack
-      .setSize(selfBarW, SELF_BAR_HEIGHT * scale)
-      .setPosition(width / 2, selfBarY);
-    this.selfBar
-      .setSize(selfBarW, SELF_BAR_HEIGHT * scale)
-      .setPosition(width / 2 - selfBarW / 2, selfBarY);
+    // 탄약은 스태미나 막대 오른쪽 위에 붙인다 — 쏘는 동안 눈이 하단 바를 벗어나지 않게.
+    this.ammoText
+      .setFontSize(SIZE_BODY * scale)
+      .setPosition(this.quickSlots.barsRight, this.quickSlots.barsTop - 4 * scale);
+
+    // 창은 **하단 바를 피해** 그 위 공간의 가운데에 놓는다. 안 그러면 큰 창이 퀵슬롯을
+    // 덮어서 창고 → 퀵슬롯 드래그가 아예 불가능해진다.
+    const reserved = BOTTOM_BAR_RESERVED * scale;
+    for (const modal of this.allModals()) modal.recenter(width, height, reserved);
 
     // --- 나머지
     this.resourceText.setFontSize(SIZE_BODY * scale).setPosition(pad, height - 40 * scale);
@@ -565,10 +555,11 @@ export class HudScene extends Phaser.Scene {
     // 제작·상점은 둘 다 "창고에 뭐가 몇 개 있나"만 알면 된다 — 칸 배열을 한 번만
     // 합계로 접어서 두 모달에 같이 넘긴다.
     const stock = summarizeStorage(status.coreStorage);
-    this.craftModal.setContext(stock, status.coreTier);
-    this.storeModal.setContext(status.shopStock, status.coreMoney, stock);
+    this.coreModal.setCraftContext(stock, status.coreTier);
+    this.coreModal.setStoreContext(status.shopStock, status.coreMoney, stock);
     this.quickSlots.update(me, this.slotDrag.hoverCellOf('inventory'));
-    this.updateSelfBar(me);
+    this.characterModal.setPlayer(me);
+    this.updateAmmo(me);
     this.updateTexts(snapshot, me);
 
     // 코어는 항상 원점(0,0). 서버(World.isNearCore)와 같은 함수로 판정해야
@@ -584,7 +575,7 @@ export class HudScene extends Phaser.Scene {
       ? Math.hypot(snapshot.companion.x - me.x, snapshot.companion.y - me.y) <=
         companionData.interactRange
       : false;
-    if (this.warehouseModal.isOpen()) this.warehouseModal.setSlots(status.coreStorage);
+    if (this.coreModal.isOpen()) this.coreModal.setStorageSlots(status.coreStorage);
   }
 
   private updateCore(
@@ -629,13 +620,28 @@ export class HudScene extends Phaser.Scene {
     });
   }
 
-  private updateSelfBar(me: PlayerView | undefined): void {
-    // 개발 커맨드(hp)로 최대치를 넘겨 설정할 수 있어서 위쪽도 조인다 — 안 그러면
-    // 바가 패널 밖으로 삐져나간다.
-    const ratio = me ? Math.min(1, Math.max(0, me.hp) / wavesData.playerHp) : 0;
-    this.selfBar.width = Math.max(0, SELF_BAR_WIDTH * this.uiScale * ratio);
-    this.selfBar.fillColor = barColor(ratio);
+  /**
+   * 탄약 표시. 근접·맨손이면(탄창 0) 아예 감춘다 — 늘 "—"가 떠 있으면 화면만 시끄럽다.
+   * 재장전 중에는 남은 시간을 보여준다: 언제 다시 쏠 수 있는지가 그 순간 가장 궁금하다.
+   */
+  private updateAmmo(me: PlayerView | undefined): void {
+    if (!me || me.ammoMagazine <= 0) {
+      this.ammoText.setVisible(false);
+      return;
+    }
+
+    this.ammoText.setVisible(true);
+    if (me.reloadRemaining > 0) {
+      this.ammoText.setText(`재장전 ${me.reloadRemaining.toFixed(1)}s`);
+      this.ammoText.setColor(DOWN_COLOR);
+      return;
+    }
+
+    const mode = me.burstMode ? ' 점사' : '';
+    this.ammoText.setText(`${me.ammo} / ${me.ammoMagazine}${mode}`);
+    this.ammoText.setColor(me.ammo === 0 ? DOWN_COLOR : DIM_TEXT);
   }
+
 
   /**
    * 보스 레이드 표시. 서버가 따로 알려주지 않아도 스냅샷의 몬스터 타입(boss_ 접두사)만

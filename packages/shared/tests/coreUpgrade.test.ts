@@ -16,7 +16,7 @@ function grantEnergy(world: World, amount: number): void {
  */
 function equipDefaultKit(world: World, playerId: string): void {
   const inventory = world.getPlayers().get(playerId)!.inventory;
-  inventory.add('pistol', 1);
+  inventory.add('handgun', 1);
   inventory.add('axe_t1', 1);
   inventory.add('pickax_t1', 1);
   inventory.add('bandage', 3);

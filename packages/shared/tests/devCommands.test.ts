@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { World } from '../src/sim/world';
-import { coreUpgradesData, itemsData, monstersData, wavesData } from '../src/data';
+import { coreUpgradesData, itemsData, jobsData, monstersData, wavesData } from '../src/data';
+import { SLOT_COUNT } from '../src/sim/inventory';
+import { STORAGE_SLOT_COUNT } from '../src/sim/storage';
 
 function worldWithPlayer(): World {
   const world = new World();
@@ -40,8 +42,9 @@ describe('개발자 커맨드 — 지급', () => {
   it('한글 이름으로도 찾는다(id를 외우지 않아도 된다)', () => {
     const world = worldWithPlayer();
 
-    expect(world.runDevCommand('p1', 'give 소총').ok).toBe(true);
-    expect(carried(world, 'rifle')).toBe(1);
+    // 이름에 공백이 있으면 토큰이 쪼개져 못 찾는다 — 한 낱말짜리 이름으로 확인한다.
+    expect(world.runDevCommand('p1', 'give 리볼버').ok).toBe(true);
+    expect(carried(world, 'revolver')).toBe(1);
   });
 
   it('give all은 모든 아이템을 주고, 4칸을 넘긴 몫은 창고로 간다', () => {
@@ -51,12 +54,14 @@ describe('개발자 커맨드 — 지급', () => {
     const result = world.runDevCommand('p1', 'give all 1');
 
     expect(result.ok).toBe(true);
-    // 인벤토리는 4칸뿐이라 나머지는 전부 창고에 있어야 한다 — 조용히 사라지면 안 된다.
+    // 아이템 종류가 인벤토리 4칸 + 창고 20칸을 넘어선다 — 들어갈 수 있는 만큼은 전부
+    // 채우고, 넘친 몫은 조용히 버리지 않고 메시지로 알려준다.
     const storage = world.getCore().storage;
-    const total = Object.keys(itemsData).filter(
+    const placed = Object.keys(itemsData).filter(
       (itemId) => carried(world, itemId) + storage.countOf(itemId) > 0,
     );
-    expect(total).toHaveLength(Object.keys(itemsData).length);
+    expect(placed).toHaveLength(SLOT_COUNT + STORAGE_SLOT_COUNT);
+    expect(result.message).toContain('자리가 없어');
   });
 
   it('없는 아이템은 실패하고 아무것도 안 준다', () => {
@@ -181,7 +186,7 @@ describe('개발자 커맨드 — 자원·진행', () => {
     world.runDevCommand('p1', 'heal');
     world.runDevCommand('p1', 'corehp 500');
 
-    expect(player.hp).toBe(wavesData.playerHp);
+    expect(player.hp).toBe(jobsData.base.maxHp);
     expect(world.getCore().hp).toBe(500);
   });
 

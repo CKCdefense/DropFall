@@ -8,6 +8,7 @@ import {
   itemOfSlot,
   monstersData,
   resourcesData,
+  weaponsData,
   worldToCell,
   type ResourceType,
 } from '@dropfall/shared';
@@ -34,7 +35,7 @@ import {
   walkAnimKey,
 } from './playerSprite';
 import { ACTION_PLANE_Y } from './plane';
-import { itemFrame } from './itemSprite';
+import { hasItemFrame, itemFrame } from './itemSprite';
 import {
   BULLET_ANIM,
   DEFAULT_WEAPON_ID,
@@ -44,6 +45,7 @@ import {
   SWING_STRIKE_DELAY_MS,
   bulletFrame,
   hasBulletFx,
+  heldItemVisual,
   hasHandSprite,
   hasMuzzleFx,
   hasSwingFx,
@@ -57,6 +59,7 @@ import {
   weaponVisual,
   type SwingState,
   type WeaponParts,
+  type WeaponVisual,
 } from './weaponFx';
 import {
   MONSTER_ATLAS,
@@ -135,16 +138,28 @@ const COMPANION_PLACEHOLDER_COLOR = 0xf2c14e;
  * 서버·설치 UI에 방향 개념을 추가하지 않기 위해서다.
  * 프레임이 아틀라스에 없으면 아래 플레이스홀더 표로 떨어진다.
  */
+/** 무기가 아닌 아이템을 손에 든 상태를 가리키는 키 접두사(§visualOf). */
+const HELD_ITEM_PREFIX = 'item:';
+
 const BUILDING_SPRITE: Record<string, { h: string; v: string }> = {
   // wood.aseprite: 울타리는 가운데가 뚫려 있고(총알 통과 규칙과 일치) 벽은 꽉 차 있다.
   fence: { h: 'wood_fence_front_0', v: 'wood_fence_side_0' },
   wall: { h: 'wood_wall_front_0', v: 'wood_wall_side_0' },
+  // build_tier.aseprite: 같은 실루엣에 재질만 다르다(돌 → 철).
+  stone_fence: { h: 'build_tier_stone_fence_front_0', v: 'build_tier_stone_fence_side_0' },
+  stone_wall: { h: 'build_tier_stone_wall_front_0', v: 'build_tier_stone_wall_side_0' },
+  iron_fence: { h: 'build_tier_iron_fence_front_0', v: 'build_tier_iron_fence_side_0' },
+  iron_wall: { h: 'build_tier_iron_wall_front_0', v: 'build_tier_iron_wall_side_0' },
 };
 
 /** 건축물 타입별 플레이스홀더 표현. 울타리는 낮고 얇게, 벽은 크고 두껍게 그려서 구분한다. */
 const BUILDING_STYLE: Record<string, { color: number; size: number }> = {
   fence: { color: 0xb08a5c, size: 12 },
   wall: { color: 0x6b6f78, size: 16 },
+  stone_fence: { color: 0x8a8c8c, size: 12 },
+  stone_wall: { color: 0x696a6a, size: 16 },
+  iron_fence: { color: 0xa6b0be, size: 12 },
+  iron_wall: { color: 0x747e8c, size: 16 },
 };
 const BUILDING_FALLBACK = { color: 0x6b6f78, size: 14 };
 
@@ -289,8 +304,20 @@ const CORE_BLIND_ZONE_SOUTH = -20;
 const CORE_FADE_ALPHA = 0.4;
 const CORE_FADE_TWEEN_MS = 150;
 
-/** 코어가 맞은 순간의 알림 연출 — 몸체 흰색 플래시 + 잠깐 남는 붉은 테두리 펄스. */
-const CORE_HIT_OUTLINE_MS = 550;
+/**
+ * 코어가 맞은 순간의 알림 — 몸체 흰색 플래시 + **실루엣 테두리가 붉게 두 번 깜빡인다.**
+ *
+ * 예전엔 코어를 감싸는 얇은 원이 커지며 사라졌는데, 코어 그림이 원형이 아니라
+ * 테두리가 어디에도 닿지 않고 공중에 떠 보였다. 캐릭터 피격(§spawnHurtOutline)과 같은
+ * 문법 — 실루엣을 밀어 깔아 외곽선을 만드는 방식 — 으로 통일하면 "무엇이 맞았는지"가
+ * 형태로 읽힌다. 색은 캐릭터보다 어둡게 눌러 코어의 청록색과 부딪히지 않게 했고,
+ * 두께는 코어 그림이 커서 2px이다(캐릭터는 1px).
+ */
+const CORE_HIT_OUTLINE_MS = 480;
+const CORE_HIT_OUTLINE_COLOR = 0xa8322a;
+const CORE_HIT_OUTLINE_THICKNESS = 2;
+/** 깜빡임 횟수(켜짐→꺼짐을 이만큼 반복). */
+const CORE_HIT_BLINKS = 2;
 const CORE_PLACEHOLDER_STROKE = 0x7f8fa6;
 
 const COLONY_SIZE = 28;
@@ -313,6 +340,17 @@ const PROJECTILE_DEPTH = 9000;
 
 const HP_BAR_WIDTH = 16;
 const HP_BAR_HEIGHT = 2;
+
+/**
+ * 재장전 게이지. 닉네임 **바로 위**에 둔다 — 처음엔 이름표 아래(머리 위)에 뒀더니
+ * 머리카락에 겹쳐서 지저분했다. 탄약 숫자는 화면 아래 HUD에도 있지만, "지금 못 쏜다"는
+ * 사실은 캐릭터에서 눈을 떼지 않고 읽혀야 한다.
+ */
+const RELOAD_BAR_WIDTH = 18;
+const RELOAD_BAR_HEIGHT = 3;
+const RELOAD_BAR_OFFSET_Y = -(LABEL_FONT_SIZE + 4);
+const RELOAD_BAR_BACK = 0x2b303c;
+const RELOAD_BAR_FILL = 0xe0c060;
 
 /**
  * 플레이어-건축물 충돌 디버그 테두리. 하나의 합산 반경을 플레이어 위에만 크게
@@ -447,19 +485,51 @@ export class EntityRenderer {
    * 스냅샷의 장착 무기를 반영한다. 바뀐 경우에만 프레임을 갈아끼우고 진행 중인
    * 휘두르기를 끊는다 — 매 프레임 setFrame을 부르면 애니메이션이 초기화된다.
    */
-  private syncWeapon(sessionId: string, weaponId: string): void {
-    if (this.equipped.get(sessionId) === weaponId) return;
-    this.equipped.set(sessionId, weaponId);
+  private syncWeapon(sessionId: string, heldKey: string): void {
+    if (this.equipped.get(sessionId) === heldKey) return;
+    this.equipped.set(sessionId, heldKey);
     this.swings.delete(sessionId);
 
     const weapon = this.players.get(sessionId)?.getByName('aim');
     if (weapon instanceof Phaser.GameObjects.Sprite && this.hasWeapon) {
-      weapon.setFrame(weaponVisual(weaponId).frame);
+      weapon.setFrame(this.visualOf(heldKey).frame);
     }
   }
 
   weaponOf(sessionId: string): string {
     return this.equipped.get(sessionId) ?? DEFAULT_WEAPON_ID;
+  }
+
+  /**
+   * 손에 든 것을 가리키는 키 → 그리는 방법.
+   *
+   * 무기는 무기표(WEAPON_VISUALS)를, 그 밖의 아이템은 아이콘에서 즉석으로 만든 것을
+   * 쓴다(§heldItemVisual). 키에 접두사를 붙여 두 세계를 한 문자열로 다룬다 — 이 키가
+   * 곧 "지금 그림이 최신인가" 판정에 쓰이므로 하나여야 한다.
+   */
+  private visualOf(heldKey: string): WeaponVisual {
+    if (!heldKey.startsWith(HELD_ITEM_PREFIX)) return weaponVisual(heldKey);
+    const itemId = heldKey.slice(HELD_ITEM_PREFIX.length);
+    const frame = itemFrame(itemId);
+    if (!frame || !hasItemFrame(this.scene, frame)) return weaponVisual(DEFAULT_WEAPON_ID);
+    return heldItemVisual(this.scene, itemId, frame);
+  }
+
+  /**
+   * 이 플레이어가 손에 든 것의 키. 무기면 무기 id, 무기가 아닌데 그림이 있으면
+   * `item:<id>`, 아무것도 아니면 맨손이다.
+   */
+  private heldKeyOf(player: PlayerView): string {
+    const item = itemOfSlot(player.slots[player.selectedSlot]);
+    if (!item) return DEFAULT_WEAPON_ID;
+    if (item.kind === 'weapon' && item.weaponId) return item.weaponId;
+
+    const itemId = player.slots[player.selectedSlot]?.itemId;
+    if (!itemId) return DEFAULT_WEAPON_ID;
+    const frame = itemFrame(itemId);
+    return frame && hasItemFrame(this.scene, frame)
+      ? `${HELD_ITEM_PREFIX}${itemId}`
+      : DEFAULT_WEAPON_ID;
   }
 
   /**
@@ -480,9 +550,15 @@ export class EntityRenderer {
     companionSpeech?.setResolution(zoom);
   }
 
-  sync(snapshot: WorldSnapshot): void {
+  /**
+   * `localOverride`: 내 캐릭터(로컬 플레이어)의 위치를 스냅샷 값 대신 이걸로 그린다 —
+   * `PlayerPredictor`가 네트워크 도착 시각과 무관하게 계산한 예측 좌표다(docs/backend/55).
+   * 다른 필드(hp/조준각/장비)는 그대로 스냅샷을 쓴다. 원격 플레이어/몬스터 등 나머지는
+   * 영향받지 않는다 — 여전히 순수 보간이다.
+   */
+  sync(snapshot: WorldSnapshot, localOverride?: { id: string; x: number; y: number }): void {
     this.syncCore(snapshot.status.coreTier, snapshot.status.coreHp);
-    this.syncPlayers(snapshot.players);
+    this.syncPlayers(snapshot.players, localOverride);
     this.syncMonsters(snapshot.monsters);
     this.syncTelegraphs(snapshot.monsters);
     this.syncProjectiles(snapshot.projectiles);
@@ -536,7 +612,7 @@ export class EntityRenderer {
 
   // ---------------------------------------------------------------- 플레이어
 
-  private syncPlayers(views: PlayerView[]): void {
+  private syncPlayers(views: PlayerView[], localOverride?: { id: string; x: number; y: number }): void {
     const alive = new Set<string>();
 
     for (const player of views) {
@@ -554,31 +630,39 @@ export class EntityRenderer {
       if (lastHp !== undefined && player.hp < lastHp) this.playPlayerHurt(sprite);
       sprite.setData('hp', player.hp);
 
+      // 내 캐릭터면 예측 좌표를, 아니면(원격) 스냅샷(보간된) 좌표를 그대로 쓴다.
+      const useOverride = localOverride?.id === player.id;
+      const renderX = useOverride ? localOverride.x : player.x;
+      const renderY = useOverride ? localOverride.y : player.y;
+
       // 정수 스냅 — roundPixels와 함께 서브픽셀 흔들림을 막는다.
-      sprite.setPosition(Math.round(player.x), Math.round(player.y));
+      sprite.setPosition(Math.round(renderX), Math.round(renderY));
       // 탑다운 깊이 정렬: 아래에 있을수록 앞에 그린다.
-      sprite.setDepth(player.y);
+      sprite.setDepth(renderY);
       // 다운된 플레이어는 흐리게 — 부활 대상임을 한눈에 보이게 한다.
       sprite.setAlpha(player.hp > 0 ? 1 : 0.35);
 
       // 무기는 서버가 정한다. 무기가 아닌 걸 들었으면 맨손이다 — 소모품을 든 동안에도
       // 좌클릭으로 때릴 수 있으므로(서버의 BARE_HANDS_WEAPON_ID) 그림도 맨손이어야 한다.
+      // 그림은 "손에 든 것"을 그대로 따라간다 — 무기가 아니어도 들고 있으면 보여야 한다.
+      // 전투 판정은 여전히 무기 여부로 갈린다(서버의 BARE_HANDS_WEAPON_ID).
+      this.syncWeapon(player.id, this.heldKeyOf(player));
       const equippedWeaponId =
         itemOfSlot(player.slots[player.selectedSlot])?.weaponId ?? BARE_HANDS_WEAPON_ID;
-      this.syncWeapon(player.id, equippedWeaponId);
+      this.updateReloadBar(sprite, player, equippedWeaponId);
 
       const aim = sprite.getByName('aim');
       if (aim instanceof Phaser.GameObjects.Sprite) {
         // 무기 일습(무기·양손·이펙트)을 궤도 위에 배치한다
         const parts = this.readWeaponParts(sprite, aim);
-        const visual = weaponVisual(this.weaponOf(player.id));
+        const visual = this.visualOf(this.weaponOf(player.id));
         layoutWeapon(parts, visual, player.aimAngle, this.swings.get(player.id) ?? null);
         orderWeaponAgainstBody(sprite, parts, player.aimAngle);
       } else if (aim instanceof Phaser.GameObjects.Rectangle) {
         aim.setPosition(Math.cos(player.aimAngle) * 12, Math.sin(player.aimAngle) * 12);
       }
 
-      if (this.hasSprite) this.updatePlayerSprite(sprite, player);
+      if (this.hasSprite) this.updatePlayerSprite(sprite, player, renderX, renderY);
     }
 
     for (const map of [this.lastPositions, this.swings, this.equipped]) {
@@ -750,8 +834,29 @@ export class EntityRenderer {
     collisionDebug.setName('collisionDebug');
     collisionDebug.setVisible(this.collisionDebugVisible);
 
+    // 재장전 게이지(평소엔 숨김). 이름표 바로 아래에서 왼쪽부터 차오른다.
+    const reloadBarY = labelY + RELOAD_BAR_OFFSET_Y;
+    const reloadBack = this.scene.add
+      .rectangle(-RELOAD_BAR_WIDTH / 2, reloadBarY, RELOAD_BAR_WIDTH, RELOAD_BAR_HEIGHT, RELOAD_BAR_BACK)
+      .setOrigin(0, 0.5)
+      .setName('reloadBack')
+      .setVisible(false);
+    const reloadBar = this.scene.add
+      .rectangle(-RELOAD_BAR_WIDTH / 2, reloadBarY, RELOAD_BAR_WIDTH, RELOAD_BAR_HEIGHT, RELOAD_BAR_FILL)
+      .setOrigin(0, 0.5)
+      .setName('reloadBar')
+      .setVisible(false);
+
     // 순서는 매 프레임 orderWeaponAgainstBody가 다시 잡는다 — 여기선 전부 넣기만 한다.
-    const parts: Phaser.GameObjects.GameObject[] = [aim, ...hands, body, label, speech];
+    const parts: Phaser.GameObjects.GameObject[] = [
+      aim,
+      ...hands,
+      body,
+      label,
+      speech,
+      reloadBack,
+      reloadBar,
+    ];
     if (flash) parts.push(flash);
     if (swingFx) parts.push(swingFx);
     parts.push(collisionDebug);
@@ -812,7 +917,18 @@ export class EntityRenderer {
    * 방향은 조준각으로 정하고, 걷기 애니메이션은 실제로 움직일 때만 재생한다.
    * 스냅샷에 속도가 없어서 직전 프레임 좌표와의 차이로 이동 여부를 판단한다.
    */
-  private updatePlayerSprite(container: Phaser.GameObjects.Container, player: PlayerView): void {
+  /**
+   * `x`/`y`는 스냅샷의 `player.x`/`player.y`가 아니라 **실제로 화면에 그려지는**
+   * 좌표를 받는다(`syncPlayers`가 계산한 renderX/renderY — 내 캐릭터면 예측 좌표).
+   * 걷기/정지 애니메이션 판정을 렌더 좌표로 해야, 예측으로는 부드럽게 움직이는데
+   * 애니메이션만 옛 보간 신호를 보고 멈춰 있는 것처럼 보이는 불일치가 안 생긴다.
+   */
+  private updatePlayerSprite(
+    container: Phaser.GameObjects.Container,
+    player: PlayerView,
+    x: number,
+    y: number,
+  ): void {
     const body = container.getByName('body');
     if (!(body instanceof Phaser.GameObjects.Sprite)) return;
 
@@ -821,10 +937,8 @@ export class EntityRenderer {
     body.setFlipX(flipX);
 
     const previous = this.lastPositions.get(player.id);
-    const moved = previous
-      ? Math.hypot(player.x - previous.x, player.y - previous.y) > MOVE_EPSILON
-      : false;
-    this.lastPositions.set(player.id, { x: player.x, y: player.y });
+    const moved = previous ? Math.hypot(x - previous.x, y - previous.y) > MOVE_EPSILON : false;
+    this.lastPositions.set(player.id, { x, y });
 
     if (moved && player.hp > 0) {
       const key = walkAnimKey(job, direction);
@@ -896,6 +1010,30 @@ export class EntityRenderer {
    * 중요한 순간) 마지막 이동 방향에 얼어붙어, 플레이어가 돌아 들어가면 등을 보고
    * 때리게 된다.
    */
+  /**
+   * 재장전 게이지. 서버가 내려주는 남은 시간을 무기의 총 재장전 시간으로 나눠 채운다 —
+   * 남은 시간만으로는 "얼마나 남았나"를 알 수 없고, 총 시간은 데이터에 이미 있어서
+   * 동기화 필드를 늘릴 이유가 없다.
+   */
+  private updateReloadBar(
+    container: Phaser.GameObjects.Container,
+    player: PlayerView,
+    weaponId: string,
+  ): void {
+    const back = container.getByName('reloadBack') as Phaser.GameObjects.Rectangle | null;
+    const bar = container.getByName('reloadBar') as Phaser.GameObjects.Rectangle | null;
+    if (!back || !bar) return;
+
+    const total = weaponsData[weaponId]?.reloadTime ?? 0;
+    const reloading = player.reloadRemaining > 0 && total > 0;
+    back.setVisible(reloading);
+    bar.setVisible(reloading);
+    if (!reloading) return;
+
+    const progress = Math.min(1, Math.max(0, 1 - player.reloadRemaining / total));
+    bar.width = RELOAD_BAR_WIDTH * progress;
+  }
+
   private updateMonsterAnim(
     container: Phaser.GameObjects.Container,
     monster: MonsterView,
@@ -922,10 +1060,15 @@ export class EntityRenderer {
     // 어느 동작을 재생할지는 서버가 정한다 — 보스는 검술 세 종류의 사거리·각도가
     // 전부 달라서, 그림과 판정이 같은 기술을 가리켜야 한다.
     const attackKey = monsterAnimKey(monster.type, monsterAttackAnim(monster.attackAnim));
-    const wasAttacking = (container.getData('attacking') as boolean | undefined) ?? false;
-    container.setData('attacking', monster.attacking);
+    // 공격 번호가 **바뀐 순간**에 한 번 재생한다. 예전엔 attacking 불리언의 false→true
+    // 전이를 봤는데, 모션 길이가 공격 주기와 비슷한 몬스터(헬하운드: 0.76초 모션 /
+    // 0.8초 주기)는 꺼져 있는 구간이 40ms뿐이라 20Hz 동기화가 그 창을 건너뛰기 일쑤였다.
+    // 그러면 플래그가 계속 켜져 있는 것처럼 보여 첫 공격 뒤로 모션이 아예 안 나왔다.
+    const lastSeq = container.getData('attackSeq') as number | undefined;
+    container.setData('attackSeq', monster.attackSeq);
+    const started = lastSeq !== undefined && lastSeq !== monster.attackSeq;
 
-    if (monster.attacking && !wasAttacking && this.scene.anims.exists(attackKey)) {
+    if (started && monster.attacking && this.scene.anims.exists(attackKey)) {
       body.play(attackKey, true);
       return;
     }
@@ -1268,22 +1411,44 @@ export class EntityRenderer {
       });
     }
 
-    let ring = this.core.getByName('hitRing') as Phaser.GameObjects.Arc | null;
-    if (!ring) {
-      ring = this.scene.add
-        .circle(0, 0, (CORE_SPRITE_SIZE * CORE_SCALE) / 2, 0xff3b3b, 0)
-        .setStrokeStyle(3, 0xff3b3b, 1)
-        .setName('hitRing');
-      this.core.add(ring);
-    }
-    this.scene.tweens.killTweensOf(ring);
-    ring.setAlpha(1).setScale(0.9);
+    if (body instanceof Phaser.GameObjects.Sprite) this.spawnCoreHitOutline(body);
+  }
+
+  /**
+   * 코어 실루엣을 따라 붉은 테두리를 깔고 깜빡이게 한다.
+   *
+   * 캐릭터 피격 아웃라인과 같은 기법이다 — 같은 프레임을 상하좌우로 밀어 **본체 뒤에**
+   * 깔면 가장자리만 삐져나와 외곽선이 된다. 코어는 제자리에 서 있고 프레임도 안 바뀌므로
+   * 캐릭터처럼 매 프레임 따라다닐 필요가 없다(그래서 추적 타이머가 없다).
+   */
+  private spawnCoreHitOutline(body: Phaser.GameObjects.Sprite): void {
+    if (!this.core) return;
+
+    const t = CORE_HIT_OUTLINE_THICKNESS;
+    const offsets: readonly (readonly [number, number])[] = [
+      [t, 0],
+      [-t, 0],
+      [0, t],
+      [0, -t],
+    ];
+    const clones = offsets.map(([dx, dy]) =>
+      this.scene.add
+        .sprite(body.x + dx, body.y + dy, GAME_ATLAS, body.frame.name)
+        .setOrigin(body.originX, body.originY)
+        .setScale(body.scaleX, body.scaleY)
+        .setTintFill(CORE_HIT_OUTLINE_COLOR),
+    );
+    for (const clone of clones) this.core.addAt(clone, 0); // 본체보다 뒤에
+
     this.scene.tweens.add({
-      targets: ring,
-      alpha: 0,
-      scale: 1.25,
-      duration: CORE_HIT_OUTLINE_MS,
-      ease: 'Cubic.easeOut',
+      targets: clones,
+      alpha: { from: 1, to: 0.15 },
+      duration: CORE_HIT_OUTLINE_MS / (CORE_HIT_BLINKS * 2),
+      yoyo: true,
+      repeat: CORE_HIT_BLINKS - 1,
+      onComplete: () => {
+        for (const clone of clones) clone.destroy();
+      },
     });
   }
 

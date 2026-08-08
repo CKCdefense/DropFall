@@ -4,6 +4,7 @@ export * from './protocol/room';
 export * from './protocol/lobby';
 export * from './sim/world';
 export * from './sim/movement';
+export * from './sim/playerCollision';
 export * from './sim/inventory';
 export * from './sim/storage';
 export * from './sim/fixedStep';

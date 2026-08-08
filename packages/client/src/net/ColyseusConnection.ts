@@ -19,7 +19,7 @@ import {
   normalizeRoomCode,
 } from '@dropfall/shared';
 import { SERVER_HTTP_URL } from './config';
-import type { GameConnection, LobbyView, RoomInfo, WorldSnapshot } from './GameConnection';
+import type { GameConnection, LobbyView, PlayerView, RoomInfo, WorldSnapshot } from './GameConnection';
 import { SnapshotInterpolator } from './SnapshotInterpolator';
 
 /** 서버 상태가 오기 전에 쓸 빈 안개 — 전부 미탐색. */
@@ -35,6 +35,14 @@ interface RemotePlayerState {
   aimAngle: number;
   lastProcessedSeq: number;
   hp: number;
+  maxHp: number;
+  stamina: number;
+  maxStamina: number;
+  attack: number;
+  ammo: number;
+  ammoMagazine: number;
+  reloadRemaining: number;
+  burstMode: boolean;
   wood: number;
   stone: number;
   parts: number;
@@ -50,6 +58,7 @@ interface RemoteMonsterState {
   maxHp: number;
   attacking: boolean;
   attackAnim: number;
+  attackSeq: number;
   facingLeft: boolean;
   telegraphKind: string;
   telegraphX: number;
@@ -256,6 +265,14 @@ export class ColyseusConnection implements GameConnection {
     this.room.send('selectSlot', { index });
   }
 
+  reload(): void {
+    this.room.send('reload', {});
+  }
+
+  toggleFireMode(): void {
+    this.room.send('toggleFireMode', {});
+  }
+
   useSlot(): void {
     this.room.send('useSlot', {});
   }
@@ -270,6 +287,14 @@ export class ColyseusConnection implements GameConnection {
 
   moveItem(from: SlotContainer, fromIndex: number, to: SlotContainer, toIndex: number): void {
     this.room.send('moveItem', { from, fromIndex, to, toIndex });
+  }
+
+  placeHeldBuilding(cx: number, cy: number): void {
+    this.room.send('placeHeldBuilding', { cx, cy });
+  }
+
+  discardStorageItem(index: number): void {
+    this.room.send('discardStorageItem', { index });
   }
 
   quickMoveItem(container: SlotContainer, index: number): void {
@@ -341,6 +366,10 @@ export class ColyseusConnection implements GameConnection {
     return this.interpolator.sample();
   }
 
+  getRawSelf(): PlayerView | undefined {
+    return this.interpolator.getRawPlayer(this.sessionId);
+  }
+
   /** 보간 버퍼에 쌓기 위해 서버 Schema를 평범한 배열로 변환한다. */
   private readRawSnapshot(state: RemoteGameState): WorldSnapshot {
     const players: WorldSnapshot['players'] = [];
@@ -354,6 +383,14 @@ export class ColyseusConnection implements GameConnection {
         aimAngle: player.aimAngle,
         lastProcessedSeq: player.lastProcessedSeq,
         hp: player.hp,
+        maxHp: player.maxHp,
+        stamina: player.stamina,
+        maxStamina: player.maxStamina,
+        attack: player.attack,
+        ammo: player.ammo,
+        ammoMagazine: player.ammoMagazine,
+        reloadRemaining: player.reloadRemaining,
+        burstMode: player.burstMode,
         wood: player.wood,
         stone: player.stone,
         parts: player.parts,
@@ -376,6 +413,7 @@ export class ColyseusConnection implements GameConnection {
         maxHp: monster.maxHp,
         attacking: monster.attacking,
         attackAnim: monster.attackAnim,
+        attackSeq: monster.attackSeq,
         facingLeft: monster.facingLeft,
         telegraphKind: (monster.telegraphKind || '') as '' | 'charge' | 'slam',
         telegraphX: monster.telegraphX,

@@ -1,20 +1,5 @@
 {
-  "pistol": {
-    "name": "권총",
-    "kind": "weapon",
-    "weaponId": "pistol",
-    "stackSize": 1,
-    "buyPrice": 40,
-    "rarity": "common"
-  },
-  "bandage": {
-    "name": "붕대",
-    "kind": "consumable",
-    "healAmount": 30,
-    "stackSize": 5,
-    "rarity": "common",
-    "buyPrice": 20
-  },
+  "$comment": "아이템 카탈로그. 무기는 itemId == weaponId 규약(클라 아이콘이 WEAPON_VISUALS를 그대로 쓴다). rarity+buyPrice가 둘 다 있어야 상점 로테이션 후보가 된다.",
   "wood": {
     "name": "나무",
     "kind": "material",
@@ -39,8 +24,291 @@
     "stackSize": 200,
     "sellPrice": 25
   },
+  "bat": {
+    "name": "뭉둥이",
+    "kind": "weapon",
+    "weaponId": "bat",
+    "stackSize": 1,
+    "rarity": "common",
+    "buyPrice": 30
+  },
+  "stone_spear": {
+    "name": "돌창",
+    "kind": "weapon",
+    "weaponId": "stone_spear",
+    "stackSize": 1,
+    "rarity": "common",
+    "buyPrice": 40
+  },
+  "fire_axe": {
+    "name": "소방 도끼",
+    "kind": "weapon",
+    "weaponId": "fire_axe",
+    "stackSize": 1,
+    "rarity": "rare",
+    "buyPrice": 110
+  },
+  "knife": {
+    "name": "군용 나이프",
+    "kind": "weapon",
+    "weaponId": "knife",
+    "stackSize": 1,
+    "rarity": "rare",
+    "buyPrice": 130
+  },
+  "machete": {
+    "name": "마체테",
+    "kind": "weapon",
+    "weaponId": "machete",
+    "stackSize": 1,
+    "rarity": "epic",
+    "buyPrice": 240
+  },
+  "tomahauk": {
+    "name": "토마호크",
+    "kind": "weapon",
+    "weaponId": "tomahauk",
+    "stackSize": 1,
+    "rarity": "epic",
+    "buyPrice": 280
+  },
+  "beamsword": {
+    "name": "빔소드",
+    "kind": "weapon",
+    "weaponId": "beamsword",
+    "stackSize": 1,
+    "rarity": "legendary",
+    "buyPrice": 450
+  },
+  "slingshot": {
+    "name": "새총",
+    "kind": "weapon",
+    "weaponId": "slingshot",
+    "stackSize": 1,
+    "rarity": "common",
+    "buyPrice": 35
+  },
+  "shuriken": {
+    "name": "표창",
+    "kind": "weapon",
+    "weaponId": "shuriken",
+    "stackSize": 1,
+    "rarity": "common",
+    "buyPrice": 45
+  },
+  "crossbow": {
+    "name": "석궁",
+    "kind": "weapon",
+    "weaponId": "crossbow",
+    "stackSize": 1,
+    "rarity": "common",
+    "buyPrice": 60
+  },
+  "rifle": {
+    "name": "장전식 소총",
+    "kind": "weapon",
+    "weaponId": "rifle",
+    "stackSize": 1,
+    "rarity": "rare",
+    "buyPrice": 150
+  },
+  "revolver": {
+    "name": "리볼버",
+    "kind": "weapon",
+    "weaponId": "revolver",
+    "stackSize": 1,
+    "rarity": "rare",
+    "buyPrice": 120
+  },
+  "handgun": {
+    "name": "권총",
+    "kind": "weapon",
+    "weaponId": "handgun",
+    "stackSize": 1,
+    "rarity": "rare",
+    "buyPrice": 100
+  },
+  "smg": {
+    "name": "기관단총",
+    "kind": "weapon",
+    "weaponId": "smg",
+    "stackSize": 1,
+    "rarity": "epic",
+    "buyPrice": 230
+  },
+  "double_barrel_shotgun": {
+    "name": "더블배럴 샷건",
+    "kind": "weapon",
+    "weaponId": "double_barrel_shotgun",
+    "stackSize": 1,
+    "rarity": "epic",
+    "buyPrice": 260
+  },
+  "assault_rifle": {
+    "name": "돌격 소총",
+    "kind": "weapon",
+    "weaponId": "assault_rifle",
+    "stackSize": 1,
+    "rarity": "epic",
+    "buyPrice": 300
+  },
+  "pump_shotgun": {
+    "name": "펌프 샷건",
+    "kind": "weapon",
+    "weaponId": "pump_shotgun",
+    "stackSize": 1,
+    "rarity": "legendary",
+    "buyPrice": 480
+  },
+  "sniper_rifle": {
+    "name": "저격 라이플",
+    "kind": "weapon",
+    "weaponId": "sniper_rifle",
+    "stackSize": 1,
+    "rarity": "legendary",
+    "buyPrice": 520
+  },
+  "minigun": {
+    "name": "미니건",
+    "kind": "weapon",
+    "weaponId": "minigun",
+    "stackSize": 1,
+    "rarity": "legendary",
+    "buyPrice": 550
+  },
+  "bandage": {
+    "name": "붕대",
+    "kind": "consumable",
+    "healPercent": 0.3,
+    "stackSize": 5,
+    "rarity": "common",
+    "buyPrice": 20
+  },
+  "painkiller": {
+    "name": "진통제",
+    "kind": "consumable",
+    "hpFloorSeconds": 3,
+    "stackSize": 3,
+    "rarity": "rare",
+    "buyPrice": 40
+  },
+  "pills": {
+    "name": "알약",
+    "kind": "consumable",
+    "healPercent": 0.5,
+    "stackSize": 3,
+    "rarity": "rare",
+    "buyPrice": 45
+  },
+  "aid_kit": {
+    "name": "AID",
+    "kind": "consumable",
+    "healPercent": 1,
+    "stackSize": 2,
+    "rarity": "epic",
+    "buyPrice": 120
+  },
+  "adrenaline": {
+    "name": "아드레날린",
+    "kind": "consumable",
+    "speedMultiplier": 1.5,
+    "speedSeconds": 10,
+    "stackSize": 3,
+    "rarity": "rare",
+    "buyPrice": 50
+  },
+  "chocolate": {
+    "name": "초콜릿",
+    "kind": "consumable",
+    "statBonus": {
+      "stat": "stamina",
+      "amount": 0.04
+    },
+    "stackSize": 3,
+    "rarity": "common",
+    "buyPrice": 40
+  },
+  "donut": {
+    "name": "도넛",
+    "kind": "consumable",
+    "statBonus": {
+      "stat": "maxHp",
+      "amount": 10
+    },
+    "stackSize": 3,
+    "rarity": "common",
+    "buyPrice": 40
+  },
+  "nuggets": {
+    "name": "너겟",
+    "kind": "consumable",
+    "statBonus": {
+      "stat": "attack",
+      "amount": 3
+    },
+    "stackSize": 3,
+    "rarity": "common",
+    "buyPrice": 45
+  },
+  "carrot_cake": {
+    "name": "당근 케이크",
+    "kind": "consumable",
+    "statBonus": {
+      "stat": "maxHp",
+      "amount": 25
+    },
+    "stackSize": 2,
+    "rarity": "epic",
+    "buyPrice": 110
+  },
+  "apple_juice": {
+    "name": "사과주스",
+    "kind": "consumable",
+    "statBonus": {
+      "stat": "stamina",
+      "amount": 0.08
+    },
+    "stackSize": 2,
+    "rarity": "epic",
+    "buyPrice": 100
+  },
+  "lasagna": {
+    "name": "라자냐",
+    "kind": "consumable",
+    "statBonus": {
+      "stat": "attack",
+      "amount": 7
+    },
+    "stackSize": 2,
+    "rarity": "epic",
+    "buyPrice": 120
+  },
+  "repair_kit": {
+    "name": "수리키트",
+    "kind": "consumable",
+    "coreHealAmount": 200,
+    "stackSize": 5,
+    "rarity": "rare",
+    "buyPrice": 90
+  },
+  "core_cell": {
+    "name": "코어셀",
+    "kind": "consumable",
+    "coreHealAmount": 500,
+    "stackSize": 3,
+    "rarity": "epic",
+    "buyPrice": 220
+  },
+  "energy_cell": {
+    "name": "에너지셀",
+    "kind": "consumable",
+    "energyAmount": 3,
+    "stackSize": 3,
+    "rarity": "legendary",
+    "buyPrice": 400
+  },
   "axe_t1": {
-    "name": "도끼 T1",
+    "name": "돌도끼",
     "kind": "weapon",
     "weaponId": "axe_t1",
     "stackSize": 1
@@ -58,7 +326,7 @@
     "stackSize": 1
   },
   "pickax_t1": {
-    "name": "곡괭이 T1",
+    "name": "돌 곡괭이",
     "kind": "weapon",
     "weaponId": "pickax_t1",
     "stackSize": 1
@@ -87,84 +355,40 @@
     "weaponId": "hammer_t2",
     "stackSize": 1
   },
-  "magnum": {
-    "name": "매그넘",
-    "kind": "weapon",
-    "weaponId": "magnum",
-    "stackSize": 1,
-    "buyPrice": 120,
-    "rarity": "rare"
+  "fence": {
+    "name": "나무 울타리",
+    "kind": "building",
+    "buildingType": "fence",
+    "stackSize": 20
   },
-  "rifle": {
-    "name": "소총",
-    "kind": "weapon",
-    "weaponId": "rifle",
-    "stackSize": 1,
-    "buyPrice": 200,
-    "rarity": "rare"
+  "wall": {
+    "name": "나무 벽",
+    "kind": "building",
+    "buildingType": "wall",
+    "stackSize": 20
   },
-  "shotgun": {
-    "name": "산탄총",
-    "kind": "weapon",
-    "weaponId": "shotgun",
-    "stackSize": 1,
-    "buyPrice": 260,
-    "rarity": "epic"
+  "stone_fence": {
+    "name": "돌 울타리",
+    "kind": "building",
+    "buildingType": "stone_fence",
+    "stackSize": 20
   },
-  "minigun": {
-    "name": "미니건",
-    "kind": "weapon",
-    "weaponId": "minigun",
-    "stackSize": 1,
-    "buyPrice": 500,
-    "rarity": "legendary"
+  "stone_wall": {
+    "name": "돌 벽",
+    "kind": "building",
+    "buildingType": "stone_wall",
+    "stackSize": 20
   },
-  "beamsword": {
-    "name": "빔소드",
-    "kind": "weapon",
-    "weaponId": "beamsword",
-    "stackSize": 1,
-    "buyPrice": 400,
-    "rarity": "legendary"
+  "iron_fence": {
+    "name": "철 울타리",
+    "kind": "building",
+    "buildingType": "iron_fence",
+    "stackSize": 20
   },
-  "medkit": {
-    "name": "구급킷",
-    "kind": "consumable",
-    "healAmount": 80,
-    "stackSize": 5,
-    "rarity": "rare",
-    "buyPrice": 60
-  },
-  "stimpack": {
-    "name": "응급주사",
-    "kind": "consumable",
-    "healAmount": 200,
-    "stackSize": 3,
-    "rarity": "epic",
-    "buyPrice": 140
-  },
-  "repair_kit": {
-    "name": "수리키트",
-    "kind": "consumable",
-    "coreHealAmount": 200,
-    "stackSize": 5,
-    "rarity": "rare",
-    "buyPrice": 90
-  },
-  "core_cell": {
-    "name": "코어셀",
-    "kind": "consumable",
-    "coreHealAmount": 500,
-    "stackSize": 3,
-    "rarity": "epic",
-    "buyPrice": 220
-  },
-  "energy_cell": {
-    "name": "에너지셀",
-    "kind": "consumable",
-    "energyAmount": 3,
-    "stackSize": 3,
-    "rarity": "legendary",
-    "buyPrice": 400
+  "iron_wall": {
+    "name": "철 벽",
+    "kind": "building",
+    "buildingType": "iron_wall",
+    "stackSize": 20
   }
 }

@@ -3,6 +3,7 @@ import { World } from '../src/sim/world';
 import { coloniesData, coreUpgradesData, monstersData, resourcesData, wavesData } from '../src/data';
 import { HIT_RADIUS } from '../src/sim/combat';
 import { COLONY_RADIUS } from '../src/sim/colony';
+import { SLOT_COUNT } from '../src/sim/inventory';
 
 /** 1웨이브가 시작될 때까지(day → night) 틱을 진행시킨다. */
 function startFirstWave(world: World): void {
@@ -78,8 +79,15 @@ function createTestWorld(): World {
   // 콜로니 "개수"(플레이어 수 연동) 자체엔 관심이 없고 하드 충돌/FlowField 같은
   // 다른 메커니즘을 보므로, 예전과 같은 4개로 채워서 기존 테스트 전제를 유지한다.
   world.startColonies(4);
+  // 창고 3번 칸에 붕대 3개를 심어 둔다. 실제 시작 지급품(loadout.coreStorage)은
+  // 도구 3종(0=뭉둥이 1=곡괭이 2=도끼)뿐이고 붕대는 개인에게 가지만, 아래 창고
+  // 테스트들은 "스택되는 소모품"이 창고에 있어야 스택 합치기/부분 이동을 볼 수 있다.
+  world.getCore().storage.add('bandage', 3);
   return world;
 }
+
+/** 창고 초기 지급품(도구 3종 + 위에서 심은 붕대) 다음의 첫 빈 칸. */
+const FIRST_EMPTY_STORAGE = 4;
 
 /**
  * 건축 비용은 코어 창고에서 나간다(개인 인벤토리가 아니다) — 테스트에서 직접 채워
@@ -133,16 +141,27 @@ function isolateNode(world: World, type: 'wood' | 'stone', x: number, y: number)
 }
 
 /**
- * 예전 시작 지급품(권총/도끼/곡괭이/붕대)을 손에 쥐여준다. 이제 도구는 팀 창고에서
- * 시작하므로(loadout.coreStorage), 장착을 전제하는 테스트는 명시적으로 꺼내 쓴다.
- * 슬롯 순서는 예전과 같아서 기존 selectSlot 번호가 그대로 유효하다.
+ * 고정된 4칸 구성(권총/도끼/곡괭이/붕대)을 손에 쥐여준다. 실제 시작 지급품은 창고
+ * (loadout.coreStorage)와 붕대 1개뿐이라, 장착을 전제하는 테스트는 여기서 직접 채운다.
+ * 슬롯 번호가 고정되어야 selectSlot으로 특정 무기를 지목할 수 있다.
  */
 function equipDefaultKit(world: World, playerId: string): void {
   const inventory = world.getPlayers().get(playerId)!.inventory;
-  inventory.add('pistol', 1);
+  // 참가 지급품(붕대 1개)을 먼저 비운다 — 슬롯 번호를 고정해야 selectSlot 테스트가 성립한다.
+  for (let index = 0; index < SLOT_COUNT; index += 1) inventory.takeAt(index);
+  inventory.add('handgun', 1);
   inventory.add('axe_t1', 1);
   inventory.add('pickax_t1', 1);
   inventory.add('bandage', 3);
+}
+
+/**
+ * 참가 지급품(붕대 1개)을 비워 빈손으로 만든다. 인벤토리 칸 수·스택 개수를 세는
+ * 테스트는 시작 지급품이 섞이면 전제가 무너진다.
+ */
+function emptyHands(world: World, playerId: string): void {
+  const inventory = world.getPlayers().get(playerId)!.inventory;
+  for (let index = 0; index < SLOT_COUNT; index += 1) inventory.takeAt(index);
 }
 
 describe('World — 채집(근접 타격)', () => {
@@ -298,45 +317,42 @@ describe('World — 드롭 줍기', () => {
 });
 
 describe('World — 코어 창고(moveItem)', () => {
-  /** 창고 초기 지급품(권총/도끼/곡괭이/붕대) 때문에 첫 빈 칸은 4번부터다. */
-  const FIRST_EMPTY_STORAGE = 4;
-
-  it('게임 시작 시 창고에 기본 지급품이 들어 있다', () => {
+  it('게임 시작 시 창고에 기본 지급품(도구 3종)이 들어 있다', () => {
     const world = createTestWorld();
 
-    expect(storedCount(world, 'pistol')).toBe(1);
+    expect(storedCount(world, 'bat')).toBe(1);
     expect(storedCount(world, 'axe_t1')).toBe(1);
     expect(storedCount(world, 'pickax_t1')).toBe(1);
-    expect(storedCount(world, 'bandage')).toBe(3);
   });
 
-  it('참가한 플레이어의 인벤토리는 비어 있다(도구는 창고에서 꺼내 쓴다)', () => {
+  it('참가한 플레이어는 붕대 1개만 받는다(도구는 창고에서 꺼내 쓴다)', () => {
     const world = createTestWorld();
     world.addPlayer('p1');
 
     const view = world.getPlayers().get('p1')!.inventory.toView();
-    expect(view.slots.every((slot) => slot === null)).toBe(true);
+    expect(view.slots[0]).toEqual({ itemId: 'bandage', count: 1 });
+    expect(view.slots.slice(1).every((slot) => slot === null)).toBe(true);
   });
 
   it('코어 근처에서 창고 칸을 인벤토리 칸으로 끌면 옮겨진다', () => {
     const world = createTestWorld();
     world.addPlayer('p1', 10, 0); // CORE_INTERACT_RADIUS 안
 
-    world.moveItem('p1', 'storage', 0, 'inventory', 0); // 권총 꺼내기
+    world.moveItem('p1', 'storage', 0, 'inventory', 1); // 뭉둥이 꺼내기(0번은 붕대)
 
-    expect(storedCount(world, 'pistol')).toBe(0);
-    expect(world.getPlayers().get('p1')!.inventory.slotAt(0)?.itemId).toBe('pistol');
+    expect(storedCount(world, 'bat')).toBe(0);
+    expect(world.getPlayers().get('p1')!.inventory.slotAt(1)?.itemId).toBe('bat');
   });
 
   it('인벤토리 칸을 창고로 끌면 입고된다', () => {
     const world = createTestWorld();
     world.addPlayer('p1', 10, 0);
-    world.moveItem('p1', 'storage', 3, 'inventory', 0); // 붕대 3개 꺼내기
-    expect(carriedCount(world, 'p1', 'bandage')).toBe(3);
+    world.moveItem('p1', 'storage', 3, 'inventory', 1); // 붕대 3개 꺼내기
+    expect(carriedCount(world, 'p1', 'bandage')).toBe(4); // 참가 지급 1개 + 3개
 
-    world.moveItem('p1', 'inventory', 0, 'storage', FIRST_EMPTY_STORAGE);
+    world.moveItem('p1', 'inventory', 1, 'storage', FIRST_EMPTY_STORAGE);
 
-    expect(carriedCount(world, 'p1', 'bandage')).toBe(0);
+    expect(carriedCount(world, 'p1', 'bandage')).toBe(1); // 참가 지급분만 남는다
     expect(storedCount(world, 'bandage')).toBe(3);
   });
 
@@ -344,10 +360,10 @@ describe('World — 코어 창고(moveItem)', () => {
     const world = createTestWorld();
     world.addPlayer('p1', 1000, 0);
 
-    world.moveItem('p1', 'storage', 0, 'inventory', 0);
+    world.moveItem('p1', 'storage', 0, 'inventory', 1);
 
-    expect(storedCount(world, 'pistol')).toBe(1);
-    expect(world.getPlayers().get('p1')!.inventory.slotAt(0)).toBeNull();
+    expect(storedCount(world, 'bat')).toBe(1);
+    expect(world.getPlayers().get('p1')!.inventory.slotAt(1)).toBeNull();
   });
 
   it('인벤토리 내부 재배치는 코어에서 멀어도 된다(퀵슬롯 순서 바꾸기)', () => {
@@ -365,6 +381,7 @@ describe('World — 코어 창고(moveItem)', () => {
   it('같은 아이템 위에 놓으면 스택이 합쳐진다', () => {
     const world = createTestWorld();
     world.addPlayer('p1', 10, 0);
+    emptyHands(world, 'p1');
     const inventory = world.getPlayers().get('p1')!.inventory;
     inventory.add('bandage', 2);
 
@@ -380,9 +397,9 @@ describe('World — 코어 창고(moveItem)', () => {
     const inventory = world.getPlayers().get('p1')!.inventory;
     inventory.add('bandage', 2);
 
-    world.moveItem('p1', 'inventory', 0, 'storage', 0); // 창고 0번 = 권총
+    world.moveItem('p1', 'inventory', 0, 'storage', 0); // 창고 0번 = 뭉둥이
 
-    expect(inventory.slotAt(0)?.itemId).toBe('pistol');
+    expect(inventory.slotAt(0)?.itemId).toBe('bat');
     expect(world.getCore().storage.slotAt(0)?.itemId).toBe('bandage');
   });
 
@@ -396,7 +413,140 @@ describe('World — 코어 창고(moveItem)', () => {
     }
     expect(() => world.moveItem('p1', 'backpack', 0, 'inventory', 0)).not.toThrow();
 
-    expect(storedCount(world, 'pistol')).toBe(1);
+    expect(storedCount(world, 'bat')).toBe(1);
+  });
+});
+
+describe('World — 손에 든 건축 아이템으로 설치', () => {
+  /**
+   * 코어에서 충분히 떨어진 빈 칸. 코어 발자국은 생각보다 넓어서(가장자리 반경 ~52px)
+   * 60px 지점은 아직 키프아웃(TILE_SIZE/2) 안이다 — 실제로 걸려서 옮겼다.
+   */
+  function emptyCellNear(world: World): { cx: number; cy: number } {
+    clearNodes(world);
+    return worldToCell(120, 0);
+  }
+
+  /** 자원 노드를 전부 멀리 치운다 — 배치 검사에서 노드가 걸리면 안 된다. */
+  function clearNodes(world: World): void {
+    for (const node of world.getResourceNodes().values()) {
+      node.x = 5000;
+      node.y = 5000;
+    }
+  }
+
+  it('아이템이 한 개 줄고 그 자리에 건축물이 선다', () => {
+    const world = createTestWorld();
+    world.addPlayer('p1', 0, 0);
+    emptyHands(world, 'p1');
+    const inventory = world.getPlayers().get('p1')!.inventory;
+    inventory.add('stone_wall', 3);
+    world.selectSlot('p1', 0);
+
+    const cell = emptyCellNear(world);
+    world.placeHeldBuilding('p1', cell.cx, cell.cy);
+
+    expect(inventory.countOf('stone_wall')).toBe(2);
+    const placed = [...world.getBuildings().values()];
+    expect(placed).toHaveLength(1);
+    expect(placed[0]!.type).toBe('stone_wall');
+  });
+
+  it('비용은 코어 창고가 아니라 인벤토리에서 나간다', () => {
+    const world = createTestWorld();
+    world.addPlayer('p1', 0, 0);
+    emptyHands(world, 'p1');
+    world.getPlayers().get('p1')!.inventory.add('fence', 1);
+    world.selectSlot('p1', 0);
+    const woodBefore = storedCount(world, 'wood');
+
+    const cell = emptyCellNear(world);
+    world.placeHeldBuilding('p1', cell.cx, cell.cy);
+
+    expect(world.getBuildings().size).toBe(1);
+    expect(storedCount(world, 'wood')).toBe(woodBefore); // 창고는 그대로다
+  });
+
+  it('건축 아이템이 아니면 아무 일도 없다', () => {
+    const world = createTestWorld();
+    world.addPlayer('p1', 0, 0);
+    emptyHands(world, 'p1');
+    const inventory = world.getPlayers().get('p1')!.inventory;
+    inventory.add('bandage', 2);
+    world.selectSlot('p1', 0);
+
+    const cell = emptyCellNear(world);
+    world.placeHeldBuilding('p1', cell.cx, cell.cy);
+
+    expect(world.getBuildings().size).toBe(0);
+    expect(inventory.countOf('bandage')).toBe(2);
+  });
+
+  it('못 짓는 자리면 아이템도 줄지 않는다 — 실패해도 손해가 없어야 한다', () => {
+    const world = createTestWorld();
+    world.addPlayer('p1', 0, 0);
+    emptyHands(world, 'p1');
+    const inventory = world.getPlayers().get('p1')!.inventory;
+    inventory.add('wall', 2);
+    world.selectSlot('p1', 0);
+    clearNodes(world);
+
+    // 코어 발자국 한가운데 — 서버가 거절하는 자리다.
+    const centre = worldToCell(0, 0);
+    world.placeHeldBuilding('p1', centre.cx, centre.cy);
+
+    expect(world.getBuildings().size).toBe(0);
+    expect(inventory.countOf('wall')).toBe(2);
+  });
+
+  it('미리보기와 실제 배치가 같은 규칙을 쓴다', () => {
+    const world = createTestWorld();
+    world.addPlayer('p1', 0, 0);
+    clearNodes(world);
+
+    const ok = worldToCell(120, 0);
+    const core = worldToCell(0, 0);
+    // 클라이언트 미리보기는 이 함수와 같은 규칙을 스냅샷으로 다시 계산한다.
+    expect(world.canPlaceBuildingAt('p1', ok.cx, ok.cy)).toBe(true);
+    expect(world.canPlaceBuildingAt('p1', core.cx, core.cy)).toBe(false);
+    expect(world.canPlaceBuildingAt('p1', -1, 0)).toBe(false);
+  });
+});
+
+describe('World — 창고 칸 비우기(폐기)', () => {
+  it('칸이 비고 내용물은 발밑에 떨어진다 — 지우지 않아 되돌릴 수 있다', () => {
+    const world = createTestWorld();
+    world.addPlayer('p1', 10, 0); // 코어 근접
+    emptyHands(world, 'p1');
+
+    const before = storedCount(world, 'bandage'); // 창고 3번 칸에 심어 둔 붕대 3개
+    expect(before).toBe(3);
+
+    world.discardFromStorage('p1', 3);
+
+    expect(storedCount(world, 'bandage')).toBe(0);
+    expect(droppedCount(world, 'bandage')).toBe(before);
+  });
+
+  it('코어에서 멀면 무시된다 — 창고를 만지는 다른 조작과 같은 규칙이다', () => {
+    const world = createTestWorld();
+    world.addPlayer('p1', 1000, 0);
+
+    world.discardFromStorage('p1', 3);
+
+    expect(storedCount(world, 'bandage')).toBe(3);
+    expect(droppedCount(world, 'bandage')).toBe(0);
+  });
+
+  it('빈 칸이나 이상한 번호를 폐기해도 크래시하지 않는다', () => {
+    const world = createTestWorld();
+    world.addPlayer('p1', 10, 0);
+
+    for (const bad of [-1, 999, 1.5, '1', null, undefined, NaN]) {
+      expect(() => world.discardFromStorage('p1', bad)).not.toThrow();
+    }
+    expect(() => world.discardFromStorage('ghost', 3)).not.toThrow();
+    expect(storedCount(world, 'bandage')).toBe(3);
   });
 });
 
@@ -404,8 +554,9 @@ describe('World — 쉬프트 클릭 빠른 이동(quickMoveItem, docs/backend/4
   it('창고 칸을 쉬프트클릭하면 인벤토리 빈 칸으로 바로 들어간다', () => {
     const world = createTestWorld();
     world.addPlayer('p1', 10, 0); // CORE_INTERACT_RADIUS 안
+    emptyHands(world, 'p1');
 
-    world.quickMoveItem('p1', 'storage', 3); // 붕대 3개(초기 지급품)
+    world.quickMoveItem('p1', 'storage', 3); // 창고에 심어둔 붕대 3개
 
     expect(storedCount(world, 'bandage')).toBe(0);
     expect(carriedCount(world, 'p1', 'bandage')).toBe(3);
@@ -414,6 +565,7 @@ describe('World — 쉬프트 클릭 빠른 이동(quickMoveItem, docs/backend/4
   it('인벤토리 칸을 쉬프트클릭하면 창고로 들어가고, 같은 아이템이 있으면 합쳐진다', () => {
     const world = createTestWorld();
     world.addPlayer('p1', 10, 0);
+    emptyHands(world, 'p1');
     const inventory = world.getPlayers().get('p1')!.inventory;
     inventory.add('bandage', 2);
 
@@ -428,11 +580,12 @@ describe('World — 쉬프트 클릭 빠른 이동(quickMoveItem, docs/backend/4
   it('목적지가 꽉 차서 일부만 옮겨지면, 옮겨진 만큼만 원래 칸에서 빠지고 나머지는 남는다', () => {
     const world = createTestWorld();
     world.addPlayer('p1', 10, 0);
+    emptyHands(world, 'p1');
     const inventory = world.getPlayers().get('p1')!.inventory;
     // 인벤토리(4칸)를 거의 채운다 — 붕대 4개(1칸 남는 여유) + 서로 안 쌓이는
     // 아이템 셋으로 나머지 3칸을 채워서, 총 여유가 "붕대 1개분"만 남게 한다.
     inventory.add('bandage', 4);
-    inventory.add('pistol', 1);
+    inventory.add('handgun', 1);
     inventory.add('axe_t1', 1);
     inventory.add('pickax_t1', 1);
 
@@ -445,9 +598,10 @@ describe('World — 쉬프트 클릭 빠른 이동(quickMoveItem, docs/backend/4
   it('목적지가 완전히 꽉 차서 하나도 못 옮기면 원래 칸이 그대로다', () => {
     const world = createTestWorld();
     world.addPlayer('p1', 10, 0);
+    emptyHands(world, 'p1');
     const inventory = world.getPlayers().get('p1')!.inventory;
     // 4칸을 붕대와 안 섞이는 아이템으로 완전히 채운다(스택 여유도 없음).
-    inventory.add('pistol', 1);
+    inventory.add('handgun', 1);
     inventory.add('axe_t1', 1);
     inventory.add('pickax_t1', 1);
     inventory.add('drop_normal', 1);
@@ -461,6 +615,7 @@ describe('World — 쉬프트 클릭 빠른 이동(quickMoveItem, docs/backend/4
   it('코어 반경 밖에서는 무시된다', () => {
     const world = createTestWorld();
     world.addPlayer('p1', 1000, 0);
+    emptyHands(world, 'p1');
 
     world.quickMoveItem('p1', 'storage', 3);
 
@@ -471,10 +626,11 @@ describe('World — 쉬프트 클릭 빠른 이동(quickMoveItem, docs/backend/4
   it('빈 칸을 대상으로 하면 아무 일도 일어나지 않는다', () => {
     const world = createTestWorld();
     world.addPlayer('p1', 10, 0);
+    emptyHands(world, 'p1');
 
     world.quickMoveItem('p1', 'inventory', 0); // 인벤토리는 전부 비어 있다
 
-    expect(storedCount(world, 'pistol')).toBe(1); // 창고도 그대로
+    expect(storedCount(world, 'bat')).toBe(1); // 창고도 그대로
   });
 
   it('이상한 입력을 보내도 크래시하지 않고 아무것도 사라지지 않는다', () => {
@@ -1383,7 +1539,9 @@ describe('World — 고갈된 자원 노드는 아무것도 막지 않는다(doc
     world.fireWeapon('shooter');
     expect(world.getProjectiles().size).toBe(1);
 
-    for (let i = 0; i < 5; i += 1) world.tick(0.1); // 420px/s × 0.5s = 210px, 노드를 지나치기 충분
+    // 노드(60px 앞)를 지나칠 만큼만 날린다. 무기 사거리 안에서 끝나야 한다 —
+    // 사거리를 넘겨 소멸하면 "막혔다"와 구분이 안 된다.
+    for (let i = 0; i < 3; i += 1) world.tick(0.1);
 
     expect(world.getProjectiles().size).toBe(1); // 막혀서 소멸하지 않았다
     const [projectile] = [...world.getProjectiles().values()];

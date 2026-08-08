@@ -28,6 +28,18 @@ export class PlayerSchema extends Schema {
   @type('number') aimAngle = 0;
   @type('number') lastProcessedSeq = 0;
   @type('number') hp = 0;
+  /** 직업 기초 체력 + 음식 보너스. HP바 비율 계산은 상수가 아니라 이 값을 쓴다. */
+  @type('number') maxHp = 0;
+  /** 남은 스태미나와 최대치. 달리기 게이지가 이 둘로 그려진다. */
+  @type('number') stamina = 0;
+  @type('number') maxStamina = 0;
+  /** 무기 데미지에 더해지는 고정 공격력(직업 + 음식). HUD에 숫자로 그대로 보여준다. */
+  @type('number') attack = 0;
+  /**
+   * 이동속도 배율(영구 스태미나 × 아드레날린). 클라이언트 예측이 이 값을 같이 곱해야
+   * 버프 중에 되감기지 않는다. 1이 기본.
+   */
+  @type('number') speedMultiplier = 1;
   @type('number') wood = 0;
   @type('number') stone = 0;
   /** 몬스터가 떨구는 부품(drop_normal) 휴대량. 나무/돌과 동일하게 창고로 옮겨야 팀 몫이 된다. */
@@ -36,6 +48,13 @@ export class PlayerSchema extends Schema {
     ...Array.from({ length: SLOT_COUNT }, () => new ItemSlotSchema()),
   );
   @type('number') selectedSlot = 0;
+  /** 장착 무기의 남은 탄약/탄창. 근접·맨손이면 magazine 0. */
+  @type('uint16') ammo = 0;
+  @type('uint16') ammoMagazine = 0;
+  /** 재장전 잔여 시간(초). 0이면 재장전 중이 아니다. */
+  @type('number') reloadRemaining = 0;
+  /** 점사 모드 토글 상태(돌격소총). */
+  @type('boolean') burstMode = false;
 }
 
 export class MonsterSchema extends Schema {
@@ -54,6 +73,12 @@ export class MonsterSchema extends Schema {
    * 그림과 판정이 같은 기술을 가리키려면 어느 동작인지도 함께 알려줘야 한다.
    */
   @type('uint8') attackAnim = 0;
+  /**
+   * 공격을 시작할 때마다 오르는 번호(256에서 한 바퀴). 클라이언트는 이 값이 바뀌는
+   * 순간에 공격 애니메이션을 재생한다 — attacking 불리언의 전이만 보면, 모션 길이가
+   * 공격 주기와 비슷할 때 꺼지는 구간이 패치 주기보다 짧아 통째로 놓친다.
+   */
+  @type('uint8') attackSeq = 0;
   /**
    * 왼쪽을 보고 있는가(스프라이트 좌우 반전용). 방향 벡터를 그대로 보내면 매 틱
    * 바뀌는 실수 두 개가 몬스터 수만큼 실려 나가는데, 그림에 실제로 쓰는 정보는

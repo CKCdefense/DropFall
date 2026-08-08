@@ -13,8 +13,19 @@ import coloniesJson from './colonies.json';
 import coreUpgradesJson from './coreUpgrades.json';
 import corePersonaJson from './corePersona.json';
 import companionJson from './companion.json';
+import jobsJson from './jobs.json';
 
+/**
+ * JSON은 주석을 쓸 수 없어서 데이터 파일마다 `$comment` 키로 설명을 단다.
+ * z.object는 모르는 키를 알아서 버리지만 z.record는 그것도 항목으로 보고 실패하므로,
+ * 검증 전에 최상위 `$comment`를 걷어낸다.
+ */
 export function loadData<T>(schema: z.ZodType<T>, json: unknown): T {
+  if (json && typeof json === 'object' && '$comment' in json) {
+    const rest = { ...(json as Record<string, unknown>) };
+    delete rest.$comment;
+    return schema.parse(rest);
+  }
   return schema.parse(json);
 }
 
@@ -50,6 +61,15 @@ const MeleeHitSchema = z.object({
 const MeleeAttackSchema = z.object({
   /** 스프라이트 태그 번호(1=Attack01, 2=Attack02, 3=Attack03). 클라이언트가 어느 동작을 재생할지 고른다. */
   anim: z.number().int().positive(),
+  /**
+   * 뽑기 가중치. 쓸 수 있는 기술이 여럿일 때 이 비율로 고른다(없으면 1).
+   *
+   * 보스에겐 "평타 + 스킬"이라는 구분이 없다 — 세 동작 전부가 패턴이고, 자주 나오는
+   * 것과 드물게 나오는 것이 있을 뿐이다. 쿨다운이 "언제 다시 쓸 수 있나"를 정한다면
+   * 이 값은 "쓸 수 있을 때 얼마나 자주 고르나"를 정한다. 둘 다 있어야 큰 기술이
+   * 쿨다운이 도는 즉시 반드시 나오는 기계적인 순서가 되지 않는다.
+   */
+  weight: z.number().positive().optional(),
   /** 이 동작이 만드는 타격들. 시간순으로 넣는다. */
   hits: z.array(MeleeHitSchema).min(1),
   /**
@@ -66,8 +86,18 @@ const MeleeAttackSchema = z.object({
       toSeconds: z.number().positive(),
       /** 돌진 이동 속도(px/s). 평상시 speed와 무관하다. */
       speed: z.number().positive(),
-      /** 몸에 닿았다고 보는 반경(px). */
-      radius: z.number().positive(),
+      /** 몸에 닿았다고 보는 반경(px). halfWidth가 있으면 쓰이지 않는다. */
+      radius: z.number().positive().optional(),
+      /**
+       * 있으면 판정이 원이 아니라 **지나온 길 전체를 덮는 직사각형**이 된다 —
+       * 출발점에서 현재 위치까지, 진행 방향 좌우로 이만큼(px)씩.
+       *
+       * 원 판정은 "돌진"이 아니라 "몸통 박치기"로 느껴진다. 돌진은 옆으로 피하는 게
+       * 대응인데, 원은 폭이 곧 사거리라 길게 만들수록 사방이 넓어져서 피할 방향이
+       * 사라진다. 직사각형이면 길이(돌진 거리)와 폭을 따로 정할 수 있어서, 길고 좁은
+       * "밀고 지나가는 길"을 만들 수 있다.
+       */
+      halfWidth: z.number().positive().optional(),
       damage: z.number().nonnegative(),
     })
     .optional(),
@@ -163,6 +193,11 @@ export const monstersData = loadData(MonstersDataSchema, monstersJson);
 const WeaponDataSchema = z.object({
   name: z.string(),
   type: z.enum(['melee', 'ranged']),
+  /**
+   * 티어(노말/레어/에픽/레전더리). UI 색상·정렬용 표시 값이다 — 상점 등장 여부·가중치는
+   * items.json의 rarity가 따로 정한다(도구처럼 상점에 안 나오는 무기가 있어서 분리).
+   */
+  tier: z.enum(['normal', 'rare', 'epic', 'legendary']).optional(),
   damage: z.number().nonnegative(),
   /** 초당 발사/타격 횟수 */
   fireRate: z.number().positive(),
@@ -183,10 +218,45 @@ const WeaponDataSchema = z.object({
    * 없으면 전방향(360도) — 기존 원형 판정과 같아진다.
    */
   arc: z.number().positive().max(360).optional(),
+  /**
+   * melee 전용: 자원 노드를 때릴 때 데미지에 곱하는 채집 효율. 없으면 1.
+   * "효율 좋음" 도구(토마호크)가 전투 데미지를 안 건드리고 채집만 빨라지게 한다.
+   */
+  gatherMultiplier: z.number().positive().optional(),
+  /**
+   * 이 무기를 든 동안 밤에 캐릭터 주변을 밝히는 반경(px). 클라이언트 연출 전용 —
+   * 서버 시야/판정에는 영향이 없다(빔소드).
+   */
+  lightRadius: z.number().positive().optional(),
   /** ranged 전용 */
   magazine: z.number().int().positive().optional(),
   reloadTime: z.number().positive().optional(),
   projectileSpeed: z.number().positive().optional(),
+  /**
+   * ranged 전용: 이 무기의 투사체 사거리(px). 없으면 전역 기본값(600).
+   * 산탄총(짧다)과 저격소총(사실상 무제한)이 같은 600을 쓸 수 없어 무기별로 뒀다.
+   */
+  maxRange: z.number().positive().optional(),
+  /**
+   * ranged 전용: 산탄 — 한 발에 이 개수의 투사체가 spreadDeg 부채꼴로 퍼져 나간다.
+   * damage는 **펠릿 1개** 기준이다(다 맞으면 damage × pellets).
+   */
+  pellets: z.number().int().min(2).optional(),
+  /** ranged 전용: 산탄이 퍼지는 전체 각도(도). pellets가 있을 때만 의미 있다. */
+  spreadDeg: z.number().positive().max(90).optional(),
+  /** ranged 전용: 관통 — 투사체가 몬스터를 뚫고 계속 날아간다(각 몬스터는 1회만 피해). */
+  pierce: z.boolean().optional(),
+  /**
+   * ranged 전용: 점사 모드 스펙. 있는 무기만 점사 토글이 가능하다(돌격소총).
+   * 점사 1회 = 방아쇠 1번 = count발이 interval 간격으로 나간다. 탄약도 발당 소모.
+   */
+  burst: z
+    .object({
+      count: z.number().int().min(2),
+      /** 점사 내 발사 간격(초) */
+      interval: z.number().positive(),
+    })
+    .optional(),
   /**
    * ranged 전용: 발사 지점을 플레이어 중심에서 조준 방향으로 밀어내는 거리(px).
    * 총구 위치와 맞춰야 총알이 배에서 튀어나오지 않는다 — 클라이언트 렌더의
@@ -201,6 +271,44 @@ export type WeaponType = keyof typeof weaponsData;
 export type WeaponData = z.infer<typeof WeaponDataSchema>;
 
 export const weaponsData = loadData(WeaponsDataSchema, weaponsJson);
+
+// --- jobs.json ---------------------------------------------------------------
+
+/**
+ * 직업 하나의 기초 스탯. 스킬·특성은 아직 없다 — 지금은 "시작 수치가 다르다"까지가 전부다.
+ *
+ * `$role`은 사람이 읽는 설명이라 스키마에 넣지 않는다(z.object가 모르는 키를 버린다).
+ */
+const JobStatsSchema = z.object({
+  name: z.string(),
+  /** 최대 체력. 음식으로 늘어나는 보너스는 여기에 더해진다. */
+  maxHp: z.number().positive(),
+  /**
+   * 공격력. **무기 데미지에 그대로 더해지는 고정값**이다(배율이 아니다) — 약한 무기를
+   * 들었을 때 직업 차이가 크게 느껴지고, 강한 무기에서는 상대적으로 묻히게 하려는 의도다.
+   */
+  attack: z.number().nonnegative(),
+  /** 최대 스태미나. 달리면 줄고 걷거나 멈추면 찬다. */
+  maxStamina: z.number().positive(),
+});
+
+const JobsDataSchema = z.object({
+  /** 직업을 아직 안 골랐을 때(로컬 모드·관전 등) 쓰는 기준값. */
+  base: JobStatsSchema,
+  soldier: JobStatsSchema,
+  searchman: JobStatsSchema,
+  medic: JobStatsSchema,
+  engineer: JobStatsSchema,
+});
+
+export type JobStats = z.infer<typeof JobStatsSchema>;
+
+export const jobsData = loadData(JobsDataSchema, jobsJson);
+
+/** 직업 id에 해당하는 기초 스탯. 모르는 값(빈 문자열 포함)이면 base를 준다. */
+export function jobStats(job: string): JobStats {
+  return (jobsData as Record<string, JobStats>)[job] ?? jobsData.base;
+}
 
 // --- waves.json --------------------------------------------------------------
 
@@ -234,7 +342,6 @@ const WaveEntrySchema = z.object({
 
 const WavesDataSchema = z.object({
   coreHp: z.number().positive(),
-  playerHp: z.number().positive(),
   /** 몬스터가 스폰되는, 코어를 중심으로 한 원의 반지름(px) */
   spawnRadius: z.number().positive(),
   /** 낮 페이즈 길이(초). 스킵 투표는 별도 팀 협의 후 추가 예정(docs/backend/11 §4.2) */
@@ -316,16 +423,49 @@ const ItemDataSchema = z.object({
    *  - weapon:     장착하면 좌클릭 공격에 쓰인다
    *  - consumable: 사용하면 효과를 내고 1개 줄어든다
    *  - material:   들고 다니다 코어 창고에 넣는다. 손에 들어도 아무 일도 안 일어난다
+   *  - building:   손에 들고 바닥에 설치한다. 한 개가 곧 건축 비용이다 —
+   *                건축 모드(B)가 코어 창고에서 자원을 빼는 것과 달리, 이쪽은 아이템이
+   *                줄어든다. 그래서 낮에 미리 만들어 두고 밤에 들고 다니며 세울 수 있다.
    *
    * 자원 노드를 부수면 나오는 드롭을 주웠을 때 material로 인벤토리에 들어온다 —
    * 예전처럼 PlayerEntity의 전용 필드(wood/stone)로 세지 않는다. 창고 입고가
    * "슬롯을 옮기는 일"이 되어야 도구도 같은 방식으로 보관할 수 있다.
    */
-  kind: z.enum(['weapon', 'consumable', 'material']),
+  kind: z.enum(['weapon', 'consumable', 'material', 'building']),
   /** weapon 전용: weapons.json의 key. 아이템 id와 달라질 수 있어 따로 둔다. */
   weaponId: z.string().optional(),
+  /** building 전용: buildings.json의 key. 설치하면 이 타입의 건축물이 선다. */
+  buildingType: z.string().optional(),
   /** consumable 전용: 자기 체력 회복량 */
   healAmount: z.number().positive().optional(),
+  /**
+   * consumable 전용: 최대 체력 대비 비율 회복(0~1). 붕대 30%처럼 "몇 %" 설계를
+   * 그대로 싣는다 — 음식으로 최대 체력이 늘어도 체감 회복량이 같이 커진다.
+   */
+  healPercent: z.number().positive().max(1).optional(),
+  /**
+   * consumable 전용: 이 시간(초) 동안 체력이 1 아래로 떨어지지 않는다(진통제).
+   * 다시 쓰면 남은 시간에 더하지 않고 새로 시작한다(최댓값 갱신).
+   */
+  hpFloorSeconds: z.number().positive().optional(),
+  /** consumable 전용: 이동속도 버프 배율(아드레날린 1.5). speedSeconds와 함께 쓴다. */
+  speedMultiplier: z.number().positive().optional(),
+  /** consumable 전용: 이동속도 버프 지속시간(초). */
+  speedSeconds: z.number().positive().optional(),
+  /**
+   * consumable 전용(음식): 영구 스탯 증가. 세션이 끝날 때까지 유지된다.
+   *  - maxHp:    최대 체력 +amount (현재 체력도 같이 오른다 — 먹자마자 손해 보지 않게)
+   *  - attack:   공격력 스탯 +amount(고정값). 직업 기초 공격력과 같은 축이다 —
+   *              배율과 고정값이 섞이면 HUD에 "공격력"을 숫자 하나로 못 쓴다.
+   *  - stamina:  이동속도 +amount×100%. 스태미나 **게이지 최대치**가 아니라 발이
+   *              빨라지는 쪽이다 — 최대치는 직업이 정하고, 음식은 체감되는 기동성을 준다.
+   */
+  statBonus: z
+    .object({
+      stat: z.enum(['maxHp', 'attack', 'stamina']),
+      amount: z.number().positive(),
+    })
+    .optional(),
   /** consumable 전용: 코어 체력 회복량. 최대 체력을 넘겨 회복하지는 않는다. */
   coreHealAmount: z.number().positive().optional(),
   /** consumable 전용: 팀 공유 에너지 지급량(코어 업그레이드 재화). */
@@ -470,6 +610,11 @@ export const coreUpgradesData = loadData(CoreUpgradesDataSchema, coreUpgradesJso
 // --- crafting.json ------------------------------------------------------------
 
 const CraftRecipeSchema = z.object({
+  /**
+   * 한 번 만들 때 나오는 개수(없으면 1). 울타리처럼 여러 개를 세워야 쓸모가 있는
+   * 물건을 한 개씩 만들게 하면 같은 버튼을 스무 번 누르게 된다.
+   */
+  count: z.number().int().positive().optional(),
   id: z.string(),
   /** 만들어지는 아이템(items.json의 key). */
   itemId: z.string(),

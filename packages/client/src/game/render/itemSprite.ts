@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { WEAPON_VISUALS } from './weaponFx';
+import { WEAPON_VISUALS, type WeaponVisual } from './weaponFx';
 import { GAME_ATLAS } from './playerSprite';
 
 /**
@@ -12,9 +12,19 @@ import { GAME_ATLAS } from './playerSprite';
 const MATERIAL_FRAME: Record<string, string> = {
   wood: 'item_wood_idle_0',
   stone: 'item_stone_idle_0',
-  bandage: 'item_consumable_bandage_0',
-  medkit: 'item_consumable_medkit_0',
-  stimpack: 'item_consumable_stimpack_0',
+  // 치료·음식은 신규 시트(item_usable)를 쓴다. 태그 이름이 곧 아이템 id지만
+  // AID만 대문자 태그로 들어와 있어 id(aid_kit)와 다르다.
+  bandage: 'item_usable_bandage_0',
+  painkiller: 'item_usable_painkiller_0',
+  pills: 'item_usable_pills_0',
+  aid_kit: 'item_usable_AID_0',
+  adrenaline: 'item_usable_adrenaline_0',
+  chocolate: 'item_usable_chocolate_0',
+  donut: 'item_usable_donut_0',
+  nuggets: 'item_usable_nuggets_0',
+  carrot_cake: 'item_usable_carrot_cake_0',
+  apple_juice: 'item_usable_apple_juice_0',
+  lasagna: 'item_usable_lasagna_0',
   repair_kit: 'item_consumable_repair_kit_0',
   core_cell: 'item_consumable_core_cell_0',
   energy_cell: 'item_consumable_energy_cell_0',
@@ -25,7 +35,20 @@ const MATERIAL_FRAME: Record<string, string> = {
   // 뽑으면 이 줄도 같이 바꿔야 한다).
   drop_normal: 'item_drop_normal__0',
   drop_rare: 'item_drop_rare_idle_0',
+  // 건축 배치품. 세워 놓은 모습(정면)을 그대로 아이콘으로 쓴다 — 인벤토리에서 본 그림과
+  // 바닥에 선 그림이 같아야 무엇을 세우는지 헷갈리지 않는다.
+  fence: 'wood_fence_front_0',
+  wall: 'wood_wall_front_0',
+  stone_fence: 'build_tier_stone_fence_front_0',
+  stone_wall: 'build_tier_stone_wall_front_0',
+  iron_fence: 'build_tier_iron_fence_front_0',
+  iron_wall: 'build_tier_iron_wall_front_0',
 };
+
+/** 그림이 실제로 차지하는 영역. 무기만 값이 있고, 나머지는 캔버스를 꽉 채워서 없어도 된다. */
+function iconArtBounds(itemId: string): WeaponVisual['artBounds'] {
+  return WEAPON_VISUALS[itemId]?.artBounds;
+}
 
 export function itemFrame(itemId: string): string | undefined {
   return MATERIAL_FRAME[itemId] ?? WEAPON_VISUALS[itemId]?.frame;
@@ -36,8 +59,74 @@ export function hasItemFrame(scene: Phaser.Scene, frame: string): boolean {
 }
 
 /**
+ * 길쭉한 아이콘을 눕히는 각도(라디안)와 그 판단 기준.
+ *
+ * 무기 시트는 235×62라 가로세로비가 4에 가깝다. 정사각형 칸에 가로를 맞춰 넣으면
+ * 세로가 8px밖에 안 남아서 총이 실 한 가닥처럼 보인다 — 실제로 퀵슬롯에서 무엇을 들고
+ * 있는지 분간이 안 됐다. 대각선으로 눕히면 칸의 **대각선 길이**를 쓸 수 있어 같은
+ * 칸에서 1.4배쯤 커진다. 인벤토리에서 긴 무기를 비스듬히 놓는 건 흔한 관습이기도 하다.
+ */
+const ICON_TILT = -Math.PI / 6;
+const ICON_TILT_ASPECT = 2.2;
+
+interface IconFit {
+  scale: number;
+  tilt: number;
+  /** 칸 중심에서 이만큼 밀어야 그림의 실제 중심이 칸 중심에 온다(원본 px 단위, 회전 전). */
+  offsetX: number;
+  offsetY: number;
+}
+
+/**
+ * 칸 크기에 맞춘 배율·기울기·보정 위치.
+ *
+ * 캔버스가 아니라 **그림이 실제로 차지하는 영역**(iconArtBounds)을 기준으로 맞춘다 —
+ * 무기 시트는 모두 235×62 캔버스를 공유해서, 권총처럼 작은 그림은 캔버스에 맞추면
+ * 칸 안에서 3분의 1 크기로 쪼그라든다. 그래서 여백을 뺀 크기로 재고, 여백 때문에
+ * 어긋난 중심은 offset으로 되돌린다.
+ */
+function iconFit(frameWidth: number, frameHeight: number, boxSize: number, itemId: string): IconFit {
+  const art = iconArtBounds(itemId);
+  const width = art?.width ?? frameWidth;
+  const height = art?.height ?? frameHeight;
+  // 그림 중심이 캔버스 중심에서 얼마나 벗어나 있나.
+  const offsetX = art ? frameWidth / 2 - (art.x + art.width / 2) : 0;
+  const offsetY = art ? frameHeight / 2 - (art.y + art.height / 2) : 0;
+
+  if (width < height * ICON_TILT_ASPECT) {
+    return { scale: boxSize / Math.max(width, height), tilt: 0, offsetX, offsetY };
+  }
+  const cos = Math.abs(Math.cos(ICON_TILT));
+  const sin = Math.abs(Math.sin(ICON_TILT));
+  const rotatedWidth = width * cos + height * sin;
+  const rotatedHeight = width * sin + height * cos;
+  return {
+    scale: boxSize / Math.max(rotatedWidth, rotatedHeight),
+    tilt: ICON_TILT,
+    offsetX,
+    offsetY,
+  };
+}
+
+/** 회전·배율을 적용하고, 여백 보정만큼 위치를 되돌린다. */
+function applyIconFit(
+  image: Phaser.GameObjects.Image,
+  fit: IconFit,
+  centerX: number,
+  centerY: number,
+): void {
+  image.setScale(fit.scale).setRotation(fit.tilt);
+  // 보정은 회전 전 좌표계의 값이라, 회전한 만큼 같이 돌려야 그림이 칸 가운데에 온다.
+  const cos = Math.cos(fit.tilt);
+  const sin = Math.sin(fit.tilt);
+  const dx = (fit.offsetX * cos - fit.offsetY * sin) * fit.scale;
+  const dy = (fit.offsetX * sin + fit.offsetY * cos) * fit.scale;
+  image.setPosition(centerX + dx, centerY + dy);
+}
+
+/**
  * 아이템 아이콘을 한 칸(boxSize)에 맞춰 만든다. 원본 크기가 제각각이라(재료 64px,
- * 도구 32px, 총기 128×64) 프레임 크기로 나눠 맞춘다 — 고정 배율을 쓰면 총기만 칸 밖으로 넘친다.
+ * 도구 32px, 무기 235×62) 프레임 크기로 나눠 맞춘다 — 고정 배율을 쓰면 무기만 칸 밖으로 넘친다.
  *
  * 프레임이 없으면 null을 돌려준다. 호출부는 그대로 글자 라벨만 보여주면 된다.
  */
@@ -50,7 +139,7 @@ export function createItemIcon(
   if (frame === undefined || !hasItemFrame(scene, frame)) return null;
 
   const icon = scene.add.image(0, 0, GAME_ATLAS, frame).setOrigin(0.5, 0.5);
-  icon.setScale(boxSize / Math.max(icon.width, icon.height));
+  applyIconFit(icon, iconFit(icon.width, icon.height, boxSize, itemId), 0, 0);
   return icon;
 }
 
@@ -67,6 +156,9 @@ export class SlotIcon {
   private readonly image: Phaser.GameObjects.Image | null;
   private boxSize: number;
   private currentItem: string | null = null;
+  /** 칸의 중심. 여백 보정으로 실제 위치가 여기서 조금 밀리므로 원본을 따로 기억한다. */
+  private centerX = 0;
+  private centerY = 0;
 
   constructor(scene: Phaser.Scene, boxSize: number) {
     this.boxSize = boxSize;
@@ -84,7 +176,8 @@ export class SlotIcon {
   /** 칸의 중심과 크기를 다시 잡는다(레이아웃/UI 배율 변경 시). */
   place(centerX: number, centerY: number, boxSize: number): void {
     this.boxSize = boxSize;
-    this.image?.setPosition(centerX, centerY);
+    this.centerX = centerX;
+    this.centerY = centerY;
     this.applyScale();
   }
 
@@ -108,7 +201,8 @@ export class SlotIcon {
   }
 
   private applyScale(): void {
-    if (!this.image || !this.image.visible) return;
-    this.image.setScale(this.boxSize / Math.max(this.image.width, this.image.height));
+    if (!this.image || !this.image.visible || this.currentItem === null) return;
+    const fit = iconFit(this.image.width, this.image.height, this.boxSize, this.currentItem);
+    applyIconFit(this.image, fit, this.centerX, this.centerY);
   }
 }

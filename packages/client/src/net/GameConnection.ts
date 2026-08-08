@@ -24,6 +24,20 @@ export interface PlayerView {
   aimAngle: number;
   lastProcessedSeq: number;
   hp: number;
+  /** 직업 기초 체력 + 음식 보너스. HP바 비율은 상수 대신 이 값. */
+  maxHp: number;
+  /** 남은 스태미나와 최대치. 달리기 게이지가 이 둘로 그려진다. */
+  stamina: number;
+  maxStamina: number;
+  /** 무기 데미지에 더해지는 고정 공격력(직업 + 음식). */
+  attack: number;
+  /** 장착 무기 탄약. 근접/맨손이면 ammoMagazine이 0이고 HUD가 표시를 걷는다. */
+  ammo: number;
+  ammoMagazine: number;
+  /** 재장전 잔여 시간(초). 0이면 재장전 중 아님. */
+  reloadRemaining: number;
+  /** 점사 모드(돌격소총 토글) 상태. */
+  burstMode: boolean;
   /** 아직 코어에 입고하지 않고 들고 있는 나무/돌. 코어 근처에서 deposit()하면 0이 된다. */
   wood: number;
   stone: number;
@@ -47,6 +61,8 @@ export interface MonsterView {
   attacking: boolean;
   /** 재생할 공격 동작 번호(1~3). 검술이 여러 개인 보스만 1이 아닌 값이 온다. */
   attackAnim: number;
+  /** 공격을 시작할 때마다 바뀌는 번호. 이 값이 달라지면 공격 애니메이션을 재생한다. */
+  attackSeq: number;
   /** 왼쪽을 보고 있는가(스프라이트 좌우 반전). 제자리 공격 중에도 방향이 정확해야 해서 서버가 정한다. */
   facingLeft: boolean;
   /** 보스 전용 공격 예고(텔레그래프). 진행 중이 아니면 빈 문자열. */
@@ -221,6 +237,10 @@ export interface GameConnection {
   fire(): void;
   /** 퀵슬롯 선택(= 무기 교체). 서버가 그 칸의 실제 내용물을 보고 판단한다. */
   selectSlot(index: number): void;
+  /** 수동 재장전(R). 장착 무기가 원거리가 아니거나 가득이면 서버가 무시한다. */
+  reload(): void;
+  /** 점사 모드 토글(돌격소총 전용 — burst 스펙 없는 무기면 서버가 무시한다). */
+  toggleFireMode(): void;
   /** 선택 중인 소모품 사용. 쓸 수 없는 슬롯이면 서버가 조용히 무시한다. */
   useSlot(): void;
   /** 낮 넘기기 투표 (만장일치) */
@@ -241,6 +261,15 @@ export interface GameConnection {
    * 컨테이너에, 서버가 알아서 쌓거나 빈 칸을 골라 넣는다.
    */
   quickMoveItem(container: SlotContainer, index: number): void;
+  /**
+   * 창고 칸 하나를 비운다(폐기). 지우지 않고 발밑에 떨어뜨리므로 잘못 눌러도 되돌릴 수 있다.
+   */
+  discardStorageItem(index: number): void;
+  /**
+   * 손에 든 건축 아이템을 이 칸에 설치한다. 무엇을 짓는지는 보내지 않는다 —
+   * 서버가 선택된 칸을 읽는다(무기와 같은 규칙).
+   */
+  placeHeldBuilding(cx: number, cy: number): void;
   /**
    * 코어 업그레이드 요청. 다음 단계 비용을 팀 공유 에너지에서 차감하고 코어
    * 체력/건설 가능 반경/제작·스텟증가 해금을 한 번에 적용한다 — 서버가 비용/최고
@@ -266,6 +295,13 @@ export interface GameConnection {
   demolishBuilding(cx: number, cy: number): void;
   /** 매 프레임 호출된다. 구현체는 새 객체를 만들지 말고 내부 버퍼를 재사용할 것. */
   getSnapshot(): WorldSnapshot;
+  /**
+   * 보간 없이, 가장 최근에 도착한 원본 패치에서 그대로 찾은 내 플레이어를 돌려준다.
+   * 클라이언트 예측 재조정(`PlayerPredictor`)이 쓴다 — `getSnapshot()`의 값은 두
+   * 스냅샷을 보간한 좌표라 `lastProcessedSeq`와 정확히 쌍이 맞지 않는다(둘 다 같은
+   * 원본 패치에서 나온 값이어야 재조정이 정확하다).
+   */
+  getRawSelf(): PlayerView | undefined;
   /**
    * 테스트용: 지정한 웨이브(1-based)로 즉시 이동한다(docs/backend/23). 로컬 모드에서만
    * 제공한다 — 옵셔널이라 실제 멀티플레이(ColyseusConnection)에서는 아예 존재하지

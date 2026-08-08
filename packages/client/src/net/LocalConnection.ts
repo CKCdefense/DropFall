@@ -13,7 +13,7 @@ import {
   type SlotContainer,
   type PlayerInputMessage,
 } from '@dropfall/shared';
-import type { GameConnection, LobbyView, RoomInfo, WorldSnapshot } from './GameConnection';
+import type { GameConnection, LobbyView, PlayerView, RoomInfo, WorldSnapshot } from './GameConnection';
 import { SnapshotInterpolator } from './SnapshotInterpolator';
 
 const LOCAL_SESSION_ID = 'local-player';
@@ -97,6 +97,14 @@ export class LocalConnection implements GameConnection {
     this.world.selectSlot(LOCAL_SESSION_ID, index);
   }
 
+  reload(): void {
+    this.world.reloadWeapon(LOCAL_SESSION_ID);
+  }
+
+  toggleFireMode(): void {
+    this.world.toggleFireMode(LOCAL_SESSION_ID);
+  }
+
   useSlot(): void {
     this.world.useSelectedItem(LOCAL_SESSION_ID);
   }
@@ -111,6 +119,14 @@ export class LocalConnection implements GameConnection {
 
   moveItem(from: SlotContainer, fromIndex: number, to: SlotContainer, toIndex: number): void {
     this.world.moveItem(LOCAL_SESSION_ID, from, fromIndex, to, toIndex);
+  }
+
+  placeHeldBuilding(cx: number, cy: number): void {
+    this.world.placeHeldBuilding(LOCAL_SESSION_ID, cx, cy);
+  }
+
+  discardStorageItem(index: number): void {
+    this.world.discardFromStorage(LOCAL_SESSION_ID, index);
   }
 
   quickMoveItem(container: SlotContainer, index: number): void {
@@ -193,6 +209,10 @@ export class LocalConnection implements GameConnection {
     return this.interpolator.sample();
   }
 
+  getRawSelf(): PlayerView | undefined {
+    return this.interpolator.getRawPlayer(LOCAL_SESSION_ID);
+  }
+
   private readRawSnapshot(): WorldSnapshot {
     const players: WorldSnapshot['players'] = [];
     for (const [id, player] of this.world.getPlayers()) {
@@ -206,6 +226,14 @@ export class LocalConnection implements GameConnection {
         aimAngle: player.aimAngle,
         lastProcessedSeq: player.lastProcessedSeq,
         hp: player.hp,
+        maxHp: this.world.playerMaxHp(player),
+        stamina: player.stamina,
+        maxStamina: this.world.playerMaxStamina(player),
+        attack: this.world.playerAttack(player),
+        ammo: this.world.ammoView(id)?.loaded ?? 0,
+        ammoMagazine: this.world.ammoView(id)?.magazine ?? 0,
+        reloadRemaining: this.world.ammoView(id)?.reloadRemaining ?? 0,
+        burstMode: player.burstMode,
         wood: player.inventory.countOf('wood'),
         stone: player.inventory.countOf('stone'),
         parts: player.inventory.countOf('drop_normal'),
@@ -226,6 +254,7 @@ export class LocalConnection implements GameConnection {
         maxHp: monster.maxHp,
         attacking: monster.attackAnimTimer > 0,
         attackAnim: monster.attackAnim,
+        attackSeq: monster.attackSeq,
         facingLeft: monster.facingX < 0,
         telegraphKind: telegraph?.kind ?? '',
         telegraphX: telegraph?.x ?? 0,
@@ -357,6 +386,8 @@ export class LocalConnection implements GameConnection {
 
   selectJob(job: JobId): void {
     this.job = job;
+    // 로컬 모드는 로비가 없어 "게임 시작" 시점이 따로 없다 — 고르는 즉시 반영한다.
+    this.world.setPlayerJob(LOCAL_SESSION_ID, job);
   }
 
   setReady(): void {

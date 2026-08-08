@@ -1,6 +1,5 @@
 {
   "coreHp": 1000,
-  "playerHp": 100,
   "spawnRadius": 900,
   "dayDuration": 90,
   "waves": [
@@ -8,37 +7,73 @@
       "spawnPoints": 1,
       "groupSize": 3,
       "groupIntervalSeconds": 14,
-      "spawns": { "demon": 6, "hellhound": 2 }
+      "spawns": {
+        "demon": 6,
+        "hellhound": 2
+      }
     },
     {
       "spawnPoints": 2,
       "groupSize": 4,
       "groupIntervalSeconds": 13,
-      "spawns": { "demon": 8, "hellhound": 4, "blood": 3 },
+      "spawns": {
+        "demon": 8,
+        "hellhound": 4,
+        "blood": 3
+      },
       "bossType": "boss_demon"
     },
     {
       "spawnPoints": 2,
       "groupSize": 5,
       "groupIntervalSeconds": 12,
-      "spawns": { "demon": 8, "hellhound": 5, "blood": 4, "eyeball": 3 },
-      "elite": { "type": "minotaur", "chance": 0.3, "count": 1 },
+      "spawns": {
+        "demon": 8,
+        "hellhound": 5,
+        "blood": 4,
+        "eyeball": 3
+      },
+      "elite": {
+        "type": "minotaur",
+        "chance": 0.3,
+        "count": 1
+      },
       "bossType": "boss_knight"
     },
     {
       "spawnPoints": 3,
       "groupSize": 5,
       "groupIntervalSeconds": 11,
-      "spawns": { "demon": 10, "hellhound": 6, "blood": 5, "eyeball": 4, "lava_slime": 3 },
-      "elite": { "type": "minotaur", "chance": 0.45, "count": 1 },
+      "spawns": {
+        "demon": 10,
+        "hellhound": 6,
+        "blood": 5,
+        "eyeball": 4,
+        "lava_slime": 3
+      },
+      "elite": {
+        "type": "minotaur",
+        "chance": 0.45,
+        "count": 1
+      },
       "bossType": "boss_golem"
     },
     {
       "spawnPoints": 3,
       "groupSize": 6,
       "groupIntervalSeconds": 10,
-      "spawns": { "demon": 10, "hellhound": 7, "blood": 6, "eyeball": 5, "lava_slime": 4 },
-      "elite": { "type": "minotaur", "chance": 0.6, "count": 2 },
+      "spawns": {
+        "demon": 10,
+        "hellhound": 7,
+        "blood": 6,
+        "eyeball": 5,
+        "lava_slime": 4
+      },
+      "elite": {
+        "type": "minotaur",
+        "chance": 0.6,
+        "count": 2
+      },
       "bossType": "boss_dark_knight"
     }
   ]

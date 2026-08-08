@@ -1,7 +1,19 @@
 import Phaser from 'phaser';
 import { itemsData, shopData, type ItemRarity } from '@dropfall/shared';
-import { ACCENT, BODY_TEXT, DIM_TEXT, FONT, FONT_SMALL, PANEL_STROKE, SIZE_BODY, SIZE_SMALL } from './theme';
-import { Modal } from './Modal';
+import {
+  ACCENT,
+  BODY_TEXT,
+  DETAIL_MAX_HEIGHT,
+  DETAIL_MIN_HEIGHT,
+  DETAIL_RATIO,
+  DIM_TEXT,
+  FONT,
+  FONT_SMALL,
+  PANEL_STROKE,
+  SIZE_BODY,
+  SIZE_SMALL,
+} from './theme';
+import type { PanelBuilder } from './Modal';
 import { SlotIcon } from '../render/itemSprite';
 
 /** ACCENT('#6fd08c')의 숫자판 — setStrokeStyle은 숫자 색만 받는다. */
@@ -19,18 +31,19 @@ const RARITY: Record<ItemRarity, { label: string; text: string; stroke: number }
   legendary: { label: '전설', text: '#e8b44c', stroke: 0xc8942c },
 };
 
-const PANEL_WIDTH = 300;
-const PANEL_HEIGHT = 320;
-const SLOT_SIZE = 48;
-const SLOT_GAP = 8;
+const SLOT_SIZE = 62;
+const SLOT_GAP = 10;
 const SLOT_COLS = 3;
-const ICON_INSET = 14;
-const HEADER_HEIGHT = 18;
-const DETAIL_GAP = 12;
-const BUY_WIDTH = 70;
-const BUY_HEIGHT = 30;
-const SELL_ROW_HEIGHT = 22;
-const SELL_BUTTON_WIDTH = 60;
+const ICON_INSET = 16;
+/** 구역 상자 안쪽 여백과 상자 사이 간격. 세 구역이 같은 값을 써야 줄이 맞는다. */
+const SECTION_PAD = 12;
+const SECTION_GAP = 10;
+const BUY_WIDTH = 84;
+const BUY_HEIGHT = 32;
+const SELL_ROW_HEIGHT = 26;
+const SELL_BUTTON_WIDTH = 78;
+/** 왼쪽(진열+상세)이 가져가는 폭 비율. 나머지가 판매 구역이다. */
+const LEFT_RATIO = 0.62;
 
 /** 하루 진열 칸 수. 데이터가 정하는 값이라 UI도 거기서 읽는다. */
 const STOCK_SIZE = shopData.weaponsPerDay + shopData.consumablesPerDay;
@@ -48,7 +61,7 @@ const SELLABLE = ['drop_rare', 'drop_normal'];
  * 실제 소비/지급은 서버가 한다(World.buyFromShop / sellToShop). 여기서는 같은 규칙으로
  * 살 수 있는지만 미리 색으로 알려준다.
  */
-export class StoreModal extends Modal {
+export class StorePanel {
   onPurchase: (itemId: string) => void = () => {};
   onSell: (itemId: string, count: number) => void = () => {};
 
@@ -68,31 +81,57 @@ export class StoreModal extends Modal {
   private money = 0;
   private storage: Record<string, number> = {};
 
-  constructor(scene: Phaser.Scene) {
-    super(scene, { title: '상점', width: PANEL_WIDTH, height: PANEL_HEIGHT });
+  constructor(private readonly builder: PanelBuilder) {
+    const scene = builder.scene;
 
-    this.dayText = scene.add.text(0, 0, '오늘의 진열', {
+    // 와이어프레임 구조: 왼쪽에 [진열 격자] 위, [상세] 아래. 오른쪽에 [판매].
+    // 창이 넓어져서 판매를 아래로 더 쌓는 대신 옆 칸으로 뺐다 — 아래로만 쌓으면
+    // 상자 셋이 세로로 길게 늘어져 넓어진 가로가 그대로 빈다.
+    const leftWidth = Math.floor((builder.width - SECTION_GAP) * LEFT_RATIO);
+    const rightX = leftWidth + SECTION_GAP;
+    const rightWidth = builder.width - rightX;
+
+    // 제작 탭과 같은 규칙: 아래 상세 띠를 먼저 잘라내고 남은 높이를 진열 격자에 준다
+    // (theme.DETAIL_RATIO). 두 탭의 아래 띠가 같은 자리에 있어야 탭을 오갈 때 안 흔들린다.
+    const detailHeight = Phaser.Math.Clamp(
+      Math.round(builder.height * DETAIL_RATIO),
+      DETAIL_MIN_HEIGHT,
+      DETAIL_MAX_HEIGHT,
+    );
+    const gridRows = Math.ceil(STOCK_SIZE / SLOT_COLS);
+    const gridHeight = Math.max(
+      SECTION_PAD * 2 + 16 + gridRows * SLOT_SIZE + (gridRows - 1) * SLOT_GAP,
+      builder.height - detailHeight - SECTION_GAP,
+    );
+
+    builder.addSection(0, 0, leftWidth, gridHeight);
+    this.dayText = scene.add.text(SECTION_PAD, SECTION_PAD, '오늘의 진열', {
       fontFamily: FONT_SMALL,
       fontSize: `${SIZE_SMALL}px`,
       color: DIM_TEXT,
     });
     this.moneyText = scene.add
-      .text(this.contentWidth, 0, '0 G', {
+      .text(leftWidth - SECTION_PAD, SECTION_PAD - 2, '0 G', {
         fontFamily: FONT,
         fontSize: `${SIZE_BODY}px`,
         color: ACCENT,
       })
       .setOrigin(1, 0);
-    this.addContent(this.dayText);
-    this.addContent(this.moneyText);
+    builder.add(this.dayText);
+    builder.add(this.moneyText);
+
+    // 격자는 상자 안에서 가운데 정렬한다 — 왼쪽에 몰리면 남은 폭이 빈 자리로 보인다.
+    const gridWidth = SLOT_COLS * SLOT_SIZE + (SLOT_COLS - 1) * SLOT_GAP;
+    const gridX = Math.round((leftWidth - gridWidth) / 2);
+    const gridY = SECTION_PAD + 16;
 
     for (let index = 0; index < STOCK_SIZE; index += 1) {
       const col = index % SLOT_COLS;
       const row = Math.floor(index / SLOT_COLS);
-      const x = col * (SLOT_SIZE + SLOT_GAP);
-      const y = HEADER_HEIGHT + row * (SLOT_SIZE + SLOT_GAP);
+      const x = gridX + col * (SLOT_SIZE + SLOT_GAP);
+      const y = gridY + row * (SLOT_SIZE + SLOT_GAP);
 
-      this.slotBoxes.push(this.addSlot(x, y, SLOT_SIZE, '', () => this.select(index)));
+      this.slotBoxes.push(builder.addSlot(x, y, SLOT_SIZE, '', () => this.select(index)));
       // addSlot이 만든 라벨은 직접 잡을 수 없어서 가격 글자를 따로 얹는다.
       const price = scene.add
         .text(x + SLOT_SIZE / 2, y + SLOT_SIZE - 3, '', {
@@ -101,44 +140,47 @@ export class StoreModal extends Modal {
           color: DIM_TEXT,
         })
         .setOrigin(0.5, 1);
-      this.addContent(price);
+      builder.add(price);
       this.slotPrices.push(price);
 
       const icon = new SlotIcon(scene, SLOT_SIZE - ICON_INSET);
       icon.place(x + SLOT_SIZE / 2, y + SLOT_SIZE / 2 - 4, SLOT_SIZE - ICON_INSET);
-      if (icon.object) this.addContent(icon.object);
+      if (icon.object) builder.add(icon.object);
       this.slotIcons.push(icon);
     }
 
-    const rows = Math.ceil(STOCK_SIZE / SLOT_COLS);
-    const detailY = HEADER_HEIGHT + rows * SLOT_SIZE + (rows - 1) * SLOT_GAP + DETAIL_GAP;
+    // --- 상세: 고른 물건 하나를 크게 설명하고 그 자리에서 산다. 높이는 위에서 정해졌다.
+    const detailY = gridHeight + SECTION_GAP;
+    builder.addSection(0, detailY, leftWidth, detailHeight);
 
-    this.detailIcon = new SlotIcon(scene, SLOT_SIZE - 8);
-    this.detailIcon.place(SLOT_SIZE / 2, detailY + SLOT_SIZE / 2, SLOT_SIZE - 8);
-    if (this.detailIcon.object) this.addContent(this.detailIcon.object);
+    const iconSize = detailHeight - SECTION_PAD * 2;
+    this.detailIcon = new SlotIcon(scene, iconSize);
+    this.detailIcon.place(SECTION_PAD + iconSize / 2, detailY + SECTION_PAD + iconSize / 2, iconSize);
+    if (this.detailIcon.object) builder.add(this.detailIcon.object);
 
-    this.nameText = scene.add.text(SLOT_SIZE + 8, detailY, '-', {
+    const textX = SECTION_PAD * 2 + iconSize;
+    this.nameText = scene.add.text(textX, detailY + SECTION_PAD, '-', {
       fontFamily: FONT,
       fontSize: `${SIZE_BODY}px`,
       color: BODY_TEXT,
     });
-    this.rarityText = scene.add.text(SLOT_SIZE + 8, detailY + 16, '', {
+    this.rarityText = scene.add.text(textX, detailY + SECTION_PAD + 18, '', {
       fontFamily: FONT,
       fontSize: `${SIZE_BODY}px`,
       color: DIM_TEXT,
     });
-    this.priceText = scene.add.text(SLOT_SIZE + 8, detailY + 32, '', {
+    this.priceText = scene.add.text(textX, detailY + SECTION_PAD + 36, '', {
       fontFamily: FONT,
       fontSize: `${SIZE_BODY}px`,
       color: DIM_TEXT,
     });
-    this.addContent(this.nameText);
-    this.addContent(this.rarityText);
-    this.addContent(this.priceText);
+    builder.add(this.nameText);
+    builder.add(this.rarityText);
+    builder.add(this.priceText);
 
-    this.addButton(
-      this.contentWidth - BUY_WIDTH,
-      detailY + (SLOT_SIZE - BUY_HEIGHT) / 2,
+    builder.addButton(
+      leftWidth - SECTION_PAD - BUY_WIDTH,
+      detailY + detailHeight - SECTION_PAD - BUY_HEIGHT,
       BUY_WIDTH,
       BUY_HEIGHT,
       '구매',
@@ -148,29 +190,28 @@ export class StoreModal extends Modal {
       },
     );
 
-    // --- 판매 구역: 창고에 든 몬스터 드랍을 **한 종류씩 통째로** 판다.
+    // --- 판매: 창고에 든 몬스터 드랍을 **한 종류씩 통째로** 판다.
     // 개수를 고르는 UI를 만들어봐야 결국 "전부 팔기"만 쓰게 된다.
-    const sellTop = detailY + SLOT_SIZE + 14;
-    this.addContent(
-      scene.add.text(0, sellTop, '판매', {
-        fontFamily: FONT_SMALL,
-        fontSize: `${SIZE_SMALL}px`,
-        color: DIM_TEXT,
-      }),
+    // 판매 구역은 오른쪽 열 전체를 쓴다 — 왼쪽 두 상자와 아래 끝이 맞아야 정돈돼 보인다.
+    const sellHeight = Math.max(
+      SECTION_PAD * 2 + 16 + SELLABLE.length * SELL_ROW_HEIGHT,
+      builder.height,
     );
+    builder.addSection(rightX, 0, rightWidth, sellHeight);
+    builder.addSectionTitle(rightX + SECTION_PAD, SECTION_PAD, '판매');
 
     SELLABLE.forEach((itemId, index) => {
-      const y = sellTop + HEADER_HEIGHT + index * SELL_ROW_HEIGHT;
-      const label = scene.add.text(0, y + 4, '', {
+      const y = SECTION_PAD + 16 + index * SELL_ROW_HEIGHT;
+      const label = scene.add.text(rightX + SECTION_PAD, y + 5, '', {
         fontFamily: FONT,
         fontSize: `${SIZE_BODY}px`,
         color: DIM_TEXT,
       });
-      this.addContent(label);
+      builder.add(label);
       this.sellLabels.set(itemId, label);
 
-      this.addButton(
-        this.contentWidth - SELL_BUTTON_WIDTH,
+      builder.addButton(
+        rightX + rightWidth - SECTION_PAD - SELL_BUTTON_WIDTH,
         y,
         SELL_BUTTON_WIDTH,
         SELL_ROW_HEIGHT - 4,

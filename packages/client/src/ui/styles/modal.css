@@ -42,6 +42,53 @@
   border-image-repeat: round;
 }
 
+/*
+ * 폼 모달(방 만들기 / 코드·비밀번호로 참가).
+ *
+ * 기본 크기(--modal-w 760 × 비율 1.55)는 **방 목록 표**에 맞춘 값이다. 방코드·방이름·
+ * 인원·참가 네 열이 들어가야 해서 가로로 길다. 그런데 입력 두 칸과 버튼 하나뿐인 폼이
+ * 같은 상자를 쓰면 좌우가 통째로 빈 채 글자만 왼쪽에 붙어 있게 된다(실제로 그랬다).
+ *
+ * 그래서 폼만 **세로로 선 비율**로 따로 잡는다. 변수만 덮어쓰면 .modal의 크기 공식
+ * (폭·비율·높이 상한)이 그대로 재사용된다 — 공식을 두 벌 두면 반드시 어긋난다.
+ */
+.modal-form {
+  --modal-w: 420px;
+  --modal-ratio: 0.92;
+}
+
+/* 제목은 가운데. 폼은 좌우 대칭이라 제목만 왼쪽에 붙으면 축이 어긋나 보인다. */
+.modal-form .screen-head {
+  justify-content: center;
+}
+
+/*
+ * 버튼은 세로로 쌓고 폭을 꽉 채운다. 좁은 상자에서 버튼 둘을 나란히 두면 각각이
+ * 글자보다 조금 큰 정도로 쪼그라들어 누르기도 읽기도 나빠진다.
+ */
+.modal-form .modal-actions {
+  flex-direction: column;
+  gap: var(--gap-sm);
+}
+
+.modal-form .modal-actions .btn {
+  width: 100%;
+  min-width: 0;
+}
+
+/*
+ * 코드 4칸을 폼 폭에 맞춰 벌린다. 가운데 정렬로 두면 아래 비밀번호 입력창과 좌우 끝이
+ * 어긋나서, 같은 폼인데 두 덩어리가 따로 노는 것처럼 보인다.
+ */
+.modal-form .code-boxes {
+  justify-content: space-between;
+}
+
+/* 라벨도 아래 필드 라벨과 같은 줄에서 시작한다. */
+.modal-form .code-form-label {
+  text-align: left;
+}
+
 /* 에셋이 없을 때: 두께는 유지하고 안팎 1px 선으로 프레임처럼 보이게 */
 .modal:not([data-asset]) {
   border-color: var(--panel);
@@ -71,6 +118,7 @@
 .modal[data-asset] .modal-empty,
 .modal[data-asset] .modal-loading,
 .modal[data-asset] .field-block > span,
+.modal[data-asset] .code-form-label,
 .modal[data-asset] .hint {
   color: #3f4753;
 }

@@ -125,6 +125,24 @@ export class Inventory {
   }
 
   /**
+   * 선택 중인 칸의 아이템 정의(종류 무관). 무기인지 소모품인지 건축물인지에 따라
+   * 호출자가 갈라 쓴다 — itemOfSelected는 소모품만 돌려주므로 그쪽으로는 건축물을
+   * 볼 수 없다.
+   */
+  heldItem(): ItemData | undefined {
+    const slot = this.selected;
+    return slot ? itemOf(slot.itemId) : undefined;
+  }
+
+  /** 선택 중인 칸에서 한 개를 뺀다(종류 무관). 건축물 설치처럼 소모품이 아닌 소비에 쓴다. */
+  consumeSelectedOne(): boolean {
+    const slot = this.selected;
+    if (!slot) return false;
+    this.removeAt(this.selectedIndex, 1);
+    return true;
+  }
+
+  /**
    * 선택 중인 소모품의 정의. 소모하기 **전에** 효과를 미리 들여다볼 때 쓴다 —
    * "지금 써도 아무 일도 안 일어나는" 상황에서 아이템만 날리지 않으려면 필요하다.
    */

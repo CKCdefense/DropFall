@@ -40,10 +40,10 @@ describe('CoreStorage', () => {
   it('꽉 차면 못 넣은 개수를 돌려준다', () => {
     const storage = new CoreStorage();
     // 20칸 × stackSize 1(무기) = 20개가 한계
-    const leftover = storage.add('pistol', 25);
+    const leftover = storage.add('handgun', 25);
 
     expect(leftover).toBe(5);
-    expect(storage.countOf('pistol')).toBe(20);
+    expect(storage.countOf('handgun')).toBe(20);
   });
 
   it('도구도 재료와 같은 방식으로 보관된다', () => {

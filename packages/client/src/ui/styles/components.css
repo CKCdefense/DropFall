@@ -285,9 +285,10 @@
 .asset-logo {
   /*
    * 세로 상한을 max-height로 걸면 높이만 잘리고 폭은 그대로라 이미지가 가로로 늘어난다.
-   * 대신 "높이 상한 × 비율"을 폭의 상한에 포함시켜, 어떤 창 크기에서도 비율이 정확히 유지되게 한다.
+   * 대신 "높이 상한 × 비율"을 폭의 상한에 포함시킨 --logo-box-w를 쓴다(tokens.css).
+   * 어떤 창 크기에서도 비율이 정확히 유지되고, 랜딩의 닉네임/버튼 줄도 같은 폭을 공유한다.
    */
-  width: min(var(--logo-w), calc(var(--logo-max-h) * var(--logo-ratio)));
+  width: var(--logo-box-w);
   aspect-ratio: var(--logo-ratio);
   /* flex 자식으로서 세로로 찌그러지지 않게 */
   flex: none;

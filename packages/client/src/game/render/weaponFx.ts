@@ -36,8 +36,11 @@ interface Point {
 /** 스프라이트 좌표계의 중심(32×32 기준). 총기 시트처럼 캔버스가 다르면 visual.center로 덮는다. */
 const SPRITE_CENTER = 16;
 const DEFAULT_SPRITE_CENTER: Point = { x: SPRITE_CENTER, y: SPRITE_CENTER };
-/** 총기 시트 캔버스(128×64)의 중심. */
-const GUN_SHEET_CENTER: Point = { x: 64, y: 32 };
+/**
+ * 신규 무기 시트(weapons_new.aseprite, 235×62)의 중심. 근접·원거리 18종이 전부 이
+ * 캔버스에 **수평·우향**으로 그려져 있어서, 축은 대부분 y가 같은 두 점이면 된다.
+ */
+const WEAPON_SHEET_CENTER: Point = { x: 117.5, y: 31 };
 
 /** 근접 무기 휘두르기 파라미터. 시간 비율은 전부 SWING_DURATION_MS 기준이다. */
 interface MeleeSwing {
@@ -75,6 +78,12 @@ export interface WeaponVisual {
   /** ranged 전용: 총구 끝(스프라이트 좌표) */
   muzzle?: Point;
   melee?: MeleeSwing;
+  /**
+   * 캔버스 안에서 **그림이 실제로 차지하는 사각형**(불투명 픽셀의 경계). 무기 18종이
+   * 235×62 캔버스를 공유해서, 인벤토리 아이콘을 캔버스 크기로 맞추면 작은 무기(권총)가
+   * 여백까지 칸을 차지해 3분의 1로 쪼그라든다. 아이콘 배율은 이 값을 쓴다.
+   */
+  artBounds?: { x: number; y: number; width: number; height: number };
 }
 
 /**
@@ -189,15 +198,18 @@ function toolVisual(frame: string): WeaponVisual {
  * 그려진 총구가 **항상** 총알이 생기는 자리와 같아진다.
  */
 function gunVisual(
+  weaponId: string,
   frame: string,
   grip: Point,
   axis: [Point, Point],
   scale: number,
+  center: Point,
+  handCount = 2,
 ): WeaponVisual {
   const [near, tip] = axis;
   const pivot = projectOntoAxis(grip, near, tip);
   const muzzleDistance = Math.hypot(tip.x - pivot.x, tip.y - pivot.y) * scale;
-  const muzzleOffset = weaponsData[weaponIdOfFrame(frame)]?.muzzleOffset ?? muzzleDistance;
+  const muzzleOffset = weaponsData[weaponId]?.muzzleOffset ?? muzzleDistance;
 
   return measured({
     frame,
@@ -207,7 +219,8 @@ function gunVisual(
     // 총이 몸 안으로 파고들지는 않게 최소 거리는 남긴다. 여기에 걸린다는 건
     // muzzleOffset이 그림보다 너무 짧다는 뜻이라 데이터를 다시 재야 한다.
     orbitRadius: Math.max(MIN_GUN_ORBIT_RADIUS, muzzleOffset - muzzleDistance),
-    center: GUN_SHEET_CENTER,
+    center,
+    handCount,
     ranged: true,
   });
 }
@@ -216,12 +229,87 @@ function gunVisual(
 const MIN_GUN_ORBIT_RADIUS = 6;
 
 /**
- * 총기 프레임 이름(`weapons_rifle_0`)에서 weapons.json의 key를 뽑는다. 표를 만들 때만
- * 쓰는 보조라 규약(시트이름_태그_프레임)에 기대는 정도로 충분하다.
+ * 신규 시트 무기들의 불투명 픽셀 경계. grip/axis와 같은 측정 패스에서 나온 값이라
+ * 여기 함께 둔다 — 스프라이트를 다시 그리면 이 표도 같이 다시 재야 한다.
  */
-function weaponIdOfFrame(frame: string): string {
-  return frame.replace(/^weapons_/, '').replace(/_\d+$/, '');
+const PACK_ART_BOUNDS: Record<string, { x: number; y: number; width: number; height: number }> = {
+  bat: { x: 3, y: 11, width: 199, height: 35 },
+  stone_spear: { x: 0, y: 19, width: 231, height: 29 },
+  fire_axe: { x: 4, y: 0, width: 176, height: 62 },
+  knife: { x: 1, y: 13, width: 147, height: 38 },
+  machete: { x: 7, y: 20, width: 204, height: 27 },
+  tomahauk: { x: 3, y: 1, width: 148, height: 61 },
+  beamsword: { x: 0, y: 16, width: 235, height: 24 },
+  slingshot: { x: 5, y: 1, width: 72, height: 61 },
+  crossbow: { x: 8, y: 0, width: 182, height: 61 },
+  rifle: { x: 6, y: 9, width: 226, height: 45 },
+  revolver: { x: 3, y: 5, width: 92, height: 52 },
+  handgun: { x: 10, y: 7, width: 76, height: 51 },
+  smg: { x: 2, y: 0, width: 114, height: 62 },
+  double_barrel_shotgun: { x: 4, y: 11, width: 220, height: 46 },
+  assault_rifle: { x: 2, y: 1, width: 185, height: 61 },
+  pump_shotgun: { x: 9, y: 10, width: 200, height: 44 },
+  sniper_rifle: { x: 0, y: 3, width: 235, height: 54 },
+  minigun: { x: 4, y: 2, width: 169, height: 56 },
+};
+
+/**
+ * 신규 시트(235×62)의 원거리 무기. 프레임 이름은 태그에서 유도한다
+ * (build-atlas의 `{파일}_{태그}_{프레임}` 규약).
+ */
+function packGun(
+  weaponId: string,
+  grip: Point,
+  axis: [Point, Point],
+  scale: number,
+  handCount = 2,
+): WeaponVisual {
+  return {
+    ...gunVisual(
+      weaponId,
+      `weapons_new_${weaponId}_0`,
+      grip,
+      axis,
+      scale,
+      WEAPON_SHEET_CENTER,
+      handCount,
+    ),
+    artBounds: PACK_ART_BOUNDS[weaponId],
+  };
 }
+
+/**
+ * 신규 시트의 근접 무기. 총구가 없으니 궤도 반경을 직접 준다 —
+ * 근접은 서버 판정(range)이 스윙 이펙트로 표현되지, 발사 지점과 맞출 대상이 없다.
+ */
+function packMelee(
+  weaponId: string,
+  grip: Point,
+  axis: [Point, Point],
+  scale: number,
+  orbitRadius = MELEE_ORBIT_RADIUS,
+  handCount = 2,
+): WeaponVisual {
+  return {
+    ...measured({
+      frame: `weapons_new_${weaponId}_0`,
+      grip,
+      axis,
+      scale,
+      orbitRadius,
+      center: WEAPON_SHEET_CENTER,
+      handCount,
+      ranged: false,
+    }),
+    artBounds: PACK_ART_BOUNDS[weaponId],
+  };
+}
+
+/**
+ * 근접 무기를 몸에서 띄우는 기본 거리(px). 측정 스크립트가 무기 길이를 정할 때 쓴
+ * 값과 같다 — 여기와 weapons.json의 range가 "그린 길이 ≈ 판정 사거리"로 맞물린다.
+ */
+const MELEE_ORBIT_RADIUS = 9;
 
 export const WEAPON_VISUALS: Record<string, WeaponVisual> = {
   /**
@@ -251,28 +339,73 @@ export const WEAPON_VISUALS: Record<string, WeaponVisual> = {
   hammer_t1: toolVisual('hammer_stone_hammer_0'),
   hammer_t2: toolVisual('hammer_iron_hammer_0'),
 
-  // --- 총기: 상점에서 파는 것들 ---
-  // 권총·매그넘은 총열이 **수평**이다(손잡이만 아래로 내려온다).
-  pistol: gunVisual('weapons_pistol_0', { x: 42, y: 36 }, [{ x: 60, y: 13 }, { x: 106, y: 13 }], 0.22),
-  magnum: gunVisual('weapons_magnum_0', { x: 42, y: 36 }, [{ x: 60, y: 21 }, { x: 96, y: 21 }], 0.3),
-  // 소총·산탄총·미니건은 총열이 우상단으로 기울어져 그려져 있다.
-  rifle: gunVisual('weapons_rifle_0', { x: 46, y: 40 }, [{ x: 75, y: 22 }, { x: 122, y: 5 }], 0.25),
-  shotgun: gunVisual('weapons_shotgun_0', { x: 50, y: 38 }, [{ x: 60, y: 30 }, { x: 102, y: 4 }], 0.28),
-  minigun: gunVisual('weapons_minigun_0', { x: 24, y: 44 }, [{ x: 56, y: 30 }, { x: 104, y: 6 }], 0.29),
+  // --- 근접(신규 시트). grip/axis는 원본의 불투명 픽셀에서 잰 값이다 ---
+  bat: packMelee('bat', { x: 27, y: 32 }, [{ x: 27, y: 32 }, { x: 201, y: 31 }], 0.216),
+  stone_spear: packMelee(
+    'stone_spear',
+    { x: 58, y: 33 },
+    [{ x: 58, y: 33 }, { x: 230, y: 32 }],
+    0.32,
+  ),
+  fire_axe: packMelee('fire_axe', { x: 38, y: 32 }, [{ x: 38, y: 32 }, { x: 172, y: 30 }], 0.244),
+  // 나이프는 한 손 무기다 — 두 손을 그리면 짧은 칼자루에 손이 겹쳐 붙는다.
+  knife: packMelee('knife', { x: 19, y: 32 }, [{ x: 19, y: 32 }, { x: 147, y: 31 }], 0.153, 9, 1),
+  machete: packMelee('machete', { x: 31, y: 30 }, [{ x: 31, y: 30 }, { x: 210, y: 25 }], 0.219),
+  tomahauk: packMelee('tomahauk', { x: 25, y: 26 }, [{ x: 25, y: 26 }, { x: 150, y: 30 }], 0.243),
+  beamsword: packMelee(
+    'beamsword',
+    { x: 28, y: 32 },
+    [{ x: 28, y: 32 }, { x: 234, y: 32 }],
+    0.246,
+  ),
 
-  // 빔소드는 근접이다 — 같은 시트지만 총구가 없고, 손잡이가 곧 축의 시작이다.
-  beamsword: measured({
-    frame: 'weapons_beamsword_0',
-    grip: { x: 40, y: 55 },
-    axis: [
-      { x: 40, y: 55 },
-      { x: 95, y: 3 },
-    ],
-    scale: 0.32,
-    orbitRadius: 10,
-    center: GUN_SHEET_CENTER,
-    ranged: false,
-  }),
+  // --- 원거리(신규 시트). 축은 총열 높이의 수평선이라 near.y = tip.y다 ---
+  // 새총만 세로 구도(Y자가 위를 향한다) — 축도 그대로 위로 잡는다.
+  slingshot: packGun('slingshot', { x: 57, y: 45 }, [{ x: 57, y: 50 }, { x: 62, y: 6 }], 0.312),
+  crossbow: packGun('crossbow', { x: 62, y: 38 }, [{ x: 62, y: 35 }, { x: 189, y: 35 }], 0.257),
+  rifle: packGun('rifle', { x: 84, y: 38 }, [{ x: 84, y: 15 }, { x: 231, y: 15 }], 0.246),
+  revolver: packGun('revolver', { x: 14, y: 38 }, [{ x: 14, y: 11 }, { x: 94, y: 11 }], 0.244, 1),
+  handgun: packGun('handgun', { x: 22, y: 40 }, [{ x: 22, y: 15 }, { x: 85, y: 15 }], 0.257, 1),
+  smg: packGun('smg', { x: 39, y: 41 }, [{ x: 39, y: 14 }, { x: 115, y: 14 }], 0.223),
+  double_barrel_shotgun: packGun(
+    'double_barrel_shotgun',
+    { x: 66, y: 40 },
+    [{ x: 66, y: 16 }, { x: 223, y: 16 }],
+    0.235,
+  ),
+  assault_rifle: packGun(
+    'assault_rifle',
+    { x: 82, y: 40 },
+    [{ x: 82, y: 20 }, { x: 186, y: 20 }],
+    0.233,
+  ),
+  pump_shotgun: packGun(
+    'pump_shotgun',
+    { x: 74, y: 40 },
+    [{ x: 74, y: 15 }, { x: 208, y: 15 }],
+    0.252,
+  ),
+  sniper_rifle: packGun(
+    'sniper_rifle',
+    { x: 76, y: 40 },
+    [{ x: 76, y: 23 }, { x: 234, y: 23 }],
+    0.29,
+  ),
+  minigun: packGun('minigun', { x: 51, y: 45 }, [{ x: 51, y: 34 }, { x: 172, y: 34 }], 0.332),
+
+  /**
+   * 표창은 팩에 없어서 생성기로 만들었다(assets/_generators/weapon_shuriken.lua).
+   * 64×64 4날 별이라 중심이 곧 그립이고, 축은 중심에서 오른쪽 날 끝까지다.
+   */
+  shuriken: gunVisual(
+    'shuriken',
+    'weapon_shuriken_idle_0',
+    { x: 32, y: 32 },
+    [{ x: 32, y: 32 }, { x: 58, y: 32 }],
+    0.3,
+    { x: 32, y: 32 },
+    1,
+  ),
 };
 
 // weapons.json이 근접이라고 한 무기에만 휘두르기 값을 붙인다. 두 곳에 같은 숫자를
@@ -287,6 +420,55 @@ export const DEFAULT_WEAPON_ID = 'fist';
 
 export function weaponVisual(weaponId: string): WeaponVisual {
   return WEAPON_VISUALS[weaponId] ?? WEAPON_VISUALS[DEFAULT_WEAPON_ID];
+}
+
+/** 손에 든 일반 아이템을 그릴 때의 목표 크기(px). 맨손보다 조금 크게 잡아 눈에 띈다. */
+const HELD_ITEM_TARGET = 16;
+
+/** 만든 시각 정보를 아이템 id로 캐시한다 — 프레임마다 새로 만들면 GC가 계속 돈다. */
+const heldItemCache = new Map<string, WeaponVisual>();
+
+/**
+ * 무기가 아닌 아이템(붕대·재료·건축물 등)을 손에 든 모습.
+ *
+ * 예전엔 무기가 아니면 전부 맨손으로 그려서, 붕대를 들었는지 돌을 들었는지 화면에서
+ * 알 수 없었다. 무기와 **같은 배치 규칙**(궤도·회전·휘두르기)에 얹으면 별도 코드 없이
+ * 조준 방향을 따라 돌고 공격 모션도 그대로 나온다 — 맨손 공격과 같은 효과라는 점이
+ * 그림으로도 이어진다.
+ *
+ * 크기는 아이템마다 원본 캔버스가 제각각이라(재료 64px, 소모품 32px, 건축물 32px)
+ * 그림이 실제로 차지하는 영역을 기준으로 목표 크기에 맞춘다.
+ */
+export function heldItemVisual(
+  scene: Phaser.Scene,
+  itemId: string,
+  frame: string,
+): WeaponVisual {
+  const cached = heldItemCache.get(itemId);
+  if (cached) return cached;
+
+  const source = scene.textures.get(GAME_ATLAS).get(frame);
+  const size = Math.max(source.width, source.height);
+  const centre = { x: source.width / 2, y: source.height / 2 };
+
+  const visual: WeaponVisual = {
+    ...measured({
+      frame,
+      // 손은 그림 한가운데를 쥔다. 아이템마다 손잡이가 어디인지 알 수 없으니 가운데가
+      // 가장 덜 어색하다.
+      grip: centre,
+      axis: [centre, { x: centre.x + size / 2, y: centre.y }],
+      scale: HELD_ITEM_TARGET / size,
+      orbitRadius: 12,
+      center: centre,
+      handCount: 1,
+      ranged: false,
+    }),
+    // 맨손과 같은 휘두르기 값을 쓴다 — 판정도 맨손(fist)이라 그림과 규칙이 맞는다.
+    melee: WEAPON_VISUALS[DEFAULT_WEAPON_ID]!.melee,
+  };
+  heldItemCache.set(itemId, visual);
+  return visual;
 }
 
 // ---------------------------------------------------------------- 에셋 유무
