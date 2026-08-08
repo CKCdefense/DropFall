@@ -61,6 +61,7 @@
 | [frontend/13-work-report-core-hub-tabs.md](frontend/13-work-report-core-hub-tabs.md) | 작업 보고서 — 코어 창을 상단 탭 구조로 재설계(9-slice 돌 프레임, 그리드 레이아웃) |
 | [frontend/14-work-report-bottom-bar-and-character.md](frontend/14-work-report-bottom-bar-and-character.md) | 작업 보고서 — 하단 퀵슬롯 확대와 체력·스태미나 막대 통합, 캐릭터 정보 창 |
 | [frontend/15-work-report-consumable-fx-and-melee-scale.md](frontend/15-work-report-consumable-fx-and-melee-scale.md) | 작업 보고서 — 소모품 사용 이펙트(회복/버프/스탯) 연결, 근접 무기 일괄 축소, 휘두르기 이펙트 좌우 반전 수정 |
+| [frontend/16-work-report-solo-setup-and-companion-toggle.md](frontend/16-work-report-solo-setup-and-companion-toggle.md) | 작업 보고서 — 혼자하기 직업 선택 모달, 멀티·싱글 티모시 켜고 끄기 |
 
 ## 한 줄 요약
 

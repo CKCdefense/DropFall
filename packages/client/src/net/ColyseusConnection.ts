@@ -101,6 +101,8 @@ interface RemoteGameState {
   roomCode: string;
   roomName: string;
   hasPassword: boolean;
+  /** 방을 만들 때 정한 티모시 사용 여부(GameRoomState.companionEnabled). */
+  companionEnabled: boolean;
   phase: string;
   hostSessionId: string;
   coreHp: number;
@@ -547,6 +549,8 @@ export class ColyseusConnection implements GameConnection {
       phase: (state?.phase as RoomPhase) ?? RoomPhaseValue.LOBBY,
       players,
       amHost: hostId === this.room.sessionId,
+      // 스키마가 아직 안 왔을 때는 켜져 있다고 본다 — 기본값이 켬이라 그 편이 덜 놀랍다.
+      companionEnabled: state?.companionEnabled !== false,
     };
   }
 

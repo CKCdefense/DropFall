@@ -575,10 +575,12 @@ export class HudScene extends Phaser.Scene {
           (drop) => Math.hypot(drop.x - me.x, drop.y - me.y) <= PICKUP_RADIUS,
         )
       : false;
-    this.nearCompanion = me
-      ? Math.hypot(snapshot.companion.x - me.x, snapshot.companion.y - me.y) <=
-        companionData.interactRange
-      : false;
+    // 티모시가 없는 방에서는 상호작용 안내도 뜨면 안 된다 — 누를 대상이 없다.
+    this.nearCompanion =
+      me && snapshot.companion.state !== 'absent'
+        ? Math.hypot(snapshot.companion.x - me.x, snapshot.companion.y - me.y) <=
+          companionData.interactRange
+        : false;
     if (this.coreModal.isOpen()) this.coreModal.setStorageSlots(status.coreStorage);
   }
 

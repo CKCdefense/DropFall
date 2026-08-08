@@ -518,6 +518,12 @@ let nextDropId = 1;
 export interface WorldOptions {
   /** 자원 노드 군집 배치에 쓰는 RNG. 테스트에서 결정론적으로 검증하려고 주입한다(wave.ts와 동일 패턴). */
   rng?: () => number;
+  /**
+   * AI 동반자(티모시)를 둘지. 방을 만들 때 정하고 도중에 바뀌지 않는다 —
+   * 게임이 시작된 뒤 티모시가 생기거나 사라지면 자원 수급과 어그로가 통째로 달라진다.
+   * 기본값은 켬(기존 동작).
+   */
+  companion?: boolean;
 }
 
 export class World {
@@ -583,6 +589,17 @@ export class World {
    * 기다릴 필요가 없다.
    */
   private companion: CompanionEntity = createCompanion(0, 0);
+
+  /**
+   * 티모시가 지금 "거기 있는가". 몬스터 표적·피해·수확·상호작용이 전부 이 하나를 본다.
+   *
+   * 예전엔 자리마다 `state !== 'downed'`를 직접 적었는데, 방 설정으로 끄는 기능이
+   * 생기면서 확인할 것이 둘이 됐다. 한 곳이라도 빠지면 없는 티모시를 몬스터가 때리러
+   * 가는 식으로 조용히 어긋난다.
+   */
+  private companionActive(): boolean {
+    return this.companion.state !== 'downed' && this.companion.state !== 'absent';
+  }
   /**
    * 콜로니가 차지한 그리드 셀("cx,cy" 키) 집합. 콜로니는 위치가 절대 안 바뀌고,
    * 정화돼도 구조물은 남으므로(재설계 후 "파괴" 개념이 없다) 배치 시점
@@ -633,6 +650,9 @@ export class World {
 
   constructor(options: WorldOptions = {}) {
     this.rng = options.rng ?? Math.random;
+    // 티모시를 끈 방에서는 'absent'로 세워 둔다. 이 상태는 게임 내내 바뀌지 않으므로
+    // 이후 모든 판정이 companionActive() 하나로 걸러진다.
+    if (options.companion === false) this.companion.state = 'absent';
     // 콜로니는 여기서 아직 안 만든다 — 접속 인원수가 몇 명일지는 생성 시점엔 알 수
     // 없다(서버는 로비가 끝나야 확정된다). 인원이 확정되면 호출자가 startColonies()를
     // 명시적으로 불러야 한다(docs/backend/41).
@@ -1647,6 +1667,7 @@ export class World {
    * 아무 효과 없다.
    */
   private reviveCompanion(): void {
+    if (this.companion.state === 'absent') return;
     const wasDowned = this.companion.state === 'downed';
     this.companion.hp = this.companion.maxHp;
     if (!wasDowned) return;
@@ -1939,6 +1960,7 @@ export class World {
    * 플레이어를 향해 말한다. 정상 진행(tick)과 개발 커맨드(day)가 같은 함수를 쓴다.
    */
   private enqueueCompanionWaveEndEvent(): void {
+    if (!this.companionActive()) return;
     const nearestId = this.findNearestPlayerId(this.companion.x, this.companion.y);
     if (nearestId) this.enqueueCompanionPersonaEvent('waveEnd', nearestId);
   }
@@ -1962,6 +1984,7 @@ export class World {
   requestCompanionInteraction(playerId: string): boolean {
     const player = this.players.get(playerId);
     if (!player || player.hp <= 0) return false;
+    if (!this.companionActive()) return false;
     const distance = Math.hypot(player.x - this.companion.x, player.y - this.companion.y);
     if (distance > companionData.interactRange) return false;
     this.enqueueCompanionPersonaEvent('proximityInteract', playerId);
@@ -1978,6 +2001,8 @@ export class World {
    */
   sendCompanionMessage(playerId: string, message: string): boolean {
     if (!this.players.has(playerId)) return false;
+    // 없는 티모시에게 말을 걸면 조용히 무시한다 — 답이 돌아오지 않는 게 맞다.
+    if (this.companion.state === 'absent') return false;
     const cooldown = companionData.persona.playerMessageCooldownSeconds;
     if (this.elapsedSeconds - this.lastCompanionMessageAt < cooldown) {
       if (this.queuedCompanionMessages.length >= World.MAX_QUEUED_COMPANION_MESSAGES) return false;
@@ -2461,7 +2486,7 @@ export class World {
       }
       case 'companion': {
         if (
-          this.companion.state !== 'downed' &&
+          this.companionActive() &&
           inRange(this.companion.x, this.companion.y, HIT_RADIUS)
         ) {
           this.damageCompanion(data.damage);
@@ -2490,7 +2515,7 @@ export class World {
     // 휘두른 자리에 티모시가 서 있으면 함께 맞는다 — 노린 대상은 아니지만 칼이 지나간다.
     if (
       target.kind !== 'companion' &&
-      this.companion.state !== 'downed' &&
+      this.companionActive() &&
       inRange(this.companion.x, this.companion.y, HIT_RADIUS)
     ) {
       this.damageCompanion(data.damage);
@@ -2725,7 +2750,7 @@ export class World {
    */
   private tickCompanion(dtSeconds: number): void {
     const companion = this.companion;
-    if (companion.state === 'downed') return;
+    if (!this.companionActive()) return;
 
     if (companion.state === 'seeking') {
       const node = this.findNearestHarvestableNode(companion.x, companion.y);
@@ -2800,6 +2825,7 @@ export class World {
   }
 
   private damageCompanion(amount: number): void {
+    if (!this.companionActive()) return;
     this.companion.hp = Math.max(0, this.companion.hp - amount);
     if (this.companion.hp <= 0) {
       this.companion.state = 'downed';
@@ -2900,7 +2926,7 @@ export class World {
       // (resolveAggroTarget) 여기서 따로 봐 주지 않으면, 몬스터가 티모시를 그대로
       // 지나쳐 코어만 때리게 된다.
       if (
-        this.companion.state !== 'downed' &&
+        this.companionActive() &&
         Math.hypot(this.companion.x - monster.x, this.companion.y - monster.y) <=
           data.attackRange + HIT_RADIUS
       ) {
@@ -3068,7 +3094,7 @@ export class World {
     // 티모시는 **이미 검이 닿는 거리에 있을 때만** 노린다. 아그로 반경(수백 px)으로
     // 잡으면, 멀리 있는 티모시를 겨눈 채 사거리 밖이라 아무 기술도 못 쓰고, 그렇다고
     // 코어 앞이라 움직이지도 않는 교착에 빠진다(실제로 그랬다). 쫓아갈 대상은 사람뿐이다.
-    if (this.companion.state !== 'downed') {
+    if (this.companionActive()) {
       const distance = Math.hypot(this.companion.x - monster.x, this.companion.y - monster.y);
       const reach = Math.max(
         ...(data.meleeAttacks ?? []).flatMap((attack) => attack.hits.map((h) => h.range)),
@@ -3174,7 +3200,7 @@ export class World {
     }
 
     if (
-      this.companion.state !== 'downed' &&
+      this.companionActive() &&
       !pattern.dashHitIds.has('companion') &&
       hits(this.companion.x, this.companion.y)
     ) {
@@ -3260,7 +3286,7 @@ export class World {
       if (!withinMeleeArc(hit, player.x, player.y, HIT_RADIUS)) continue;
       this.damagePlayer(player, swing.damage);
     }
-    if (this.companion.state !== 'downed' && withinMeleeArc(hit, this.companion.x, this.companion.y, HIT_RADIUS)) {
+    if (this.companionActive() && withinMeleeArc(hit, this.companion.x, this.companion.y, HIT_RADIUS)) {
       this.damageCompanion(swing.damage);
     }
 

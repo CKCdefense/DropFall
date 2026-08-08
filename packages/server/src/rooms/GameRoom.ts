@@ -88,6 +88,12 @@ export class GameRoom extends Room {
   maxClients = MAX_CLIENTS_PER_ROOM;
   state = new GameRoomState();
 
+  /**
+   * 기본값(티모시 켬)으로 미리 세워 둔다. 방 옵션으로 티모시를 껐을 때만 onCreate가
+   * 다시 만든다 — 그 경우에만 자원 배치가 두 번 도는 셈인데, 방 하나당 한 번뿐이라
+   * 필드를 `world!: World`로 두고 "onCreate 전에는 없다"는 상태를 만드는 쪽보다 낫다.
+   * 아래 messages 핸들러는 전부 호출 시점에 `this.world`를 읽으므로 교체해도 안전하다.
+   */
   private world = new World();
   private readonly stepper = new FixedStepAccumulator(1 / TICK_RATE);
   /** 평문 보관. 게임 방 비밀번호는 계정 자격증명이 아니라 입장 키라 해싱하지 않는다. */
@@ -254,6 +260,10 @@ export class GameRoom extends Room {
     this.state.roomCode = this.roomId;
     this.state.roomName = roomName;
     this.state.hasPassword = this.password.length > 0;
+
+    // 티모시는 방 설정이다 — 아무도 안 들어온 지금 정해야 월드가 한 번만 세워진다.
+    this.state.companionEnabled = options?.companion !== false;
+    if (!this.state.companionEnabled) this.world = new World({ companion: false });
 
     // GET /rooms(방 목록)가 읽는 값. 비밀번호 자체는 절대 넣지 않는다.
     await this.setMetadata({

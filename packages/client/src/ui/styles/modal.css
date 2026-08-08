@@ -57,6 +57,15 @@
   --modal-ratio: 0.92;
 }
 
+/*
+ * 혼자하기 설정. 폼보다 넓다 — 직업 카드 네 장이 한 줄에 들어가야 하고, 세로로도
+ * 카드·체크박스·버튼 두 개가 쌓인다. .modal-form의 변수만 다시 덮는다.
+ */
+.modal-solo {
+  --modal-w: 480px;
+  --modal-ratio: 0.78;
+}
+
 /* 제목은 가운데. 폼은 좌우 대칭이라 제목만 왼쪽에 붙으면 축이 어긋나 보인다. */
 .modal-form .screen-head {
   justify-content: center;
@@ -119,8 +128,27 @@
 .modal[data-asset] .modal-loading,
 .modal[data-asset] .field-block > span,
 .modal[data-asset] .code-form-label,
+.modal[data-asset] .job-card-summary,
+.modal[data-asset] .checkbox-hint,
 .modal[data-asset] .hint {
   color: #3f4753;
+}
+
+/* 프레임 안쪽이 밝은 회색이라, 어두운 배경을 전제로 한 칸들은 테두리만 남긴다. */
+.modal[data-asset] .job-card,
+.modal[data-asset] .checkbox-box {
+  background: rgba(255, 255, 255, 0.35);
+  border-color: #8b94a3;
+}
+
+.modal[data-asset] .job-card.is-selected {
+  color: #1d5c39;
+  border-color: #1d5c39;
+}
+
+.modal[data-asset] .checkbox-input:checked + .checkbox-box {
+  background: #1d5c39;
+  border-color: #1d5c39;
 }
 
 .modal[data-asset] .room-code {

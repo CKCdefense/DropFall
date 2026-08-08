@@ -17,6 +17,13 @@ export interface CreateRoomOptions {
   roomName: string;
   /** 빈 문자열/미지정이면 공개 방 */
   password?: string;
+  /**
+   * AI 동반자(티모시)를 둘지. 미지정이면 켠다(기존 동작).
+   *
+   * **방을 만들 때만 정한다.** 티모시는 방당 1마리라 참가자가 각자 켜고 끌 수 있는
+   * 값이 아니고, 게임 도중에 바뀌면 자원 수급과 몬스터 어그로가 통째로 달라진다.
+   */
+  companion?: boolean;
 }
 
 export interface JoinRoomOptions {

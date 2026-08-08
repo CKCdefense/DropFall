@@ -278,3 +278,112 @@
     padding-right: 4px;
   }
 }
+
+/* ---------------------------------------------------- 혼자하기: 직업 카드 */
+
+/*
+ * 대기실은 이름만 적힌 칩(.job-chip)으로 직업을 고른다 — 이미 슬롯에 초상화가 크게
+ * 떠 있어서 칩까지 그림을 달 이유가 없다. 혼자하기는 이 모달 하나가 대기실 전체를
+ * 대신하므로, 고르는 자리에서 얼굴이 보여야 한다.
+ */
+.job-cards {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--gap-sm);
+}
+
+.job-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 4px;
+  color: inherit;
+  font: inherit;
+  background: rgba(10, 12, 17, 0.5);
+  border: calc(2px * var(--px)) solid var(--panel-line);
+  cursor: pointer;
+}
+
+.job-card:hover {
+  border-color: var(--panel-line-strong);
+}
+
+.job-card.is-selected {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* 카드 안에서는 초상화를 한 단계 작게 — 네 장이 한 줄에 들어가야 한다. */
+.job-card-portrait {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  min-height: calc(32px * 2);
+}
+
+.job-card-portrait .portrait {
+  --portrait-scale: 2;
+}
+
+.job-card-name {
+  font-size: 13px;
+}
+
+.job-card-summary {
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+/* ------------------------------------------------------------- 체크박스 */
+
+/*
+ * 브라우저 기본 체크박스는 OS마다 생김새가 달라 픽셀아트 화면에서 혼자 튄다.
+ * 진짜 input은 숨기지 않고 투명하게 겹쳐 둔다 — 키보드 포커스와 스페이스 토글,
+ * 라벨 클릭이 전부 공짜로 따라온다.
+ */
+.checkbox-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--gap-sm);
+  cursor: pointer;
+}
+
+.checkbox-input {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.checkbox-box {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  background: rgba(10, 12, 17, 0.5);
+  border: calc(2px * var(--px)) solid var(--panel-line);
+}
+
+.checkbox-input:checked + .checkbox-box {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.checkbox-input:focus-visible + .checkbox-box {
+  outline: 2px solid var(--accent-dim);
+  outline-offset: 2px;
+}
+
+.checkbox-text {
+  display: flex;
+  flex-direction: column;
+  font-size: 13px;
+}
+
+.checkbox-hint {
+  color: var(--text-dim);
+  font-size: 11px;
+}
