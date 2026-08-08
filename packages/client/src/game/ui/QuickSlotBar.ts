@@ -23,9 +23,9 @@ import {
  * 화면 아래에 있다는 것 외엔 존재감이 없었다. 인벤토리는 전투 중에 곁눈질로 읽는
  * 물건이라 크게 잡는다.
  */
-const SLOT_SIZE = 116;
+const SLOT_SIZE = 100;
 /** 아이콘이 칸을 꽉 채우면 테두리·개수와 겹친다. 양쪽에 여백을 남긴다. */
-const ICON_INSET = 24;
+const ICON_INSET = 20;
 const SLOT_GAP = 8;
 const SELECTED_STROKE = 0x6fd08c;
 
@@ -33,7 +33,7 @@ const SELECTED_STROKE = 0x6fd08c;
 const HOVER_STROKE = 0x6fd08c;
 
 /** 칸 위에 얹히는 체력·스태미나 막대의 높이와 칸과의 간격. */
-const BAR_HEIGHT = 16;
+const BAR_HEIGHT = 24;
 const BAR_GAP = 8;
 
 /** 바 아래쪽에 남기는 여백(HudScene이 slotsBottom을 잡을 때 쓰는 값과 같다). */
@@ -203,19 +203,19 @@ export class QuickSlotBar {
         .setPosition(x + size - 5 * scale, top + size - 4 * scale);
     }
 
-    // 막대는 칸 위에 얹힌다. 슬롯 넷을 반씩 나눠 덮어서 어느 칸 위인지가 아니라
-    // "내 몸 상태 두 가지"로 읽히게 한다(와이어프레임).
-    const slotsWidth = size * this.slotCount + gap * (this.slotCount - 1);
-    const barWidth = (slotsWidth - gap) / 2;
+    // 막대는 **줄 전체**(직업 버튼 포함)를 반씩 나눠 덮는다. 슬롯 위에만 얹으면 왼쪽
+    // 버튼 위가 비어서 줄이 두 조각으로 끊겨 보인다 — 체력·스태미나는 특정 칸에
+    // 딸린 값이 아니라 "내 몸 상태"라 줄 전체를 덮는 게 맞다.
+    const barWidth = (totalWidth - gap) / 2;
     const barTop = top - barGap - barHeight;
     this.barsTop = barTop;
-    this.barsRight = slotsX + slotsWidth;
+    this.barsRight = startX + totalWidth;
 
-    this.hpBack.setSize(barWidth, barHeight).setPosition(slotsX, barTop);
-    this.hpFill.setSize(barWidth, barHeight).setPosition(slotsX, barTop);
-    this.hpLabel.setFontSize(SIZE_SMALL * scale).setPosition(slotsX + barWidth / 2, barTop + barHeight / 2);
+    this.hpBack.setSize(barWidth, barHeight).setPosition(startX, barTop);
+    this.hpFill.setSize(barWidth, barHeight).setPosition(startX, barTop);
+    this.hpLabel.setFontSize(SIZE_SMALL * scale).setPosition(startX + barWidth / 2, barTop + barHeight / 2);
 
-    const staminaX = slotsX + barWidth + gap;
+    const staminaX = startX + barWidth + gap;
     this.staminaBack.setSize(barWidth, barHeight).setPosition(staminaX, barTop);
     this.staminaFill.setSize(barWidth, barHeight).setPosition(staminaX, barTop);
     this.staminaLabel

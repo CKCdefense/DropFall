@@ -32,6 +32,7 @@ interface EquippedItem {
 function readEquipped(self: PlayerView): EquippedItem {
   const item = itemOfSlot(self.slots[self.selectedSlot]);
   if (item?.kind === 'consumable') return { kind: 'consumable', weaponId: undefined };
+  if (item?.kind === 'building') return { kind: 'building', weaponId: undefined };
   return { kind: 'weapon', weaponId: item?.weaponId ?? BARE_HANDS_WEAPON_ID };
 }
 
@@ -173,8 +174,7 @@ export class InputController {
         return;
       }
       if (pointer.leftButtonDown()) {
-        const world = this.scene.cameras.main.getWorldPoint(pointer.x, pointer.y);
-        const { cx, cy } = worldToCell(world.x, world.y);
+        const { cx, cy } = this.cursorCell();
         if (this.buildMode === 'demolish') {
           this.connection.demolishBuilding(cx, cy);
         } else {
@@ -182,6 +182,23 @@ export class InputController {
         }
       }
     });
+  }
+
+  /**
+   * 지금 커서가 가리키는 격자 칸.
+   *
+   * 조준(updateAim)과 달리 **ACTION_PLANE_Y 보정을 하지 않는다** — 건축물은 캐릭터·총알이
+   * 올라간 전투 평면이 아니라 바닥에 놓이므로, 커서가 가리키는 바닥 칸이 그대로 정답이다.
+   */
+  cursorCell(): { cx: number; cy: number } {
+    const pointer = this.scene.input.activePointer;
+    const world = this.scene.cameras.main.getWorldPoint(pointer.x, pointer.y);
+    return worldToCell(world.x, world.y);
+  }
+
+  /** 지금 손에 든 것의 종류. HUD가 설치 미리보기를 띄울지 정할 때 쓴다. */
+  get equippedKind(): ItemKind | null {
+    return this.equipped.kind;
   }
 
   get buildMode(): BuildMode {
@@ -240,6 +257,14 @@ export class InputController {
       // 소모품은 홀드로 연타되면 순식간에 다 없어진다 — 한 번 쓰고 버튼을 뗄 때까지 막는다.
       this.fireTimer = Infinity;
       this.connection.useSlot();
+      return;
+    }
+
+    if (kind === 'building') {
+      // 건축물도 홀드 연타를 막는다 — 커서를 조금 움직이는 사이에 인벤토리가 비어버린다.
+      this.fireTimer = Infinity;
+      const cell = this.cursorCell();
+      this.connection.placeHeldBuilding(cell.cx, cell.cy);
       return;
     }
 

@@ -121,6 +121,10 @@ export class LocalConnection implements GameConnection {
     this.world.moveItem(LOCAL_SESSION_ID, from, fromIndex, to, toIndex);
   }
 
+  placeHeldBuilding(cx: number, cy: number): void {
+    this.world.placeHeldBuilding(LOCAL_SESSION_ID, cx, cy);
+  }
+
   discardStorageItem(index: number): void {
     this.world.discardFromStorage(LOCAL_SESSION_ID, index);
   }

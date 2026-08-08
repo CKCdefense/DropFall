@@ -422,6 +422,55 @@ export function weaponVisual(weaponId: string): WeaponVisual {
   return WEAPON_VISUALS[weaponId] ?? WEAPON_VISUALS[DEFAULT_WEAPON_ID];
 }
 
+/** 손에 든 일반 아이템을 그릴 때의 목표 크기(px). 맨손보다 조금 크게 잡아 눈에 띈다. */
+const HELD_ITEM_TARGET = 16;
+
+/** 만든 시각 정보를 아이템 id로 캐시한다 — 프레임마다 새로 만들면 GC가 계속 돈다. */
+const heldItemCache = new Map<string, WeaponVisual>();
+
+/**
+ * 무기가 아닌 아이템(붕대·재료·건축물 등)을 손에 든 모습.
+ *
+ * 예전엔 무기가 아니면 전부 맨손으로 그려서, 붕대를 들었는지 돌을 들었는지 화면에서
+ * 알 수 없었다. 무기와 **같은 배치 규칙**(궤도·회전·휘두르기)에 얹으면 별도 코드 없이
+ * 조준 방향을 따라 돌고 공격 모션도 그대로 나온다 — 맨손 공격과 같은 효과라는 점이
+ * 그림으로도 이어진다.
+ *
+ * 크기는 아이템마다 원본 캔버스가 제각각이라(재료 64px, 소모품 32px, 건축물 32px)
+ * 그림이 실제로 차지하는 영역을 기준으로 목표 크기에 맞춘다.
+ */
+export function heldItemVisual(
+  scene: Phaser.Scene,
+  itemId: string,
+  frame: string,
+): WeaponVisual {
+  const cached = heldItemCache.get(itemId);
+  if (cached) return cached;
+
+  const source = scene.textures.get(GAME_ATLAS).get(frame);
+  const size = Math.max(source.width, source.height);
+  const centre = { x: source.width / 2, y: source.height / 2 };
+
+  const visual: WeaponVisual = {
+    ...measured({
+      frame,
+      // 손은 그림 한가운데를 쥔다. 아이템마다 손잡이가 어디인지 알 수 없으니 가운데가
+      // 가장 덜 어색하다.
+      grip: centre,
+      axis: [centre, { x: centre.x + size / 2, y: centre.y }],
+      scale: HELD_ITEM_TARGET / size,
+      orbitRadius: 12,
+      center: centre,
+      handCount: 1,
+      ranged: false,
+    }),
+    // 맨손과 같은 휘두르기 값을 쓴다 — 판정도 맨손(fist)이라 그림과 규칙이 맞는다.
+    melee: WEAPON_VISUALS[DEFAULT_WEAPON_ID]!.melee,
+  };
+  heldItemCache.set(itemId, visual);
+  return visual;
+}
+
 // ---------------------------------------------------------------- 에셋 유무
 
 function hasFrame(scene: Phaser.Scene, frame: string): boolean {

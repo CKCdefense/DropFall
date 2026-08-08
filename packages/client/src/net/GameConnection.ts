@@ -266,6 +266,11 @@ export interface GameConnection {
    */
   discardStorageItem(index: number): void;
   /**
+   * 손에 든 건축 아이템을 이 칸에 설치한다. 무엇을 짓는지는 보내지 않는다 —
+   * 서버가 선택된 칸을 읽는다(무기와 같은 규칙).
+   */
+  placeHeldBuilding(cx: number, cy: number): void;
+  /**
    * 코어 업그레이드 요청. 다음 단계 비용을 팀 공유 에너지에서 차감하고 코어
    * 체력/건설 가능 반경/제작·스텟증가 해금을 한 번에 적용한다 — 서버가 비용/최고
    * 단계 여부를 판정한다.

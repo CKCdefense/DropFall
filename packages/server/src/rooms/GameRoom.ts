@@ -134,6 +134,10 @@ export class GameRoom extends Room {
       if (this.state.phase !== RoomPhase.PLAYING) return;
       this.world.quickMoveItem(client.sessionId, payload?.container, payload?.index);
     },
+    placeHeldBuilding: (client: Client, payload: { cx?: unknown; cy?: unknown }) => {
+      if (this.state.phase !== RoomPhase.PLAYING) return;
+      this.world.placeHeldBuilding(client.sessionId, payload?.cx, payload?.cy);
+    },
     discardStorageItem: (client: Client, payload: { index?: unknown }) => {
       if (this.state.phase !== RoomPhase.PLAYING) return;
       this.world.discardFromStorage(client.sessionId, payload?.index);

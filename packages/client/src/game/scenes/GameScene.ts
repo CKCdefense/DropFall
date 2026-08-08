@@ -28,6 +28,7 @@ import { DayNightOverlay } from '../render/DayNightOverlay';
 import { EntityRenderer } from '../render/EntityRenderer';
 import { queueGameAtlas } from '../render/playerSprite';
 import { queueUiFrames } from '../ui/uiFrame';
+import { PlacementPreview, holdsBuilding } from '../render/PlacementPreview';
 import { queueMonsterAtlas } from '../render/monsterSprite';
 import { TerrainLayer, hasTerrainTileset, queueTerrainTileset } from '../render/TerrainLayer';
 import { InputController } from '../input/InputController';
@@ -54,10 +55,12 @@ export class GameScene extends Phaser.Scene {
   private entityRenderer!: EntityRenderer;
   private terrain?: TerrainLayer;
   private dayNight!: DayNightOverlay;
+  /** 건축 아이템을 들었을 때 커서 칸을 비추는 표시. */
+  private placement!: PlacementPreview;
   private input_!: InputController;
   private isFollowing = false;
   private collisionDebugVisible = false;
-  /** 내 캐릭터 클라이언트 예측(docs/backend/53) — 첫 스냅샷에서 내 좌표로 지연 초기화한다. */
+  /** 내 캐릭터 클라이언트 예측(docs/backend/55) — 첫 스냅샷에서 내 좌표로 지연 초기화한다. */
   private predictor?: PlayerPredictor;
   /** `isBlocked`가 참조하는 최신 장애물 목록. 매 프레임 스냅샷에서 갱신한다. */
   private latestBuildings: BuildingView[] = [];
@@ -117,6 +120,7 @@ export class GameScene extends Phaser.Scene {
     });
     // 낮·밤 하늘. 모든 월드 오브젝트 위에 얹히는 화면 고정 오버레이라 depth로 관리한다.
     this.dayNight = new DayNightOverlay(this);
+    this.placement = new PlacementPreview(this);
     this.input_ = new InputController(
       this,
       this.connection,
@@ -189,14 +193,14 @@ export class GameScene extends Phaser.Scene {
     if (me) {
       // 재조정은 반드시 "같은 원본 패치"에서 나온 좌표/seq 쌍을 써야 한다 — 보간된
       // snapshot(me.x/me.y)은 두 패치를 섞은 값이라 lastProcessedSeq와 안 맞는다
-      // (docs/backend/54 후속 수정 — 미세한 버벅임의 원인이었다).
+      // (docs/backend/55 후속 수정 — 미세한 버벅임의 원인이었다).
       const raw = this.connection.getRawSelf();
       if (!this.predictor) this.predictor = new PlayerPredictor(raw?.x ?? me.x, raw?.y ?? me.y);
       if (raw) this.predictor.reconcile(raw.lastProcessedSeq, raw.x, raw.y, this.isBlocked);
       this.input_.update(delta, me);
       // position이 아니라 renderPosition — 입력 전송 주기(60Hz)와 렌더 주기(모니터
       // 주사율)가 어긋나는 프레임에도 계단식으로 안 보이게, 마지막 입력 방향으로
-      // 짧게 미리 내다본 값을 그린다(docs/backend/54 후속 수정).
+      // 짧게 미리 내다본 값을 그린다(docs/backend/55 후속 수정).
       const { x, y } = this.predictor.renderPosition(this.isBlocked);
       localOverride = { id: me.id, x, y };
     }
@@ -209,6 +213,13 @@ export class GameScene extends Phaser.Scene {
     this.dayNight.update(snapshot.status, this.cameras.main, delta, portableLights(snapshot));
 
     if (!me) return;
+
+    // 건축 아이템을 들고 있을 때만 커서 칸을 비춘다. 건축 모드(B)로도 같은 표시를 쓴다 —
+    // 두 경로가 결국 같은 칸에 같은 규칙으로 짓는데 표시가 다르면 헷갈린다.
+    // (input_.update는 위 예측 재조정 블록에서 이미 호출했다 — 두 번 부르지 않는다.)
+    const showPlacement = holdsBuilding(me) || this.input_.buildMode === 'fence' ||
+      this.input_.buildMode === 'wall';
+    this.placement.update(showPlacement ? this.input_.cursorCell() : null, snapshot, me);
 
     if (!this.isFollowing) {
       const sprite = this.entityRenderer.getSprite(me.id);

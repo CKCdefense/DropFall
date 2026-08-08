@@ -35,6 +35,14 @@ const MATERIAL_FRAME: Record<string, string> = {
   // 뽑으면 이 줄도 같이 바꿔야 한다).
   drop_normal: 'item_drop_normal__0',
   drop_rare: 'item_drop_rare_idle_0',
+  // 건축 배치품. 세워 놓은 모습(정면)을 그대로 아이콘으로 쓴다 — 인벤토리에서 본 그림과
+  // 바닥에 선 그림이 같아야 무엇을 세우는지 헷갈리지 않는다.
+  fence: 'wood_fence_front_0',
+  wall: 'wood_wall_front_0',
+  stone_fence: 'build_tier_stone_fence_front_0',
+  stone_wall: 'build_tier_stone_wall_front_0',
+  iron_fence: 'build_tier_iron_fence_front_0',
+  iron_wall: 'build_tier_iron_wall_front_0',
 };
 
 /** 그림이 실제로 차지하는 영역. 무기만 값이 있고, 나머지는 캔버스를 꽉 채워서 없어도 된다. */
