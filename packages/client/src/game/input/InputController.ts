@@ -60,14 +60,6 @@ function fireIntervalMs(weaponId: string | undefined): number {
   return weapon ? 1000 / weapon.fireRate : UNKNOWN_WEAPON_INTERVAL_MS;
 }
 
-/**
- * 건축모드에서 순환할 목록(docs/backend/18 §1 "B 건축모드 토글"). 'off'가
- * 항상 첫 자리라 B를 계속 누르면 결국 꺼진 상태로 돌아온다 — 별도 "나가기" 키가
- * 없어도 된다. 'demolish'(철거, docs/backend/43)는 건축물 타입이 아니라 별도
- * 동작이라 좌클릭 처리에서 따로 분기한다(§pointerdown).
- */
-const BUILD_MODES = ['off', 'fence', 'wall', 'demolish'] as const;
-type BuildMode = (typeof BUILD_MODES)[number];
 
 /**
  * WASD 이동 + 마우스 조준을 서버 입력 메시지로 바꿔 보낸다.
@@ -98,7 +90,6 @@ export class InputController {
   private seq = 0;
   private elapsed = 0;
   private aimAngle = 0;
-  private buildModeIndex = 0;
   /**
    * 지금 들고 있는 것. **스냅샷에서 받아온 값**이라 서버가 인정한 상태다 —
    * 클라이언트가 정하지 않는다(update에서 매 프레임 갱신).
@@ -162,11 +153,6 @@ export class InputController {
       });
     }
 
-    // 건축모드 순환(off → fence → wall → off...). 좌클릭은 건축모드일 때 설치로,
-    // 아닐 때는 기존처럼 사격으로 쓴다 — 두 조작이 같은 버튼을 나눠 쓰는 구조다.
-    keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.B).on('down', () => {
-      this.buildModeIndex = (this.buildModeIndex + 1) % BUILD_MODES.length;
-    });
 
     // 수동 재장전(R). 대상 무기·가득 여부 판정은 서버가 한다.
     keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.R).on('down', () => {
@@ -184,11 +170,6 @@ export class InputController {
       if (this.isPointerOverHud?.(pointer.x, pointer.y)) return;
 
       if (pointer.rightButtonDown()) {
-        // 건축모드에서는 우클릭이 "나가기"다 — 그게 더 급한 뜻이다.
-        if (this.buildMode !== 'off') {
-          this.buildModeIndex = 0;
-          return;
-        }
         /*
          * **소모품 사용은 우클릭이다.** 좌클릭 하나에 공격과 사용을 겹쳐 놓으면, 붕대를
          * 들고 몬스터를 때리는 것과 붕대를 쓰는 것을 구분할 방법이 없다.
@@ -198,16 +179,6 @@ export class InputController {
          * 쓸 수 없는 것을 들고 눌러도 서버가 조용히 무시한다.
          */
         this.connection.useSlot();
-        return;
-      }
-
-      if (pointer.leftButtonDown() && this.buildMode !== 'off') {
-        const { cx, cy } = this.cursorCell();
-        if (this.buildMode === 'demolish') {
-          this.connection.demolishBuilding(cx, cy);
-        } else {
-          this.connection.placeBuilding(this.buildMode, cx, cy);
-        }
       }
     });
 
@@ -243,10 +214,6 @@ export class InputController {
   /** 지금 손에 든 것의 종류. HUD가 설치 미리보기를 띄울지 정할 때 쓴다. */
   get equippedKind(): ItemKind | null {
     return this.equipped.kind;
-  }
-
-  get buildMode(): BuildMode {
-    return BUILD_MODES[this.buildModeIndex];
   }
 
   /**
@@ -290,10 +257,7 @@ export class InputController {
     this.clock += delta;
 
     const pointer = this.scene.input.activePointer;
-    const holding =
-      pointer.leftButtonDown() &&
-      this.buildMode === 'off' &&
-      !this.isPointerOverHud?.(pointer.x, pointer.y);
+    const holding = pointer.leftButtonDown() && !this.isPointerOverHud?.(pointer.x, pointer.y);
     if (!holding) {
       this.placedThisPress = false;
       return;

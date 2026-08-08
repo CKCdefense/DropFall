@@ -206,6 +206,12 @@ export interface WorldStatus {
   bossWarningRemaining: number;
   /** 현재 페이즈가 끝나기까지 남은 시간(초) */
   phaseTimeRemaining: number;
+  /**
+   * 이번 밤의 잡몹 총 마릿수와 남은 수(보스 제외). **낮에는 둘 다 0**이라 HUD가
+   * 이 값만 보고 몬스터 표시를 켜고 끈다.
+   */
+  waveMonsterTotal: number;
+  waveMonsterRemaining: number;
   /** 낮 스킵 투표 동의 인원. 필요 인원은 players.length(만장일치) */
   skipVoteCount: number;
   /** 코어 창고 슬롯. 인벤토리와 같은 구조(빈 칸은 null). */
@@ -321,15 +327,10 @@ export interface GameConnection {
   companionInteract(): void;
   /** 제작 요청. 티어·재료 검증은 서버가 한다. */
   craft(recipeId: string): void;
-  /** 창고의 재료를 상점에 판다(대금은 팀 자금으로). */
   /** 스탯 포인트 하나를 쓴다. 몇 점 남았는지 판단은 서버가 한다. */
   spendStatPoint(stat: 'maxHp' | 'attack' | 'stamina'): void;
   /** 상점에서 산다(물건은 창고로). */
   shopBuy(itemId: string): void;
-  /** 건축 요청. cx/cy는 그리드 셀 좌표(worldToCell로 미리 변환해서 넘긴다). */
-  placeBuilding(buildingType: string, cx: number, cy: number): void;
-  /** 철거 요청(건설모드의 'demolish', docs/backend/43). 자원 환급 없음. */
-  demolishBuilding(cx: number, cy: number): void;
   /** 매 프레임 호출된다. 구현체는 새 객체를 만들지 말고 내부 버퍼를 재사용할 것. */
   getSnapshot(): WorldSnapshot;
   /**

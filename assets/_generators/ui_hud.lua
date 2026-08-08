@@ -27,10 +27,10 @@
 --   hud_icon_bolt   12x12  스태미나 라벨
 --   hud_icon_skull  12x12  보스 바 라벨(소형)
 --   hud_icon_skull_l 16x16 보스전 대형 바 옆에 붙는 뿔 달린 해골
---   hud_icon_core   12x12  코어 결정 (core_cell 아이템과 같은 청록)
---   hud_icon_shield 12x12  코어 패널 — 내구도 게이지 표식
---   hud_icon_resource 12x12 코어 패널 — 자원 게이지 표식(널빤지 + 돌)
---   hud_icon_energy 12x12  코어 패널 — 에너지 게이지 표식(전지)
+--   hud_icon_orb    12x12  코어 패널 — 코어 표식(돌 받침 위 청록 발광체)
+--   hud_icon_resource 12x12 코어 패널 — 자원 표식(주황 광석 덩이)
+--   hud_icon_energy 12x12  코어 패널 — 에너지 표식(세로로 긴 보라 전지)
+--   hud_icon_check_off/on 12x12  낮 스킵 투표 칸(빈 홈 / 초록 체크)
 --
 -- 실행 (저장소 루트에서 — outdir는 절대경로):
 --   "$ASE" -b --script-param outdir="$(pwd)/assets/ui/hud" --script assets/_generators/ui_hud.lua
@@ -163,8 +163,12 @@ end
 -- 슬롯 없이 지형/패널 위에 바로 얹히므로 전부 1px 외곽선을 두른다.
 -- 색은 게임 안 기존 기호와 짝: 체력=DOWN_COLOR 계열 빨강, 코어=core_cell 청록.
 
+--- 문자 격자로 아이콘을 찍는다. 줄 길이가 하나라도 어긋나면 그림이 조용히 밀리므로
+--- **여기서 바로 잡아 세운다** — 12줄 × 12칸을 눈으로 세는 건 사람이 할 일이 아니다.
 local function fromMask(img, mask, colors)
+  assert(#mask == img.height, ('mask 줄 수 %d ~= 그림 높이 %d'):format(#mask, img.height))
   for y, row in ipairs(mask) do
+    assert(#row == img.width, ('mask %d번째 줄 길이 %d ~= 그림 폭 %d'):format(y, #row, img.width))
     for x = 1, #row do
       local ch = row:sub(x, x)
       local c = colors[ch]
@@ -262,87 +266,125 @@ end
 
 -- 코어 패널의 게이지 세 줄에 붙는 표식. 색이 아니라 **실루엣**으로 먼저 구분되게 그린다
 -- (items_consumable.lua와 같은 원칙) — 12px에서는 색보다 형태가 먼저 읽힌다.
---   방패 = 코어 내구도 / 널빤지+돌 = 자원 / 전지 = 에너지
+--   원 = 코어 / 불규칙한 덩이 = 자원 / 세로 직사각형 = 에너지 — 실루엣이 서로 다르다
 
-local STEEL      = Color{ r = 0x9A, g = 0xA2, b = 0xB0 }
-local STEEL_DK   = Color{ r = 0x66, g = 0x6D, b = 0x7A }
-local WOOD       = Color{ r = 0xA9, g = 0x74, b = 0x3F }
-local WOOD_DARK  = Color{ r = 0x7A, g = 0x50, b = 0x29 }
-local ROCK       = Color{ r = 0x8A, g = 0x8F, b = 0x98 }
-local ROCK_DARK  = Color{ r = 0x5E, g = 0x63, b = 0x6C }
-local ENERGY     = Color{ r = 0x5C, g = 0xC6, b = 0xE8 }
-local ENERGY_DK  = Color{ r = 0x2F, g = 0x7E, b = 0x9B }
+-- 코어: 인게임 오브젝트를 그대로 옮긴 색이다 — 돌 받침 위에 얹힌 창백한 청록 발광체.
+local ORB_CORE   = Color{ r = 0xEF, g = 0xF9, b = 0xF9 } -- 한가운데 흰 빛
+local ORB_RIM    = Color{ r = 0xA9, g = 0xD9, b = 0xD4 } -- 바깥 청록
+local BASE       = Color{ r = 0x8A, g = 0x8F, b = 0x98 } -- 돌 받침
+local BASE_DARK  = Color{ r = 0x5E, g = 0x63, b = 0x6C }
+-- 자원: 주황 광석 덩이
+local ORE        = Color{ r = 0xE8, g = 0x8B, b = 0x30 }
+local ORE_HI     = Color{ r = 0xFF, g = 0xC0, b = 0x6A }
+local ORE_DARK   = Color{ r = 0x9C, g = 0x51, b = 0x16 }
+-- 에너지: 보라 전지
+local ENERGY     = Color{ r = 0xA4, g = 0x5C, b = 0xE8 }
+local ENERGY_HI  = Color{ r = 0xE0, g = 0xC4, b = 0xFF }
+local ENERGY_DK  = Color{ r = 0x5E, g = 0x28, b = 0x96 }
 
---- 코어 내구도. 방패는 "지켜내는 것"이라 체력 게이지와 뜻이 곧바로 이어진다.
-local function iconShield(img)
+--- 코어. 인게임 오브젝트를 그대로 옮겼다 — **돌 받침 위에 얹힌 창백한 청록 발광체**.
+--- 가운데로 갈수록 하얘지는 건 스스로 빛나는 물체라는 뜻이고(보통 구체는 광원 반대쪽이
+--- 어둡다), 받침이 있어야 "굴러다니는 구슬"이 아니라 세워 둔 장치로 읽힌다.
+--- 셋 중 유일하게 **원형**이라 실루엣만으로 첫 줄이 코어라는 게 잡힌다.
+local function iconCoreOrb(img)
   fromMask(img, {
     '............',
+    '...oooooo...',
+    '..occwwcco..',
+    '.occwwwwcco.',
+    '.ocwwwwwwco.',
+    '.ocwwwwwwco.',
+    '.occwwwwcco.',
+    '..occwwcco..',
+    '...oooooo...',
+    '..osssssso..',
+    '.osssddssso.',
     '.oooooooooo.',
-    '.osssssssso.',
-    '.osshrrhsso.',
-    '.osshrrhsso.',
-    '.ossdrrdsso.',
-    '..osdrrdso..',
-    '..osdrrdso..',
-    '...osddso...',
-    '....osso....',
-    '.....oo.....',
-    '............',
-  }, { o = OUTLINE, s = STEEL, d = STEEL_DK, r = RED, h = WHITE })
+  }, { o = OUTLINE, c = ORB_RIM, w = ORB_CORE, s = BASE, d = BASE_DARK })
 end
 
---- 자원. 널빤지 위에 돌 — 건축 재료 두 종류가 쌓인 모습이라 "모아 둔 것"으로 읽힌다.
+--- 자원. 주황 광석 덩이 — 좌우 비대칭에 면이 몇 개 꺾여 있어 "캐낸 원석"으로 읽힌다.
+--- 궤짝(반듯한 네모)은 코어 패널의 다른 네모난 것들과 섞였고, 무엇보다 이 게이지가
+--- 세는 건 상자가 아니라 **재료 자체**다.
 local function iconResource(img)
   fromMask(img, {
     '............',
+    '......oo....',
+    '....oohhoo..',
+    '..oohrrrrho.',
+    '.ohhrrrrrro.',
+    'ohrrrrrrrrdo',
+    'ohrrrrrrrrdo',
+    '.orrrrrrrdo.',
+    '..orrrrrddo.',
+    '...oorrddo..',
+    '.....oodo...',
     '............',
-    '.oooooooooo.',
-    '.owwwwwwwwo.',
-    '.owddwwddwo.',
-    '.oooooooooo.',
-    '.orrrrrrrro.',
-    '.orgrrgrrgo.',
-    '.orrrrrrrro.',
-    '.oooooooooo.',
-    '............',
-    '............',
-  }, { o = OUTLINE, w = WOOD, d = WOOD_DARK, r = ROCK, g = ROCK_DARK })
+  }, { o = OUTLINE, r = ORE, h = ORE_HI, d = ORE_DARK })
 end
 
---- 에너지. 꼭지 달린 전지 — 코어 결정(마름모)과 실루엣이 확실히 갈린다.
+--- 낮 스킵 투표 칸. 눌리지 않은 칸은 **파인 홈**처럼 보이게 한다(위 그림자, 아래 밝은
+--- 모서리) — 게이지 트랙과 같은 문법이라 "아직 안 채워진 자리"로 읽힌다.
+--- 체크는 게임 안 확인색(theme.ts ACCENT)이라 "동의했다"가 바로 잡힌다.
+local BOX_DIM  = Color{ r = 0x12, g = 0x14, b = 0x1B }
+local BOX_FILL = Color{ r = 0x20, g = 0x25, b = 0x2F }
+local BOX_EDGE = Color{ r = 0x3A, g = 0x40, b = 0x4E }
+local CHECK    = Color{ r = 0x6F, g = 0xD0, b = 0x8C } -- ACCENT
+
+local function iconCheckOff(img)
+  fromMask(img, {
+    '............',
+    '.oooooooooo.',
+    '.odddddddeo.',
+    '.odbbbbbbeo.',
+    '.odbbbbbbeo.',
+    '.odbbbbbbeo.',
+    '.odbbbbbbeo.',
+    '.odbbbbbbeo.',
+    '.odbbbbbbeo.',
+    '.oeeeeeeeeo.',
+    '.oooooooooo.',
+    '............',
+  }, { o = OUTLINE, d = BOX_DIM, b = BOX_FILL, e = BOX_EDGE })
+end
+
+local function iconCheckOn(img)
+  fromMask(img, {
+    '............',
+    '.oooooooooo.',
+    '.odddddddeo.',
+    '.odbbbbbbeo.',
+    '.odbbbbbgeo.',
+    '.odgbbbggeo.',
+    '.odggbggbeo.',
+    '.odbgggbbeo.',
+    '.odbbbbbbeo.',
+    '.oeeeeeeeeo.',
+    '.oooooooooo.',
+    '............',
+  }, { o = OUTLINE, d = BOX_DIM, b = BOX_FILL, e = BOX_EDGE, g = CHECK })
+end
+
+--- 에너지. 꼭지 달린 **세로로 긴 보라 전지**. 앞의 마름모 번개는 자원 아이콘이 원석으로
+--- 바뀌면서 둘 다 각진 덩어리가 되어 헷갈렸다 — 세로로 긴 직사각형은 원(코어)·불규칙한
+--- 덩이(자원)와 겹칠 일이 없다.
 local function iconEnergy(img)
   fromMask(img, {
-    '............',
     '....oooo....',
-    '....occo....',
+    '....oppo....',
     '..oooooooo..',
-    '..ohhccddo..',
-    '..ohcccddo..',
-    '..occcccdo..',
-    '..occcccdo..',
-    '..occcccdo..',
+    '..ohhppppo..',
+    '..ohpppppo..',
+    '..oppppppo..',
+    '..oppppppo..',
+    '..oppppppo..',
+    '..oppppppo..',
+    '..opdddddo..',
     '..oooooooo..',
     '............',
-    '............',
-  }, { o = OUTLINE, c = ENERGY, d = ENERGY_DK, h = WHITE })
+  }, { o = OUTLINE, p = ENERGY, h = ENERGY_HI, d = ENERGY_DK })
 end
 
-local function iconCore(img)
-  fromMask(img, {
-    '............',
-    '.....oo.....',
-    '....ohco....',
-    '...ohccco...',
-    '..ohccccdo..',
-    '.ohccccccdo.',
-    '.occcccccdo.',
-    '..occcccdo..',
-    '...occcdo...',
-    '....ocdo....',
-    '.....oo.....',
-    '............',
-  }, { o = OUTLINE, c = CYAN, d = CYAN_DARK, h = WHITE })
-end
 
 -- ---------------------------------------------------------------- 생성
 
@@ -356,7 +398,8 @@ save('hud_icon_heart', 12, 12, function(img) iconHeart(img) end)
 save('hud_icon_bolt', 12, 12, function(img) iconBolt(img) end)
 save('hud_icon_skull', 12, 12, function(img) iconSkull(img) end)
 save('hud_icon_skull_l', 16, 16, function(img) iconSkullL(img) end)
-save('hud_icon_core', 12, 12, function(img) iconCore(img) end)
-save('hud_icon_shield', 12, 12, function(img) iconShield(img) end)
+save('hud_icon_orb', 12, 12, function(img) iconCoreOrb(img) end)
 save('hud_icon_resource', 12, 12, function(img) iconResource(img) end)
 save('hud_icon_energy', 12, 12, function(img) iconEnergy(img) end)
+save('hud_icon_check_off', 12, 12, function(img) iconCheckOff(img) end)
+save('hud_icon_check_on', 12, 12, function(img) iconCheckOn(img) end)

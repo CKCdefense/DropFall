@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { World } from '../src/sim/world';
-import { coreUpgradesData } from '../src/data';
+import { coreUpgradesData, itemsData } from '../src/data';
 import { worldToCell } from '../src/constants';
 
 /**
@@ -35,6 +35,23 @@ function equipDefaultKit(world: World, playerId: string): void {
   inventory.add('axe_t1', 1);
   inventory.add('pickax_t1', 1);
   inventory.add('bandage', 3);
+}
+
+/**
+ * 건축물을 세운다. 건축 모드가 사라져서 **아이템을 들고 설치하는 경로 하나뿐**이라,
+ * 테스트도 같은 길을 탄다 — 아이템을 쥐어 주고 그 칸에 놓는다.
+ */
+function placeBuilding(world: World, playerId: string, type: string, cx: number, cy: number): void {
+  const inventory = world.getPlayers().get(playerId)!.inventory;
+  const itemId = Object.entries(itemsData).find(([, item]) => item.buildingType === type)![0];
+  // 시작 지급품이 네 칸을 다 채우고 있으면 add가 조용히 실패한다 — 한 칸 비우고 넣는다.
+  inventory.takeAt(0);
+  inventory.add(itemId, 1);
+  world.selectSlot(
+    playerId,
+    inventory.toView().slots.findIndex((slot) => slot?.itemId === itemId),
+  );
+  world.placeHeldBuilding(playerId, cx, cy);
 }
 
 describe('World — 코어 업그레이드', () => {
@@ -151,7 +168,7 @@ describe('World — 코어 업그레이드', () => {
     const farDistance = coreUpgradesData.baseBuildRadius + 50;
     const { cx, cy } = worldToCell(farDistance, 0);
 
-    world.placeBuilding('builder', 'fence', cx, cy);
+    placeBuilding(world, 'builder', 'fence', cx, cy);
     expect(world.getBuildings().size).toBe(0); // 반경 밖이라 거절됐다
 
     // 그 지점이 반경 안에 들어올 만큼 충분히 업그레이드한다.
@@ -163,7 +180,7 @@ describe('World — 코어 업그레이드', () => {
     // 강화가 게이지를 비우므로 다시 채운 뒤에 짓는다.
     grantGauges(world, 999999, 999999);
 
-    world.placeBuilding('builder', 'fence', cx, cy);
+    placeBuilding(world, 'builder', 'fence', cx, cy);
     expect(world.getBuildings().size).toBe(1); // 이제는 지어진다
   });
 });

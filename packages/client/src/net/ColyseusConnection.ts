@@ -139,6 +139,8 @@ interface RemoteGameState {
   currentWave: number;
   bossWarningRemaining: number;
   phaseTimeRemaining: number;
+  waveMonsterTotal: number;
+  waveMonsterRemaining: number;
   skipVoteCount: number;
   players: {
     size: number;
@@ -375,14 +377,6 @@ export class ColyseusConnection implements GameConnection {
     this.room.onMessage(CHAT_MESSAGE, callback);
   }
 
-  placeBuilding(buildingType: string, cx: number, cy: number): void {
-    this.room.send('placeBuilding', { buildingType, cx, cy });
-  }
-
-  demolishBuilding(cx: number, cy: number): void {
-    this.room.send('demolishBuilding', { cx, cy });
-  }
-
   /** 화면 렌더링용. TICK_RATE 상태를 60fps에 맞게 보간한, 몇 ms 지연된 스냅샷을 돌려준다. */
   getSnapshot(): WorldSnapshot {
     return this.interpolator.sample();
@@ -558,6 +552,8 @@ export class ColyseusConnection implements GameConnection {
         currentWave: state?.currentWave ?? 0,
         bossWarningRemaining: state?.bossWarningRemaining ?? 0,
         phaseTimeRemaining: state?.phaseTimeRemaining ?? 0,
+        waveMonsterTotal: state?.waveMonsterTotal ?? 0,
+        waveMonsterRemaining: state?.waveMonsterRemaining ?? 0,
         skipVoteCount: state?.skipVoteCount ?? 0,
         // 서버는 빈 칸을 itemId ''로 내려보낸다(길이 고정). 클라이언트 표현은 null이다.
         coreStorage: Array.from(state?.coreStorage ?? [], (slot) =>

@@ -488,14 +488,19 @@ describe('World — 다운된(hp 0) 플레이어는 이동 말고는 아무 동�
     expect(world.getCore().storage.countOf(recipe.itemId)).toBe(before);
   });
 
-  it('자원이 충분해도 건축할 수 없다', () => {
+  it('건축 아이템을 들고 있어도 설치할 수 없다', () => {
     const world = new World();
     world.addPlayer('p1', 0, 0);
-    world.getCore().storage.add('wood', 999);
-    world.getCore().storage.add('stone', 999);
+    const inventory = world.getPlayers().get('p1')!.inventory;
+    inventory.takeAt(0);
+    inventory.add('fence', 1);
+    world.selectSlot(
+      'p1',
+      inventory.toView().slots.findIndex((slot) => slot?.itemId === 'fence'),
+    );
     world.getPlayers().get('p1')!.hp = 0;
 
-    world.placeBuilding('p1', 'fence', 3, 3);
+    world.placeHeldBuilding('p1', 3, 3);
 
     expect(world.getBuildings().size).toBe(0);
   });

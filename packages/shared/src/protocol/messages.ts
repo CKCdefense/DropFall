@@ -21,26 +21,7 @@ export interface SelectSlotMessage {
   index: number;
 }
 
-/**
- * 건축 요청. 그리드 스냅(어느 셀을 가리키는지)은 클라이언트가 계산해서 셀 좌표로
- * 보낸다 — 서버는 좌표 변환 없이 그 셀에 지을 수 있는지만 검증한다. 채집(`harvest`)은
- * 반경 안 가장 가까운 노드에 자동으로 적용되니 별도 좌표가 필요 없어 메시지 타입이
- * 없다(페이로드 없는 이벤트).
- */
-export interface BuildInputMessage {
-  buildingType: string;
-  cx: number;
-  cy: number;
-}
 
-/**
- * 철거 요청(건설모드의 'demolish', docs/backend/43). 좌표만 보낸다 — 그 칸에
- * 실제로 건축물이 있는지, 무엇인지는 서버가 판단한다. 자원 환급은 없다.
- */
-export interface DemolishInputMessage {
-  cx: number;
-  cy: number;
-}
 
 /**
  * 슬롯 사이 아이템 이동(드래그앤드롭). 어느 컨테이너의 몇 번 칸에서 어디로 놓았는지만

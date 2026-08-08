@@ -221,5 +221,12 @@ export function hudIcon(scene: Phaser.Scene, frame: string): Phaser.GameObjects.
 
 export const ICON_HEART = 'hud_icon_heart_base_0';
 export const ICON_BOLT = 'hud_icon_bolt_base_0';
-export const ICON_CORE = 'hud_icon_core_base_0';
+export const ICON_SKULL = 'hud_icon_skull_base_0';
 export const ICON_SKULL_LARGE = 'hud_icon_skull_l_base_0';
+/** 코어 패널 게이지 세 줄의 표식 — 코어(원) / 자원(네모) / 에너지(마름모). */
+export const ICON_ORB = 'hud_icon_orb_base_0';
+export const ICON_RESOURCE = 'hud_icon_resource_base_0';
+export const ICON_ENERGY = 'hud_icon_energy_base_0';
+/** 낮 스킵 투표 칸. 빈 홈 / 초록 체크 두 장을 바꿔 끼워 상태를 보여준다. */
+export const ICON_CHECK_OFF = 'hud_icon_check_off_base_0';
+export const ICON_CHECK_ON = 'hud_icon_check_on_base_0';

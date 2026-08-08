@@ -87,7 +87,7 @@ UI로 예고된다 → 방어선 배치 전략"이 설계 의도인데, 관련 U
 - **테크 트리** — 로드맵이 처음부터 P2(포기 대상)로 분류. 코어 강화/레벨업으로 성장
   루프는 이미 대체됨
 - **AOI(관심 영역) 최적화** — 3~4인 룸 규모에선 안 급함, PATCH_RATE 50Hz 검증도 이미
-  통과했다([backend/60](backend/60-work-report-session-handoff-verification.md))
+  통과했다([backend/61](backend/61-work-report-session-handoff-verification.md))
 - **회피 구르기** — 기획서에도 `TBD: 뺄 수도 있음`으로 표기된 항목
 - **4번째 직업** — 로드맵은 3종 + "4번째는 아이디어만"이었는데 **이미 4종(병사/탐색꾼/
   의무병/엔지니어) 전부 구현됨** — 오히려 초과 달성

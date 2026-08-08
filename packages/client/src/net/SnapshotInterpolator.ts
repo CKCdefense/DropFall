@@ -210,6 +210,8 @@ const EMPTY_STATUS: WorldStatus = {
   currentWave: 0,
   bossWarningRemaining: 0,
   phaseTimeRemaining: 0,
+  waveMonsterTotal: 0,
+  waveMonsterRemaining: 0,
   skipVoteCount: 0,
   coreStorage: [],
 };

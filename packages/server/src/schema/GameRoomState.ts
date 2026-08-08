@@ -249,6 +249,9 @@ export class GameRoomState extends Schema {
   @type('number') bossWarningRemaining = 0;
   /** 현재 페이즈가 끝나기까지 남은 시간(초) */
   @type('number') phaseTimeRemaining = 0;
+  /** 이번 밤의 잡몹 총 마릿수와 남은 수(보스 제외). 낮에는 둘 다 0이다. */
+  @type('number') waveMonsterTotal = 0;
+  @type('number') waveMonsterRemaining = 0;
   /** 낮 스킵 투표 동의 인원. 만장일치 기준이라 필요 인원은 players.size다. */
   @type('number') skipVoteCount = 0;
 }

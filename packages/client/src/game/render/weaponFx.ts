@@ -95,12 +95,23 @@ export const ORBIT_CENTER_Y = ACTION_PLANE_Y;
 /** 이펙트 스프라이트에서 호의 바깥 반지름(px). 원본 캔버스 64 기준 값이다. */
 const SWING_FX_RADIUS = 30;
 
+/**
+ * 근접 무기를 **가만히 들고 있을 때** 조준선에서 위로 젖히는 각(rad).
+ *
+ * 예전엔 조준선과 정확히 일직선이라 언제나 찌를 자세로 보였다 — 도끼든 방망이든
+ * 창처럼 뻗고 있어서 어색했다. 어깨에 걸치듯 비스듬히 들면 "휘두르기 직전"으로 읽힌다.
+ *
+ * 이 값이 곧 **휘두르기의 시작점**이기도 하다(아래 windup). 둘이 다르면 좌클릭한 순간
+ * 무기가 툭 튀었다가 내려온다.
+ */
+export const MELEE_REST_TILT = (40 * Math.PI) / 180;
+
 function meleeSwingFrom(weapon: WeaponData): MeleeSwing {
   const halfArc = ((weapon.arc ?? 360) * Math.PI) / 360;
   return {
     halfArc,
-    // 부채꼴이 넓을수록 크게 당긴다. 좁은 무기가 크게 젖히면 판정 밖까지 나가 보인다.
-    windup: halfArc * 0.6,
+    // 들고 있는 자세에서 그대로 내려친다 — 젖히는 각이 곧 평소 자세다.
+    windup: MELEE_REST_TILT,
     /**
      * 이펙트 바깥 호를 무기 사거리에 맞춘다. 여기에 몬스터 히트박스(10px)까지 더하면
      * 판정 최대 거리와는 일치하지만, 화면에서는 호가 캐릭터 발밑까지 내려와 몸집을 압도한다.
@@ -682,7 +693,12 @@ export function layoutWeapon(
    * 부호를 쓰면 몸 쪽에서 바깥으로 퍼올리는 꼴이 된다 — 그림이 좌우로 뒤집혔으니
    * 궤적도 같이 뒤집혀야 날이 앞서 나간다.
    */
-  const swingOffset = (pose?.offset ?? 0) * (facingLeft ? -1 : 1);
+  /*
+   * 휘두르지 않을 때는 **사선으로 들고 있는다**(MELEE_REST_TILT). 원거리 무기는
+   * 조준선 그대로다 — 총은 겨눈 곳을 향해야 한다.
+   */
+  const rest = visual.melee ? -MELEE_REST_TILT : 0;
+  const swingOffset = (pose?.offset ?? rest) * (facingLeft ? -1 : 1);
   // 휘두르는 동안에는 무기가 조준선에서 벗어나 궤도를 따라 훑고 지나간다.
   const angle = aimAngle + swingOffset;
   const radius = visual.orbitRadius + (pose?.thrust ?? 0);

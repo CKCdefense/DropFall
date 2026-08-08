@@ -143,7 +143,7 @@ interface FireInputMessage {
   그러자 이번엔 예측이 없던 시절이라 자기 캐릭터 반응이 느려져서 다시 60까지
   올렸고, 대역폭 재검증 없이 그대로 방치됐다. 자기 캐릭터 예측
   ([backend/55](backend/55-work-report-player-client-prediction.md))이 들어온
-  지금은 반응성 걱정 없이 다시 낮출 수 있는 상태라([backend/60](backend/60-work-report-session-handoff-verification.md)),
+  지금은 반응성 걱정 없이 다시 낮출 수 있는 상태라([backend/61](backend/61-work-report-session-handoff-verification.md)),
   60→**50**으로 낮춰 2인 실접속으로 재확인했다 — 끊김 없음, **50으로 확정**
   (`packages/shared/src/constants.ts`). 몬스터/투사체가 늘어 페이로드가 커지면
   재검증할 것 — `SnapshotInterpolator`가 `PATCH_RATE` 기준으로 보간 지연을 자동으로
