@@ -164,10 +164,10 @@
     "hp": 400,
     "hitRadius": 34,
     "damage": 20,
-    "speed": 34,
+    "speed": 78,
     "attackRange": 43,
-    "attackInterval": 2.6,
-    "attackWindupSeconds": 0.67,
+    "attackInterval": 3.51,
+    "attackWindupSeconds": 0.9,
     "aggroRadius": 560,
     "crushesObstacles": true,
     "meleeAttacks": [
@@ -176,45 +176,48 @@
         "anim": 1,
         "hits": [
           {
-            "atSeconds": 0.67,
+            "atSeconds": 0.9,
             "range": 95,
             "arc": 40,
             "damage": 26
           }
         ],
-        "recoverSeconds": 0.35,
-        "cooldown": 2.2,
-        "weight": 5
+        "recoverSeconds": 0.47,
+        "cooldown": 2.97,
+        "weight": 5,
+        "animFrameRate": 6.7
       },
       {
         "$comment": "Attack02 내려치기 — 앞으로는 28px(×3=84)로 짧고 아래로 내리찍는다. 대신 묵직하다.",
         "anim": 2,
         "hits": [
           {
-            "atSeconds": 0.44,
+            "atSeconds": 0.59,
             "range": 70,
             "arc": 80,
             "damage": 32
           }
         ],
-        "recoverSeconds": 1.0,
-        "cooldown": 5.0,
-        "weight": 3
+        "recoverSeconds": 1.35,
+        "cooldown": 6.75,
+        "weight": 3,
+        "animFrameRate": 6.7
       },
       {
         "$comment": "Attack03 양손 베기 — 39px(×3=117)로 가장 멀리, 가장 넓게 쓸어낸다. 예고가 길어 피할 틈이 있다.",
         "anim": 3,
         "hits": [
           {
-            "atSeconds": 0.56,
+            "atSeconds": 0.76,
             "range": 98,
             "arc": 140,
             "damage": 40
           }
         ],
-        "recoverSeconds": 0.35,
-        "cooldown": 9.0,
-        "weight": 1
+        "recoverSeconds": 0.47,
+        "cooldown": 12.15,
+        "weight": 1,
+        "animFrameRate": 6.7
       }
     ],
     "energyDrop": {
@@ -242,7 +245,7 @@
     "hp": 550,
     "hitRadius": 22,
     "damage": 24,
-    "speed": 38,
+    "speed": 79,
     "attackRange": 38,
     "attackInterval": 2.4,
     "attackWindupSeconds": 0.56,
@@ -326,7 +329,7 @@
     "hp": 750,
     "hitRadius": 46,
     "damage": 28,
-    "speed": 24,
+    "speed": 77,
     "attackRange": 57,
     "attackInterval": 3.0,
     "attackWindupSeconds": 0.67,
@@ -412,7 +415,7 @@
     "hp": 900,
     "hitRadius": 42,
     "damage": 32,
-    "speed": 41,
+    "speed": 80,
     "attackRange": 54,
     "attackInterval": 2.2,
     "attackWindupSeconds": 0.67,

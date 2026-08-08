@@ -183,6 +183,29 @@ const HP_REGEN_PER_SECOND = 0.5;
 const REVIVE_HP_RATIO = 0.5;
 
 /**
+ * 보스가 **벽·울타리**에 주는 피해 배수.
+ *
+ * 보스는 밤의 결승전인데 방벽 한 줄에 갇혀 몇십 초를 두들기고 있으면 그동안 아무
+ * 일도 안 일어난다 — 플레이어는 뒤에서 구경하고 보스는 나무를 패는 그림이 된다.
+ * 길을 막은 구조물은 빠르게 부수고 들어오게 해서, 방벽의 역할을 "보스를 영영 막는
+ * 벽"이 아니라 "잡몹을 거르고 보스를 잠깐 늦추는 시간"으로 되돌린다.
+ *
+ * 포탑처럼 벽이 아닌 건축물에는 적용하지 않는다 — 그건 부수는 게 아니라 공략 대상이다.
+ */
+const BOSS_WALL_DAMAGE_MULTIPLIER = 3;
+
+/**
+ * 보스가 패턴을 지르는 거리 = 그 기술 사거리 × 이 비율. 1이면 사거리 끝에서 질러
+ * 예고 동안 상대가 물러나면 그대로 헛친다.
+ */
+const BOSS_PATTERN_COMMIT_RATIO = 0.7;
+
+/** 벽·울타리인가. 지금은 모든 건축물이 여기 해당하지만, 포탑이 생기면 갈린다. */
+function isWallLike(buildingType: string): boolean {
+  return /(^|_)(wall|fence)$/.test(buildingType);
+}
+
+/**
  * 코어에서 다시 시작할 때 서는 자리(월드 px). 코어는 원점에 있고 발자국이 아래로
  * 27px까지라, 그 바깥에 세워야 일어나자마자 코어에 끼지 않는다.
  */
@@ -2842,7 +2865,11 @@ export class World {
       const distance = Math.hypot(dx, dy);
       if (distance > nearestDistance) continue;
 
-      if (distance > 0) {
+      // 보스는 **전방향**으로 본다. 잡몹의 시야각은 "뒤로 돌아 들어가 따돌린다"를
+      // 만들어 주지만, 보스는 밤의 결승전이라 등 뒤에 붙어 서 있기만 해도 안전해지면
+      // 싸움 자체가 성립하지 않는다(등 뒤로 돌아 때리는 이득은 여전히 남는다 —
+      // 이건 "발견"만 전방향으로 여는 것이지 회전 속도를 없애는 게 아니다).
+      if (distance > 0 && !isBossType(monster.type)) {
         const facingDot = (dx / distance) * monster.facingX + (dy / distance) * monster.facingY;
         if (facingDot < AGGRO_FOV_COS_HALF_ANGLE) continue;
       }
@@ -3312,7 +3339,7 @@ export class World {
       case 'building': {
         const building = this.buildings.get(target.id);
         if (building && inRange(building.x, building.y)) {
-          building.hp = Math.max(0, building.hp - data.damage);
+          building.hp = Math.max(0, building.hp - this.buildingDamage(monster, building, data.damage));
           if (building.hp <= 0) {
             this.buildings.remove(building.id);
             this.recomputeFlowField();
@@ -3856,7 +3883,12 @@ export class World {
         const dashTravel = attack.dash
           ? attack.dash.speed * (attack.dash.toSeconds - attack.dash.fromSeconds)
           : 0;
-        const reach = Math.max(...attack.hits.map((hit) => hit.range)) + dashTravel;
+        // 사거리 **끝에서** 지르면 예고 동안 상대가 한 걸음만 물러도 헛친다. 조금 더
+        // 붙었을 때만 지르게 해서 적중률을 올린다 — 보스는 플레이어보다 빠르므로
+        // 그 거리를 좁히는 건 보스 몫이다. 돌진에는 이 축소를 안 건다: 간격을 메우는
+        // 게 돌진의 존재 이유인데 여기까지 줄이면 붙어 있을 때만 나와 무의미해진다.
+        const reach =
+          Math.max(...attack.hits.map((hit) => hit.range)) * BOSS_PATTERN_COMMIT_RATIO + dashTravel;
         if (targetDistance > reach) return;
         ready.push(index);
       });
@@ -4121,11 +4153,20 @@ export class World {
     for (const building of this.buildings.values()) {
       if (!buildingsData[building.type].blocksMovement) continue;
       if (!withinMeleeArc(hit, building.x, building.y, TILE_SIZE / 2)) continue;
-      building.hp = Math.max(0, building.hp - swing.damage);
+      building.hp = Math.max(0, building.hp - this.buildingDamage(monster, building, swing.damage));
       if (building.hp <= 0) this.removeBuilding(building);
     }
     // 여기서 markAttack을 다시 부르지 않는다 — 동작 시작 때 이미 켰고, 2연타에서
     // 다시 켜면 애니메이션이 첫 장부터 재시작해 두 번째 타격이 어긋난다.
+  }
+
+  /**
+   * 몬스터가 건축물에 줄 피해. 보스가 벽·울타리를 칠 때만 배수가 붙는다
+   * (§BOSS_WALL_DAMAGE_MULTIPLIER).
+   */
+  private buildingDamage(monster: MonsterEntity, building: BuildingEntity, base: number): number {
+    if (!isBossType(monster.type) || !isWallLike(building.type)) return base;
+    return base * BOSS_WALL_DAMAGE_MULTIPLIER;
   }
 
   /** 공격 사거리 안의, 이동을 막는(blocksMovement) 건축물 중 가장 가까운 것을 찾는다. */
