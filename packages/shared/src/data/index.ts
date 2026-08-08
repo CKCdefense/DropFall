@@ -103,6 +103,13 @@ const MeleeAttackSchema = z.object({
       damage: z.number().nonnegative(),
     })
     .optional(),
+  /**
+   * 이 동작만 다른 속도로 재생한다(fps). 없으면 보스/잡몹 기본값을 쓴다.
+   *
+   * 타격 시점(`hits[].atSeconds`)은 원래 프레임 번호 ÷ 재생속도로 잡은 값이라, 여기를
+   * 늦추면 atSeconds도 같은 비율로 늘려야 "그림이 닿는 순간에 맞는다"가 유지된다.
+   */
+  animFrameRate: z.number().positive().optional(),
   /** 마지막 타격 후 경직(초). 이 동안은 움직이지도 다음 공격을 하지도 않는다 — 반격할 틈이다. */
   recoverSeconds: z.number().nonnegative(),
   /** 이 기술을 다시 쓸 수 있게 되기까지의 시간(초). 기술마다 따로 돈다. */

@@ -349,17 +349,18 @@
         "weight": 5
       },
       {
-        "$comment": "Attack02 광역 찍기 — 프레임6에 앞 37px·뒤 -20px로 **양쪽으로 동시에** 퍼진다. 옆으로 피할 수 없어 전방향(arc 360, ×4=148)으로 잡았다.",
+        "$comment": "Attack02 광역 찍기 — 프레임6에 앞 37px·뒤 -20px로 **양쪽으로 동시에** 퍼진다. 옆으로 피할 수 없어 전방향(arc 360, ×4=148)으로 잡았다. 셋 중 가장 위협적이라 재생속도와 시전 시간을 0.8배로 늦춰(9→7.2fps) 반응할 틈을 줬다.",
         "anim": 2,
         "hits": [
           {
-            "atSeconds": 0.67,
+            "atSeconds": 0.84,
             "range": 111,
             "arc": 360,
             "damage": 46
           }
         ],
-        "recoverSeconds": 0.35,
+        "animFrameRate": 7.2,
+        "recoverSeconds": 0.44,
         "cooldown": 7.0,
         "weight": 3
       },

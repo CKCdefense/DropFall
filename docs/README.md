@@ -43,6 +43,7 @@
 | [backend/55-work-report-player-client-prediction.md](backend/55-work-report-player-client-prediction.md) | 작업 보고서 — 내 캐릭터 클라이언트 예측+재조정(멀티플레이 텔레포트/끊김 원인 분석 및 해결) |
 | [backend/56-work-report-resource-rebuild.md](backend/56-work-report-resource-rebuild.md) | 작업 보고서 — 자원 시스템 리빌딩(자원·에너지 게이지, 코어 충전, 돈 제거, 제작 시간, 해머 수리, 레벨업/SP) |
 | [backend/57-work-report-speed-craft-output-charge-tier.md](backend/57-work-report-speed-craft-output-charge-tier.md) | 작업 보고서 — 이동속도 75%, 제작 결과 대기 칸(드래그 회수), 코어 티어별 충전 칸·쉬프트 클릭·거절 표시 |
+| [backend/58-work-report-golem-slam-alignment.md](backend/58-work-report-golem-slam-alignment.md) | 작업 보고서 — 몬스터 그림 가로 중심 보정(골렘 광역 찍기 정렬), 동작별 재생속도 지정 |
 | [backend/58-work-report-session-handoff-verification.md](backend/58-work-report-session-handoff-verification.md) | 작업 보고서 — 세션 인계 확인(56↔55 충돌 없음), PATCH_RATE 문서 정합성 정리 + 60→50 실험 |
 
 ### 역할 C — 클라이언트/렌더/UI 작업 문서 ([frontend/](frontend/))

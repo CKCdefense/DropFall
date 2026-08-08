@@ -70,6 +70,7 @@ import {
   monsterScale,
   hasMonsterSprite,
   monsterAnimKey,
+  monsterArtOffsetX,
   monsterIdleFrame,
   monsterSpriteHeight,
   registerMonsterAnimations,
@@ -1159,6 +1160,9 @@ export class EntityRenderer {
     if (!(body instanceof Phaser.GameObjects.Sprite)) return;
 
     body.setFlipX(monster.facingLeft);
+    // 그림이 캔버스 중앙에서 치우친 만큼 되돌린다 — 안 하면 판정 원의 한가운데에
+    // 서 있지 않은 것처럼 보인다(§monsterArtOffsetX). 반전하면 치우침도 뒤집힌다.
+    body.setX(monsterArtOffsetX(monster.type, monster.facingLeft));
 
     // 피격은 무엇보다 우선한다 — 때린 쪽에 즉시 반응이 돌아와야 손맛이 산다.
     // 공격 모션 중이어도 끊고 들어간다(연사로 계속 맞으면 계속 밀리는 게 맞다).
