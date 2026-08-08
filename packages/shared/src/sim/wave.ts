@@ -2,6 +2,14 @@ import { wavesData, type MonsterType, type WaveEntry } from '../data';
 
 export type GamePhase = 'day' | 'night' | 'victory' | 'defeat';
 
+/**
+ * 보스인가. 몬스터 종류 id의 `boss_` 접두사가 유일한 기준이다 — waves.json의
+ * bossType과 monsters.json의 키가 이 규칙을 지키고, 클라이언트 HUD도 같은 판정을 쓴다.
+ */
+export function isBossType(type: string): boolean {
+  return type.startsWith('boss_');
+}
+
 interface SpawnPoint {
   x: number;
   y: number;
@@ -29,6 +37,15 @@ function buildSpawnPoints(count: number, radius: number, rng: () => number): Spa
 
 export interface WaveManagerOptions {
   rng?: () => number;
+  /** 지금 접속해 있는 인원수. 웨이브 시작 시점(beginNextWave)에만 읽는다 —
+   * 밤 도중에 인원이 바뀌어도 이미 확정된 스폰 큐는 안 흔들린다. */
+  playerCount?: () => number;
+}
+
+/** waves.json spawns 숫자에 인원수 스케일링을 적용한 뒤 반올림한다. */
+function scaledSpawnCount(rawCount: number, playerCount: number): number {
+  const { baseMultiplier, base, perPlayer } = wavesData.playerScaling;
+  return Math.round(rawCount * baseMultiplier * (base + perPlayer * playerCount));
 }
 
 /**
@@ -43,19 +60,30 @@ export interface WaveManagerOptions {
  */
 export class WaveManager {
   private readonly rng: () => number;
+  private readonly playerCount: () => number;
   private phase: GamePhase = 'day';
   private phaseTimer: number;
   private waveIndex = -1;
   private spawnQueue: MonsterType[] = [];
+  /** 이번 밤의 잡몹 총 마릿수(보스 제외). 밤이 시작될 때 확정된다. */
+  private waveMonsterTotal = 0;
   private spawnPoints: SpawnPoint[] = [];
   private spawnTimer = 0;
   /** 스폰 지점을 순서대로 도는 커서. 매번 무작위로 뽑으면 지점 하나에 몰릴 수 있다. */
   private spawnPointCursor = 0;
   /** 이번 밤의 보스가 이미 소환됐는가. bossType이 없는 웨이브(1일차)에서는 안 쓴다. */
   private bossSpawned = false;
+  /**
+   * 보스 등장까지 남은 예고 시간(초). 0보다 크면 "잡몹은 다 죽었고 보스가 오는 중"이다.
+   *
+   * 예고 없이 떨어뜨리면 보스가 이미 붙어 있는 상태로 전투가 시작된다 — 자리를 잡거나
+   * 회복할 틈이 없다. 이 값은 그대로 화면에 내려가 경고 문구가 된다.
+   */
+  private bossWarning = 0;
 
   constructor(options: WaveManagerOptions = {}) {
     this.rng = options.rng ?? Math.random;
+    this.playerCount = options.playerCount ?? (() => 1);
     this.phaseTimer = wavesData.dayDuration;
   }
 
@@ -72,6 +100,21 @@ export class WaveManager {
     return Math.max(0, this.phaseTimer);
   }
 
+  /** 이번 밤의 잡몹 총 마릿수(보스 제외). 낮이면 직전 밤의 값이 남아 있다. */
+  get waveMonsterCount(): number {
+    return this.waveMonsterTotal;
+  }
+
+  /** 아직 안 나온 잡몹 수. 살아있는 수는 World가 알고 있어서 여기서는 큐만 센다. */
+  get pendingSpawnCount(): number {
+    return this.spawnQueue.length;
+  }
+
+  /** 보스 등장까지 남은 예고 시간(초). 0이면 예고 중이 아니다. */
+  get bossWarningRemaining(): number {
+    return Math.max(0, this.bossWarning);
+  }
+
   private currentWaveEntry(): WaveEntry | undefined {
     return wavesData.waves[this.waveIndex];
   }
@@ -84,21 +127,33 @@ export class WaveManager {
       return;
     }
 
+    // waves.json 숫자는 인원수 스케일링 전 "기준값"이다 — 실제 스폰 수는
+    // scaledSpawnCount(playerScaling)를 거쳐서 나온다(데모 준비도 리뷰 피드백 #2).
+    const players = this.playerCount();
     const flat: MonsterType[] = [];
     for (const [type, count] of Object.entries(entry.spawns)) {
-      for (let i = 0; i < count; i += 1) flat.push(type as MonsterType);
+      const scaled = scaledSpawnCount(count, players);
+      for (let i = 0; i < scaled; i += 1) flat.push(type as MonsterType);
     }
-    // 엘리트는 확정이 아니라 밤 시작에 count번 독립적으로 굴린다 — "나올 수도 있다"가 목적.
+    // 엘리트는 확정이 아니라 밤 시작에 count번 독립적으로 굴린다 — "나올 수도 있다"가
+    // 목적이다. 이 count는 인원수 스케일링을 안 받는다 — 받으면 "낮은 확률로 어쩌다
+    // 하나"가 "매 판 여러 마리 확정"으로 바뀌어 버려서 엘리트라는 설계 의도 자체가
+    // 깨진다(일반 잡몹처럼 물량으로 밀어붙이는 대상이 아니다).
     if (entry.elite) {
       for (let i = 0; i < entry.elite.count; i += 1) {
         if (this.rng() < entry.elite.chance) flat.push(entry.elite.type as MonsterType);
       }
     }
     this.spawnQueue = shuffle(flat, this.rng);
+    // 이번 밤에 잡아야 할 총 마릿수. 엘리트가 주사위로 정해지므로 큐를 다 만든 **뒤에야**
+    // 확정된다 — 클라이언트가 waves.json만 보고 계산할 수 없어서 여기서 들고 있는다.
+    // 보스는 포함하지 않는다(잡몹을 전멸시켜야 나오고, 그때부터는 보스 체력바가 맡는다).
+    this.waveMonsterTotal = flat.length;
     this.spawnPoints = buildSpawnPoints(entry.spawnPoints, wavesData.spawnRadius, this.rng);
     this.spawnTimer = 0;
     this.spawnPointCursor = 0;
     this.bossSpawned = false;
+    this.bossWarning = 0;
     this.phase = 'night';
   }
 
@@ -125,6 +180,7 @@ export class WaveManager {
     if (this.phase !== 'night') return false;
 
     this.spawnQueue.length = 0;
+    this.bossWarning = 0;
     if (this.waveIndex >= wavesData.waves.length - 1) {
       this.phase = 'victory';
       return true;
@@ -182,6 +238,25 @@ export class WaveManager {
     // 첫 무리는 밤 시작 즉시(spawnTimer 0) 나온다. 무리 하나는 같은 스폰 지점에서
     // 함께 나와야 "무리"로 보인다 — 지점 순환은 무리 단위로 돈다.
     const entry = this.currentWaveEntry();
+
+    /*
+     * 보스 예고 중에는 이것만 진행한다. 잡몹은 이미 전멸했고 스폰 큐도 비었으므로
+     * 아래 루프는 어차피 할 일이 없다 — 여기서 먼저 끊어야 "예고가 도는 동안 낮으로
+     * 넘어가 버리는" 경로가 생기지 않는다.
+     */
+    if (this.bossWarning > 0) {
+      this.bossWarning -= dtSeconds;
+      if (this.bossWarning > 0) return;
+      this.bossWarning = 0;
+      this.bossSpawned = true;
+      const bossPoint = this.spawnPoints[Math.floor(this.rng() * this.spawnPoints.length)] ?? {
+        x: 0,
+        y: 0,
+      };
+      if (entry?.bossType) spawn(entry.bossType as MonsterType, bossPoint.x, bossPoint.y);
+      return;
+    }
+
     this.spawnTimer -= dtSeconds;
     while (this.spawnQueue.length > 0 && this.spawnTimer <= 0 && entry) {
       const point = this.spawnPoints[this.spawnPointCursor % this.spawnPoints.length] ?? {
@@ -202,13 +277,9 @@ export class WaveManager {
       // 보스 레이드: 잡몹을 전멸시키면 보스가 등장하고, 보스까지 잡아야 밤이 끝난다.
       // 보스를 스폰하면 다음 틱부터 remainingMonsters > 0이 되므로 아래 전환 분기는
       // 자연히 보스가 죽을 때까지 미뤄진다.
+      // 보스는 바로 나오지 않는다 — 예고를 먼저 띄우고 그 시간이 지나야 등장한다.
       if (entry?.bossType && !this.bossSpawned) {
-        this.bossSpawned = true;
-        const point = this.spawnPoints[Math.floor(this.rng() * this.spawnPoints.length)] ?? {
-          x: 0,
-          y: 0,
-        };
-        spawn(entry.bossType as MonsterType, point.x, point.y);
+        this.bossWarning = wavesData.bossWarningSeconds;
         return;
       }
 

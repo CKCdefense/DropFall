@@ -9,6 +9,14 @@ export interface PlayerInputMessage {
    * 실제로 달렸는지는 서버가 정한다(스태미나가 남아 있고 실제로 움직이는 중일 때만).
    */
   sprint?: boolean;
+  /**
+   * 상호작용(E)을 누르고 있는가. sprint와 같은 이유로 **상태**로 싣는다 — 눌렀다/뗐다를
+   * 따로 보내면 그중 하나가 유실됐을 때 구조가 영영 진행되거나 영영 멈춘다.
+   *
+   * 지금 쓰는 곳은 쓰러진 아군 구조 하나뿐이다. 코어 창은 클라이언트가 혼자 여닫으므로
+   * 서버에 알릴 필요가 없다.
+   */
+  interact?: boolean;
 }
 
 /**
@@ -21,26 +29,7 @@ export interface SelectSlotMessage {
   index: number;
 }
 
-/**
- * 건축 요청. 그리드 스냅(어느 셀을 가리키는지)은 클라이언트가 계산해서 셀 좌표로
- * 보낸다 — 서버는 좌표 변환 없이 그 셀에 지을 수 있는지만 검증한다. 채집(`harvest`)은
- * 반경 안 가장 가까운 노드에 자동으로 적용되니 별도 좌표가 필요 없어 메시지 타입이
- * 없다(페이로드 없는 이벤트).
- */
-export interface BuildInputMessage {
-  buildingType: string;
-  cx: number;
-  cy: number;
-}
 
-/**
- * 철거 요청(건설모드의 'demolish', docs/backend/43). 좌표만 보낸다 — 그 칸에
- * 실제로 건축물이 있는지, 무엇인지는 서버가 판단한다. 자원 환급은 없다.
- */
-export interface DemolishInputMessage {
-  cx: number;
-  cy: number;
-}
 
 /**
  * 슬롯 사이 아이템 이동(드래그앤드롭). 어느 컨테이너의 몇 번 칸에서 어디로 놓았는지만
@@ -62,6 +51,16 @@ export interface CraftMessage {
  * 스탯 포인트 하나를 쓴다. 몇 점을 쓸지는 안 보낸다 — 한 번에 여러 점을 넣으면
  * 중간에 포인트가 모자랄 때 몇 점이 들어갔는지가 애매해진다.
  */
+/**
+ * 코어에서 유령이 된 동료를 되살린다. 낮에만, 에너지를 치르고.
+ *
+ * 대상 id를 실어 보내는 이유는 유령이 여럿일 수 있어서다 — "아무나 하나"로 두면
+ * 누구를 살릴지 서버가 정하게 되고, 그건 누른 사람이 정해야 하는 일이다.
+ */
+export interface ReviveGhostMessage {
+  targetId: string;
+}
+
 export interface SpendStatPointMessage {
   stat: 'maxHp' | 'attack' | 'stamina';
 }

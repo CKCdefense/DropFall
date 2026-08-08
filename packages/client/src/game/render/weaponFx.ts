@@ -74,7 +74,16 @@ export interface WeaponVisual {
   grips: [Point, Point];
   /** 그릴 손 개수. 맨손은 무기 스프라이트 자체가 손이라 0이다. */
   handCount: number;
+  /** 맨손 전용. 첫 손을 그립이 아니라 몸 앞 가드 위치에 둔다. */
+  guardHand?: boolean;
   orbitRadius: number;
+  /**
+   * 몸 중심에서 **그려진 무기 끝**까지의 거리(컨테이너 px). measured()가 직접 잰다.
+   *
+   * 스윙 이펙트의 바깥 호와 서버 판정 사거리(weapons.json range)가 둘 다 이 값에
+   * 맞춰져야 "칼 끝에서 이펙트가 나가고, 이펙트 끝까지가 맞는 거리"가 된다.
+   */
+  tipReach: number;
   /** ranged 전용: 총구 끝(스프라이트 좌표) */
   muzzle?: Point;
   melee?: MeleeSwing;
@@ -95,18 +104,40 @@ export const ORBIT_CENTER_Y = ACTION_PLANE_Y;
 /** 이펙트 스프라이트에서 호의 바깥 반지름(px). 원본 캔버스 64 기준 값이다. */
 const SWING_FX_RADIUS = 30;
 
-function meleeSwingFrom(weapon: WeaponData): MeleeSwing {
+/**
+ * 근접 무기를 **가만히 들고 있을 때** 조준선에서 위로 젖히는 각(rad).
+ *
+ * 예전엔 조준선과 정확히 일직선이라 언제나 찌를 자세로 보였다 — 도끼든 방망이든
+ * 창처럼 뻗고 있어서 어색했다. 어깨에 걸치듯 비스듬히 들면 "휘두르기 직전"으로 읽힌다.
+ *
+ * 이 값이 곧 **휘두르기의 시작점**이기도 하다(아래 windup). 둘이 다르면 좌클릭한 순간
+ * 무기가 툭 튀었다가 내려온다.
+ */
+export const MELEE_REST_TILT = (50 * Math.PI) / 180;
+
+/**
+ * 근접 무기를 쥔 손이 몸 중심에서 커서 쪽으로 뻗는 거리(px).
+ *
+ * 원거리(orbitRadius 기본 9)보다 멀리 잡는다 — 팔을 뻗어야 "무기를 들이대고 있다"로
+ * 읽힌다. 무기 그림은 이 지점에서 시작하므로 이 값이 곧 그려지는 사거리의 일부다.
+ */
+const MELEE_HAND_REACH = 12;
+
+function meleeSwingFrom(weapon: WeaponData, tipReach: number): MeleeSwing {
   const halfArc = ((weapon.arc ?? 360) * Math.PI) / 360;
   return {
     halfArc,
-    // 부채꼴이 넓을수록 크게 당긴다. 좁은 무기가 크게 젖히면 판정 밖까지 나가 보인다.
-    windup: halfArc * 0.6,
+    // 들고 있는 자세에서 그대로 내려친다 — 젖히는 각이 곧 평소 자세다.
+    windup: MELEE_REST_TILT,
     /**
-     * 이펙트 바깥 호를 무기 사거리에 맞춘다. 여기에 몬스터 히트박스(10px)까지 더하면
-     * 판정 최대 거리와는 일치하지만, 화면에서는 호가 캐릭터 발밑까지 내려와 몸집을 압도한다.
-     * 이펙트는 "날이 지나간 자리"를 그리는 것이지 판정 경계선을 그리는 게 아니다.
+     * 이펙트 바깥 호를 **그려진 칼끝**에 맞춘다(weapons.json의 range가 아니라).
+     *
+     * 예전엔 판정 사거리를 그대로 썼는데, 그 숫자는 그림과 따로 관리되는 값이라
+     * 무기 배율(MELEE_SHRINK)을 한 번 손대면 바로 어긋났다 — 실제로 칼끝은 여기,
+     * 궤적은 저기서 끝나 보였다. 그림에서 잰 값을 쓰면 배율을 어떻게 바꾸든
+     * "칼이 지나간 자리"가 항상 칼끝에서 끝난다.
      */
-    fxScale: (weapon.range ?? 0) / SWING_FX_RADIUS,
+    fxScale: tipReach / SWING_FX_RADIUS,
   };
 }
 
@@ -133,25 +164,39 @@ function measured(options: {
   orbitRadius: number;
   center?: Point;
   handCount?: number;
+  guardHand?: boolean;
   /** ranged면 축의 끝을 총구로 등록한다. melee면 휘두르기 값이 나중에 붙는다. */
   ranged: boolean;
 }): WeaponVisual {
   const { frame, grip, axis, scale, orbitRadius, center, ranged } = options;
   const [near, tip] = axis;
   const forward = Math.atan2(tip.y - near.y, tip.x - near.x);
+  const pivot = projectOntoAxis(grip, near, tip);
+
+  /*
+   * 몸 중심에서 그려진 무기 끝까지의 거리.
+   *
+   * pivot이 손 위치에 놓이므로, 손에서 끝까지는 (tip - pivot)에 배율을 곱한 값이다.
+   * 거기에 손이 몸에서 뻗은 거리를 더하면 화면에 실제로 보이는 리치가 된다 —
+   * 근접은 손을 MELEE_HAND_REACH만큼 내밀고, 원거리는 궤도 반경에 그대로 얹힌다.
+   */
+  const handReach = ranged ? orbitRadius : MELEE_HAND_REACH;
+  const tipReach = handReach + Math.hypot(tip.x - pivot.x, tip.y - pivot.y) * scale;
 
   return {
     frame,
     center,
     scale,
     forward,
-    pivot: projectOntoAxis(grip, near, tip),
+    tipReach,
+    pivot,
     // 뒷손은 손잡이, 앞손은 조금 앞. 총열 방향으로 띄워야 두 손이 무기를 따라 놓인다.
     grips: [
       grip,
       { x: grip.x + Math.cos(forward) * HAND_SPACING, y: grip.y + Math.sin(forward) * HAND_SPACING },
     ],
     handCount: options.handCount ?? 2,
+    guardHand: options.guardHand,
     orbitRadius,
     ...(ranged ? { muzzle: tip } : {}),
   };
@@ -170,6 +215,24 @@ function projectOntoAxis(point: Point, from: Point, to: Point): Point {
 
 /** 두 손 사이 간격(스프라이트 px). 원본이 32px든 128px든 손은 같은 크기로 그려진다. */
 const HAND_SPACING = 9;
+
+/**
+ * 손 스프라이트 배율. 손은 캐릭터와 같은 32×32 캔버스에 그려져 원래 크기가 맞지만,
+ * 무기를 0.75배로 줄인 뒤로는 손이 상대적으로 작아 보인다("손 크기도 조금 키워 달라").
+ * 맨손(fist)은 손 그림 자체가 무기이므로 **같은 값을 무기 배율로도 쓴다** — 두 값이
+ * 어긋나면 주먹 쥔 손과 무기를 든 손의 크기가 달라진다.
+ */
+const HAND_SCALE = 1.25;
+
+/**
+ * 맨손일 때 뒤에 남는 **가드 주먹**의 위치(몸 중심 기준 px).
+ *
+ * 앞손은 커서 쪽으로 뻗어 때리고, 뒷손은 **반대쪽으로 조금 물러나 낮게** 있는다 —
+ * 권투의 가드 자세다. 손이 하나만 보이면 나머지 팔이 없는 것처럼 읽히고, 둘을 같은
+ * 쪽에 두면 한 덩어리로 뭉쳐 손이 하나로 보인다(둘 다 겪었다).
+ */
+const GUARD_HAND_BACK = 5;
+const GUARD_HAND_DROP = 6;
 
 /** 32×32 도구(도끼·곡괭이·망치). 자루 끝이 좌하단, 머리가 우상단인 공통 구도다. */
 function toolVisual(frame: string): WeaponVisual {
@@ -335,9 +398,11 @@ export const WEAPON_VISUALS: Record<string, WeaponVisual> = {
       { x: 12, y: 16 },
       { x: 22, y: 16 },
     ],
-    scale: 1,
+    scale: HAND_SCALE,
     orbitRadius: 12,
-    handCount: 0,
+    // 앞손은 무기 스프라이트(=손 그림) 자체이고, 여기 하나는 몸에 붙는 가드 주먹이다.
+    handCount: 1,
+    guardHand: true,
     ranged: false,
   }),
 
@@ -420,11 +485,11 @@ export const WEAPON_VISUALS: Record<string, WeaponVisual> = {
   ),
 };
 
-// weapons.json이 근접이라고 한 무기에만 휘두르기 값을 붙인다. 두 곳에 같은 숫자를
-// 적어두면 반드시 어긋나므로, 각도·사거리는 항상 서버 데이터에서 유도한다.
+// weapons.json이 근접이라고 한 무기에만 휘두르기 값을 붙인다. 각도는 서버 데이터에서
+// 유도하고, 이펙트 크기는 그림에서 잰 칼끝 거리(tipReach)에서 유도한다.
 for (const [id, visual] of Object.entries(WEAPON_VISUALS)) {
   const weapon = weaponsData[id];
-  if (weapon?.type === 'melee') visual.melee = meleeSwingFrom(weapon);
+  if (weapon?.type === 'melee') visual.melee = meleeSwingFrom(weapon, visual.tipReach);
 }
 
 /** 표에 없는 무기를 들었을 때의 대체. 맨손은 어떤 상태에서도 그릴 수 있다. */
@@ -436,6 +501,20 @@ export function weaponVisual(weaponId: string): WeaponVisual {
 
 /** 손에 든 일반 아이템을 그릴 때의 목표 크기(px). 맨손보다 조금 크게 잡아 눈에 띈다. */
 const HELD_ITEM_TARGET = 16;
+
+/**
+ * 근접 무기별 **그려진 칼끝 거리**(컨테이너 px). weapons.json의 `range`를 이 값에
+ * 맞춰야 "이펙트 끝 = 맞는 거리"가 된다.
+ *
+ * 숫자를 손으로 옮겨 적는 대신 노출해 두는 이유: 무기 배율(MELEE_SHRINK)이나 axis
+ * 실측값을 고치면 여기가 저절로 따라 바뀌므로, 어긋났는지 확인할 근거가 코드 안에
+ * 남는다(tools/print-melee-reach.mjs가 이 값을 찍는다).
+ */
+export const MELEE_TIP_REACH: Readonly<Record<string, number>> = Object.fromEntries(
+  Object.entries(WEAPON_VISUALS)
+    .filter(([id]) => weaponsData[id]?.type === 'melee')
+    .map(([id, visual]) => [id, Math.round(visual.tipReach)]),
+);
 
 /** 만든 시각 정보를 아이템 id로 캐시한다 — 프레임마다 새로 만들면 GC가 계속 돈다. */
 const heldItemCache = new Map<string, WeaponVisual>();
@@ -683,9 +762,24 @@ export function layoutWeapon(
    * 궤적도 같이 뒤집혀야 날이 앞서 나간다.
    */
   const swingOffset = (pose?.offset ?? 0) * (facingLeft ? -1 : 1);
-  // 휘두르는 동안에는 무기가 조준선에서 벗어나 궤도를 따라 훑고 지나간다.
-  const angle = aimAngle + swingOffset;
-  const radius = visual.orbitRadius + (pose?.thrust ?? 0);
+
+  /*
+   * **손과 무기를 따로 둔다.**
+   *
+   * 예전엔 기울인 각도로 손 위치까지 같이 돌려서, 무기가 몸 중심을 축으로 빙 돈 것처럼
+   * 보였다 — 왼쪽을 볼 때 방망이가 몸을 가로질러 어깨 위에 얹혔다("캐릭터 중심으로
+   * 사선으로 잡는 것 같다" 제보).
+   *
+   * 손은 **커서 쪽으로 뻗고**(handAngle), 무기는 그 손에서 위로 기울여 잡는다(angle).
+   * 팔을 뻗어 무기를 비스듬히 든 자세가 된다. 휘두르는 동안엔 손도 궤도를 따라 도니
+   * 무기는 손과 같은 각도차를 유지한 채 함께 쓸고 지나간다.
+   */
+  const handAngle = aimAngle + swingOffset;
+  const tilt = visual.melee ? -MELEE_REST_TILT * (facingLeft ? -1 : 1) : 0;
+  const angle = handAngle + tilt;
+  // 근접은 팔을 뻗은 만큼 손이 몸에서 더 멀다. 원거리는 예전 궤도 반경 그대로다.
+  const radius =
+    (visual.melee ? MELEE_HAND_REACH : visual.orbitRadius) + (pose?.thrust ?? 0);
 
   /*
    * 왼쪽을 볼 때의 반전은 **조준선을 거울로 삼는다.**
@@ -704,8 +798,9 @@ export function layoutWeapon(
   const cos = Math.cos(rotation);
   const sin = Math.sin(rotation);
 
-  const pivotX = Math.cos(angle) * radius;
-  const pivotY = Math.sin(angle) * radius + ORBIT_CENTER_Y;
+  // 손(=무기를 쥔 지점)은 **조준 방향**에 있다. 기울기는 무기 회전에만 들어간다.
+  const pivotX = Math.cos(handAngle) * radius;
+  const pivotY = Math.sin(handAngle) * radius + ORBIT_CENTER_Y;
 
   const toContainer = (point: Point): Point =>
     weaponPointToContainer(point, visual, pivotX, pivotY, cos, sin, flipX, flipY);
@@ -719,10 +814,20 @@ export function layoutWeapon(
   weapon.setPosition(center.x, center.y);
 
   hands.forEach((hand, index) => {
-    // 맨손처럼 무기 스프라이트 자체가 손인 경우엔 손을 겹쳐 그리지 않는다.
     hand.setVisible(index < visual.handCount);
-    const point = toContainer(visual.grips[index] ?? visual.grips[0]);
-    // 손은 캐릭터와 같은 32×32 캔버스에 그려져 원래 크기가 맞다 — 무기 배율을 적용하지 않는다.
+    // 손은 무기 배율이 아니라 제 배율을 쓴다 — 무기를 줄여도 손 크기는 그대로여야 한다.
+    hand.setScale(HAND_SCALE);
+    /*
+     * 맨손이면 첫 손은 그립이 아니라 **몸 앞 가드 위치**다. 그립엔 이미 앞손(무기
+     * 스프라이트)이 있어서 거기에 또 그리면 손이 겹쳐 한 덩어리가 된다.
+     */
+    const point =
+      index === 0 && visual.guardHand
+        ? {
+            x: -Math.cos(aimAngle) * GUARD_HAND_BACK,
+            y: -Math.sin(aimAngle) * GUARD_HAND_BACK + ORBIT_CENTER_Y + GUARD_HAND_DROP,
+          }
+        : toContainer(visual.grips[index] ?? visual.grips[0]);
     hand.setPosition(point.x, point.y);
   });
 

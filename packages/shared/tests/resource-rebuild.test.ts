@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { World } from '../src/sim/world';
-import { buildingsData, chargingData, levelsData, monstersData, xpToNextLevel } from '../src/data';
+import { buildingsData, chargingData, itemsData, levelsData, monstersData, xpToNextLevel } from '../src/data';
 
 /**
  * 자원 시스템 리빌딩(2026-08)으로 새로 생긴 규칙만 모았다 — 코어 충전, 게이지 상한,
@@ -165,6 +165,23 @@ describe('코어 충전', () => {
   });
 });
 
+/**
+ * 건축물을 세운다. 건축 모드가 사라져서 **아이템을 들고 설치하는 경로 하나뿐**이라,
+ * 테스트도 같은 길을 탄다 — 아이템을 쥐어 주고 그 칸에 놓는다.
+ */
+function placeBuilding(world: World, playerId: string, type: string, cx: number, cy: number): void {
+  const inventory = world.getPlayers().get(playerId)!.inventory;
+  const itemId = Object.entries(itemsData).find(([, item]) => item.buildingType === type)![0];
+  // 시작 지급품이 네 칸을 다 채우고 있으면 add가 조용히 실패한다 — 한 칸 비우고 넣는다.
+  inventory.takeAt(0);
+  inventory.add(itemId, 1);
+  world.selectSlot(
+    playerId,
+    inventory.toView().slots.findIndex((slot) => slot?.itemId === itemId),
+  );
+  world.placeHeldBuilding(playerId, cx, cy);
+}
+
 describe('해머 수리', () => {
   /** 플레이어(0,0) 오른쪽에 벽 하나를 세우고 체력을 1로 깎아 둔다. */
   function worldWithDamagedWall(): { world: World; wall: { hp: number; maxHp: number } } {
@@ -175,7 +192,7 @@ describe('해머 수리', () => {
 
     // 코어 발자국 밖이면서 근접 사거리 안. 플레이어는 원점에 서 있다.
     const { cx, cy } = worldToCell(64, 0);
-    world.placeBuilding('p1', 'wall', cx, cy);
+    placeBuilding(world, 'p1', 'wall', cx, cy);
     const wall = [...world.getBuildings().values()][0]!;
     wall.hp = 1;
     return { world, wall };
@@ -203,13 +220,16 @@ describe('해머 수리', () => {
     expect(world.getCore().resource).toBe(before - buildingsData.wall.repairCost);
   });
 
-  it('해머가 아니면 아무 일도 없다 — 아군 건축물은 공격 대상이 아니다', () => {
+  it('해머가 아니면 고치는 게 아니라 부순다 — 자원도 안 든다', () => {
+    // 건축 모드가 사라지면서 **모든 근접 타격이 건축물을 깎는다**(docs/backend/60).
+    // 해머만 고치고, 나머지는 때려 부순다.
     const { world, wall } = worldWithDamagedWall();
     const before = world.getCore().resource;
 
     swingAt(world, 'bat');
 
-    expect(wall.hp).toBe(1);
+    expect(wall.hp).toBeLessThanOrEqual(1); // 체력 1이라 한 대에 사라진다
+    expect(world.getBuildings().size).toBe(0);
     expect(world.getCore().resource).toBe(before);
   });
 

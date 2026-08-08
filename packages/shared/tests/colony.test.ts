@@ -163,6 +163,54 @@ describe('World — 수호대 소환/귀환', () => {
     expect(colony.purified).toBe(false); // 아무도 안 죽었으니 정화가 아니다
   });
 
+  it('저장분이 바닥나도 플레이어가 있으면 guardTrickleSeconds 주기로 계속 나온다', () => {
+    const { world, colonyId } = worldWithPlayerAtColony();
+    const kill = (world as unknown as { damageMonster(id: string, hp: number): void }).damageMonster.bind(
+      world,
+    );
+
+    // 저장분을 전부 소진한다(빠른 guardRespawnSeconds 주기).
+    const colony = world.getColonies().get(colonyId)!;
+    for (let i = 0; i < 200 && colony.stored > 0; i += 1) {
+      world.tick(coloniesData.guardRespawnSeconds / 2);
+      for (const monster of [...world.getMonsters().values()]) kill(monster.id, 0);
+    }
+    expect(colony.stored).toBe(0);
+    for (const monster of [...world.getMonsters().values()]) kill(monster.id, 0);
+    expect(world.getMonsters().size).toBe(0);
+
+    // stored가 0인데도 플레이어가 트리거 반경 안에 있으니 정화되지 않고, 트리클
+    // 주기가 지나면 새 수호대가 나온다 — stored는 여전히 0(트리클은 안 깎는다).
+    expect(colony.purified).toBe(false);
+    world.tick(coloniesData.guardTrickleSeconds + 0.1);
+    expect(world.getMonsters().size).toBeGreaterThan(0);
+    expect(colony.stored).toBe(0);
+    expect(colony.purified).toBe(false);
+  });
+
+  it('트리클 대기 중에 플레이어가 떠나면 정화된다(더 이상 안 나옴)', () => {
+    const { world, colonyId } = worldWithPlayerAtColony();
+    const kill = (world as unknown as { damageMonster(id: string, hp: number): void }).damageMonster.bind(
+      world,
+    );
+
+    const colony = world.getColonies().get(colonyId)!;
+    for (let i = 0; i < 200 && (colony.stored > 0 || world.getMonsters().size > 0); i += 1) {
+      world.tick(coloniesData.guardRespawnSeconds / 2);
+      for (const monster of [...world.getMonsters().values()]) kill(monster.id, 0);
+    }
+    expect(colony.stored).toBe(0);
+    expect(world.getMonsters().size).toBe(0);
+    expect(colony.purified).toBe(false); // 아직 플레이어가 있어서 정화 전
+
+    const player = world.getPlayers().get('p1')!;
+    player.x = 0;
+    player.y = 0;
+    world.tick(0.1);
+
+    expect(colony.purified).toBe(true);
+  });
+
   it('수호대가 죽으면 stored는 복원되지 않는다(영구 감소)', () => {
     const { world, colonyId } = worldWithPlayerAtColony();
     world.tick(coloniesData.guardRespawnSeconds + 0.1);
@@ -186,19 +234,31 @@ describe('World — 수호대 소환/귀환', () => {
 });
 
 describe('World — 정화/성장/재보급', () => {
-  /** 접근-소환-처치를 반복해서 콜로니를 비운다. */
+  /**
+   * 접근-소환-처치를 반복해서 저장분과 수호대를 전부 비운 다음, 트리거 반경 밖으로
+   * 나가 정화를 완성한다. 다 비운 뒤에도 플레이어가 트리거 반경 안에 있으면
+   * guardTrickleSeconds로 계속 수호대가 나와서(§tickColonyGuards) 정화가 안 된다 —
+   * 실제로 자리를 떠야 "그만 지킨다"는 의미가 되어 정화 판정이 성립한다.
+   */
   function purifyByCombat(world: World, colonyId: string): void {
     const kill = (world as unknown as { damageMonster(id: string, hp: number): void }).damageMonster.bind(
       world,
     );
-    for (let i = 0; i < 500; i += 1) {
-      const colony = world.getColonies().get(colonyId)!;
-      if (colony.purified) return;
+    const colony = world.getColonies().get(colonyId)!;
+    for (let i = 0; i < 500 && (colony.stored > 0 || world.getMonsters().size > 0); i += 1) {
       world.tick(coloniesData.guardRespawnSeconds / 2);
       for (const monster of [...world.getMonsters().values()]) kill(monster.id, 0);
-      world.tick(0.05); // 정화 판정 틱
     }
-    throw new Error('정화에 도달하지 못했다');
+    if (colony.stored > 0 || world.getMonsters().size > 0) {
+      throw new Error('저장분/수호대를 다 비우지 못했다');
+    }
+
+    const player = world.getPlayers().get('p1')!;
+    player.x = 0;
+    player.y = 0;
+    world.tick(0.1);
+
+    if (!colony.purified) throw new Error('정화에 도달하지 못했다');
   }
 
   it('저장분과 수호대를 전부 처치하면 정화된다 — 에너지 보상 + 1단계 초기화 + 빈 껍데기', () => {

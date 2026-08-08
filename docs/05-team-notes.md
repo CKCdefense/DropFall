@@ -143,11 +143,11 @@ interface FireInputMessage {
   그러자 이번엔 예측이 없던 시절이라 자기 캐릭터 반응이 느려져서 다시 60까지
   올렸고, 대역폭 재검증 없이 그대로 방치됐다. 자기 캐릭터 예측
   ([backend/55](backend/55-work-report-player-client-prediction.md))이 들어온
-  지금은 반응성 걱정 없이 다시 낮출 수 있는 상태라([backend/58](backend/58-work-report-session-handoff-verification.md)),
-  60→**50**부터 단계적으로 낮추는 실험을 시작했다(`packages/shared/src/constants.ts`).
-  **현재 50 — 아직 다인 실접속 검증 전.** 끊기면 더 낮추고(20은 이미 검증됨), 괜찮으면
-  계속 낮춰서 한계를 찾을 것 — `SnapshotInterpolator`가 `PATCH_RATE` 기준으로 보간
-  지연을 자동으로 늘려 잡으므로 상수 하나만 바꾸면 된다.
+  지금은 반응성 걱정 없이 다시 낮출 수 있는 상태라([backend/61](backend/61-work-report-session-handoff-verification.md)),
+  60→**50**으로 낮춰 2인 실접속으로 재확인했다 — 끊김 없음, **50으로 확정**
+  (`packages/shared/src/constants.ts`). 몬스터/투사체가 늘어 페이로드가 커지면
+  재검증할 것 — `SnapshotInterpolator`가 `PATCH_RATE` 기준으로 보간 지연을 자동으로
+  늘려 잡으므로 더 낮출 때도 상수 하나만 바꾸면 된다.
 
 - **저해상도 캔버스를 통째로 확대하지 않는다.** 캔버스는 창 크기(네이티브)로 두고 **월드
   카메라만 정수배로 줌**한다. 한글은 8px에서 판독이 안 되기 때문이다(자소 조합 구조라 최소

@@ -6,6 +6,7 @@
   "leashRadius": 360,
   "guardConcurrent": 3,
   "guardRespawnSeconds": 2.5,
+  "guardTrickleSeconds": 6,
   "returnDespawnSeconds": 4,
   "waveContributionRatio": 0.5,
   "stages": [

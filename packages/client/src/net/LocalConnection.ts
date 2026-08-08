@@ -8,6 +8,7 @@ import {
   parseCompanionMention,
   pickCompanionFallbackLine,
   pickFallbackLine,
+  reviveData,
   sanitizeChatText,
   type JobId,
   type SlotContainer,
@@ -65,7 +66,9 @@ export class LocalConnection implements GameConnection {
   constructor(nickname: string, options: LocalGameOptions = {}) {
     this.nickname = nickname;
     // 티모시 사용 여부는 방 설정이라 월드를 세울 때 정한다(서버 GameRoom#onCreate와 같다).
-    this.world = new World({ companion: options.companion !== false });
+    // 혼자하기라고 못 박는다 — 쓰러지면 코어에서 스스로 일어나고, 전원 다운이 곧
+    // 패배가 되지 않는다(World.solo 참고).
+    this.world = new World({ companion: options.companion !== false, solo: true });
     this.companionEnabled = options.companion !== false;
     // 서버(GameRoom#onJoin)와 마찬가지로 코어와 겹치지 않게 띄워 놓는다.
     this.world.addPlayer(LOCAL_SESSION_ID, SPAWN_X, SPAWN_Y);
@@ -155,6 +158,10 @@ export class LocalConnection implements GameConnection {
     this.world.spendStatPoint(LOCAL_SESSION_ID, stat);
   }
 
+  reviveGhost(targetId: string): void {
+    this.world.reviveGhostAtCore(LOCAL_SESSION_ID, targetId);
+  }
+
   shopBuy(itemId: string): void {
     this.world.buyFromShop(LOCAL_SESSION_ID, itemId);
   }
@@ -192,14 +199,6 @@ export class LocalConnection implements GameConnection {
     callback: (message: { playerId: string; nickname: string; text: string }) => void,
   ): void {
     this.chatCallback = callback;
-  }
-
-  placeBuilding(buildingType: string, cx: number, cy: number): void {
-    this.world.placeBuilding(LOCAL_SESSION_ID, buildingType, cx, cy);
-  }
-
-  demolishBuilding(cx: number, cy: number): void {
-    this.world.demolishBuilding(LOCAL_SESSION_ID, cx, cy);
   }
 
   /**
@@ -260,6 +259,9 @@ export class LocalConnection implements GameConnection {
         craftRecipeId: player.craftRecipeId,
         craftRemaining: player.craftTimer,
         craftOutput: player.craftOutput ? { ...player.craftOutput } : null,
+        lifeState: player.lifeState,
+        downRemaining: player.downTimer,
+        reviveProgress: player.reviveProgress / reviveData.rescueSeconds,
         wood: player.inventory.countOf('wood'),
         stone: player.inventory.countOf('stone'),
         parts: player.inventory.countOf('drop_normal'),
@@ -388,7 +390,11 @@ export class LocalConnection implements GameConnection {
         statUpgradesUnlocked: this.world.isStatUpgradesUnlocked(),
         wavePhase: this.world.getWavePhase(),
         currentWave: this.world.getCurrentWave(),
+        bossWarningRemaining: this.world.getBossWarningRemaining(),
         phaseTimeRemaining: this.world.getPhaseTimeRemaining(),
+        waveMonsterTotal: this.world.getWaveMonsterTotal(),
+        waveMonsterRemaining: this.world.getWaveMonsterRemaining(),
+        waveMonsterBonus: this.world.getWaveMonsterBonus(),
         skipVoteCount: this.world.getSkipVoteCount(),
       },
     };

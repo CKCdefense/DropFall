@@ -19,6 +19,18 @@ import { BAR_BACK } from './theme';
 export const HUD_ATLAS = 'ui';
 
 /**
+ * 게이지를 UI 배율에 한 번 더 곱해 키우는 배수.
+ *
+ * 예전엔 1배로 그렸다 — 그러면 **아트 1픽셀 = 화면 1픽셀**이라 외곽선·안쪽 홈·베벨이
+ * 전부 1px이 되어 눈에 안 들어왔다. 월드는 카메라 줌 2~4배로 그려지므로 캐릭터·몬스터
+ * 픽셀은 굵은데 HUD만 곱게 나와서, 같은 화면인데 픽셀아트로 안 읽혔다.
+ *
+ * 정수배만 쓴다 — 1.5배로 늘리면 픽셀 경계가 반 픽셀에 걸려 뭉개진다.
+ * 그림 원본은 이 배수를 감안해 **작게** 그려 둔다(BAR_LARGE.height = 16 → 화면 32px).
+ */
+export const HUD_BAR_SCALE = 2;
+
+/**
  * 아틀라스 로드를 예약한다. **GameScene.preload에서 부른다** — HudScene에는 preload가
  * 없고, 텍스처는 게임 전체가 공유하므로 여기서 한 번 올리면 나중에 뜨는 HudScene도 쓴다.
  */
@@ -47,17 +59,20 @@ export interface BarStyle {
   readonly border: number;
 }
 
-/** 내 체력·스태미나처럼 두껍게 보여주는 주력 게이지. */
+/**
+ * 내 체력·스태미나처럼 두껍게 보여주는 주력 게이지.
+ * height는 **원본 픽셀**이다 — 화면에는 HUD_BAR_SCALE이 곱해져 32px로 나온다.
+ */
 export const BAR_LARGE: BarStyle = {
   back: 'hud_bar_back_l_base_0',
   fill: 'hud_bar_fill_l_base_0',
-  height: 24,
+  height: 16,
   insetX: 2,
   insetY: 2,
   border: 3,
 };
 
-/** 코어·경험치·팀원처럼 곁눈질용으로 얇게 까는 게이지. */
+/** 코어·경험치·팀원처럼 곁눈질용으로 얇게 까는 게이지(화면에서는 16px). */
 export const BAR_SMALL: BarStyle = {
   back: 'hud_bar_back_s_base_0',
   fill: 'hud_bar_fill_s_base_0',
@@ -67,14 +82,18 @@ export const BAR_SMALL: BarStyle = {
   border: 3,
 };
 
-/** 보스전 전용. 양끝 강철 캡 + 크림슨 젬이 붙어 있어 보존 폭(border)이 다르다. */
+/**
+ * 보스전 전용. 양끝에 8px 강철 브래킷(리벳 + 크림슨 젬)이 붙어 있어 보존 폭(border)이
+ * 훨씬 크다 — 이 값이 작으면 브래킷이 늘어나서 뭉개진다.
+ * 숫자는 `assets/_generators/ui_hud.lua`의 barBackBoss와 **한 쌍**이다.
+ */
 export const BAR_BOSS: BarStyle = {
   back: 'hud_bar_back_boss_base_0',
   fill: 'hud_bar_fill_boss_base_0',
-  height: 18,
-  insetX: 5,
+  height: 20,
+  insetX: 10,
   insetY: 2,
-  border: 7,
+  border: 10,
 };
 
 function hasFrames(scene: Phaser.Scene, style: BarStyle): boolean {
@@ -202,5 +221,12 @@ export function hudIcon(scene: Phaser.Scene, frame: string): Phaser.GameObjects.
 
 export const ICON_HEART = 'hud_icon_heart_base_0';
 export const ICON_BOLT = 'hud_icon_bolt_base_0';
-export const ICON_CORE = 'hud_icon_core_base_0';
+export const ICON_SKULL = 'hud_icon_skull_base_0';
 export const ICON_SKULL_LARGE = 'hud_icon_skull_l_base_0';
+/** 코어 패널 게이지 세 줄의 표식 — 코어(원) / 자원(네모) / 에너지(마름모). */
+export const ICON_ORB = 'hud_icon_orb_base_0';
+export const ICON_RESOURCE = 'hud_icon_resource_base_0';
+export const ICON_ENERGY = 'hud_icon_energy_base_0';
+/** 낮 스킵 투표 칸. 빈 홈 / 초록 체크 두 장을 바꿔 끼워 상태를 보여준다. */
+export const ICON_CHECK_OFF = 'hud_icon_check_off_base_0';
+export const ICON_CHECK_ON = 'hud_icon_check_on_base_0';

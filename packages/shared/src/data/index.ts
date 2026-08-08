@@ -16,6 +16,7 @@ import companionJson from './companion.json';
 import jobsJson from './jobs.json';
 import chargingJson from './charging.json';
 import levelsJson from './levels.json';
+import reviveJson from './revive.json';
 
 /**
  * JSON은 주석을 쓸 수 없어서 데이터 파일마다 `$comment` 키로 설명을 단다.
@@ -103,6 +104,13 @@ const MeleeAttackSchema = z.object({
       damage: z.number().nonnegative(),
     })
     .optional(),
+  /**
+   * 이 동작만 다른 속도로 재생한다(fps). 없으면 보스/잡몹 기본값을 쓴다.
+   *
+   * 타격 시점(`hits[].atSeconds`)은 원래 프레임 번호 ÷ 재생속도로 잡은 값이라, 여기를
+   * 늦추면 atSeconds도 같은 비율로 늘려야 "그림이 닿는 순간에 맞는다"가 유지된다.
+   */
+  animFrameRate: z.number().positive().optional(),
   /** 마지막 타격 후 경직(초). 이 동안은 움직이지도 다음 공격을 하지도 않는다 — 반격할 틈이다. */
   recoverSeconds: z.number().nonnegative(),
   /** 이 기술을 다시 쓸 수 있게 되기까지의 시간(초). 기술마다 따로 돈다. */
@@ -344,16 +352,41 @@ const WaveEntrySchema = z.object({
   bossType: z.string().optional(),
 });
 
+/**
+ * 인원수에 따라 웨이브 스폰 수를 불리는 계수. 최종 마릿수는
+ * `round(spawns[type] * baseMultiplier * (base + perPlayer * 인원수))`.
+ *
+ * 원래 기획서(01-game-design.md §10.2)의 "몬스터 수 = 기본값 × (0.6 + 0.4 × 인원수)"를
+ * 그대로 구현하니 실제로는 너무 적었다(자원 수급처 부족 피드백) — 기본값 자체를
+ * baseMultiplier로 한 번 키우고, 인원당 증가폭(perPlayer)도 0.4 → 2로 훨씬 가파르게
+ * 늘렸다(데모 준비도 리뷰 피드백 #2).
+ */
+const WavePlayerScalingSchema = z.object({
+  /** waves.json의 spawns 숫자에 곱하는 기본 배율. */
+  baseMultiplier: z.number().positive(),
+  /** 인원수와 무관한 고정분 계수. */
+  base: z.number().nonnegative(),
+  /** 인원 1명당 추가되는 계수. */
+  perPlayer: z.number().nonnegative(),
+});
+
 const WavesDataSchema = z.object({
   coreHp: z.number().positive(),
   /** 몬스터가 스폰되는, 코어를 중심으로 한 원의 반지름(px) */
   spawnRadius: z.number().positive(),
   /** 낮 페이즈 길이(초). 스킵 투표는 별도 팀 협의 후 추가 예정(docs/backend/11 §4.2) */
   dayDuration: z.number().positive(),
+  /**
+   * 잡몹을 다 잡은 뒤 보스가 나오기까지의 예고 시간(초). 이 동안 화면에 경고가 뜬다 —
+   * 보스가 아무 예고 없이 떨어지면 이미 붙어 있는 상태로 전투가 시작된다.
+   */
+  bossWarningSeconds: z.number().nonnegative(),
+  playerScaling: WavePlayerScalingSchema,
   waves: z.array(WaveEntrySchema).min(1),
 });
 
 export type WaveEntry = z.infer<typeof WaveEntrySchema>;
+export type WavePlayerScaling = z.infer<typeof WavePlayerScalingSchema>;
 
 export const wavesData = loadData(WavesDataSchema, wavesJson);
 
@@ -402,8 +435,6 @@ export const toolsData = loadData(ToolsDataSchema, toolsJson);
 // --- buildings.json ------------------------------------------------------------
 
 const BuildingDataSchema = z.object({
-  /** 건축 모드(B)로 지을 때 코어 자원 게이지에서 나가는 양. 0이면 그 경로로는 못 짓는다. */
-  resourceCost: z.number().int().nonnegative(),
   /** 해머로 한 번 때릴 때 회복되는 체력과 그때 드는 자원. */
   repairPerHit: z.number().int().positive(),
   repairCost: z.number().int().positive(),
@@ -554,8 +585,16 @@ const ColoniesDataSchema = z
     /** 동시에 나와 있을 수 있는 수호대 수. 저장분 전체가 한꺼번에 쏟아지지 않고
      * 이 수를 유지하도록 한 마리씩 보충된다(입구 낚시 방지 겸 압박 유지). */
     guardConcurrent: z.number().int().positive(),
-    /** 수호대 보충 소환 간격(초). */
+    /** 수호대 보충 소환 간격(초). 저장분(stored)이 남아있는 동안 쓰는 빠른 주기다. */
     guardRespawnSeconds: z.number().positive(),
+    /**
+     * 저장분이 바닥난 뒤에도 플레이어가 트리거 반경 안에 계속 있으면, 이 주기로
+     * "여분" 수호대가 계속 나온다(stored를 깎지 않는다 — 깎을 게 없다). 아침에
+     * 콜로니를 오래 지키고 있어도 4마리(1단계 저장분)로 파밍이 끝나버리는 문제를
+     * 풀기 위한 값이다(데모 준비도 리뷰 피드백 #3) — guardRespawnSeconds보다 커야
+     * "계속 나오되 저장분 소진 때보다는 느리게"라는 의도가 성립한다.
+     */
+    guardTrickleSeconds: z.number().positive(),
     /** 귀환을 마친 수호대가 저장 상태로 돌아가(사라져) stored를 복원하기까지의 대기(초). */
     returnDespawnSeconds: z.number().positive(),
     /** 밤 웨이브 시작 시 콜로니 저장분의 이 비율(내림)만큼 **복제**되어 그 콜로니
@@ -570,6 +609,9 @@ const ColoniesDataSchema = z
   })
   .refine((data) => data.leashRadius > data.triggerRadius, {
     message: 'leashRadius는 triggerRadius보다 커야 한다(경계 진동 방지)',
+  })
+  .refine((data) => data.guardTrickleSeconds > data.guardRespawnSeconds, {
+    message: 'guardTrickleSeconds는 guardRespawnSeconds보다 커야 한다(저장분 소진 후엔 더 느리게)',
   });
 
 export type ColonyStage = z.infer<typeof ColonyStageSchema>;
@@ -682,6 +724,20 @@ export function xpToNextLevel(level: number): number {
   if (level >= levelsData.maxLevel) return Infinity;
   return Math.round(levelsData.baseXp * levelsData.growth ** (level - 1));
 }
+
+// --- revive.json ------------------------------------------------------------
+
+const ReviveDataSchema = z.object({
+  soloRespawnSeconds: z.number().positive(),
+  ghostSeconds: z.number().positive(),
+  rescueSeconds: z.number().positive(),
+  rescueRadius: z.number().positive(),
+  /** 1이면 "죽는 편이 이득"이 되므로 반드시 1보다 작다(§REVIVE_HP_RATIO와 같은 이유). */
+  reviveHpRatio: z.number().positive().max(1),
+  coreReviveEnergy: z.number().int().nonnegative(),
+});
+
+export const reviveData = loadData(ReviveDataSchema, reviveJson);
 
 // --- crafting.json ------------------------------------------------------------
 

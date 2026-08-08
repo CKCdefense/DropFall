@@ -9,32 +9,42 @@ import {
   World,
   computeCameraZoom,
 } from '@dropfall/shared';
-import type { GameConnection, PlayerView, WorldSnapshot } from '../../net/GameConnection';
+import type {
+  GameConnection,
+  PlayerView,
+  WorldSnapshot,
+  WorldStatus,
+} from '../../net/GameConnection';
 import {
   CHAT_LOG_KEY,
   CONNECTION_KEY,
   CORE_INTERACT_KEY,
   HUD_BLOCK_KEY,
-  INPUT_CONTROLLER_KEY,
   LOCAL_POSITION_KEY,
 } from '../createGame';
-import type { InputController } from '../input/InputController';
 import { ChatBox } from '../ui/ChatBox';
+import { CinematicOverlay } from '../ui/CinematicOverlay';
 import { CoreModal } from '../ui/CoreModal';
 import { CharacterModal } from '../ui/CharacterModal';
 import { SlotDrag } from '../ui/SlotDrag';
 import type { Modal } from '../ui/Modal';
 import { DevConsole } from '../ui/DevConsole';
 import { DevItemModal } from '../ui/DevItemModal';
-import { Minimap } from '../ui/Minimap';
+import { MINIMAP_SIZE, Minimap } from '../ui/Minimap';
 import { PartyPanel } from '../ui/PartyPanel';
 import { BOTTOM_BAR_RESERVED, QuickSlotBar } from '../ui/QuickSlotBar';
 import { WaveDial } from '../ui/WaveDial';
 import {
   BAR_BOSS,
   BAR_SMALL,
+  HUD_BAR_SCALE,
   HudBar,
-  ICON_CORE,
+  ICON_CHECK_OFF,
+  ICON_CHECK_ON,
+  ICON_ENERGY,
+  ICON_RESOURCE,
+  ICON_ORB,
+  ICON_SKULL,
   ICON_SKULL_LARGE,
   hudIcon,
 } from '../ui/hudBar';
@@ -50,39 +60,108 @@ import {
   SIZE_BODY,
   SIZE_SMALL,
   applyTextShadow,
-  barColor,
 } from '../ui/theme';
 
 /** 코어 피격 시 패널 테두리가 붉게 남아있는 시간(ms). */
 const CORE_HIT_PANEL_FLASH_MS = 300;
 
-/** 건축모드 표시용 한글 이름. InputController의 BUILD_MODES 값과 짝을 맞춘다. */
-const BUILD_MODE_LABEL: Record<string, string> = {
-  off: '꺼짐',
-  fence: '울타리',
-  wall: '벽',
-  demolish: '철거',
-};
+/**
+ * 열린 코어 창이 자동으로 닫히는 거리(px, 코어 발자국 가장자리 기준).
+ * 여는 거리(CORE_INTERACT_MARGIN = 32)보다 넉넉해야 경계에서 창이 깜빡이지 않는다.
+ */
+const CORE_CLOSE_MARGIN = 96;
 
 export const HUD_SCENE_KEY = 'Hud';
 
 /** HUD는 카메라 줌 1(네이티브 해상도)에 그려진다 — 그래서 실제 픽셀 크기를 그대로 쓴다. */
-const TEXT_STYLE = { fontFamily: FONT, fontSize: `${SIZE_BODY}px`, color: BODY_TEXT } as const;
 const DIM_STYLE = { fontFamily: FONT, fontSize: `${SIZE_BODY}px`, color: DIM_TEXT } as const;
 const SMALL_STYLE = { fontFamily: FONT_SMALL, fontSize: `${SIZE_SMALL}px`, color: DIM_TEXT } as const;
 const PAD = 12;
-const CORE_PANEL_WIDTH = 190;
-const CORE_PANEL_HEIGHT = 60;
+const CORE_PANEL_WIDTH = 220;
+/**
+ * 패널 제목 줄. Galmuri11에는 굵은 자체(Galmuri11-Bold, weight 700)가 등록돼 있어서
+ * fontStyle 'bold'가 실제로 다른 글꼴로 그려진다 — 픽셀 폰트라 획을 인위적으로
+ * 두껍게 하면(stroke) 번지므로, 굵은 자체가 있을 때만 쓸 수 있는 방법이다.
+ */
+const HEAD_STYLE = {
+  fontFamily: FONT,
+  fontSize: `${SIZE_BODY}px`,
+  fontStyle: 'bold',
+  color: BODY_TEXT,
+} as const;
+/**
+ * 코어 패널 — 방 이름 한 줄 + 게이지 세 줄(내구도·자원·에너지)이 들어간다.
+ *
+ * **숫자를 적지 않는다.** 전투 중에 "848 / 1000"을 읽고 판단할 여유는 없다 — 필요한 건
+ * "얼마나 남았나"뿐이고 그건 막대 길이가 더 빨리 말해준다. 정확한 수치는 코어 창([E])의
+ * 코어 탭에서 본다. 창고에 쌓인 나무·돌·부품 개수도 같은 이유로 여기서 뺐다.
+ *
+ * 높이는 **오른쪽 미니맵과 맞춘다**(MINIMAP_SIZE). 화면 위쪽 양 끝의 두 판이 같은 선에서
+ * 끝나야 HUD가 정돈돼 보이고, 남는 세로 공간만큼 게이지와 표식을 크게 그릴 수 있다.
+ */
+const CORE_PANEL_HEIGHT = MINIMAP_SIZE;
+/**
+ * 코어 패널 안 요소들의 확대 배수. 패널이 미니맵 높이(168)만큼 커져서 남는 공간을
+ * 픽셀 굵기에 쓴다 — 다른 게이지(2배)보다 한 단계 더 굵다.
+ */
+const CORE_PANEL_SCALE = 3;
+/** 게이지 세 줄의 표식 크기(원본 px)와 줄 간격(화면 px). */
+const CORE_ICON_SIZE = 12;
+const CORE_ROW_GAP = 14;
+/**
+ * 게이지 색은 코어 창의 코어 탭(CorePanel)과 **같은 값**을 쓴다 — 같은 값을 두 곳에서
+ * 다른 색으로 보여주면 둘이 다른 것으로 읽힌다.
+ *
+ * 내구도를 체력처럼 barColor(초록↔빨강)로 두지 않는 이유: 세 막대가 세로로 붙어 있어서
+ * 자원(초록)과 색이 겹치면 어느 줄인지 헷갈린다. 코어가 맞고 있다는 신호는 색이 아니라
+ * **패널 테두리 붉은 펄스**(flashCorePanel)가 이미 더 강하게 준다.
+ */
+const CORE_HP_COLOR = 0xd9756b;
+const CORE_RESOURCE_COLOR = 0x6fd08c;
+const CORE_ENERGY_COLOR = 0x5cc6e8;
+/**
+ * 코어 패널 아래에 붙는 판. **낮과 밤에 다른 것을 보여준다** — 자리는 하나만 쓰고
+ * 내용을 갈아 끼운다. 둘 다 "지금 이 페이즈가 언제 끝나는가"에 대한 답이라 같은
+ * 자리에 있는 편이 눈이 덜 움직인다.
+ *
+ * - 밤: 해골 + `남은/전체` 잡몹 수. 코어 게이지와 달리 **숫자를 적는다** — 다음 행동을
+ *   가르는 값이라(더 사냥할지 코어로 돌아갈지) 대략이 아니라 정확히 알아야 한다.
+ * - 낮: 스킵 투표 칸을 인원수만큼. 판을 누르면 곧 내 표가 들어간다([V]와 같은 동작).
+ */
+const STATUS_PANEL_HEIGHT = 62;
+const STATUS_PANEL_GAP = 8;
+/** 투표 칸 사이 간격(화면 px). 칸 자체는 12px 원본 × HUD_BAR_SCALE = 24px다. */
+const VOTE_BOX_GAP = 6;
+/**
+ * 콜로니 증가분(`+N`) 색. 잡몹 숫자보다 **진한 경고색**이다 — 정원과 나란히 붙어 있어
+ * 같은 톤이면 한 숫자로 읽히고, 이건 "내가 안 치운 콜로니 때문에 늘어난 몫"이라
+ * 눈에 걸려야 하는 값이다.
+ */
+const MONSTER_BONUS_COLOR = '#ff6b5e';
 /** 자기 체력 바 — 퀵슬롯 바로 위에 붙인다. */
 /**
  * 보스 HP바(상단 중앙, 웨이브 다이얼 아래) 규격.
  *
  * 보스전은 밤의 마지막 국면이고 이 바가 그 국면의 전부다 — 코어·팀원 게이지와 같은
  * 얇은 띠로 두면 "그냥 또 하나의 몹"으로 읽힌다. 그래서 **화면 중앙 상단의 주역**이
- * 되도록 폭·높이를 키우고 전용 그림(BAR_BOSS: 양끝 강철 캡 + 크림슨 젬)을 쓴다.
+ * 되도록 전용 그림(BAR_BOSS: 양끝 강철 캡 + 크림슨 젬)을 쓰고, 아래 세 값으로
+ * 다른 게이지보다 확실히 크게 잡는다.
+ *
+ * 폭을 고정값이 아니라 **화면 폭 비율**로 잡는 이유: 1920 화면에서 260px는 13%뿐이라
+ * 상단에 떠 있는 잡다한 표시 중 하나로 묻혔다. 상한을 같이 두는 건 초광폭 모니터에서
+ * 바가 화면을 가로지르지 않게 하기 위해서다.
  */
-const BOSS_BAR_WIDTH = 260;
+const BOSS_BAR_WIDTH_RATIO = 0.38;
+const BOSS_BAR_MAX_WIDTH = 660;
 const BOSS_BAR_HEIGHT = BAR_BOSS.height;
+/**
+ * 보스 바만 UI 배율에 한 번 더 곱하는 확대 배수.
+ *
+ * 픽셀아트는 **정수배로만** 키운다 — 1.5배는 픽셀이 뭉개진다. 1배로 두면 강철 브래킷과
+ * 크림슨 젬이 1px이라 큰 화면에서 아예 안 보였다. 배수를 올릴수록 픽셀이 굵어져
+ * "픽셀아트로 그린 보스 바"라는 게 살아난다(2배 = 1920 화면에서 660×40).
+ */
+const BOSS_BAR_SCALE = 2;
 /** 보스 체력은 색으로 상태를 알리지 않는다 — 처음부터 끝까지 위협적인 크림슨이다. */
 const BOSS_BAR_COLOR = 0xd94f4f;
 /** 보스 타입(monsters.json 키) → 표시 이름. 아직 데이터에 이름 필드가 없어 클라이언트 표만 둔다. */
@@ -109,11 +188,26 @@ export class HudScene extends Phaser.Scene {
   private connection!: GameConnection;
 
   private corePanel!: Phaser.GameObjects.Rectangle;
-  private coreLabel!: Phaser.GameObjects.Text;
-  private coreIcon!: Phaser.GameObjects.Image | null;
-  private coreBar!: HudBar;
-  /** 코어에 입고된 팀 공유 자원(건축 비용이 여기서 나간다) — 개인 휴대량과는 다른 값이다. */
-  private sharedResourceText!: Phaser.GameObjects.Text;
+  /**
+   * 코어 현황 세 줄 — 내구도 / 자원 / 에너지. 표식(아이콘) + 막대만 있고 숫자는 없다.
+   * 순서가 곧 급한 순서다: 코어가 부서지면 끝이고, 자원이 없으면 못 짓고, 에너지는
+   * 그다음이다.
+   */
+  private coreRows!: { icon: Phaser.GameObjects.Image | null; bar: HudBar; color: number }[];
+  /** 코어 패널 아래 판. 낮에는 스킵 투표 칸, 밤에는 남은 잡몹 수를 보여준다. */
+  private statusPanel!: Phaser.GameObjects.Rectangle;
+  private monsterIcon!: Phaser.GameObjects.Image | null;
+  private monsterText!: Phaser.GameObjects.Text;
+  /** 낮 스킵 투표 칸. 방 정원만큼 미리 만들어 두고 인원수에 맞춰 보이고 숨긴다. */
+  private voteBoxes!: Phaser.GameObjects.Image[];
+  private voteHint!: Phaser.GameObjects.Text;
+  /** 상황 판 제목. 낮/밤에 글자만 바뀐다. */
+  private statusHeadText!: Phaser.GameObjects.Text;
+  /**
+   * 콜로니 때문에 늘어난 마릿수(`+N`). 정원 숫자 **오른쪽에 따로 붙는다** —
+   * 정원에 더해 버리면 콜로니를 방치한 대가가 얼마인지 안 보인다.
+   */
+  private monsterBonusText!: Phaser.GameObjects.Text;
   /** 직전 스냅샷의 코어 체력. 줄어든 순간에만 패널 테두리를 붉게 펄스한다 — 코어가
    * 화면 밖(카메라 밖)이거나 몬스터에 가려도 "지금 맞고 있다"가 항상 보이게 하는
    * 용도다(월드 쪽 연출은 EntityRenderer.playCoreHit 참고). */
@@ -135,12 +229,18 @@ export class HudScene extends Phaser.Scene {
   /** 보스 이름표의 중심/아랫선(화면 좌표). 해골 아이콘을 글자 옆에 붙일 때 쓴다. */
   private bossNameCenter = 0;
   private bossNameBaseline = 0;
+  /**
+   * 보스 바에 실제로 적용된 배율(uiScale × BOSS_BAR_SCALE).
+   * 채움을 갱신할 때 레이아웃과 **같은 값**을 넘겨야 한다 — uiScale을 넘기면 채움
+   * 높이가 틀 높이의 절반이 된다.
+   */
+  private bossScale = BOSS_BAR_SCALE;
   private bossWarnText!: Phaser.GameObjects.Text;
   /** 직전 프레임에 보인 보스 몬스터 id. 새 보스 등장(경고 연출) 감지용. */
   private lastBossId: string | undefined;
-  private roomText!: Phaser.GameObjects.Text;
+  /** 패널 제목. 굵은 자체로 그려 무슨 판인지 먼저 읽히게 한다. */
+  private coreHeadText!: Phaser.GameObjects.Text;
   private resourceText!: Phaser.GameObjects.Text;
-  private buildModeText!: Phaser.GameObjects.Text;
   private debugText!: Phaser.GameObjects.Text;
   private helpText!: Phaser.GameObjects.Text;
   /**
@@ -156,7 +256,7 @@ export class HudScene extends Phaser.Scene {
   /** 바 너비를 다시 계산할 때 필요해서 보관한다. */
   private uiScale = 1;
 
-  // 코어 허브 창 — [F]/[E]로 열고, 안에서 탭(코어/제작/상점/창고)으로 오간다.
+  // 코어 허브 창 — 코어 앞에서 [E]로 열고, 안에서 탭(코어/제작/상점/창고)으로 오간다.
   private coreModal!: CoreModal;
   private slotDrag!: SlotDrag;
   /** 최신 스냅샷의 내 슬롯/창고. 드래그가 "빈 칸인지"를 물어볼 때 쓴다. */
@@ -164,6 +264,12 @@ export class HudScene extends Phaser.Scene {
   private latestStorage: (InventorySlot | null)[] = [];
   private latestCharge: (InventorySlot | null)[] = [];
   private latestCraftOutput: InventorySlot | null = null;
+
+  /** 화면 연출(암전·DAY N·경고·클리어). */
+  private cinematic!: CinematicOverlay;
+  /** 직전 스냅샷의 페이즈와 웨이브 — 아침이 "언제 왔는지"는 전이로만 알 수 있다. */
+  private lastPhase = '';
+  private lastWave = -1;
   /** 코어 상호작용 반경 안에 있는지. update가 매 프레임 갱신한다. */
   private nearCore = false;
   /** 주울 수 있는 드롭이 발밑에 있는지. 코어 앞에서 E가 무엇을 할지 가른다. */
@@ -190,20 +296,49 @@ export class HudScene extends Phaser.Scene {
   }
 
   create(): void {
-    const { roomCode, roomName } = this.connection.roomInfo;
+    // 방 코드는 화면에 안 띄우지만 미니맵이 지형 시드로 쓴다(§this.minimap).
+    const { roomCode } = this.connection.roomInfo;
 
-    // 좌상단 — 코어 HP
+    // 좌상단 — 코어 현황
+    //
+    // 방 이름·코드·오프라인 표시는 뺐다. 게임 중에는 쓸 일이 없는 접속 정보라
+    // 매 순간 봐야 하는 코어 상태와 같은 판에 있으면 눈이 먼저 그쪽으로 간다
+    // (방 코드는 대기실에서 확인한다).
     this.corePanel = panelBox(this, CORE_PANEL_WIDTH, CORE_PANEL_HEIGHT);
-    this.roomText = this.add.text(
-      0,
-      0,
-      `${roomName} [${roomCode}]${this.connection.isLocal ? ' · 오프라인' : ''}`,
-      SMALL_STYLE,
-    );
-    this.coreIcon = hudIcon(this, ICON_CORE);
-    this.coreLabel = this.add.text(0, 0, 'CORE', TEXT_STYLE);
-    this.sharedResourceText = this.add.text(0, 0, '공유 나무 0 · 돌 0 · 부품 0', SMALL_STYLE);
-    this.coreBar = new HudBar(this, BAR_SMALL);
+    this.coreHeadText = this.add.text(0, 0, '코어 상태', HEAD_STYLE);
+    // 막대를 먼저, 표식을 나중에 만든다 — 나중에 만든 쪽이 위에 그려진다.
+    this.coreRows = [
+      { frame: ICON_ORB, color: CORE_HP_COLOR },
+      { frame: ICON_RESOURCE, color: CORE_RESOURCE_COLOR },
+      { frame: ICON_ENERGY, color: CORE_ENERGY_COLOR },
+    ].map(({ frame, color }) => {
+      const bar = new HudBar(this, BAR_SMALL);
+      return { bar, icon: hudIcon(this, frame), color };
+    });
+
+    // 코어 패널 아래 — 낮/밤에 내용이 바뀌는 판
+    this.statusPanel = panelBox(this, CORE_PANEL_WIDTH, STATUS_PANEL_HEIGHT).setVisible(false);
+    // 판 전체가 투표 버튼이다. 24px짜리 칸 하나하나를 노리게 하면 너무 작다.
+    this.statusPanel.setInteractive({ useHandCursor: true });
+    this.statusPanel.on('pointerdown', () => this.connection.voteSkipDay());
+    this.statusHeadText = this.add.text(0, 0, '', HEAD_STYLE).setVisible(false);
+    this.monsterIcon = hudIcon(this, ICON_SKULL)?.setVisible(false) ?? null;
+    this.monsterText = this.add
+      .text(0, 0, '', { fontFamily: FONT, fontSize: `${SIZE_BODY}px`, color: '#f2b8b8' })
+      .setOrigin(0, 0.5)
+      .setVisible(false);
+    this.voteBoxes = Array.from({ length: MAX_CLIENTS_PER_ROOM }, () => {
+      const box = hudIcon(this, ICON_CHECK_OFF);
+      box?.setVisible(false);
+      return box;
+    }).filter((box): box is Phaser.GameObjects.Image => box !== null);
+    // 칸 오른쪽 끝에 붙는 단축키 안내. 칸 넷이 다 차면 남는 폭이 60px 남짓이라
+    // 긴 문구는 판 밖으로 넘친다 — 무엇을 하는 판인지는 체크 칸이 이미 말해 준다.
+    this.monsterBonusText = this.add
+      .text(0, 0, '', { fontFamily: FONT, fontSize: `${SIZE_BODY}px`, color: MONSTER_BONUS_COLOR })
+      .setOrigin(0, 0.5)
+      .setVisible(false);
+    this.voteHint = this.add.text(0, 0, '[V]', SMALL_STYLE).setOrigin(1, 0.5).setVisible(false);
 
     // 상단 중앙 원형 — 웨이브 번호 + 남은 시간
     this.waveDial = new WaveDial(this);
@@ -235,7 +370,6 @@ export class HudScene extends Phaser.Scene {
     this.ammoText = this.add.text(0, 0, '', DIM_STYLE).setOrigin(1, 1);
 
     this.resourceText = this.add.text(0, 0, '휴대 나무 0 · 돌 0 · 부품 0', DIM_STYLE);
-    this.buildModeText = this.add.text(0, 0, '건축모드: 꺼짐', DIM_STYLE);
     this.debugText = this.add.text(0, 0, '', SMALL_STYLE);
     this.helpText = this.add.text(0, 0, '', DIM_STYLE).setOrigin(0.5, 1);
     this.aiToastText = this.add
@@ -268,13 +402,16 @@ export class HudScene extends Phaser.Scene {
     // 패널 안 글자(코어, 퀵슬롯, 팀원)는 어두운 상자가 이미 받쳐주므로 놔둔다.
     this.looseTexts = [
       this.resourceText,
-      this.buildModeText,
       this.debugText,
       this.helpText,
       this.aiToastText,
     ];
 
     this.layout();
+    this.cinematic = new CinematicOverlay(this);
+    // 게임에 들어서는 순간 한 번 — 검게 덮었다가 다시 열린다.
+    this.cinematic.playIntro();
+
     this.scale.on(Phaser.Scale.Events.RESIZE, this.layout, this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.scale.off(Phaser.Scale.Events.RESIZE, this.layout, this);
@@ -282,7 +419,7 @@ export class HudScene extends Phaser.Scene {
   }
 
   /**
-   * 코어 상호작용 모달 4종을 만들고 배선한다(docs/frontend/09) — [F]로 허브(코어)
+   * 코어 상호작용 모달 4종을 만들고 배선한다(docs/frontend/09) — [E]로 허브(코어)
    * 모달을 열고, 거기 있는 4개 버튼 중 3개가 각각 다른 모달로 넘어간다. "창고"는
    * 아직 모달 자체가 없어서(와이어프레임에 잘려 있었다) 우선 로그만 남긴다 —
    * 실제 코어 근접 판정이나 데이터 연결은 다음 작업이다.
@@ -303,6 +440,9 @@ export class HudScene extends Phaser.Scene {
     // 창고 격자와 하단 퀵슬롯을 **하나의 드래그 공간**으로 묶는다. 둘은 별개 UI지만
     // 아이템이 그 사이를 오가야 해서, 드래그 로직을 모달이 아니라 공용 컨트롤러에 둔다.
     this.slotDrag = new SlotDrag(this);
+    // 집은 채 탭 위에 올리면 그 탭으로 넘어간다(Modal.isDragActive) — 창고에서 집은
+    // 재료를 코어 충전 칸에 바로 가져갈 수 있다.
+    this.coreModal.isDragActive = () => this.slotDrag.isDragging();
     this.slotDrag.onMove = (from, fromIndex, to, toIndex) =>
       this.connection.moveItem(from, fromIndex, to, toIndex);
     /*
@@ -314,6 +454,13 @@ export class HudScene extends Phaser.Scene {
       if (container === 'inventory' && this.coreModal.isCoreTabVisible()) {
         const itemId = this.latestInventory[index]?.itemId;
         if (itemId && !World.canCharge(itemId)) {
+          this.coreModal.rejectCharge(0);
+          return;
+        }
+        // 받을 칸이 없으면 서버가 조용히 무시한다 — 왜 안 들어갔는지 화면에서 보이게
+        // 한다. 판정 규칙은 World.quickChargeFromInventory와 같다(같은 재료 우선, 없으면 빈 칸).
+        const target = itemId === undefined ? -1 : this.findChargeTarget(itemId);
+        if (target < 0) {
           this.coreModal.rejectCharge(0);
           return;
         }
@@ -379,12 +526,10 @@ export class HudScene extends Phaser.Scene {
     this.coreModal.onPurchase = (itemId: string) => this.connection.shopBuy(itemId);
     this.coreModal.onDiscard = (index: number) => this.connection.discardStorageItem(index);
 
-    // 낮/밤 무관하게 언제든 열어볼 수 있다 — 아직 실제 효과가 없는 선작업 UI라
-    // 페이즈로 막을 이유가 없다(효과가 생기면 그때 막을지 정하면 된다).
-    this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.F).on('down', () => {
-      if (this.anyModalOpen()) this.closeAllModals();
-      else this.coreModal.open();
-    });
+    // 코어 창을 여는 길은 **코어 앞에서 E** 하나뿐이다(CORE_INTERACT_KEY).
+    // 예전엔 F로 맵 어디서나 열렸는데, 창고·제작·상점이 전부 "코어 앞에서 하는 일"이라
+    // 서버가 어차피 근접을 다시 검사한다 — 멀리서 열리는 창은 눌러봐야 거절만 돌아와서
+    // 조작이 되는 것처럼 보이는 게 오히려 헷갈렸다.
 
     // 게임 입력이 모달을 뚫고 나가지 않게 한다 — 차단막이 없으니 좌표로 직접 판정한다.
     this.registry.set(HUD_BLOCK_KEY, (x: number, y: number) => {
@@ -392,6 +537,8 @@ export class HudScene extends Phaser.Scene {
       // 콘솔/채팅에 타이핑하는 동안 클릭이 공격으로 새면 안 된다.
       if (this.devConsole?.isOpen()) return true;
       if (this.chatBox.isOpen()) return true;
+      // 투표 판을 누른 클릭이 월드로 새서 무기까지 휘두르면 안 된다.
+      if (this.statusPanel.visible && this.statusPanel.getBounds().contains(x, y)) return true;
       return this.openModals().some((modal) => modal.containsPoint(x, y));
     });
 
@@ -399,7 +546,7 @@ export class HudScene extends Phaser.Scene {
     //
     // **줍기가 항상 우선한다.** 코어는 맵 한가운데라 그 근처에서 죽은 몬스터의 드롭을
     // 밟고 있는 일이 흔한데, 예전엔 코어 반경 안이기만 하면 무조건 모달이 떠서 발밑
-    // 아이템을 영영 못 주웠다. 창고는 F로도 열 수 있으니, E는 "발밑에 뭔가 있으면 줍고,
+    // 아이템을 영영 못 주웠다. E는 "발밑에 뭔가 있으면 줍고,
     // 없을 때만 코어를 연다"로 정리한다.
     this.registry.set(CORE_INTERACT_KEY, () => {
       if (this.anyModalOpen()) {
@@ -416,11 +563,26 @@ export class HudScene extends Phaser.Scene {
 
       this.coreModal.open();
       // 코어 AI 페르소나 트리거. 서버가 쿨다운을 판단하므로 여기선 그냥 알리기만
-      // 한다(F키 쪽 단축 접근은 건드리지 않는다 — 그쪽은 선작업용 지름길일 뿐
-      // "진짜 상호작용"으로 치지 않아, 중복 트리거를 막는다).
+      // 한다.
       this.connection.coreInteract();
       return true;
     });
+  }
+
+  /**
+   * 쉬프트 클릭한 재료가 들어갈 충전 칸. 없으면 -1.
+   * 같은 재료가 타고 있으면 거기에 합치고, 없으면 열려 있는 빈 칸을 쓴다 —
+   * 서버(World.quickChargeFromInventory)와 **같은 순서**여야 화면과 결과가 어긋나지 않는다.
+   */
+  private findChargeTarget(itemId: string): number {
+    let empty = -1;
+    for (let index = 0; index < this.latestCharge.length; index += 1) {
+      if (!this.coreModal.isChargeSlotOpen(index)) continue;
+      const slot = this.latestCharge[index];
+      if (slot?.itemId === itemId) return index;
+      if (empty < 0 && !slot) empty = index;
+    }
+    return empty;
   }
 
   /**
@@ -496,9 +658,35 @@ export class HudScene extends Phaser.Scene {
    * 캔버스가 창 크기를 따라가므로 좌표를 매번 다시 계산한다.
    * 월드가 정수배로 확대되는 만큼 UI도 같이 키워야 화면이 따로 놀지 않는다.
    */
+  /**
+   * 페이즈 전이에 맞춰 큰 문구를 띄운다.
+   *
+   * **전이로만 판단한다.** 매 프레임 "지금 낮이다"로 띄우면 낮 내내 계속 다시 시작한다 —
+   * 아침이 온 그 순간(밤→낮, 또는 게임 시작)에만 한 번이다. 웨이브 번호까지 같이 보는
+   * 이유는 낮이 이어지는 동안에도 번호가 바뀔 수 있어서다(개발 커맨드 `wave`).
+   */
+  private updateCinematic(status: WorldSnapshot['status']): void {
+    const phase = status.wavePhase;
+    const day = Math.max(1, status.currentWave + (phase === 'day' ? 1 : 0));
+
+    if (phase === 'victory') {
+      this.cinematic.showClear();
+    } else if (status.bossWarningRemaining > 0) {
+      this.cinematic.showWarning();
+    } else {
+      this.cinematic.hideWarning();
+      const morning = phase === 'day' && (this.lastPhase !== 'day' || this.lastWave !== day);
+      if (morning) this.cinematic.showDay(day);
+    }
+
+    this.lastPhase = phase;
+    if (phase === 'day') this.lastWave = day;
+  }
+
   private layout(): void {
     const width = this.scale.width;
     const height = this.scale.height;
+    this.cinematic?.layout(width, height);
     // 월드 줌 2~4 → UI 스케일 1~2. **정수만 쓴다** — 픽셀 폰트는 1.5배로 늘리면
     // 글자가 뭉개져서, 어중간하게 큰 것보다 작고 선명한 쪽이 훨씬 잘 읽힌다.
     const scale = Math.min(2, Math.max(1, Math.floor(computeCameraZoom(width, height) / 2)));
@@ -510,36 +698,48 @@ export class HudScene extends Phaser.Scene {
     const panelW = CORE_PANEL_WIDTH * scale;
     const panelH = CORE_PANEL_HEIGHT * scale;
     this.corePanel.setSize(panelW, panelH).setPosition(pad, pad);
-    this.roomText.setFontSize(SIZE_SMALL * scale).setPosition(pad + 8 * scale, pad + 5 * scale);
-    // 코어 아이콘 → 'CORE' 글자 순으로 한 줄. 아이콘이 없으면(에셋 미로드) 글자가
-    // 원래 자리(패널 왼쪽 여백)에서 시작한다.
-    const coreLabelX = pad + 8 * scale + (this.coreIcon ? 15 * scale : 0);
-    this.coreIcon?.setScale(scale).setPosition(pad + 8 * scale, pad + 23 * scale);
-    this.coreLabel.setFontSize(SIZE_BODY * scale).setPosition(coreLabelX, pad + 17 * scale);
-    this.sharedResourceText
-      .setFontSize(SIZE_SMALL * scale)
-      .setPosition(pad + 8 * scale, pad + 30 * scale);
+    this.coreHeadText.setFontSize(SIZE_BODY * scale).setPosition(pad + 10 * scale, pad + 6 * scale);
 
-    const coreBarW = panelW - 16 * scale;
-    const coreBarY = pad + panelH - 14 * scale;
-    this.coreBar.layout(pad + 8 * scale, coreBarY, coreBarW, scale);
+    // 게이지 세 줄. 각 줄은 [표식][막대]이고, 표식은 막대보다 커서 세로 가운데에 맞춘다
+    // (막대 24px, 표식 36px — 원본 8px·12px에 같은 배율이 곱해진 값이다).
+    const coreScale = scale * CORE_PANEL_SCALE;
+    const rowHeight = BAR_SMALL.height * coreScale;
+    const iconSize = CORE_ICON_SIZE * coreScale;
+    const rowLeft = pad + 10 * scale;
+    const barLeft = rowLeft + iconSize + 8 * scale;
+    const barWidth = pad + panelW - 10 * scale - barLeft;
+    // 세 줄을 방 이름 아래 남은 공간의 가운데에 몰아 둔다 — 패널이 미니맵 높이라
+    // 위에 붙이면 아래가 휑하게 빈다.
+    const rowsHeight = rowHeight * 3 + CORE_ROW_GAP * scale * 2;
+    const rowsTop = pad + 22 * scale + (panelH - 22 * scale - rowsHeight) / 2;
+
+    this.coreRows.forEach((row, index) => {
+      const rowTop = rowsTop + index * (rowHeight + CORE_ROW_GAP * scale);
+      row.bar.layout(barLeft, rowTop, barWidth, coreScale);
+      row.icon?.setScale(coreScale).setPosition(rowLeft, rowTop + rowHeight / 2);
+    });
 
     // --- 상단 중앙/우상단
     this.waveDial.layout(width / 2, pad, scale);
     this.minimap.layout(width - pad, pad, scale);
 
-    // 보스 바 — 웨이브 다이얼(지름 52) 바로 아래 중앙. 경고 문구는 화면 중앙 상단 1/3.
-    const bossBarY = pad + 64 * scale;
-    const bossBarW = BOSS_BAR_WIDTH * scale;
+    // 보스 바 — 화면 중앙 상단의 주역. 위에 붙는 이름표도 같은 배율로 커지므로,
+    // 다이얼 바닥(pad + 52)에 그 글자 높이(≈ SIZE_BODY × bossScale × 1.4)만큼
+    // 더 띄운 자리에 바를 놓는다. 경고 문구는 그대로 화면 중앙 상단 1/3.
+    this.bossScale = scale * BOSS_BAR_SCALE;
+    const bossScale = this.bossScale;
+    const bossBarY = pad + 112 * scale;
+    const bossBarW = Math.min(width * BOSS_BAR_WIDTH_RATIO, BOSS_BAR_MAX_WIDTH * scale);
     this.bossNameCenter = width / 2;
-    this.bossNameBaseline = bossBarY - 3 * scale;
+    this.bossNameBaseline = bossBarY - 4 * scale;
+    // 이름도 바와 같은 배율로 키운다 — 바만 커지면 글자가 붙어 있는 라벨처럼 작아 보인다.
     this.bossNameText
-      .setFontSize(SIZE_BODY * scale)
+      .setFontSize(SIZE_BODY * bossScale)
       .setPosition(this.bossNameCenter, this.bossNameBaseline);
-    this.bossBar.layout(width / 2 - bossBarW / 2, bossBarY, bossBarW, scale);
+    this.bossBar.layout(width / 2 - bossBarW / 2, bossBarY, bossBarW, bossScale);
     // 해골은 이름표 왼쪽에 붙는다. 글자 폭이 보스마다 달라서 최종 자리는 이름을 넣은
     // 뒤에 잡는다(placeBossIcon) — 여기서는 배율만 맞춰 둔다.
-    this.bossIcon?.setScale(scale);
+    this.bossIcon?.setScale(bossScale);
     this.placeBossIcon();
     this.bossWarnText.setFontSize((SIZE_BODY + 4) * scale).setPosition(width / 2, height / 3);
 
@@ -547,10 +747,44 @@ export class HudScene extends Phaser.Scene {
     this.aiToastText
       .setFontSize(SIZE_BODY * scale)
       .setWordWrapWidth(220 * scale)
-      .setPosition(width / 2, bossBarY + (BOSS_BAR_HEIGHT + 6) * scale);
+      .setPosition(width / 2, bossBarY + BOSS_BAR_HEIGHT * bossScale + 6 * scale);
 
-    // --- 좌측 세로: 팀원 체력. 코어 패널 아래에서 시작한다.
-    this.party.layout(pad, pad + panelH + 10 * scale, scale);
+    // --- 상황 판: 코어 패널 바로 아래. 낮/밤 내용이 같은 자리를 나눠 쓴다.
+    const statusTop = pad + panelH + STATUS_PANEL_GAP * scale;
+    const statusH = STATUS_PANEL_HEIGHT * scale;
+    const statusScale = scale * HUD_BAR_SCALE;
+    // 제목 한 줄이 위에 앉고, 내용은 그 아래 남은 공간의 가운데에 온다.
+    const statusHeadBottom = statusTop + 6 * scale + SIZE_BODY * scale;
+    const statusMidY = statusHeadBottom + (statusTop + statusH - statusHeadBottom) / 2;
+    const statusLeft = pad + 12 * scale;
+    this.statusPanel.setSize(panelW, statusH).setPosition(pad, statusTop);
+    // setSize는 히트 영역을 갱신하지 않는다 — 배율이 바뀌면 클릭 판정이 어긋난다.
+    this.statusPanel.input?.hitArea?.setSize(panelW, statusH);
+    this.statusHeadText
+      .setFontSize(SIZE_BODY * scale)
+      .setPosition(pad + 10 * scale, statusTop + 6 * scale);
+
+    // 밤: 해골 + 남은/전체
+    this.monsterIcon?.setScale(statusScale).setPosition(statusLeft, statusMidY);
+    this.monsterText
+      .setFontSize(SIZE_BODY * statusScale)
+      .setPosition(statusLeft + CORE_ICON_SIZE * statusScale + 8 * scale, statusMidY);
+    // `+N`은 잡몹 수 글자 오른쪽에 붙는다. 글자 폭이 매번 달라서 자리는 값을 넣은
+    // 뒤에 잡는다(updateStatusPanel) — 여기서는 크기와 세로 위치만 맞춰 둔다.
+    this.monsterBonusText.setFontSize(SIZE_BODY * scale * HUD_BAR_SCALE).setY(statusMidY);
+
+    // 낮: 투표 칸을 왼쪽부터 늘어놓고, 남는 오른쪽에 안내 글자를 둔다.
+    const boxSize = CORE_ICON_SIZE * statusScale;
+    this.voteBoxes.forEach((box, index) => {
+      box.setScale(statusScale).setPosition(statusLeft + index * (boxSize + VOTE_BOX_GAP * scale), statusMidY);
+    });
+    this.voteHint
+      .setFontSize(SIZE_SMALL * scale)
+      .setPosition(pad + panelW - 12 * scale, statusMidY);
+
+    // --- 좌측 세로: 팀원 체력. 몬스터 판 아래에서 시작한다(밤에만 뜨는 판이지만
+    // 자리를 항상 비워 둔다 — 밤이 될 때마다 팀원 칸이 아래로 밀리면 눈이 어지럽다).
+    this.party.layout(pad, statusTop + statusH + 10 * scale, scale);
 
     // --- 하단 중앙: 퀵슬롯 + 내 체력 바
     const slotsBottom = height - pad - 20 * scale;
@@ -568,7 +802,6 @@ export class HudScene extends Phaser.Scene {
 
     // --- 나머지
     this.resourceText.setFontSize(SIZE_BODY * scale).setPosition(pad, height - 40 * scale);
-    this.buildModeText.setFontSize(SIZE_BODY * scale).setPosition(pad, height - 24 * scale);
     this.debugText.setFontSize(SIZE_SMALL * scale).setPosition(pad, height - 58 * scale);
     this.helpText.setFontSize(SIZE_BODY * scale).setPosition(width / 2, height - 4 * scale);
 
@@ -585,15 +818,10 @@ export class HudScene extends Phaser.Scene {
     const { status } = snapshot;
     const me = snapshot.players.find((player) => player.id === this.connection.sessionId);
 
-    this.updateCore(
-      status.coreHp,
-      status.coreMaxHp,
-      status.coreSharedWood,
-      status.coreSharedStone,
-      status.coreParts,
-    );
+    this.updateCore(status, snapshot.players.length);
     this.coreModal.setCoreStatus(status);
     this.coreModal.setChargeSlots(status.coreCharge, status.openChargeSlots);
+    this.updateCinematic(status);
     this.waveDial.update(status);
     this.updateBossBar(snapshot);
     // GameScene의 예측 좌표(있으면) — 없으면(로컬 모드 초기 프레임 등) 미니맵이
@@ -626,6 +854,14 @@ export class HudScene extends Phaser.Scene {
     // "E가 안 먹는다"는 어긋남이 안 생긴다 — 코어가 8각 발자국이 되면서 반경
     // 비교로는 같은 결론을 낼 수 없다.
     this.nearCore = me ? isWithinCoreInteract(me.x, me.y) : false;
+    // 코어 앞을 떠나면 창을 닫는다. 서버가 어차피 근접을 다시 검사하므로, 열린 채
+    // 따라다니면 눌러도 안 되는 버튼만 화면을 가린다.
+    //
+    // 닫는 경계는 여는 경계보다 **넉넉히 잡는다**(CORE_CLOSE_MARGIN). 같은 선을 쓰면
+    // 경계에 서서 조금만 움직여도 창이 깜빡이며 열렸다 닫힌다.
+    if (this.coreModal.isOpen() && me && !isWithinCoreInteract(me.x, me.y, CORE_CLOSE_MARGIN)) {
+      this.coreModal.close();
+    }
     this.dropInReach = me
       ? snapshot.droppedItems.some(
           (drop) => Math.hypot(drop.x - me.x, drop.y - me.y) <= PICKUP_RADIUS,
@@ -640,27 +876,64 @@ export class HudScene extends Phaser.Scene {
     if (this.coreModal.isOpen()) this.coreModal.setStorageSlots(status.coreStorage);
   }
 
-  private updateCore(
-    hp: number,
-    maxHp: number,
-    sharedWood: number,
-    sharedStone: number,
-    coreParts: number,
-  ): void {
-    const ratio = maxHp > 0 ? hp / maxHp : 1;
-    // 코어가 위험하면 색으로 먼저 알린다 — 숫자를 읽기 전에 눈에 들어와야 한다.
-    this.coreBar.setValue(ratio, barColor(ratio), this.uiScale);
-    this.coreLabel.setText(`CORE ${Math.ceil(hp)}`);
-    // 창고에 쌓인 **충전 재료** 수량이다(게이지가 아니라). 사냥 중에 "얼마나 모았나"를
-    // 보고 코어로 돌아갈지 정하게 된다 — 게이지 자체는 코어 탭에서 본다.
-    this.sharedResourceText.setText(
-      `창고 나무 ${sharedWood} · 돌 ${sharedStone} · 부품 ${coreParts}`,
-    );
+  /**
+   * 코어 현황 세 줄을 채운다. 순서는 coreRows를 만든 순서(내구도·자원·에너지)와 같다.
+   * 숫자는 적지 않는다 — 정확한 값은 코어 창의 코어 탭에서 본다(CORE_PANEL_HEIGHT 주석).
+   */
+  private updateCore(status: WorldStatus, playerCount: number): void {
+    const coreScale = this.uiScale * CORE_PANEL_SCALE;
+    const values: [number, number][] = [
+      [status.coreHp, status.coreMaxHp],
+      [status.coreResource, status.coreMaxResource],
+      [status.coreEnergy, status.coreMaxEnergy],
+    ];
+
+    this.coreRows.forEach((row, index) => {
+      const [value, max] = values[index];
+      // 개발 커맨드로 최대치를 넘길 수 있어서 위쪽도 조인다(팀원 체력과 같은 이유).
+      row.bar.setValue(max > 0 ? Math.min(1, Math.max(0, value) / max) : 0, row.color, coreScale);
+    });
 
     // 체력이 줄었다 = 맞았다(플레이어/몬스터 피격과 같은 추론, 스냅샷엔 타격
     // 이벤트가 따로 없다). 처음 받은 값은 기준점으로만 쓴다.
-    if (this.lastCoreHp !== null && hp < this.lastCoreHp) this.flashCorePanel();
-    this.lastCoreHp = hp;
+    if (this.lastCoreHp !== null && status.coreHp < this.lastCoreHp) this.flashCorePanel();
+    this.lastCoreHp = status.coreHp;
+
+    this.updateStatusPanel(status, playerCount);
+  }
+
+  /**
+   * 코어 패널 아래 판을 페이즈에 맞춰 채운다. 낮이면 스킵 투표 칸, 밤이면 남은 잡몹 수다.
+   * 승패가 갈린 뒤에는 둘 다 의미가 없어서 판째로 숨는다.
+   *
+   * 잡몹을 다 잡고 보스만 남은 구간에서는 0/N이 되는데, 그때는 화면 중앙의 보스
+   * 체력바가 진행도를 맡으므로 이 판은 그대로 0을 보여주면 된다.
+   */
+  private updateStatusPanel(status: WorldStatus, playerCount: number): void {
+    const isDay = status.wavePhase === 'day';
+    const isNight = status.wavePhase === 'night';
+    this.statusPanel.setVisible(isDay || isNight);
+    // 투표는 낮에만 받는다(World.castSkipVote도 낮이 아니면 무시한다) — 밤에 손가락
+    // 커서가 뜨면 누를 수 있는 것처럼 보인다.
+    if (isDay) this.statusPanel.setInteractive({ useHandCursor: true });
+    else this.statusPanel.disableInteractive();
+
+    this.monsterIcon?.setVisible(isNight);
+    this.monsterText.setVisible(isNight);
+    if (isNight) {
+      this.monsterText.setText(`${status.waveMonsterRemaining} / ${status.waveMonsterTotal}`);
+    }
+
+    // 칸 수는 **접속 인원**이다 — 스킵은 만장일치라 분모가 곧 인원수다
+    // (World.castSkipVote의 `skipVotes.size >= players.size`와 같은 기준).
+    this.voteHint.setVisible(isDay);
+    this.voteBoxes.forEach((box, index) => {
+      const inUse = isDay && index < playerCount;
+      box.setVisible(inUse);
+      if (inUse) {
+        box.setFrame(index < status.skipVoteCount ? ICON_CHECK_ON : ICON_CHECK_OFF);
+      }
+    });
   }
 
   /**
@@ -734,7 +1007,7 @@ export class HudScene extends Phaser.Scene {
     this.bossNameText.setText(BOSS_NAME[boss.type] ?? '보스');
     this.placeBossIcon();
     const ratio = boss.maxHp > 0 ? Math.max(0, boss.hp / boss.maxHp) : 0;
-    this.bossBar.setValue(ratio, BOSS_BAR_COLOR, this.uiScale);
+    this.bossBar.setValue(ratio, BOSS_BAR_COLOR, this.bossScale);
   }
 
   /**
@@ -747,7 +1020,7 @@ export class HudScene extends Phaser.Scene {
     const left = this.bossNameCenter - this.bossNameText.width / 2;
     // 아이콘은 origin(0, 0.5)라 세로는 이름표 중간에 맞춘다(이름표는 origin y=1).
     icon.setPosition(
-      left - icon.displayWidth - 4 * this.uiScale,
+      left - icon.displayWidth - 4 * this.bossScale,
       this.bossNameBaseline - this.bossNameText.height / 2,
     );
   }
@@ -766,21 +1039,8 @@ export class HudScene extends Phaser.Scene {
         : '휴대 나무 0 · 돌 0 · 파편 0',
     );
 
-    // InputController는 GameScene 소속이라 registry로만 접근한다 — 씬 시작 순서와
-    // 무관하게 늦어도 다음 프레임엔 값이 채워져 있다(GameScene.create 참고).
-    const inputController = this.registry.get(INPUT_CONTROLLER_KEY) as InputController | undefined;
-    const buildMode = inputController?.buildMode ?? 'off';
-    this.buildModeText.setText(`건축모드: ${BUILD_MODE_LABEL[buildMode] ?? buildMode}`);
-    this.buildModeText.setColor(buildMode === 'off' ? DIM_TEXT : ACCENT);
-
     // 낮에만 스킵 안내를 띄운다 — 밤에는 쓸 수 없는 조작이라 보여줄 이유가 없다.
-    // 철거 모드는 좌클릭이 "설치"가 아니라 "철거"라 힌트 문구도 따로 갈라야 한다.
-    const controlsHint =
-      buildMode === 'off'
-        ? `WASD 이동 · 좌클릭 사용 · [1~${SLOT_COUNT}] 퀵슬롯 · [E] 코어 입고 · [F] 코어 메뉴 · [B] 건축모드`
-        : buildMode === 'demolish'
-          ? '좌클릭 철거(환급 없음) · 우클릭/[B] 취소 또는 다음 건축물'
-          : '좌클릭 설치 · 우클릭/[B] 취소 또는 다음 건축물';
+    const controlsHint = `WASD 이동 · 좌클릭 공격 · 우클릭 사용 · [1~${SLOT_COUNT}] 퀵슬롯 · [E] 코어 (입고 / 메뉴)`;
     // 개발 도구가 붙어 있을 때만 그 키를 안내한다 — 없는 키를 알려주면 안 된다.
     const devHint = this.devConsole ? ' · [`] 콘솔 · [F9] 아이템' : '';
     this.helpText.setText(

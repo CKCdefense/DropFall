@@ -43,7 +43,14 @@
 | [backend/55-work-report-player-client-prediction.md](backend/55-work-report-player-client-prediction.md) | 작업 보고서 — 내 캐릭터 클라이언트 예측+재조정(멀티플레이 텔레포트/끊김 원인 분석 및 해결) |
 | [backend/56-work-report-resource-rebuild.md](backend/56-work-report-resource-rebuild.md) | 작업 보고서 — 자원 시스템 리빌딩(자원·에너지 게이지, 코어 충전, 돈 제거, 제작 시간, 해머 수리, 레벨업/SP) |
 | [backend/57-work-report-speed-craft-output-charge-tier.md](backend/57-work-report-speed-craft-output-charge-tier.md) | 작업 보고서 — 이동속도 75%, 제작 결과 대기 칸(드래그 회수), 코어 티어별 충전 칸·쉬프트 클릭·거절 표시 |
-| [backend/58-work-report-session-handoff-verification.md](backend/58-work-report-session-handoff-verification.md) | 작업 보고서 — 세션 인계 확인(56↔55 충돌 없음), PATCH_RATE 문서 정합성 정리 + 60→50 실험 |
+| [backend/58-work-report-golem-slam-alignment.md](backend/58-work-report-golem-slam-alignment.md) | 작업 보고서 — 몬스터 그림 가로 중심 보정(골렘 광역 찍기 정렬), 동작별 재생속도 지정 |
+| [backend/59-work-report-cinematics-and-boss-warning.md](backend/59-work-report-cinematics-and-boss-warning.md) | 작업 보고서 — 시작 암전·DAY N·보스 경고(심 구간 추가)·CLEAR 연출 |
+| [backend/60-work-report-melee-pose-and-building-destruction.md](backend/60-work-report-melee-pose-and-building-destruction.md) | 작업 보고서 — 근접 무기 사선 자세·사거리 조정, 건축모드 제거, 근접 타격으로 건축물 파괴(해머는 아이템 회수) |
+| [backend/61-work-report-session-handoff-verification.md](backend/61-work-report-session-handoff-verification.md) | 작업 보고서 — 세션 인계 확인(56↔55 충돌 없음), PATCH_RATE 문서 정합성 정리 + 60→50 실험, 공격 스탯 fireRate 정규화(피드백 #1) |
+| [backend/62-work-report-colony-trickle-spawn.md](backend/62-work-report-colony-trickle-spawn.md) | 작업 보고서 — 콜로니 저장분 소진 후 트리클 스폰 추가(아침 파밍 가능하게, 피드백 #3) |
+| [backend/63-work-report-wave-player-scaling.md](backend/63-work-report-wave-player-scaling.md) | 작업 보고서 — 몬스터 웨이브 인원수 스케일링 신규 구현(기본값 3배 + 인원당 +100%, 피드백 #2) |
+| [backend/64-work-report-terrain-resource-placement.md](backend/64-work-report-terrain-resource-placement.md) | 작업 보고서 — 자원 노드를 클러스터 배치에서 지형 기반 확률 배치로 전면 교체, 인원수 스케일링(피드백 #4) |
+| [backend/65-work-report-revive-system.md](backend/65-work-report-revive-system.md) | 작업 보고서 — 부활 시스템(쓰러짐/유령, 혼자하기 10초 자동 부활, 동료 구조 5초, AID 즉시 부활, 낮에 코어에서 에너지로 유령 부활) |
 
 ### 역할 C — 클라이언트/렌더/UI 작업 문서 ([frontend/](frontend/))
 
@@ -66,6 +73,8 @@
 | [frontend/15-work-report-consumable-fx-and-melee-scale.md](frontend/15-work-report-consumable-fx-and-melee-scale.md) | 작업 보고서 — 소모품 사용 이펙트(회복/버프/스탯) 연결, 근접 무기 일괄 축소, 휘두르기 이펙트 좌우 반전 수정 |
 | [frontend/16-work-report-solo-setup-and-companion-toggle.md](frontend/16-work-report-solo-setup-and-companion-toggle.md) | 작업 보고서 — 혼자하기 직업 선택 모달, 멀티·싱글 티모시 켜고 끄기 |
 | [frontend/17-work-report-controls-and-prompts.md](frontend/17-work-report-controls-and-prompts.md) | 작업 보고서 — 걷기 모션 복구, 소모품 우클릭·휠 슬롯 전환, 코어 E 키 안내, 제작 진행 화살표 |
+| [frontend/18-work-report-attack-fx-gating.md](frontend/18-work-report-attack-fx-gating.md) | 작업 보고서 — 연타 시 쿨다운을 무시하고 나오던 공격 연출 수정(재장전·빈 탄창 포함) |
+| [frontend/19-work-report-fx-alignment-and-title-weight.md](frontend/19-work-report-fx-alignment-and-title-weight.md) | 작업 보고서 — 소모품 이펙트 발밑 정렬, 레벨업 연출 미니멀화, 중앙 문구 볼드·확대 |
 
 ## 한 줄 요약
 

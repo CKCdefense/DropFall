@@ -14,18 +14,23 @@
 -- 색은 theme.ts의 HUD 팔레트를 그대로 쓴다 — PANEL_FILL/PANEL_STROKE/BAR_BACK/SHADOW.
 --
 -- 산출물 (ui/hud/ → ui 아틀라스, 태그는 base 하나):
---   hud_bar_back_l  48x24  큰 바 틀(내 체력/스태미나, QuickSlotBar BAR_HEIGHT=24)
---   hud_bar_fill_l   6x20  큰 바 채움 (2px 인셋)
---   hud_bar_back_s  48x8   작은 바 틀(코어/보스 바, CORE·BOSS_BAR_HEIGHT=8)
+-- 크기는 **원본 픽셀**이다. 게임은 이걸 hudBar.HUD_BAR_SCALE(2배)로 확대해 그린다 —
+-- 1배로 그리면 외곽선·홈이 1px이라 월드(줌 2~4배)와 픽셀 굵기가 안 맞는다.
+--   hud_bar_back_l  48x16  큰 바 틀(내 체력/스태미나) → 화면 32px
+--   hud_bar_fill_l   6x12  큰 바 채움 (2px 인셋)
+--   hud_bar_back_s  48x8   작은 바 틀(코어/경험치/팀원) → 화면 16px
 --   hud_bar_fill_s   6x4   작은 바 채움
---   hud_bar_back_boss 64x18  보스전 전용 대형 바 틀(화면 중앙 상단) — 양끝 강철
---                            캡 + 크림슨 젬, 바닥 안쪽 크림슨 라인으로 위협감
---   hud_bar_fill_boss  6x14  보스 바 채움 (2px 인셋)
+--   hud_bar_back_boss 64x20  보스전 전용 대형 바 틀(화면 중앙 상단) — 양끝 8px 강철
+--                            브래킷(리벳 + 크림슨 젬), 바닥 안쪽 크림슨 라인
+--   hud_bar_fill_boss  6x16  보스 바 채움 (가로 10px / 세로 2px 인셋)
 --   hud_icon_heart  12x12  체력 라벨
 --   hud_icon_bolt   12x12  스태미나 라벨
 --   hud_icon_skull  12x12  보스 바 라벨(소형)
 --   hud_icon_skull_l 16x16 보스전 대형 바 옆에 붙는 뿔 달린 해골
---   hud_icon_core   12x12  코어 패널 라벨 (core_cell 결정과 같은 청록)
+--   hud_icon_orb    12x12  코어 패널 — 코어 표식(돌 받침 위 청록 발광체)
+--   hud_icon_resource 12x12 코어 패널 — 자원 표식(주황 광석 덩이)
+--   hud_icon_energy 12x12  코어 패널 — 에너지 표식(세로로 긴 보라 전지)
+--   hud_icon_check_off/on 12x12  낮 스킵 투표 칸(빈 홈 / 초록 체크)
 --
 -- 실행 (저장소 루트에서 — outdir는 절대경로):
 --   "$ASE" -b --script-param outdir="$(pwd)/assets/ui/hud" --script assets/_generators/ui_hud.lua
@@ -96,37 +101,61 @@ local function barFill(img, w, h)
   end
 end
 
---- 보스전 대형 바 틀. 기본 틀 위에 양끝 7px 강철 캡(세로 밴드 + 크림슨 젬)을 얹고,
---- 바닥 안쪽에 크림슨 라인을 깔아 "위험한 바"로 읽히게 한다.
---- 9-slice로 늘일 때 좌우 보존 폭은 **7px**이다 (일반 바의 3px와 다름).
+--- 보스전 대형 바 틀.
+---
+--- 화면 폭의 40% 넘게 늘여 쓰는 물건이라 **끝을 확실히 마감해야** 한다 — 예전 4px
+--- 캡은 760px로 늘리자 양끝의 점 두 개로만 보였다. 그래서 캡을 8px 강철 브래킷으로
+--- 키우고 리벳·젬을 넣어, 멀리서도 "가운데가 늘어난 금속 틀"로 읽히게 했다.
+---
+--- 가운데(캡 사이)는 **모든 열이 같아야** 한다 — Phaser NineSlice는 가운데를 타일이
+--- 아니라 **늘여서** 채우기 때문에, 주기적인 눈금 같은 걸 넣으면 뭉개진다.
+--- 9-slice 보존 폭은 좌우 **10px**이다(일반 바의 3px와 다름 — hudBar.BAR_BOSS).
 local CRIMSON      = Color{ r = 0xD9, g = 0x75, b = 0x6B } -- DOWN_COLOR
 local CRIMSON_DARK = Color{ r = 0x7A, g = 0x2A, b = 0x28 }
 local CRIMSON_DEEP = Color{ r = 0x4A, g = 0x12, b = 0x18 }
-local STEEL_HI     = Color{ r = 0x6A, g = 0x73, b = 0x82 }
+local STEEL_HI     = Color{ r = 0x7C, g = 0x86, b = 0x96 }
+local STEEL_LO     = Color{ r = 0x30, g = 0x36, b = 0x42 }
 local WHITE_GEM    = Color{ r = 0xF2, g = 0xF5, b = 0xFA }
+
+-- 캡 몸통 폭(x=1..CAP). x=CAP+1이 트랙과의 경계선이라, 채움은 x=CAP+2부터 시작한다
+-- (hudBar.BAR_BOSS.insetX와 반드시 같아야 한다).
+local CAP = 8
 
 local function barBackBoss(img, w, h)
   barBack(img, w, h)
-  -- 바닥 안쪽 크림슨 라인 — 트랙에 살짝 배어나는 핏빛
+  -- 바닥 안쪽 크림슨 라인 — 트랙에 배어나는 핏빛. 체력이 닳은 쪽에서만 드러난다.
   rect(img, 2, h - 3, w - 3, h - 3, CRIMSON_DEEP)
-  -- 양끝 강철 캡 (좌우 대칭)
+
   for _, side in ipairs({ 0, 1 }) do
     local function X(x) return side == 0 and x or (w - 1 - x) end
+
+    -- 강철 브래킷: 위가 밝고 아래로 갈수록 어두운 단순한 3단 명암.
+    -- 단이 많으면 3~4배로 확대했을 때 줄무늬로 보인다.
     for y = 1, h - 2 do
-      img:drawPixel(X(1), y, STROKE)
-      img:drawPixel(X(2), y, y <= 2 and STEEL_HI or STROKE)   -- 윗부분 하이라이트
-      img:drawPixel(X(3), y, y == 1 and STEEL_HI or TRACK_DIM)
-      img:drawPixel(X(4), y, OUTLINE)                         -- 캡과 트랙의 경계선
+      local c = STROKE
+      if y <= 2 then c = STEEL_HI
+      elseif y >= h - 3 then c = STEEL_LO end
+      for x = 1, CAP do img:drawPixel(X(x), y, c) end
+      img:drawPixel(X(CAP + 1), y, OUTLINE) -- 캡과 트랙의 경계
     end
+    -- 바깥 모서리를 깎아 브래킷도 둥글게 — 틀 전체와 같은 모서리 규칙
     img:drawPixel(X(1), 1, OUTLINE)
     img:drawPixel(X(1), h - 2, OUTLINE)
-    -- 크림슨 젬 (캡 세로 중앙 2x4)
-    local gy = math.floor(h / 2) - 2
-    for i = 0, 3 do
-      local c = (i == 0) and CRIMSON or ((i == 3) and CRIMSON_DARK or CRIMSON)
-      img:drawPixel(X(2), gy + i, c)
-      img:drawPixel(X(3), gy + i, (i == 0) and WHITE_GEM or CRIMSON_DARK)
+
+    -- 리벳 둘(위·아래). 금속판이라는 걸 알려주는 최소한의 장치.
+    for _, ry in ipairs({ 3, h - 4 }) do
+      img:drawPixel(X(2), ry, STEEL_LO)
+      img:drawPixel(X(3), ry, OUTLINE)
     end
+
+    -- 크림슨 젬 — 캡 세로 중앙. 하이라이트 1px로 유리처럼 보이게 한다.
+    local gy = math.floor(h / 2) - 3
+    for i = 0, 5 do
+      local edge = i == 0 or i == 5
+      img:drawPixel(X(5), gy + i, edge and CRIMSON_DARK or CRIMSON)
+      img:drawPixel(X(6), gy + i, CRIMSON_DARK)
+    end
+    img:drawPixel(X(5), gy + 1, WHITE_GEM)
   end
 end
 
@@ -134,8 +163,12 @@ end
 -- 슬롯 없이 지형/패널 위에 바로 얹히므로 전부 1px 외곽선을 두른다.
 -- 색은 게임 안 기존 기호와 짝: 체력=DOWN_COLOR 계열 빨강, 코어=core_cell 청록.
 
+--- 문자 격자로 아이콘을 찍는다. 줄 길이가 하나라도 어긋나면 그림이 조용히 밀리므로
+--- **여기서 바로 잡아 세운다** — 12줄 × 12칸을 눈으로 세는 건 사람이 할 일이 아니다.
 local function fromMask(img, mask, colors)
+  assert(#mask == img.height, ('mask 줄 수 %d ~= 그림 높이 %d'):format(#mask, img.height))
   for y, row in ipairs(mask) do
+    assert(#row == img.width, ('mask %d번째 줄 길이 %d ~= 그림 폭 %d'):format(y, #row, img.width))
     for x = 1, #row do
       local ch = row:sub(x, x)
       local c = colors[ch]
@@ -231,33 +264,142 @@ local function iconSkullL(img)
   img:drawPixel(11, 6, CRIMSON)
 end
 
-local function iconCore(img)
+-- 코어 패널의 게이지 세 줄에 붙는 표식. 색이 아니라 **실루엣**으로 먼저 구분되게 그린다
+-- (items_consumable.lua와 같은 원칙) — 12px에서는 색보다 형태가 먼저 읽힌다.
+--   원 = 코어 / 불규칙한 덩이 = 자원 / 세로 직사각형 = 에너지 — 실루엣이 서로 다르다
+
+-- 코어: 인게임 오브젝트를 그대로 옮긴 색이다 — 돌 받침 위에 얹힌 창백한 청록 발광체.
+local ORB_CORE   = Color{ r = 0xEF, g = 0xF9, b = 0xF9 } -- 한가운데 흰 빛
+local ORB_RIM    = Color{ r = 0xA9, g = 0xD9, b = 0xD4 } -- 바깥 청록
+local BASE       = Color{ r = 0x8A, g = 0x8F, b = 0x98 } -- 돌 받침
+local BASE_DARK  = Color{ r = 0x5E, g = 0x63, b = 0x6C }
+-- 자원: 주황 광석 덩이
+local ORE        = Color{ r = 0xE8, g = 0x8B, b = 0x30 }
+local ORE_HI     = Color{ r = 0xFF, g = 0xC0, b = 0x6A }
+local ORE_DARK   = Color{ r = 0x9C, g = 0x51, b = 0x16 }
+-- 에너지: 보라 전지
+local ENERGY     = Color{ r = 0xA4, g = 0x5C, b = 0xE8 }
+local ENERGY_HI  = Color{ r = 0xE0, g = 0xC4, b = 0xFF }
+local ENERGY_DK  = Color{ r = 0x5E, g = 0x28, b = 0x96 }
+
+--- 코어. 인게임 오브젝트를 그대로 옮겼다 — **돌 받침 위에 얹힌 창백한 청록 발광체**.
+--- 가운데로 갈수록 하얘지는 건 스스로 빛나는 물체라는 뜻이고(보통 구체는 광원 반대쪽이
+--- 어둡다), 받침이 있어야 "굴러다니는 구슬"이 아니라 세워 둔 장치로 읽힌다.
+--- 셋 중 유일하게 **원형**이라 실루엣만으로 첫 줄이 코어라는 게 잡힌다.
+local function iconCoreOrb(img)
   fromMask(img, {
     '............',
-    '.....oo.....',
-    '....ohco....',
-    '...ohccco...',
-    '..ohccccdo..',
-    '.ohccccccdo.',
-    '.occcccccdo.',
-    '..occcccdo..',
-    '...occcdo...',
-    '....ocdo....',
-    '.....oo.....',
-    '............',
-  }, { o = OUTLINE, c = CYAN, d = CYAN_DARK, h = WHITE })
+    '...oooooo...',
+    '..occwwcco..',
+    '.occwwwwcco.',
+    '.ocwwwwwwco.',
+    '.ocwwwwwwco.',
+    '.occwwwwcco.',
+    '..occwwcco..',
+    '...oooooo...',
+    '..osssssso..',
+    '.osssddssso.',
+    '.oooooooooo.',
+  }, { o = OUTLINE, c = ORB_RIM, w = ORB_CORE, s = BASE, d = BASE_DARK })
 end
+
+--- 자원. 주황 광석 덩이 — 좌우 비대칭에 면이 몇 개 꺾여 있어 "캐낸 원석"으로 읽힌다.
+--- 궤짝(반듯한 네모)은 코어 패널의 다른 네모난 것들과 섞였고, 무엇보다 이 게이지가
+--- 세는 건 상자가 아니라 **재료 자체**다.
+local function iconResource(img)
+  fromMask(img, {
+    '............',
+    '......oo....',
+    '....oohhoo..',
+    '..oohrrrrho.',
+    '.ohhrrrrrro.',
+    'ohrrrrrrrrdo',
+    'ohrrrrrrrrdo',
+    '.orrrrrrrdo.',
+    '..orrrrrddo.',
+    '...oorrddo..',
+    '.....oodo...',
+    '............',
+  }, { o = OUTLINE, r = ORE, h = ORE_HI, d = ORE_DARK })
+end
+
+--- 낮 스킵 투표 칸. 눌리지 않은 칸은 **파인 홈**처럼 보이게 한다(위 그림자, 아래 밝은
+--- 모서리) — 게이지 트랙과 같은 문법이라 "아직 안 채워진 자리"로 읽힌다.
+--- 체크는 게임 안 확인색(theme.ts ACCENT)이라 "동의했다"가 바로 잡힌다.
+local BOX_DIM  = Color{ r = 0x12, g = 0x14, b = 0x1B }
+local BOX_FILL = Color{ r = 0x20, g = 0x25, b = 0x2F }
+local BOX_EDGE = Color{ r = 0x3A, g = 0x40, b = 0x4E }
+local CHECK    = Color{ r = 0x6F, g = 0xD0, b = 0x8C } -- ACCENT
+
+local function iconCheckOff(img)
+  fromMask(img, {
+    '............',
+    '.oooooooooo.',
+    '.odddddddeo.',
+    '.odbbbbbbeo.',
+    '.odbbbbbbeo.',
+    '.odbbbbbbeo.',
+    '.odbbbbbbeo.',
+    '.odbbbbbbeo.',
+    '.odbbbbbbeo.',
+    '.oeeeeeeeeo.',
+    '.oooooooooo.',
+    '............',
+  }, { o = OUTLINE, d = BOX_DIM, b = BOX_FILL, e = BOX_EDGE })
+end
+
+local function iconCheckOn(img)
+  fromMask(img, {
+    '............',
+    '.oooooooooo.',
+    '.odddddddeo.',
+    '.odbbbbbbeo.',
+    '.odbbbbbgeo.',
+    '.odgbbbggeo.',
+    '.odggbggbeo.',
+    '.odbgggbbeo.',
+    '.odbbbbbbeo.',
+    '.oeeeeeeeeo.',
+    '.oooooooooo.',
+    '............',
+  }, { o = OUTLINE, d = BOX_DIM, b = BOX_FILL, e = BOX_EDGE, g = CHECK })
+end
+
+--- 에너지. 꼭지 달린 **세로로 긴 보라 전지**. 앞의 마름모 번개는 자원 아이콘이 원석으로
+--- 바뀌면서 둘 다 각진 덩어리가 되어 헷갈렸다 — 세로로 긴 직사각형은 원(코어)·불규칙한
+--- 덩이(자원)와 겹칠 일이 없다.
+local function iconEnergy(img)
+  fromMask(img, {
+    '....oooo....',
+    '....oppo....',
+    '..oooooooo..',
+    '..ohhppppo..',
+    '..ohpppppo..',
+    '..oppppppo..',
+    '..oppppppo..',
+    '..oppppppo..',
+    '..oppppppo..',
+    '..opdddddo..',
+    '..oooooooo..',
+    '............',
+  }, { o = OUTLINE, p = ENERGY, h = ENERGY_HI, d = ENERGY_DK })
+end
+
 
 -- ---------------------------------------------------------------- 생성
 
-save('hud_bar_back_l', 48, 24, barBack)
+save('hud_bar_back_l', 48, 16, barBack)
 save('hud_bar_back_s', 48, 8, barBack)
-save('hud_bar_back_boss', 64, 18, barBackBoss)
-save('hud_bar_fill_l', 6, 20, function(img) barFill(img, 6, 20) end)
+save('hud_bar_back_boss', 64, 20, barBackBoss)
+save('hud_bar_fill_l', 6, 12, function(img) barFill(img, 6, 12) end)
 save('hud_bar_fill_s', 6, 4, function(img) barFill(img, 6, 4) end)
-save('hud_bar_fill_boss', 6, 14, function(img) barFill(img, 6, 14) end)
+save('hud_bar_fill_boss', 6, 16, function(img) barFill(img, 6, 16) end)
 save('hud_icon_heart', 12, 12, function(img) iconHeart(img) end)
 save('hud_icon_bolt', 12, 12, function(img) iconBolt(img) end)
 save('hud_icon_skull', 12, 12, function(img) iconSkull(img) end)
 save('hud_icon_skull_l', 16, 16, function(img) iconSkullL(img) end)
-save('hud_icon_core', 12, 12, function(img) iconCore(img) end)
+save('hud_icon_orb', 12, 12, function(img) iconCoreOrb(img) end)
+save('hud_icon_resource', 12, 12, function(img) iconResource(img) end)
+save('hud_icon_energy', 12, 12, function(img) iconEnergy(img) end)
+save('hud_icon_check_off', 12, 12, function(img) iconCheckOff(img) end)
+save('hud_icon_check_on', 12, 12, function(img) iconCheckOn(img) end)

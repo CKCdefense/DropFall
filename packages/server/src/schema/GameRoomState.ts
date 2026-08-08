@@ -79,6 +79,15 @@ export class PlayerSchema extends Schema {
   @type('number') craftRemaining = 0;
   /** 다 만들어 꺼내 가기를 기다리는 물건. itemId가 비면 없는 것이다. */
   @type(ItemSlotSchema) craftOutput = new ItemSlotSchema();
+  /**
+   * 살아있음('alive')/쓰러짐('downed')/유령('ghost'). hp가 0이어도 둘로 갈리므로
+   * hp만 보고는 화면에 뭘 그릴지 정할 수 없다(§PlayerLifeState).
+   */
+  @type('string') lifeState = 'alive';
+  /** 쓰러진 뒤 남은 시간(초) — 다 되면 부활(혼자) 또는 유령(멀티)이 된다. */
+  @type('number') downRemaining = 0;
+  /** 동료 구조 진행도(0~1). 초가 아니라 비율로 보내는 이유는 화면이 게이지로만 쓰기 때문이다. */
+  @type('number') reviveProgress = 0;
 }
 
 export class MonsterSchema extends Schema {
@@ -245,8 +254,15 @@ export class GameRoomState extends Schema {
   /** 'day' | 'night' | 'victory' | 'defeat' (shared/sim의 GamePhase) */
   @type('string') wavePhase = 'day';
   @type('number') currentWave = 0;
+  /** 보스 등장까지 남은 예고 시간(초). 0보다 크면 화면에 경고가 뜬다. */
+  @type('number') bossWarningRemaining = 0;
   /** 현재 페이즈가 끝나기까지 남은 시간(초) */
   @type('number') phaseTimeRemaining = 0;
+  /** 이번 밤의 잡몹 총 마릿수와 남은 수(보스 제외). 낮에는 둘 다 0이다. */
+  @type('number') waveMonsterTotal = 0;
+  @type('number') waveMonsterRemaining = 0;
+  /** 콜로니가 보태는 마릿수(정원과 별개). */
+  @type('number') waveMonsterBonus = 0;
   /** 낮 스킵 투표 동의 인원. 만장일치 기준이라 필요 인원은 players.size다. */
   @type('number') skipVoteCount = 0;
 }

@@ -29,6 +29,8 @@ const SECTION_FILL = 0x171a22;
  * 글자가 테두리 위로 올라타지 않는다.
  */
 const PAD = FRAME_INSET + 4;
+/** 닫기 버튼 글자 배율. 픽셀 폰트라 정수배만 쓴다(2배 = 획 두께도 2배). */
+const CLOSE_BUTTON_SCALE = 2;
 /** 제목 줄 아래에서 콘텐츠가 시작되는 y 오프셋(패널 기준). 제목 줄 = 드래그 손잡이. */
 const CONTENT_TOP = PAD + 18;
 
@@ -300,10 +302,13 @@ export class Modal {
     scene.input.on(Phaser.Input.Events.POINTER_MOVE, this.onDragMove, this);
     scene.input.on(Phaser.Input.Events.POINTER_UP, this.onDragEnd, this);
 
+    // 닫기 버튼. 픽셀 폰트는 굵기 옵션이 없어서 **크기를 정수배로 키우는 것이 곧
+    // 굵기**다 — 2배면 획이 1px에서 2px가 된다(1.5배 같은 값은 획이 뭉개진다).
+    // 커진 글자만큼 히트 영역도 같이 넓어져서 누르기도 쉬워진다.
     const closeButton = scene.add
       .text(this.panelWidth - PAD, PAD, 'X', {
         fontFamily: FONT,
-        fontSize: `${SIZE_BODY}px`,
+        fontSize: `${SIZE_BODY * CLOSE_BUTTON_SCALE}px`,
         color: DIM_TEXT,
       })
       .setOrigin(1, 0)
@@ -372,6 +377,12 @@ export class Modal {
         .setStrokeStyle(1, PANEL_STROKE)
         .setInteractive({ useHandCursor: true });
       box.on('pointerdown', () => this.showTab(index));
+      // 무언가를 집은 채 탭 위에 올리면 그 탭으로 넘어간다 — 창고에서 집은 재료를
+      // 코어 충전 칸에 넣으려면 예전엔 한 번 내려놓고 탭을 누른 뒤 다시 집어야 했다.
+      // 파일 탐색기의 "드래그한 채 폴더 위에 머물면 열린다"와 같은 관습이다.
+      box.on('pointerover', () => {
+        if (this.isDragActive()) this.showTab(index);
+      });
 
       text.setPosition(x + tabWidth / 2, PAD + TAB_HEIGHT / 2);
 
@@ -391,6 +402,12 @@ export class Modal {
     this.tabBoardTop = boardTop;
     this.showTab(0);
   }
+
+  /**
+   * 지금 무언가를 끌고 있는가. 바깥(HudScene)이 SlotDrag를 물어보도록 채워 준다 —
+   * Modal이 드래그 컨트롤러를 직접 알면 창고·퀵슬롯까지 딸려 들어온다.
+   */
+  isDragActive: () => boolean = () => false;
 
   /** 내용 판의 윗변 y. 탭이 이 선에 맞춰 붙거나 내려앉는다. */
   private tabBoardTop = 0;

@@ -1,4 +1,5 @@
 import { MAP_ORIGIN, MAP_SIZE_TILES, TILE_SIZE, cellCenterWorld, worldToCell } from '../constants';
+import { topFullTerrainAt, type TerrainKind } from '../terrain/terrain';
 import {
   buildingsData,
   coloniesData,
@@ -9,6 +10,7 @@ import {
   coreUpgradesData,
   craftingData,
   levelsData,
+  reviveData,
   xpToNextLevel,
   itemsData,
   jobStats,
@@ -80,7 +82,7 @@ import {
   PLAYER_COLONY_COLLISION_RADIUS,
 } from './playerCollision';
 import { SpatialGrid } from './spatialGrid';
-import { WaveManager, type GamePhase } from './wave';
+import { WaveManager, isBossType, type GamePhase } from './wave';
 import { runDevCommand, type DevCommandResult, type DevWorldAccess } from './devCommands';
 
 /** moveItem이 받는 컨테이너 이름. 네트워크 경계를 넘어오므로 값부터 검증한다. */
@@ -91,6 +93,16 @@ interface SlotAccess {
   takeAt(index: number): InventorySlot | null;
   placeAt(index: number, incoming: InventorySlot): InventorySlot | null;
 }
+
+/**
+ * 건축물 종류 → 그것을 세우는 아이템. **items.json에서 거꾸로 만든다** — 손으로 적어 두면
+ * 아이템이 늘 때 한쪽만 고쳐져 조용히 어긋난다(해머로 뜯었는데 아무것도 안 나온다).
+ */
+const BUILDING_ITEM_OF: Record<string, string> = Object.fromEntries(
+  Object.entries(itemsData)
+    .filter(([, item]) => item.buildingType !== undefined)
+    .map(([itemId, item]) => [item.buildingType as string, itemId]),
+);
 
 function isContainerName(value: unknown): value is SlotContainer {
   return (
@@ -164,6 +176,48 @@ const STAMINA_REGEN_DELAY = 0.8;
  */
 const HP_REGEN_PER_SECOND = 0.5;
 
+/**
+ * 새 낮에 다운된 플레이어가 되살아날 때 채워지는 체력 비율(§revivePlayers).
+ * 1로 두면 "죽는 편이 이득"이 되므로 반드시 1보다 작아야 한다.
+ */
+const REVIVE_HP_RATIO = 0.5;
+
+/**
+ * 보스가 **벽·울타리**에 주는 피해 배수.
+ *
+ * 보스는 밤의 결승전인데 방벽 한 줄에 갇혀 몇십 초를 두들기고 있으면 그동안 아무
+ * 일도 안 일어난다 — 플레이어는 뒤에서 구경하고 보스는 나무를 패는 그림이 된다.
+ * 길을 막은 구조물은 빠르게 부수고 들어오게 해서, 방벽의 역할을 "보스를 영영 막는
+ * 벽"이 아니라 "잡몹을 거르고 보스를 잠깐 늦추는 시간"으로 되돌린다.
+ *
+ * 포탑처럼 벽이 아닌 건축물에는 적용하지 않는다 — 그건 부수는 게 아니라 공략 대상이다.
+ */
+const BOSS_WALL_DAMAGE_MULTIPLIER = 3;
+
+/**
+ * 보스가 패턴을 지르는 거리 = 그 기술 사거리 × 이 비율. 1이면 사거리 끝에서 질러
+ * 예고 동안 상대가 물러나면 그대로 헛친다.
+ */
+const BOSS_PATTERN_COMMIT_RATIO = 0.7;
+
+/** 벽·울타리인가. 지금은 모든 건축물이 여기 해당하지만, 포탑이 생기면 갈린다. */
+function isWallLike(buildingType: string): boolean {
+  return /(^|_)(wall|fence)$/.test(buildingType);
+}
+
+/**
+ * 코어에서 다시 시작할 때 서는 자리(월드 px). 코어는 원점에 있고 발자국이 아래로
+ * 27px까지라, 그 바깥에 세워야 일어나자마자 코어에 끼지 않는다.
+ */
+const CORE_RESPAWN_X = 0;
+const CORE_RESPAWN_Y = 48;
+
+/**
+ * 쓰러진 아군을 즉시 일으키는 소모품. items.json의 키와 같아야 한다 — 이름을 바꾸면
+ * 여기도 같이 고쳐야 하고, 안 고치면 조용히 아무 일도 일어나지 않는다.
+ */
+const AID_ITEM_ID = 'aid_kit';
+
 /** 개발 커맨드로 몬스터를 부를 때 코어에서 띄우는 거리(px). 바로 옆에 붙여 놓으면 코어가 즉사한다. */
 const DEV_SPAWN_RADIUS = 160;
 
@@ -227,39 +281,74 @@ const AGGRO_FOV_COS_HALF_ANGLE = Math.cos(Math.PI / 3);
  */
 const BOSS_FIRST_PATTERN_DELAY = 3;
 
+/** Fisher-Yates. 후보 타일을 훑는 순서를 섞어서, 앞쪽 지형/좌표에 자원이 쏠리지 않게 한다. */
+function shuffleInPlace<T>(items: T[], rng: () => number): void {
+  for (let i = items.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(rng() * (i + 1));
+    [items[i], items[j]] = [items[j], items[i]];
+  }
+}
+
 /**
- * 자원 노드 배치(플레이스홀더, docs/backend/26). 한 지점에 몰아서 "군집"으로 배치한다 —
- * 낮 시간에 "저 방향에 나무숲/채석장이 있었지" 하고 기억해서 찾아가는 경험을 노린다.
- * 클러스터 중심은 코어를 기준으로 [MIN,MAX] 반경 띠 안에서 무작위로 고르고, 그 중심
- * 주변 `CLUSTER_JITTER_RADIUS` 안에 노드를 흩뿌린다. 총 개수(클러스터 수 × 클러스터당
- * 개수)는 기존 고정 원 배치(나무 10/돌 6)와 같게 맞췄다 — 이번 변경은 "어디에 있는지"만
- * 바꾸고 "얼마나 있는지"(밸런스)는 건드리지 않는다.
- */
-const WOOD_CLUSTER_COUNT = 2;
-const WOOD_NODES_PER_CLUSTER = 5;
-const STONE_CLUSTER_COUNT = 2;
-const STONE_NODES_PER_CLUSTER = 3;
-/**
- * 클러스터 중심이 코어로부터 떨어져야 하는 최소/최대 거리(px). 맵 자체는 훨씬
- * 크지만(MAP_SIZE_TILES 기준 코어에서 최대 1024px), 그 전체를 다 쓰면 낮 시간
- * 안에 왕복하기엔 너무 멀다 — 밤 웨이브/콜로니 스폰 반경(900px, backend/35)
- * 안쪽으로만 좁혀서, 위험을 살짝 감수하는 정도의 거리로 맞췄다.
+ * 자원 노드 배치(데모 준비도 리뷰 피드백 #4로 클러스터 방식에서 교체). 지형
+ * (terrain.ts) 위에 타일 단위 확률로 흩뿌린다 — wood는 grass/dirt, stone은 stone
+ * 지형에만 선다. 지형 렌더링은 아직 안 붙었지만(2026-08 시점 client/server 어디서도
+ * 안 씀), 결정론적 순수 함수라 나중에 타일맵이 붙어도 같은 시드를 쓰는 한 자동으로
+ * 맞아떨어진다.
  *
- * 최소 거리는 **코어 업그레이드 전 기본 건설 가능 반경**(`coreUpgradesData.
- * baseBuildRadius`=250px, backend/38)보다 넉넉히 멀리 뒀다 — 안 그러면 자원
- * 군집이 코어 바로 코앞까지 파고들어서 건축은 물론 그냥 이동조차 불편해진다
- * (실제로 250 이하였을 때 이 문제가 보고됐다, docs/backend/39).
+ * 총 개수는 인원수 스케일링을 받는다(기존엔 고정값 10/6이었다) — `scaledResourceTarget`
+ * 참고. 이미 놓인 만큼은 건너뛰고 모자란 만큼만 채우는 멱등 구조라, 생성자(인원을
+ * 아직 모름, 1인 가정)와 `startColonies`(실제 인원 확정 시점) 양쪽에서 안전하게
+ * 호출할 수 있다 — 기존 `resourceNodes`에 의존하는 여러 테스트가 `startColonies`를
+ * 안 부르고도 그대로 동작해야 해서, "생성자 시점엔 최소 보장, 인원 확정되면 보충"
+ * 구조를 택했다(콜로니처럼 아예 생성자에서 빼면 그 테스트들을 전부 고쳐야 한다).
  */
-const CLUSTER_MIN_DISTANCE = 260;
-const CLUSTER_MAX_DISTANCE = 500;
-/** 클러스터 중심 주변으로 노드가 흩어지는 반경(px). */
-const CLUSTER_JITTER_RADIUS = 80;
+const RESOURCE_BASELINE_COUNT: Record<ResourceType, number> = { wood: 10, stone: 6 };
 /**
- * 같은 클러스터 안에서 노드끼리 이 거리보다 가깝게는 두지 않는다(완전히 겹치는 것
- * 방지). 자원 노드를 근접 타격 대상으로 바꾸면서 판정 반경(resourcesData.hitRadius,
- * 14px)에 맞춰 시각적으로도 커졌다 — 간격이 그보다 좁으면 옆 노드와 그림이 겹친다.
+ * 타일 하나가 자원 후보로 뽑힐 확률. 목표 개체수에 도달하면 배치를 멈추므로 이 값
+ * 자체가 최종 개수를 정하지는 않는다 — 너무 낮으면(후보 풀 대비) 셔플한 후보를 다
+ * 훑고도 목표에 못 미칠 수 있으니, 후보 수(수천 타일)에 비해 목표(10~20대)가 훨씬
+ * 작다는 걸 감안해 넉넉히 잡았다.
+ */
+const RESOURCE_TILE_CHANCE = 0.05;
+/** 자원 타입이 설 수 있는 지형. */
+const RESOURCE_TERRAIN: Record<ResourceType, ReadonlySet<TerrainKind>> = {
+  wood: new Set<TerrainKind>(['grass', 'dirt']),
+  stone: new Set<TerrainKind>(['stone']),
+};
+/**
+ * 자원 후보 타일이 코어로부터 떨어져야 하는 최소/최대 거리(px) — 기존 클러스터
+ * 배치가 쓰던 값을 그대로 물려받았다. 최소 거리는 코어 기본 건설 반경
+ * (`coreUpgradesData.baseBuildRadius`=250px, backend/38)보다 넉넉히 멀어야
+ * 건축·이동에 방해가 안 된다(backend/39). 최대 거리는 밤 웨이브/콜로니 스폰 반경
+ * (900px, backend/35) 안쪽으로 좁혀서, 낮 시간 안에 왕복 가능한 거리로 맞췄다.
+ */
+const RESOURCE_MIN_DISTANCE = 260;
+const RESOURCE_MAX_DISTANCE = 500;
+/**
+ * 새로 놓는 자원 노드끼리 이 거리보다 가깝게는 두지 않는다(완전히 겹치는 것 방지).
+ * 자원 노드를 근접 타격 대상으로 바꾸면서 판정 반경(resourcesData.hitRadius, 14px)에
+ * 맞춰 시각적으로도 커졌다 — 간격이 그보다 좁으면 옆 노드와 그림이 겹친다. 리스폰
+ * 재배치(§relocateRespawnedNode)의 지터 반경으로도 재사용한다.
  */
 const MIN_NODE_SPACING = 36;
+const CLUSTER_JITTER_RADIUS = 80;
+
+/** waves.json의 인원수 스케일링(0.6 + 0.4×인원)과 같은 공식 — 기획서(§10.2) 원안 그대로.
+ * 몬스터는 별도 피드백(#2)으로 더 가파르게 조정했지만, 자원 노드는 이 완만한 곡선을
+ * 그대로 쓴다(사용자가 "3배"라고 한 건 몬스터 드랍 자원이었지 채집 노드가 아니었다). */
+function scaledResourceTarget(type: ResourceType, playerCount: number): number {
+  return Math.round(RESOURCE_BASELINE_COUNT[type] * (0.6 + 0.4 * playerCount));
+}
+
+/**
+ * 살아 있는가 / 쓰러졌는가 / 유령인가.
+ *
+ * **hp <= 0은 여전히 "살아있지 않다"를 뜻한다** — 쓰러짐과 유령 둘 다 hp가 0이다.
+ * 이렇게 두면 "쓰러진 사람은 못 한다"는 기존 규칙(공격·제작·상점·채집·어그로 대상)이
+ * 전부 그대로 맞는다. 이 필드는 그 위에서 **어떻게 돌아올 수 있는가**만 가른다.
+ */
+export type PlayerLifeState = 'alive' | 'downed' | 'ghost';
 
 export interface PlayerEntity {
   id: string;
@@ -286,6 +375,14 @@ export interface PlayerEntity {
   stamina: number;
   /** 이번 틱에 달리기를 눌렀는가(입력). 실제로 달렸는지는 스태미나가 정한다. */
   sprinting: boolean;
+  /**
+   * 상호작용(E)을 누르고 있는가. 지금은 쓰러진 동료 구조에만 쓴다 — 코어 창은
+   * 클라이언트가 혼자 여닫으므로 서버가 알 필요가 없다.
+   *
+   * `sprinting`과 같은 자리에 두는 이유는 성질이 같아서다: 되감기 대상인 이동 입력이
+   * 아니라 **지금 누르고 있나**라는 상태다.
+   */
+  interacting: boolean;
   /** 달리기를 멈춘 뒤 회복이 시작되기까지 남은 시간(초). */
   staminaRegenDelay: number;
   /** 음식(도넛/당근케이크)으로 늘어난 최대 체력. 직업 기초 체력에 더해진다. */
@@ -340,6 +437,21 @@ export interface PlayerEntity {
   spentStamina: number;
   /** 레벨이 오를 때마다 1씩 오르는 번호. 클라이언트가 레벨업 이펙트를 틀 신호다(useFxSeq와 같은 방식). */
   levelUpSeq: number;
+
+  /** 살아있음/쓰러짐/유령. hp가 0인 동안 뒤의 둘을 가른다(§PlayerLifeState). */
+  lifeState: PlayerLifeState;
+  /**
+   * 쓰러진 뒤 남은 시간(초). 혼자 할 때는 **다 되면 코어에서 부활**하고, 여럿이 할
+   * 때는 **다 되면 유령이 된다**. 어느 쪽이든 "가만히 두면 곧 뭔가 바뀐다"라서
+   * 화면에 같은 숫자 하나로 보여줄 수 있다.
+   */
+  downTimer: number;
+  /**
+   * 동료가 쌓아 준 구조 진행도(초). reviveData.rescueSeconds에 닿으면 그 자리에서
+   * 일어난다. 구조하던 사람이 떨어지면 **같은 속도로 줄어든다** — 0으로 초기화하지
+   * 않는 이유는, 몬스터에 밀려 잠깐 떨어진 것과 포기한 것은 다르기 때문이다.
+   */
+  reviveProgress: number;
 }
 
 /**
@@ -570,6 +682,13 @@ export interface WorldOptions {
    * 기본값은 켬(기존 동작).
    */
   companion?: boolean;
+  /**
+   * 혼자하기인가. 쓰러졌을 때 돌아오는 길이 통째로 달라진다 — 혼자면 구조해 줄 사람이
+   * 없으므로 시간이 지나면 코어에서 스스로 일어나고(§tickRevive), 전원 다운도 패배가
+   * 아니다. 사람 수로 짐작하지 않고 방을 만들 때 못 박는 이유는, 멀티 방에 한 명만
+   * 남은 상황과 혼자하기는 **규칙이 달라야** 하기 때문이다(전자는 패배가 맞다).
+   */
+  solo?: boolean;
 }
 
 export class World {
@@ -591,7 +710,7 @@ export class World {
    * 첫 발 이후의 나머지를 틱에서 예약 발사한다. 플레이어당 하나만 진행된다.
    */
   private readonly bursts = new Map<string, { weaponId: string; shotsLeft: number; timer: number }>();
-  private readonly waveManager = new WaveManager();
+  private readonly waveManager = new WaveManager({ playerCount: () => this.players.size });
   private readonly buildings = new BuildingRegistry();
   /** 코어 AI 페르소나 트레잇. 웨이브 종료/콜로니 파괴/코어 상호작용마다 조금씩 바뀐다. */
   private personaTraits: CorePersonaTraits = createInitialPersonaTraits();
@@ -626,6 +745,11 @@ export class World {
    * tickContingents()가 콜로니 방향에서 무리 단위로 내보낸다. 다음 밤 시작에 통째로
    * 교체된다.
    */
+  /**
+   * 이번 밤 콜로니가 보태는 총 마릿수(§buildNightContingents). 웨이브 정원과 별개라
+   * HUD가 "+N"으로 따로 보여준다 — 정원에 섞으면 콜로니를 방치한 대가가 안 보인다.
+   */
+  private nightContingentTotal = 0;
   private readonly contingents: { x: number; y: number; queue: MonsterType[]; timer: number }[] =
     [];
   /**
@@ -705,16 +829,37 @@ export class World {
    * 않는다 — 원형 시야 한 번이 ~450칸이라 매 틱 돌리면 낭비다.
    */
   private readonly lastRevealCell = new Map<string, number>();
+  /**
+   * 지형(terrain.ts) 노이즈에 쓰는 시드. 지금은 **고정 상수**다 — 두 가지를 다
+   * 시도해봤는데 둘 다 문제가 있었다:
+   *   - `this.rng()`에서 뽑으면 생성자 맨 앞에서 호출 하나가 더 소비되어, 그 뒤로
+   *     이어지는 모든 게임플레이 랜덤(몬스터 스폰 등)이 한 칸씩 밀려서 `seededRng(N)`을
+   *     쓰는 기존 테스트 다수가 깨졌다(지형과 무관한 Flow Field 테스트 등).
+   *   - `Math.random()`으로 매번 다르게 뽑으면, 실행마다 지형(=자원 노드 위치)이
+   *     달라져서 좌표를 하드코딩한 다른 테스트들과 **산발적으로**(실행할 때마다
+   *     다른 테스트가) 충돌해 플레이키해졌다 — 재현도 안 되고 디버깅이 더 어렵다.
+   * 지형 렌더링이 아직 아무 데도 안 붙어 있어서(클라·서버 어디서도 topFullTerrainAt을
+   * 안 씀) 지금은 "게임마다 달라야 한다"는 요구 자체가 없다 — 나중에 실제로 지형을
+   * 그리게 되면, 그때는 방마다 시드를 정하고 클라에 동기화하는 설계를 제대로
+   * 다시 해야 한다(랜덤/재현성 요구가 그때 비로소 생기기 때문). 그 전까지는 고정값이
+   * 제일 안전하다.
+   */
+  private readonly terrainSeed = 875_309;
+  /** 혼자하기인가(§WorldOptions.solo). 부활 규칙과 전원 다운 판정이 여기서 갈린다. */
+  private readonly solo: boolean;
 
   constructor(options: WorldOptions = {}) {
     this.rng = options.rng ?? Math.random;
+    this.solo = options.solo ?? false;
     // 티모시를 끈 방에서는 'absent'로 세워 둔다. 이 상태는 게임 내내 바뀌지 않으므로
     // 이후 모든 판정이 companionActive() 하나로 걸러진다.
     if (options.companion === false) this.companion.state = 'absent';
     // 콜로니는 여기서 아직 안 만든다 — 접속 인원수가 몇 명일지는 생성 시점엔 알 수
     // 없다(서버는 로비가 끝나야 확정된다). 인원이 확정되면 호출자가 startColonies()를
-    // 명시적으로 불러야 한다(docs/backend/41).
-    this.seedResourceNodes();
+    // 명시적으로 불러야 한다(docs/backend/41). 자원 노드는 콜로니와 달리 인원을 몰라도
+    // 최소한은 있어야 하는 테스트/로컬 시나리오가 많아서(§seedResourceNodes 주석),
+    // 일단 1인 기준으로 깔아 두고 인원이 확정되면 startColonies가 모자란 만큼 보충한다.
+    this.seedResourceNodes(1);
     this.rebuildResourceObstacleCells();
     // 정적 장애물 표시가 끝난 뒤에 계산해야 최초 FlowField가 이미 이걸 반영한다.
     // 이 시점엔 콜로니가 없어 colonyObstacleCells도 비어 있다 — startColonies()가
@@ -738,10 +883,20 @@ export class World {
    * 분리했다 — 인원이 확정된 바로 그 시점에 호출자가 정확히 한 번 불러야 한다
    * (서버는 로비가 끝나 게임이 실제로 시작될 때, 로컬 모드는 유일한 플레이어를
    * 추가한 직후). 두 번 부르면 사분면당 1개 제약이 깨지므로 호출부가 책임진다.
+   *
+   * 자원 노드도 여기서 실제 인원수만큼 보충한다(§seedResourceNodes) — 생성자는
+   * 인원을 몰라 1인 기준으로만 깔아 뒀으므로, 2인 이상이면 여기서 모자란 만큼 더 놓는다.
+   * 순서가 중요하다: `colonies.seed`가 먼저다. `seedResourceNodes`는 후보 타일을
+   * `shuffleInPlace`로 섞느라 `this.rng()`를 더 소비하는데, 그걸 콜로니 배치보다
+   * 먼저 부르면 콜로니가 소비하는 rng 시퀀스가 (자원 배치량에 따라) 밀려서 같은
+   * 시드로도 콜로니 위치가 달라진다 — 좌표를 못박고 보는 테스트들이 실제로 이렇게
+   * 깨진 적이 있다. 자원 보충은 콜로니 위치와 무관하므로 뒤로 미뤄도 안전하다.
    */
   startColonies(count: number): void {
     this.colonies.seed(count, this.rng);
     this.rebuildColonyObstacleCells();
+    this.seedResourceNodes(count);
+    this.rebuildResourceObstacleCells();
     this.recomputeFlowField();
   }
 
@@ -788,6 +943,7 @@ export class World {
       job: '',
       stamina: stats.maxStamina,
       sprinting: false,
+      interacting: false,
       staminaRegenDelay: 0,
       maxHpBonus: 0,
       attackFlatBonus: 0,
@@ -808,6 +964,9 @@ export class World {
       spentAttack: 0,
       spentStamina: 0,
       levelUpSeq: 0,
+      lifeState: 'alive',
+      downTimer: 0,
+      reviveProgress: 0,
     });
   }
 
@@ -1000,7 +1159,10 @@ export class World {
     // 달리기는 이동 입력과 달리 되감기 대상이 아니라 "지금 누르고 있나"라는 상태다 —
     // 순서가 뒤바뀐 입력에서도 마지막으로 받은 값을 그대로 쓴다.
     const player = this.players.get(id);
-    if (player) player.sprinting = input.sprint === true;
+    if (player) {
+      player.sprinting = input.sprint === true;
+      player.interacting = input.interact === true;
+    }
   }
 
   /**
@@ -1157,7 +1319,13 @@ export class World {
 
     // 공격력 스탯은 **한 번의 공격**에 더한다. 산탄은 펠릿마다 더하면 6배로 불어나므로
     // 나눠 싣는다 — "한 발의 총 위력 = 무기 위력 + 공격력"이 어느 무기에서나 같아야 한다.
-    const attack = this.playerAttack(player);
+    //
+    // 그런데 "한 발당 고정값"을 그대로 두면 연사속도(fireRate)가 빠른 무기일수록
+    // 초당 챙기는 보너스가 커진다 — 스탯을 공격력에 몰빵하고 연사 무기를 들면 DPS가
+    // 몇 배로 뛰어 보스가 무의미해지는 원인이었다(docs/backend 데모 준비도 리뷰 피드백
+    // #1). fireRate로 나눠서 **초당 보너스**를 무기 종류와 무관하게 고정한다 — 위
+    // 펠릿 나누기와 같은 원칙을 시간 축에도 적용한 것.
+    const attack = this.playerAttack(player) / (weaponsData[weaponId]?.fireRate || 1);
     const pellets = result.projectiles?.length ?? 1;
     for (const projectile of result.projectiles ?? []) {
       projectile.damage += attack / pellets;
@@ -1174,9 +1342,13 @@ export class World {
     }
     if (result.meleeHit) {
       result.meleeHit.damage += attack;
+      // AID로 아군을 일으킨 타격은 거기서 끝난다 — 같은 휘두르기가 몬스터도 베고
+      // 자원도 캐면 "구조했다"가 다른 일들에 묻힌다.
+      if (this.applyMeleeHitToDownedAlly(player, result.meleeHit)) return;
       this.applyMeleeHit(result.meleeHit);
       this.applyMeleeHitToResourceNode(player, result.meleeHit, weaponId);
       this.applyMeleeHitToRepair(result.meleeHit, weaponId);
+      this.applyMeleeHitToBuilding(result.meleeHit, weaponId);
     }
   }
 
@@ -1209,6 +1381,51 @@ export class World {
     if (this.core.resource < data.repairCost) return;
     this.core.resource -= data.repairCost;
     target.hp = Math.min(target.maxHp, target.hp + data.repairPerHit);
+  }
+
+  /**
+   * 근접 타격이 건축물을 부순다. 주먹이든 무기든 때리면 깎인다 — 잘못 세운 벽을
+   * 치우려고 별도의 철거 모드를 켤 이유가 없어졌다(건축모드는 제거됐다).
+   *
+   * **해머만 아이템을 돌려준다.** 해머는 짓는 도구라 뜯어서 회수하는 게 자연스럽고,
+   * 그 외 무기로 때려 부수면 부서진 것이니 남는 게 없다. 그래서 해머는 멀쩡한
+   * 건축물을 **한 방에** 뜯는다 — 여러 번 때려야 하면 그 사이 타격이 수리로 읽혀
+   * (§applyMeleeHitToRepair) 영원히 못 뜯는다.
+   *
+   * 자원 노드와 같은 이유로 **가장 가까운 하나만** 때린다.
+   */
+  private applyMeleeHitToBuilding(hit: MeleeHit, weaponId: string): void {
+    const isHammer = weaponsData[weaponId]?.toolFamily === 'hammer';
+
+    let target: BuildingEntity | undefined;
+    let targetDistance = Infinity;
+    for (const building of this.buildings.values()) {
+      // 해머는 성한 것만 뜯는다. 상한 것은 수리 쪽이 가져간다.
+      if (isHammer && building.hp < building.maxHp) continue;
+      if (!withinMeleeArc(hit, building.x, building.y, TILE_SIZE / 2)) continue;
+      const distance = Math.hypot(building.x - hit.originX, building.y - hit.originY);
+      if (distance >= targetDistance) continue;
+      target = building;
+      targetDistance = distance;
+    }
+    if (!target) return;
+
+    if (isHammer) {
+      // 뜯은 자리에 아이템으로 떨군다 — 인벤토리가 꽉 차도 사라지지 않는다.
+      const itemId = BUILDING_ITEM_OF[target.type];
+      if (itemId) this.dropItem(itemId, 1, target.x, target.y);
+      this.removeBuilding(target);
+      return;
+    }
+
+    target.hp = Math.max(0, target.hp - hit.damage);
+    if (target.hp <= 0) this.removeBuilding(target);
+  }
+
+  /** 건축물을 지우고 길찾기를 다시 계산한다. 부순 경로가 여럿이라 한 곳에 모았다. */
+  private removeBuilding(building: BuildingEntity): void {
+    this.buildings.remove(building.id);
+    this.recomputeFlowField();
   }
 
   /** 진행 중인 점사의 후속탄을 발사한다. 무기를 바꾸거나 다운되면 남은 점사는 버린다. */
@@ -1518,17 +1735,31 @@ export class World {
       return;
     }
 
-    const source = container === 'storage' ? this.core.storage : player.inventory;
-    const target = container === 'storage' ? player.inventory : this.core.storage;
+    // 인벤토리는 창고로 보내고, **코어 쪽 칸(창고·충전·제작)은 전부 인벤토리로 꺼낸다.**
+    //
+    // 예전엔 "storage면 창고, 아니면 인벤토리"로 뭉뚱그렸는데, isContainerName이
+    // charge/craft도 통과시키므로 충전 칸이나 제작 결과 칸을 쉬프트 클릭하면 그 이름이
+    // 인벤토리로 오인됐다 — 누른 적도 없는 **같은 번호의 인벤토리 칸**이 창고로 딸려
+    // 들어갔다. 컨테이너마다 목적지를 명시해서 이름이 늘어도 조용히 새지 않게 한다.
+    if (container === 'inventory') {
+      const slot = player.inventory.slotAt(index as number);
+      if (!slot) return;
 
-    const slot = source.slotAt(index as number);
-    if (!slot) return;
+      const leftover = this.core.storage.add(slot.itemId, slot.count);
+      if (leftover === slot.count) return; // 하나도 못 옮겼다 — 원래 칸 그대로 둔다
 
-    const leftover = target.add(slot.itemId, slot.count);
-    if (leftover === slot.count) return; // 하나도 못 옮겼다 — 원래 칸 그대로 둔다
+      player.inventory.removeAt(index as number, slot.count - leftover);
+      this.enqueueCompanionPersonaEvent('coreDeposit', playerId);
+      return;
+    }
 
-    source.removeAt(index as number, slot.count - leftover);
-    if (target === this.core.storage) this.enqueueCompanionPersonaEvent('coreDeposit', playerId);
+    const source = this.container(player, container);
+    const taken = source.takeAt(index as number);
+    if (!taken) return;
+
+    const leftover = player.inventory.add(taken.itemId, taken.count);
+    // 인벤토리가 꽉 차 다 못 받으면 남은 만큼 원래 자리로 되돌린다 — 조용히 사라지면 안 된다.
+    if (leftover > 0) source.placeAt(index as number, { itemId: taken.itemId, count: leftover });
   }
 
   /**
@@ -1840,26 +2071,6 @@ export class World {
       .some((tier) => tier.unlocksStatUpgrades);
   }
 
-  /**
-   * 건축 요청 처리. `buildingType`/`cx`/`cy`는 네트워크 경계를 넘어온 값이라 타입부터
-   * 검증한다. 배치 규칙(docs/backend/18 §3.5): 이미 다른 건축물/자원 노드/코어가 있는
-   * 셀, 플레이어가 서 있는 셀엔 지을 수 없다. 비용은 코어의 공유 자원 풀에서 차감한다
-   * (자원채집 도구 도입에 맞춘 재설계 — 예전엔 요청자 개인 지갑에서만 나갔다).
-   */
-  placeBuilding(playerId: string, buildingType: unknown, cx: unknown, cy: unknown): void {
-    if (typeof buildingType !== 'string') return;
-    const data = buildingsData[buildingType as BuildingType];
-    if (!data) return;
-    if (!this.canPlaceBuildingAt(playerId, cx, cy)) return;
-
-    // 비용은 코어 자원 게이지에서 나간다. 0인 건축물(철 계열)은 이 경로로 못 짓는다 —
-    // 제작으로만 얻는다.
-    if (data.resourceCost <= 0) return;
-    if (this.core.resource < data.resourceCost) return;
-    this.core.resource -= data.resourceCost;
-
-    this.spawnBuilding(buildingType as BuildingType, cx as number, cy as number);
-  }
 
   /**
    * 손에 든 건축 아이템으로 설치한다(아이템 한 개 = 비용).
@@ -1923,25 +2134,6 @@ export class World {
     const { x, y } = cellCenterWorld(cx, cy);
     const id = `building_${nextBuildingId++}`;
     this.buildings.place(id, type, cx, cy, x, y);
-    this.recomputeFlowField();
-  }
-
-  /**
-   * 철거 요청 처리(건설모드의 'demolish', docs/backend/43). 자원 환급은 없다 —
-   * 재배치/실수 정리용이지 자원 순환 수단이 아니다. 코어 건설 반경 검사는 안
-   * 한다 — 이미 지어진 건축물은 그 시점에 이미 반경 안이었고, 반경은 코어
-   * 티어가 오를수록만 넓어지므로(줄어들지 않으므로) 항상 유효하다.
-   */
-  demolishBuilding(playerId: string, cx: unknown, cy: unknown): void {
-    if (!isFiniteNumber(cx) || !isFiniteNumber(cy)) return;
-    if (!Number.isInteger(cx) || !Number.isInteger(cy)) return;
-    const player = this.players.get(playerId);
-    if (!player || player.hp <= 0) return;
-
-    const building = this.buildings.at(cx, cy);
-    if (!building) return;
-
-    this.buildings.remove(building.id);
     this.recomputeFlowField();
   }
 
@@ -2104,7 +2296,11 @@ export class World {
 
       healPlayer: (playerId) => {
         const player = this.players.get(playerId);
-        if (player) player.hp = this.playerMaxHp(player);
+        if (!player) return;
+        // 쓰러져 있었다면 일으켜 세운 뒤 가득 채운다 — 체력만 올리고 상태를 그대로
+        // 두면 hp는 가득인데 유령인, 어느 규칙으로도 설명되지 않는 상태가 남는다.
+        if (player.lifeState !== 'alive') this.revivePlayer(player);
+        player.hp = this.playerMaxHp(player);
       },
       setPlayerHp: (playerId, amount) => {
         const player = this.players.get(playerId);
@@ -2113,6 +2309,10 @@ export class World {
         // 용도라, 최대치로 잘라버리면 정작 쓸 데가 없어진다. 체력 바가 넘치는 문제는
         // 그리는 쪽에서 비율을 1로 조여 막는다(HudScene/PartyPanel).
         player.hp = amount;
+        // 커맨드로 0을 찍는 건 "다운을 재현해 보겠다"는 뜻이다 — 실제 피격과 같은
+        // 문(§downPlayer)을 지나야 타이머와 구조가 똑같이 돈다.
+        if (player.hp <= 0 && player.lifeState === 'alive') this.downPlayer(player);
+        else if (player.hp > 0 && player.lifeState !== 'alive') this.revivePlayer(player);
         return player.hp;
       },
       setCoreHp: (amount) => {
@@ -2131,12 +2331,22 @@ export class World {
     // 소모품 버프 타이머(진통제/아드레날린)도 같은 자리에서 감소시킨다.
     for (const player of this.players.values()) {
       player.tookDamageThisTick = false;
+      /*
+       * 체력과 상태를 맞춘다. damagePlayer()가 유일한 피해 경로지만, 체력을 직접
+       * 0으로 쓰는 길(개발 커맨드, 테스트, 앞으로 생길 즉사 효과)이 언제든 생긴다 —
+       * 그때 상태가 'alive'로 남으면 hp 0인데 쓰러지지도 유령도 아닌, 어떤 부활
+       * 경로도 집어가지 않는 유령 아닌 유령이 된다.
+       */
+      if (player.hp <= 0 && player.lifeState === 'alive') this.downPlayer(player);
       if (player.hpFloorTimer > 0) player.hpFloorTimer -= dtSeconds;
       if (player.speedBuffTimer > 0) player.speedBuffTimer -= dtSeconds;
       this.tickStamina(player, dtSeconds);
       this.tickHpRegen(player, dtSeconds);
     }
     this.ammo.tick(dtSeconds);
+    // 이동보다 **먼저** 처리한다 — 이번 틱에 일어선 사람은 이번 틱부터 걸을 수 있어야
+    // 한다(뒤로 미루면 부활한 프레임에 한 번 굳는다).
+    this.tickRevive(dtSeconds);
     this.tickBursts(dtSeconds);
     this.tickCoreCharge(dtSeconds);
     this.tickCrafting(dtSeconds);
@@ -2144,9 +2354,17 @@ export class World {
     for (const [id, player] of this.players) {
       const input = this.inputs.get(id);
       if (!input) continue;
-      // 쓰러진 플레이어도 이동은 할 수 있다(도망/은신 등 최소한의 조작은 남겨둔다) —
-      // 공격·제작·건축 등 그 외 행동만 막는다(아래 각 메서드의 hp 체크 참고).
-      this.movePlayer(player, input.moveX, input.moveY, dtSeconds);
+      /*
+       * **쓰러진 사람은 움직이지 못한다.** 예전엔 다운 상태에서도 걸을 수 있었는데,
+       * 구조가 생긴 지금은 기어다니는 쓰러짐이 구조를 통째로 무의미하게 만든다 —
+       * 동료가 다가가는 동안 도망쳐 버리면 5초를 채울 수가 없다.
+       *
+       * 유령은 자유롭게 떠다닌다. 어차피 아무것도 못 하고 어그로도 끌지 않으니,
+       * 낮이 오기까지 화면 앞에 묶어 두는 것이 더 나쁘다.
+       */
+      if (player.lifeState !== 'downed') {
+        this.movePlayer(player, input.moveX, input.moveY, dtSeconds);
+      }
       player.aimAngle = input.aimAngle;
       player.lastProcessedSeq = input.seq;
     }
@@ -2234,6 +2452,43 @@ export class World {
   /** 현재 페이즈가 끝나기까지 남은 시간(초). HUD의 웨이브 다이얼이 쓴다. */
   getPhaseTimeRemaining(): number {
     return this.waveManager.phaseTimeRemaining;
+  }
+
+  /** 보스 등장까지 남은 예고 시간(초). 0이면 예고 중이 아니다. */
+  getBossWarningRemaining(): number {
+    return this.waveManager.bossWarningRemaining;
+  }
+
+  /**
+   * 이번 밤에 잡아야 할 **잡몹** 총 마릿수. 낮에는 0이라 HUD가 이 값만 보고
+   * 몬스터 표시를 켜고 끌 수 있다.
+   *
+   * 보스는 빼고 센다 — 잡몹을 전멸시켜야 나오는 별개의 국면이고, 그때부터는 보스
+   * 체력바가 진행도를 맡는다. 보스를 섞으면 "다 잡았는데 1마리 남음"으로 보인다.
+   */
+  getWaveMonsterTotal(): number {
+    return this.waveManager.currentPhase === 'night' ? this.waveManager.waveMonsterCount : 0;
+  }
+
+  /**
+   * 이번 밤 콜로니가 보태는 마릿수. 정화하지 않고 넘긴 콜로니가 저장분의 일부를
+   * 복제해 보낸다(§buildNightContingents). 낮에는 0이다.
+   */
+  getWaveMonsterBonus(): number {
+    return this.waveManager.currentPhase === 'night' ? this.nightContingentTotal : 0;
+  }
+
+  /**
+   * 아직 남은 잡몹 수 = 살아있는 잡몹 + 웨이브 스폰 큐 + **콜로니 침공 대기열**.
+   * 대기열을 빼먹으면 아직 나올 몬스터가 남았는데 0으로 보인다.
+   */
+  getWaveMonsterRemaining(): number {
+    if (this.waveManager.currentPhase !== 'night') return 0;
+    let alive = 0;
+    for (const monster of this.monsters.values()) {
+      if (!isBossType(monster.type)) alive += 1;
+    }
+    return alive + this.waveManager.pendingSpawnCount + this.pendingContingentCount();
   }
 
   getCurrentWave(): number {
@@ -2429,42 +2684,78 @@ export class World {
     this.flowField.recompute(coreCell.cx, coreCell.cy);
   }
 
-  /** 자원 노드를 코어 주변에 군집(클러스터)으로 배치한다. 클래스 상단 상수 주석 참고. */
-  private seedResourceNodes(): void {
-    this.seedResourceClusters('wood', WOOD_CLUSTER_COUNT, WOOD_NODES_PER_CLUSTER);
-    this.seedResourceClusters('stone', STONE_CLUSTER_COUNT, STONE_NODES_PER_CLUSTER);
+  /** 자원 노드를 지형 위에 확률적으로 채운다(부족분만). 클래스 상단 상수 주석 참고. */
+  private seedResourceNodes(playerCount: number): void {
+    this.seedResourceOnTerrain('wood', playerCount);
+    this.seedResourceOnTerrain('stone', playerCount);
   }
 
-  private seedResourceClusters(type: ResourceType, clusterCount: number, nodesPerCluster: number): void {
-    const data = resourcesData[type];
+  /**
+   * 지형 타일 후보를 모아 섞은 뒤, 하나씩 `RESOURCE_TILE_CHANCE`를 굴려서 성공하면
+   * 배치한다 — 목표 개체수(`scaledResourceTarget`)에 도달하면 중단한다. 이미 그
+   * 타입 노드가 목표만큼(또는 그 이상) 있으면 아무 일도 하지 않는다(멱등).
+   */
+  private seedResourceOnTerrain(type: ResourceType, playerCount: number): void {
+    const target = scaledResourceTarget(type, playerCount);
+    let existing = 0;
+    for (const node of this.resourceNodes.values()) {
+      if (node.type === type) existing += 1;
+    }
+    let needed = target - existing;
+    if (needed <= 0) return;
 
-    for (let i = 0; i < clusterCount; i += 1) {
-      const clusterAngle = this.rng() * Math.PI * 2;
-      const clusterDistance =
-        CLUSTER_MIN_DISTANCE + this.rng() * (CLUSTER_MAX_DISTANCE - CLUSTER_MIN_DISTANCE);
-      const clusterX = Math.cos(clusterAngle) * clusterDistance;
-      const clusterY = Math.sin(clusterAngle) * clusterDistance;
+    const eligibleTerrains = RESOURCE_TERRAIN[type];
+    const occupiedCells = new Set<string>();
+    for (const node of this.resourceNodes.values()) {
+      const { cx, cy } = worldToCell(node.x, node.y);
+      occupiedCells.add(`${cx},${cy}`);
+    }
 
-      const placed: { x: number; y: number }[] = [];
-      for (let n = 0; n < nodesPerCluster; n += 1) {
-        const position = this.pickClusterNodePosition(clusterX, clusterY, placed, data.hitRadius);
-        placed.push(position);
+    const candidates: { cx: number; cy: number }[] = [];
+    for (let cx = 0; cx < MAP_SIZE_TILES; cx += 1) {
+      for (let cy = 0; cy < MAP_SIZE_TILES; cy += 1) {
+        const key = `${cx},${cy}`;
+        if (occupiedCells.has(key)) continue;
 
-        const id = `resource_${nextResourceNodeId++}`;
-        this.resourceNodes.set(id, {
-          id,
-          type,
-          x: position.x,
-          y: position.y,
-          hp: data.hp,
-          maxHp: data.hp,
-          respawnTimer: 0,
-          clusterX,
-          clusterY,
-        });
-        // 셀 등록은 여기서 하지 않는다 — 생성자가 시딩이 다 끝난 뒤
-        // rebuildResourceObstacleCells()를 한 번만 불러 한꺼번에 계산한다.
+        const kind = topFullTerrainAt(cx, cy, this.terrainSeed);
+        if (!kind || !eligibleTerrains.has(kind)) continue;
+
+        const { x, y } = cellCenterWorld(cx, cy);
+        const distance = Math.hypot(x, y);
+        if (distance < RESOURCE_MIN_DISTANCE || distance > RESOURCE_MAX_DISTANCE) continue;
+
+        candidates.push({ cx, cy });
       }
+    }
+    shuffleInPlace(candidates, this.rng);
+
+    const data = resourcesData[type];
+    const placed: { x: number; y: number }[] = [];
+    for (const { cx, cy } of candidates) {
+      if (needed <= 0) break;
+      if (this.rng() >= RESOURCE_TILE_CHANCE) continue;
+
+      const { x, y } = cellCenterWorld(cx, cy);
+      if (placed.some((p) => Math.hypot(p.x - x, p.y - y) < MIN_NODE_SPACING)) continue;
+
+      const id = `resource_${nextResourceNodeId++}`;
+      this.resourceNodes.set(id, {
+        id,
+        type,
+        x,
+        y,
+        hp: data.hp,
+        maxHp: data.hp,
+        respawnTimer: 0,
+        // 클러스터가 없어졌으니 노드 자신이 곧 "군집 중심"이다 — 리스폰 재배치
+        // (§relocateRespawnedNode)가 이 자리 근처(CLUSTER_JITTER_RADIUS 안)로 되돌린다.
+        clusterX: x,
+        clusterY: y,
+      });
+      placed.push({ x, y });
+      needed -= 1;
+      // 셀 등록은 여기서 하지 않는다 — 호출자가 시딩이 다 끝난 뒤
+      // rebuildResourceObstacleCells()를 한 번만 불러 한꺼번에 계산한다.
     }
   }
 
@@ -2574,7 +2865,11 @@ export class World {
       const distance = Math.hypot(dx, dy);
       if (distance > nearestDistance) continue;
 
-      if (distance > 0) {
+      // 보스는 **전방향**으로 본다. 잡몹의 시야각은 "뒤로 돌아 들어가 따돌린다"를
+      // 만들어 주지만, 보스는 밤의 결승전이라 등 뒤에 붙어 서 있기만 해도 안전해지면
+      // 싸움 자체가 성립하지 않는다(등 뒤로 돌아 때리는 이득은 여전히 남는다 —
+      // 이건 "발견"만 전방향으로 여는 것이지 회전 속도를 없애는 게 아니다).
+      if (distance > 0 && !isBossType(monster.type)) {
         const facingDot = (dx / distance) * monster.facingX + (dy / distance) * monster.facingY;
         if (facingDot < AGGRO_FOV_COS_HALF_ANGLE) continue;
       }
@@ -2597,12 +2892,183 @@ export class World {
     const floor = player.hpFloorTimer > 0 ? 1 : 0;
     player.hp = Math.max(floor, player.hp - amount);
     player.tookDamageThisTick = true;
+    if (player.hp <= 0 && player.lifeState === 'alive') this.downPlayer(player);
   }
 
-  /** 웨이브를 클리어하고 새 낮이 시작될 때 다운된 플레이어를 전원 부활시킨다. */
+  /**
+   * 체력이 0이 된 순간 한 번만. **죽는 게 아니라 쓰러진다** — 아직 넷 중 하나로
+   * 되돌릴 수 있다(시간·동료 구조·AID·코어).
+   *
+   * 이미 쓰러졌거나 유령인 사람에게 다시 부르면 안 된다. 다시 부르면 유령이 쓰러짐으로
+   * 되돌아가고 타이머가 새로 돌아, 맞을수록 부활이 가까워지는 뒤집힌 규칙이 된다.
+   */
+  private downPlayer(player: PlayerEntity): void {
+    player.lifeState = 'downed';
+    player.reviveProgress = 0;
+    // 혼자면 이 시간이 곧 부활까지고, 여럿이면 동료가 달려올 수 있는 시간이다.
+    player.downTimer = this.solo
+      ? reviveData.soloRespawnSeconds
+      : reviveData.ghostSeconds;
+  }
+
+  /**
+   * 되살린다. 어느 경로로 돌아오든(시간·구조·AID·코어) **여기 한 곳**을 지난다 —
+   * 체력 비율과 상태 초기화가 경로마다 달라지면 "부활했는데 왜 다르지"가 된다.
+   *
+   * @param x,y 일어설 자리. 생략하면 쓰러진 그 자리다.
+   */
+  private revivePlayer(player: PlayerEntity, x?: number, y?: number): void {
+    player.hp = Math.max(1, Math.round(this.playerMaxHp(player) * reviveData.reviveHpRatio));
+    player.lifeState = 'alive';
+    player.downTimer = 0;
+    player.reviveProgress = 0;
+    if (x !== undefined) player.x = x;
+    if (y !== undefined) player.y = y;
+  }
+
+  /**
+   * 쓰러진 사람들의 시계 — 시간이 흐르는 쪽(downTimer)과 동료가 밀어 올리는
+   * 쪽(reviveProgress) 둘을 같이 굴린다.
+   *
+   * 두 시계는 **서로를 멈추지 않는다.** 구조가 4초쯤 찼는데 유령이 되어 버리면
+   * 헛수고지만, 그건 "늦었다"가 맞는 결과다 — 구조 중이라고 유령 전환을 미뤄 주면
+   * 한 명이 옆에 붙어 있는 것만으로 밤새 쓰러진 상태를 유지할 수 있다.
+   */
+  private tickRevive(dtSeconds: number): void {
+    for (const player of this.players.values()) {
+      if (player.lifeState !== 'downed') continue;
+
+      // 동료 구조가 먼저다 — 같은 틱에 5초가 찼다면 유령이 되기 전에 일어난다.
+      const rescued = this.tickRescue(player, dtSeconds);
+      if (rescued) continue;
+
+      player.downTimer = Math.max(0, player.downTimer - dtSeconds);
+      if (player.downTimer > 0) continue;
+
+      if (this.solo) {
+        // 혼자면 코어 앞에서 다시 시작한다. 쓰러진 자리에 세우면 자기를 눕힌 몬스터
+        // 한가운데서 일어나 그대로 다시 쓰러진다.
+        this.revivePlayer(player, CORE_RESPAWN_X, CORE_RESPAWN_Y);
+      } else {
+        player.lifeState = 'ghost';
+        player.reviveProgress = 0;
+      }
+    }
+  }
+
+  /**
+   * 동료 구조 한 틱. 살아 있는 다른 플레이어가 옆에서 상호작용 키를 **누르고 있는
+   * 동안** 진행도가 찬다.
+   *
+   * 여럿이 붙어도 속도는 그대로다(진행도를 인원수만큼 곱하지 않는다) — 곱하면 4인
+   * 파티에서 구조가 1.25초로 끝나 "위험을 무릅쓰고 5초를 버틴다"는 설계가 사라진다.
+   *
+   * @returns 이번 틱에 일어섰으면 true.
+   */
+  private tickRescue(player: PlayerEntity, dtSeconds: number): boolean {
+    const radiusSquared = reviveData.rescueRadius * reviveData.rescueRadius;
+    let helped = false;
+
+    for (const other of this.players.values()) {
+      if (other === player || other.lifeState !== 'alive') continue;
+      if (!other.interacting) continue;
+      const dx = other.x - player.x;
+      const dy = other.y - player.y;
+      if (dx * dx + dy * dy > radiusSquared) continue;
+      helped = true;
+      break;
+    }
+
+    // 놓으면 같은 속도로 줄어든다 — 0으로 되돌리지 않는 이유는 §reviveProgress 참고.
+    player.reviveProgress = Math.max(
+      0,
+      player.reviveProgress + (helped ? dtSeconds : -dtSeconds),
+    );
+    if (player.reviveProgress < reviveData.rescueSeconds) return false;
+
+    this.revivePlayer(player);
+    return true;
+  }
+
+  /**
+   * 코어에서 유령을 되살린다 — **낮에만**, 에너지를 치르고.
+   *
+   * 밤을 막는 이유는 이게 "다시 해 보자"의 값이지 전투 중 자원이 아니어서다. 밤에도
+   * 되면 에너지가 곧 목숨이 되어, 죽어도 그 자리에서 계속 밀어 넣는 소모전이 된다.
+   *
+   * @param playerId 버튼을 누른 사람(살아 있고 코어 옆이어야 한다).
+   * @param targetId 되살릴 유령.
+   * @returns 실제로 되살렸으면 true. 조건이 안 맞으면 조용히 false다.
+   */
+  reviveGhostAtCore(playerId: string, targetId: string): boolean {
+    const player = this.players.get(playerId);
+    if (!player || player.hp <= 0 || !this.isNearCore(player)) return false;
+    if (this.waveManager.currentPhase !== 'day') return false;
+
+    const target = this.players.get(targetId);
+    if (!target || target.lifeState !== 'ghost') return false;
+    if (this.core.energy < reviveData.coreReviveEnergy) return false;
+
+    this.core.energy -= reviveData.coreReviveEnergy;
+    this.revivePlayer(target, CORE_RESPAWN_X, CORE_RESPAWN_Y);
+    return true;
+  }
+
+  /**
+   * AID로 쓰러진 아군을 후려쳐 **즉시** 일으킨다.
+   *
+   * 구조(5초)와 나란히 두는 이유는 값이 다르기 때문이다 — AID는 에픽 등급 소모품이라
+   * 개수가 곧 대가고, 그 대신 시간이 0이다. 몬스터에 둘러싸여 5초를 버틸 수 없는
+   * 상황에서 쓰라고 있는 물건이다.
+   *
+   * 가장 가까운 **한 명만** 일으킨다. 부채꼴 안의 전원을 한 번에 세우면 한 개로 파티
+   * 전체가 복구된다.
+   *
+   * @returns AID를 썼으면 true(이때 호출자는 이번 타격을 몬스터에게 넘기지 않는다).
+   */
+  private applyMeleeHitToDownedAlly(player: PlayerEntity, hit: MeleeHit): boolean {
+    if (player.inventory.selected?.itemId !== AID_ITEM_ID) return false;
+
+    let target: PlayerEntity | undefined;
+    let targetDistance = Infinity;
+    for (const other of this.players.values()) {
+      if (other === player || other.lifeState !== 'downed') continue;
+      if (!withinMeleeArc(hit, other.x, other.y, HIT_RADIUS)) continue;
+      const distance = Math.hypot(other.x - player.x, other.y - player.y);
+      if (distance >= targetDistance) continue;
+      target = other;
+      targetDistance = distance;
+    }
+    if (!target) return false;
+
+    if (!player.inventory.consumeSelectedOne()) return false;
+    this.revivePlayer(target);
+    return true;
+  }
+
+  /**
+   * 웨이브를 클리어하고 새 낮이 시작될 때 **다운된 플레이어만** 일으켜 세운다.
+   *
+   * 예전엔 살아남은 사람까지 전원 풀피로 채웠다. 그러면 밤을 어떻게 버텼든 아침이면
+   * 원점이라 체력 관리가 의미를 잃는다 — 붕대를 아껴 쓸 이유도, 위험할 때 물러설
+   * 이유도 없어진다. 회복은 자연 재생(tickHpRegen)과 소모품이 맡는다.
+   *
+   * 부활은 **절반만** 채운다. 가득 채우면 "죽는 편이 이득"이 되어(살아남으면 깎인 채로
+   * 시작, 죽으면 가득) 다운을 유도하는 뒤집힌 보상이 된다.
+   */
   private revivePlayers(): void {
     for (const player of this.players.values()) {
-      player.hp = this.playerMaxHp(player);
+      // **유령은 아침이 와도 스스로 돌아오지 못한다.** 낮에 코어에서 에너지를 치러야
+      // 하는 것이 유령의 대가인데(§reviveGhostAtCore), 여기서 공짜로 일으켜 세우면
+      // 그 대가가 통째로 사라진다. 쓰러진 사람만 일어난다 — 밤이 끝나는 순간에 쓰러진
+      // 사람은 어차피 30초를 채우면 유령이 됐을 참이라, 그 정도 운은 봐 준다.
+      // 유령만 뺀다 — 쓰러진 사람은 일어난다. 상태가 아니라 체력으로도 한 번 더 묻는
+      // 이유는 체력을 직접 0으로 쓰는 경로가 있어서다(§tick의 상태 맞추기).
+      if (player.lifeState === 'ghost' || player.hp > 0) continue;
+      player.lifeState = 'alive';
+      player.downTimer = 0;
+      player.reviveProgress = 0;
+      player.hp = Math.max(1, Math.round(this.playerMaxHp(player) * REVIVE_HP_RATIO));
     }
   }
 
@@ -2612,6 +3078,12 @@ export class World {
    */
   private checkAllPlayersDown(): void {
     if (this.players.size === 0) return;
+    /*
+     * **혼자하기에는 이 패배가 없다.** 혼자면 쓰러져도 시간이 지나면 코어에서 스스로
+     * 일어나므로(§tickRevive), 전원 다운은 "잠깐 쓰러졌다"와 같은 말이다. 여기서
+     * 패배로 처리하면 첫 다운에 게임이 끝난다. 혼자하기의 패배 조건은 코어 파괴뿐이다.
+     */
+    if (this.solo) return;
     const allDown = [...this.players.values()].every((player) => player.hp <= 0);
     if (allDown) this.waveManager.markDefeat();
   }
@@ -2652,19 +3124,33 @@ export class World {
    * 전체가 한꺼번에 쏟아지지 않게 하는 건 압박 유지와 "입구 낚시" 방지를 겸한다 —
    * 대신 순차 보충이라 플레이어가 하나씩 끊어 먹는 것도 자연히 가능하다(설계 의도).
    *
+   * **저장분이 바닥나도 플레이어가 계속 있으면** guardTrickleSeconds(느린 주기)로
+   * "여분" 수호대가 계속 나온다(stored는 안 깎는다 — 깎을 게 없다). 1단계 저장분
+   * (4마리)만으로는 아침 내내 지켜도 순식간에 끝나버려서 파밍이 사실상 불가능했던
+   * 문제를 푼다(데모 준비도 리뷰 피드백 #3) — 대신 저장분 소진 시절보다는 느리게
+   * 나오게 해서 "무한 파밍"과 "적당한 압박"의 중간을 잡는다.
+   *
+   * 트리클 수호대가 (죽지 않고) 물러나 귀환하면 기존 로직이 stored를 복원하는데,
+   * 원래 저장분에서 나온 게 아니라도 그대로 둔다 — 어차피 단계 상한(stages[].stored)
+   * 으로 막혀 있고, "지키고 있으면 콜로니가 든든해 보인다"는 체감과도 맞는다.
+   *
    * 페이즈(낮/밤) 무관하게 돈다 — 밤에도 콜로니에 접근하면 수호대가 나온다.
    */
   private tickColonyGuards(dtSeconds: number): void {
     for (const colony of this.colonies.values()) {
       if (colony.purified) continue;
 
-      // 정화: 저장분도 수호대도 남지 않은 순간, 이 콜로니는 비워졌다.
-      if (colony.stored <= 0 && colony.guardIds.size === 0) {
+      const triggered = this.anyAlivePlayerWithin(colony.x, colony.y, coloniesData.triggerRadius);
+
+      // 정화: 저장분도 수호대도 남지 않았고, 아무도 트리클을 유지하고 있지 않을 때만.
+      // 플레이어가 트리거 반경 안에 있으면(triggered) 저장분이 0이어도 트리클로 계속
+      // 나올 수 있으므로 아직 "비워졌다"고 볼 수 없다 — 순서를 triggered 판정보다
+      // 먼저 두면 저장분이 막 바닥난 순간 트리클이 시작되기도 전에 정화돼버린다.
+      if (colony.stored <= 0 && colony.guardIds.size === 0 && !triggered) {
         this.purifyColony(colony);
         continue;
       }
 
-      const triggered = this.anyAlivePlayerWithin(colony.x, colony.y, coloniesData.triggerRadius);
       if (!triggered) {
         // 아무도 없으면 보충 타이머를 초기값으로 되돌린다 — 다음 접근 때 곧바로
         // 첫 수호대가 나오게(경계에서 들락거리며 타이머만 갉는 것 방지).
@@ -2672,11 +3158,14 @@ export class World {
         continue;
       }
 
-      if (colony.stored <= 0 || colony.guardIds.size >= coloniesData.guardConcurrent) continue;
+      if (colony.guardIds.size >= coloniesData.guardConcurrent) continue;
 
+      const hasStored = colony.stored > 0;
       colony.guardRespawnTimer -= dtSeconds;
       if (colony.guardRespawnTimer > 0) continue;
-      colony.guardRespawnTimer = coloniesData.guardRespawnSeconds;
+      colony.guardRespawnTimer = hasStored
+        ? coloniesData.guardRespawnSeconds
+        : coloniesData.guardTrickleSeconds;
 
       const stage = colonyStageData(colony.stage);
       const type = stage.types[Math.floor(this.rng() * stage.types.length)] as MonsterType;
@@ -2694,7 +3183,7 @@ export class World {
       const guard = this.monsters.get(guardId);
       if (guard) {
         guard.homeColonyId = colony.id;
-        colony.stored -= 1;
+        if (hasStored) colony.stored -= 1;
         colony.guardIds.add(guardId);
       }
     }
@@ -2850,7 +3339,7 @@ export class World {
       case 'building': {
         const building = this.buildings.get(target.id);
         if (building && inRange(building.x, building.y)) {
-          building.hp = Math.max(0, building.hp - data.damage);
+          building.hp = Math.max(0, building.hp - this.buildingDamage(monster, building, data.damage));
           if (building.hp <= 0) {
             this.buildings.remove(building.id);
             this.recomputeFlowField();
@@ -2913,6 +3402,7 @@ export class World {
    */
   private buildNightContingents(): void {
     this.contingents.length = 0;
+    this.nightContingentTotal = 0;
     for (const colony of this.colonies.values()) {
       if (colony.purified || colony.stored <= 0) continue;
       const count = Math.floor(colony.stored * coloniesData.waveContributionRatio);
@@ -2924,6 +3414,7 @@ export class World {
         queue.push(stage.types[Math.floor(this.rng() * stage.types.length)] as MonsterType);
       }
       this.contingents.push({ x: colony.x, y: colony.y, queue, timer: 0 });
+      this.nightContingentTotal += count;
     }
   }
 
@@ -3392,7 +3883,12 @@ export class World {
         const dashTravel = attack.dash
           ? attack.dash.speed * (attack.dash.toSeconds - attack.dash.fromSeconds)
           : 0;
-        const reach = Math.max(...attack.hits.map((hit) => hit.range)) + dashTravel;
+        // 사거리 **끝에서** 지르면 예고 동안 상대가 한 걸음만 물러도 헛친다. 조금 더
+        // 붙었을 때만 지르게 해서 적중률을 올린다 — 보스는 플레이어보다 빠르므로
+        // 그 거리를 좁히는 건 보스 몫이다. 돌진에는 이 축소를 안 건다: 간격을 메우는
+        // 게 돌진의 존재 이유인데 여기까지 줄이면 붙어 있을 때만 나와 무의미해진다.
+        const reach =
+          Math.max(...attack.hits.map((hit) => hit.range)) * BOSS_PATTERN_COMMIT_RATIO + dashTravel;
         if (targetDistance > reach) return;
         ready.push(index);
       });
@@ -3657,14 +4153,20 @@ export class World {
     for (const building of this.buildings.values()) {
       if (!buildingsData[building.type].blocksMovement) continue;
       if (!withinMeleeArc(hit, building.x, building.y, TILE_SIZE / 2)) continue;
-      building.hp = Math.max(0, building.hp - swing.damage);
-      if (building.hp <= 0) {
-        this.buildings.remove(building.id);
-        this.recomputeFlowField();
-      }
+      building.hp = Math.max(0, building.hp - this.buildingDamage(monster, building, swing.damage));
+      if (building.hp <= 0) this.removeBuilding(building);
     }
     // 여기서 markAttack을 다시 부르지 않는다 — 동작 시작 때 이미 켰고, 2연타에서
     // 다시 켜면 애니메이션이 첫 장부터 재시작해 두 번째 타격이 어긋난다.
+  }
+
+  /**
+   * 몬스터가 건축물에 줄 피해. 보스가 벽·울타리를 칠 때만 배수가 붙는다
+   * (§BOSS_WALL_DAMAGE_MULTIPLIER).
+   */
+  private buildingDamage(monster: MonsterEntity, building: BuildingEntity, base: number): number {
+    if (!isBossType(monster.type) || !isWallLike(building.type)) return base;
+    return base * BOSS_WALL_DAMAGE_MULTIPLIER;
   }
 
   /** 공격 사거리 안의, 이동을 막는(blocksMovement) 건축물 중 가장 가까운 것을 찾는다. */

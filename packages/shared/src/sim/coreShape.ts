@@ -64,7 +64,13 @@ export function coreDistance(x: number, y: number): number {
 /** 코어 상호작용(E·제작·상점) 여유 거리(px). 발자국 가장자리에서 이만큼까지 허용한다. */
 export const CORE_INTERACT_MARGIN = 32;
 
-/** 코어 옆에서 상호작용할 수 있는가. 서버 판정과 클라이언트 안내가 같은 함수를 쓴다. */
-export function isWithinCoreInteract(x: number, y: number): boolean {
-  return coreDistance(x, y) <= CORE_INTERACT_MARGIN;
+/**
+ * 코어 옆에서 상호작용할 수 있는가. 서버 판정과 클라이언트 안내가 같은 함수를 쓴다.
+ *
+ * @param margin 허용 거리. 기본값이 실제 상호작용 판정이고, 더 큰 값을 넘기면
+ *   "아직 코어 앞이라고 쳐 줄 범위"를 물을 수 있다 — 열린 코어 창을 언제 닫을지처럼
+ *   경계에서 깜빡이면 안 되는 판정이 이 여유를 쓴다(HudScene.CORE_CLOSE_MARGIN).
+ */
+export function isWithinCoreInteract(x: number, y: number, margin = CORE_INTERACT_MARGIN): boolean {
+  return coreDistance(x, y) <= margin;
 }

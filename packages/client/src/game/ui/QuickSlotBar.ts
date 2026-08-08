@@ -2,7 +2,15 @@ import Phaser from 'phaser';
 import { itemOfSlot, xpToNextLevel } from '@dropfall/shared';
 import type { PlayerView } from '../../net/GameConnection';
 import { SlotIcon } from '../render/itemSprite';
-import { BAR_LARGE, BAR_SMALL, HudBar, ICON_BOLT, ICON_HEART, hudIcon } from './hudBar';
+import {
+  BAR_LARGE,
+  BAR_SMALL,
+  HUD_BAR_SCALE,
+  HudBar,
+  ICON_BOLT,
+  ICON_HEART,
+  hudIcon,
+} from './hudBar';
 import {
   ACCENT,
   BODY_TEXT,
@@ -13,6 +21,7 @@ import {
   PANEL_STROKE,
   SIZE_BODY,
   SIZE_SMALL,
+  applyTextShadow,
   barColor,
 } from './theme';
 
@@ -33,12 +42,12 @@ const SELECTED_STROKE = 0x6fd08c;
 const HOVER_STROKE = 0x6fd08c;
 
 /**
- * 칸 위에 얹히는 체력·스태미나 막대의 높이와 칸과의 간격.
+ * 칸 위에 얹히는 체력·스태미나 막대의 높이(화면 px)와 칸과의 간격.
  *
- * 높이는 **그림에 박혀 있다**(hudBar의 BAR_LARGE.height) — 임의로 늘이면 테두리와
- * 안쪽 홈이 뭉개진다. 여기 상수는 그 값을 레이아웃 쪽에서 쓰기 위한 사본이다.
+ * 높이는 **그림에 박혀 있다**(hudBar의 BAR_LARGE.height × HUD_BAR_SCALE) — 임의로
+ * 늘이면 테두리와 안쪽 홈이 뭉개진다. 여기 상수는 그 값을 레이아웃에 쓰기 위한 사본이다.
  */
-const BAR_HEIGHT = BAR_LARGE.height;
+const BAR_HEIGHT = BAR_LARGE.height * HUD_BAR_SCALE;
 const BAR_GAP = 8;
 /**
  * 경험치 막대. 체력·스태미나 바로 아래에 줄 전체 폭으로 얇게 깔린다.
@@ -49,11 +58,19 @@ const BAR_GAP = 8;
  * 높이도 그림(BAR_SMALL)에 맞춘다 — 코어·팀원 게이지와 같은 규격이라 화면 안에서
  * "얇은 게이지"가 전부 같은 모양으로 읽힌다.
  */
-const XP_HEIGHT = BAR_SMALL.height;
+const XP_HEIGHT = BAR_SMALL.height * HUD_BAR_SCALE;
 const XP_GAP = 4;
-/** 체력·스태미나 막대 왼쪽에 붙는 아이콘의 여백. */
-const BAR_ICON_INSET = 6;
+/** 체력·스태미나 막대 왼쪽에 붙는 아이콘의 여백(화면 px). */
+const BAR_ICON_INSET = 10;
 const XP_COLOR = 0xd7b45a;
+/**
+ * 막대 위에 얹히는 글자색.
+ *
+ * 예전엔 DIM_TEXT(흐린 회색)라 채워진 쪽에서는 게이지 색에, 빈 쪽에서는 어두운 트랙에
+ * 양쪽 다 묻혔다. 막대는 색이 계속 변하므로(초록↔빨강, 채움↔트랙) **어느 배경에도
+ * 통하는 조합**이 필요하다 — 밝은 글자 + 1px 검은 그림자가 그 답이다.
+ */
+const BAR_LABEL = '#f2f5fa';
 
 /** 바 아래쪽에 남기는 여백(HudScene이 slotsBottom을 잡을 때 쓰는 값과 같다). */
 const BOTTOM_MARGIN = 28;
@@ -137,26 +154,29 @@ export class QuickSlotBar {
     this.hpBar = new HudBar(scene, BAR_LARGE);
     this.hpIcon = hudIcon(scene, ICON_HEART);
     this.hpLabel = scene.add
-      .text(0, 0, '체력', { fontFamily: FONT_SMALL, fontSize: `${SIZE_SMALL}px`, color: DIM_TEXT })
+      .text(0, 0, '체력', { fontFamily: FONT_SMALL, fontSize: `${SIZE_SMALL}px`, color: BAR_LABEL })
       .setOrigin(0.5, 0.5);
+    applyTextShadow(this.hpLabel, HUD_BAR_SCALE);
     this.staminaBar = new HudBar(scene, BAR_LARGE);
     this.staminaIcon = hudIcon(scene, ICON_BOLT);
     this.staminaLabel = scene.add
       .text(0, 0, '스태미나', {
         fontFamily: FONT_SMALL,
         fontSize: `${SIZE_SMALL}px`,
-        color: DIM_TEXT,
+        color: BAR_LABEL,
       })
       .setOrigin(0.5, 0.5);
+    applyTextShadow(this.staminaLabel, HUD_BAR_SCALE);
 
     this.xpBar = new HudBar(scene, BAR_SMALL);
     this.xpLabel = scene.add
       .text(0, 0, 'Lv 1', {
         fontFamily: FONT_SMALL,
         fontSize: `${SIZE_SMALL}px`,
-        color: DIM_TEXT,
+        color: BAR_LABEL,
       })
       .setOrigin(0.5, 0.5);
+    applyTextShadow(this.xpLabel, HUD_BAR_SCALE);
 
     for (let index = 0; index < slotCount; index += 1) {
       this.boxes.push(
@@ -246,30 +266,38 @@ export class QuickSlotBar {
     this.barsTop = barTop;
     this.barsRight = startX + totalWidth;
 
-    this.hpBar.layout(startX, barTop, barWidth, scale);
+    // 게이지·아이콘·글자가 **같은 배율**로 커져야 한 덩어리로 보인다. 바만 키우면
+    // 글자가 붙어 있는 꼬리표처럼 작아 보인다.
+    const barScale = scale * HUD_BAR_SCALE;
+    this.barScale = barScale;
+
+    this.hpBar.layout(startX, barTop, barWidth, barScale);
     this.hpIcon
-      ?.setScale(scale)
+      ?.setScale(barScale)
       .setPosition(startX + BAR_ICON_INSET * scale, barTop + barHeight / 2);
-    this.hpLabel.setFontSize(SIZE_SMALL * scale).setPosition(startX + barWidth / 2, barTop + barHeight / 2);
+    this.hpLabel.setFontSize(SIZE_SMALL * barScale).setPosition(startX + barWidth / 2, barTop + barHeight / 2);
 
     const staminaX = startX + barWidth + gap;
-    this.staminaBar.layout(staminaX, barTop, barWidth, scale);
+    this.staminaBar.layout(staminaX, barTop, barWidth, barScale);
     this.staminaIcon
-      ?.setScale(scale)
+      ?.setScale(barScale)
       .setPosition(staminaX + BAR_ICON_INSET * scale, barTop + barHeight / 2);
     this.staminaLabel
-      .setFontSize(SIZE_SMALL * scale)
+      .setFontSize(SIZE_SMALL * barScale)
       .setPosition(staminaX + barWidth / 2, barTop + barHeight / 2);
 
-    this.xpBar.layout(startX, xpTop, totalWidth, scale);
+    this.xpBar.layout(startX, xpTop, totalWidth, barScale);
     this.xpLabel
       .setFontSize(SIZE_SMALL * scale)
       .setPosition(startX + totalWidth / 2, xpTop + xpHeight / 2);
-    this.scale = scale;
   }
 
-  /** 마지막 레이아웃의 UI 배율. 게이지 채움을 갱신할 때 다시 넘겨야 한다. */
-  private scale = 1;
+  /**
+   * 마지막 레이아웃에서 게이지에 적용한 배율(uiScale × HUD_BAR_SCALE).
+   * 채움을 갱신할 때 레이아웃과 **같은 값**을 넘겨야 한다 — uiScale을 넘기면 채움
+   * 높이가 틀의 절반이 된다.
+   */
+  private barScale = HUD_BAR_SCALE;
 
   /** 드래그 컨트롤러(SlotDrag)에 등록할 칸 목록. */
   get cells(): readonly Phaser.GameObjects.Rectangle[] {
@@ -305,7 +333,7 @@ export class QuickSlotBar {
     // 안 보낸다 — levels.json이 양쪽에 있으니 같은 함수로 구하면 된다.
     const need = me ? xpToNextLevel(me.level) : Infinity;
     const xpRatio = me && Number.isFinite(need) && need > 0 ? Math.min(1, me.xp / need) : 1;
-    this.xpBar.setValue(xpRatio, XP_COLOR, this.scale);
+    this.xpBar.setValue(xpRatio, XP_COLOR, this.barScale);
     this.xpLabel.setText(
       me
         ? Number.isFinite(need)
@@ -315,12 +343,12 @@ export class QuickSlotBar {
     );
 
     const hpRatio = me && me.maxHp > 0 ? Math.min(1, Math.max(0, me.hp) / me.maxHp) : 0;
-    this.hpBar.setValue(hpRatio, barColor(hpRatio), this.scale);
+    this.hpBar.setValue(hpRatio, barColor(hpRatio), this.barScale);
     this.hpLabel.setText(me ? `체력 ${Math.ceil(Math.max(0, me.hp))} / ${Math.round(me.maxHp)}` : '체력');
 
     const staminaRatio =
       me && me.maxStamina > 0 ? Math.min(1, Math.max(0, me.stamina) / me.maxStamina) : 0;
-    this.staminaBar.setValue(staminaRatio, STAMINA_COLOR, this.scale);
+    this.staminaBar.setValue(staminaRatio, STAMINA_COLOR, this.barScale);
     this.staminaLabel.setText(
       me ? `스태미나 ${Math.ceil(Math.max(0, me.stamina))} / ${Math.round(me.maxStamina)}` : '스태미나',
     );
