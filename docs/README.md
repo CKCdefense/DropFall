@@ -47,6 +47,7 @@
 | [backend/59-work-report-cinematics-and-boss-warning.md](backend/59-work-report-cinematics-and-boss-warning.md) | 작업 보고서 — 시작 암전·DAY N·보스 경고(심 구간 추가)·CLEAR 연출 |
 | [backend/60-work-report-melee-pose-and-building-destruction.md](backend/60-work-report-melee-pose-and-building-destruction.md) | 작업 보고서 — 근접 무기 사선 자세·사거리 조정, 건축모드 제거, 근접 타격으로 건축물 파괴(해머는 아이템 회수) |
 | [backend/61-work-report-session-handoff-verification.md](backend/61-work-report-session-handoff-verification.md) | 작업 보고서 — 세션 인계 확인(56↔55 충돌 없음), PATCH_RATE 문서 정합성 정리 + 60→50 실험, 공격 스탯 fireRate 정규화(피드백 #1) |
+| [backend/62-work-report-colony-trickle-spawn.md](backend/62-work-report-colony-trickle-spawn.md) | 작업 보고서 — 콜로니 저장분 소진 후 트리클 스폰 추가(아침 파밍 가능하게, 피드백 #3) |
 
 ### 역할 C — 클라이언트/렌더/UI 작업 문서 ([frontend/](frontend/))
 

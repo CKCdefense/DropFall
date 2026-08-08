@@ -564,8 +564,16 @@ const ColoniesDataSchema = z
     /** 동시에 나와 있을 수 있는 수호대 수. 저장분 전체가 한꺼번에 쏟아지지 않고
      * 이 수를 유지하도록 한 마리씩 보충된다(입구 낚시 방지 겸 압박 유지). */
     guardConcurrent: z.number().int().positive(),
-    /** 수호대 보충 소환 간격(초). */
+    /** 수호대 보충 소환 간격(초). 저장분(stored)이 남아있는 동안 쓰는 빠른 주기다. */
     guardRespawnSeconds: z.number().positive(),
+    /**
+     * 저장분이 바닥난 뒤에도 플레이어가 트리거 반경 안에 계속 있으면, 이 주기로
+     * "여분" 수호대가 계속 나온다(stored를 깎지 않는다 — 깎을 게 없다). 아침에
+     * 콜로니를 오래 지키고 있어도 4마리(1단계 저장분)로 파밍이 끝나버리는 문제를
+     * 풀기 위한 값이다(데모 준비도 리뷰 피드백 #3) — guardRespawnSeconds보다 커야
+     * "계속 나오되 저장분 소진 때보다는 느리게"라는 의도가 성립한다.
+     */
+    guardTrickleSeconds: z.number().positive(),
     /** 귀환을 마친 수호대가 저장 상태로 돌아가(사라져) stored를 복원하기까지의 대기(초). */
     returnDespawnSeconds: z.number().positive(),
     /** 밤 웨이브 시작 시 콜로니 저장분의 이 비율(내림)만큼 **복제**되어 그 콜로니
@@ -580,6 +588,9 @@ const ColoniesDataSchema = z
   })
   .refine((data) => data.leashRadius > data.triggerRadius, {
     message: 'leashRadius는 triggerRadius보다 커야 한다(경계 진동 방지)',
+  })
+  .refine((data) => data.guardTrickleSeconds > data.guardRespawnSeconds, {
+    message: 'guardTrickleSeconds는 guardRespawnSeconds보다 커야 한다(저장분 소진 후엔 더 느리게)',
   });
 
 export type ColonyStage = z.infer<typeof ColonyStageSchema>;

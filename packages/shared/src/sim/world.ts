@@ -2715,19 +2715,33 @@ export class World {
    * 전체가 한꺼번에 쏟아지지 않게 하는 건 압박 유지와 "입구 낚시" 방지를 겸한다 —
    * 대신 순차 보충이라 플레이어가 하나씩 끊어 먹는 것도 자연히 가능하다(설계 의도).
    *
+   * **저장분이 바닥나도 플레이어가 계속 있으면** guardTrickleSeconds(느린 주기)로
+   * "여분" 수호대가 계속 나온다(stored는 안 깎는다 — 깎을 게 없다). 1단계 저장분
+   * (4마리)만으로는 아침 내내 지켜도 순식간에 끝나버려서 파밍이 사실상 불가능했던
+   * 문제를 푼다(데모 준비도 리뷰 피드백 #3) — 대신 저장분 소진 시절보다는 느리게
+   * 나오게 해서 "무한 파밍"과 "적당한 압박"의 중간을 잡는다.
+   *
+   * 트리클 수호대가 (죽지 않고) 물러나 귀환하면 기존 로직이 stored를 복원하는데,
+   * 원래 저장분에서 나온 게 아니라도 그대로 둔다 — 어차피 단계 상한(stages[].stored)
+   * 으로 막혀 있고, "지키고 있으면 콜로니가 든든해 보인다"는 체감과도 맞는다.
+   *
    * 페이즈(낮/밤) 무관하게 돈다 — 밤에도 콜로니에 접근하면 수호대가 나온다.
    */
   private tickColonyGuards(dtSeconds: number): void {
     for (const colony of this.colonies.values()) {
       if (colony.purified) continue;
 
-      // 정화: 저장분도 수호대도 남지 않은 순간, 이 콜로니는 비워졌다.
-      if (colony.stored <= 0 && colony.guardIds.size === 0) {
+      const triggered = this.anyAlivePlayerWithin(colony.x, colony.y, coloniesData.triggerRadius);
+
+      // 정화: 저장분도 수호대도 남지 않았고, 아무도 트리클을 유지하고 있지 않을 때만.
+      // 플레이어가 트리거 반경 안에 있으면(triggered) 저장분이 0이어도 트리클로 계속
+      // 나올 수 있으므로 아직 "비워졌다"고 볼 수 없다 — 순서를 triggered 판정보다
+      // 먼저 두면 저장분이 막 바닥난 순간 트리클이 시작되기도 전에 정화돼버린다.
+      if (colony.stored <= 0 && colony.guardIds.size === 0 && !triggered) {
         this.purifyColony(colony);
         continue;
       }
 
-      const triggered = this.anyAlivePlayerWithin(colony.x, colony.y, coloniesData.triggerRadius);
       if (!triggered) {
         // 아무도 없으면 보충 타이머를 초기값으로 되돌린다 — 다음 접근 때 곧바로
         // 첫 수호대가 나오게(경계에서 들락거리며 타이머만 갉는 것 방지).
@@ -2735,11 +2749,14 @@ export class World {
         continue;
       }
 
-      if (colony.stored <= 0 || colony.guardIds.size >= coloniesData.guardConcurrent) continue;
+      if (colony.guardIds.size >= coloniesData.guardConcurrent) continue;
 
+      const hasStored = colony.stored > 0;
       colony.guardRespawnTimer -= dtSeconds;
       if (colony.guardRespawnTimer > 0) continue;
-      colony.guardRespawnTimer = coloniesData.guardRespawnSeconds;
+      colony.guardRespawnTimer = hasStored
+        ? coloniesData.guardRespawnSeconds
+        : coloniesData.guardTrickleSeconds;
 
       const stage = colonyStageData(colony.stage);
       const type = stage.types[Math.floor(this.rng() * stage.types.length)] as MonsterType;
@@ -2757,7 +2774,7 @@ export class World {
       const guard = this.monsters.get(guardId);
       if (guard) {
         guard.homeColonyId = colony.id;
-        colony.stored -= 1;
+        if (hasStored) colony.stored -= 1;
         colony.guardIds.add(guardId);
       }
     }
