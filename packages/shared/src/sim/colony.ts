@@ -31,6 +31,17 @@ export interface ColonyEntity {
   guardRespawnTimer: number;
   /** 현재 나와 있는 수호대 몬스터 id들. World가 소환/사망/복귀 시 갱신한다. */
   readonly guardIds: Set<string>;
+  /**
+   * 이 콜로니 소속 수호대가 최근 피격당했으면(원거리 무기 포함) 남은 "교전 중" 유예
+   * 시간(초). 0보다 크면 트리거 반경(triggerRadius) 밖이어도 아직 안 떠난 것으로 본다.
+   *
+   * 저격총 등 원거리 무기는 사거리가 900px까지 나온다(triggerRadius=240보다 훨씬
+   * 크다) — 트리거 반경 안에서만 "교전 중"으로 치면, 원거리로 수호대를 처치하는
+   * 정상적인 플레이도 마지막 한 마리를 잡는 순간 "아무도 안 붙어 있다"는 판정을 받아
+   * 콜로니가 즉시 정화돼버린다(트리클 스폰이 시작될 틈도 없이 예전처럼 몇 마리만
+   * 잡고 사라지는 것과 똑같아진다). World가 수호대 피격마다 이 값을 리필한다.
+   */
+  engagedTimer: number;
 }
 
 /**
@@ -142,6 +153,7 @@ export class ColonyRegistry {
         purified: false,
         guardRespawnTimer: 0,
         guardIds: new Set(),
+        engagedTimer: 0,
       });
     }
   }
