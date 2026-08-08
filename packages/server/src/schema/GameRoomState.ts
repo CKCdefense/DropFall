@@ -28,8 +28,13 @@ export class PlayerSchema extends Schema {
   @type('number') aimAngle = 0;
   @type('number') lastProcessedSeq = 0;
   @type('number') hp = 0;
-  /** 음식으로 늘어날 수 있는 최대 체력. HP바 비율 계산은 상수가 아니라 이 값을 쓴다. */
+  /** 직업 기초 체력 + 음식 보너스. HP바 비율 계산은 상수가 아니라 이 값을 쓴다. */
   @type('number') maxHp = 0;
+  /** 남은 스태미나와 최대치. 달리기 게이지가 이 둘로 그려진다. */
+  @type('number') stamina = 0;
+  @type('number') maxStamina = 0;
+  /** 무기 데미지에 더해지는 고정 공격력(직업 + 음식). HUD에 숫자로 그대로 보여준다. */
+  @type('number') attack = 0;
   /**
    * 이동속도 배율(영구 스태미나 × 아드레날린). 클라이언트 예측이 이 값을 같이 곱해야
    * 버프 중에 되감기지 않는다. 1이 기본.

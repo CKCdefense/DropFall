@@ -3,6 +3,12 @@ export interface PlayerInputMessage {
   moveX: number;
   moveY: number;
   aimAngle: number;
+  /**
+   * 달리기(Shift)를 누르고 있는가. 이동·조준과 함께 매 틱 실려 오는 **상태**다 —
+   * 눌렀다/뗐다를 따로 보내면 그중 하나가 유실됐을 때 영영 달리거나 영영 못 달린다.
+   * 실제로 달렸는지는 서버가 정한다(스태미나가 남아 있고 실제로 움직이는 중일 때만).
+   */
+  sprint?: boolean;
 }
 
 /**

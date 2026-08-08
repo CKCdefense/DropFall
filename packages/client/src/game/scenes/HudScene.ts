@@ -8,7 +8,7 @@ import {
   SLOT_COUNT,
   computeCameraZoom,
   coreUpgradesData,
-  wavesData,
+  jobsData,
 } from '@dropfall/shared';
 import type { GameConnection, PlayerView, WorldSnapshot } from '../../net/GameConnection';
 import {
@@ -664,7 +664,7 @@ export class HudScene extends Phaser.Scene {
     // 개발 커맨드(hp)로 최대치를 넘겨 설정할 수 있어서 위쪽도 조인다 — 안 그러면
     // 바가 패널 밖으로 삐져나간다.
     // 최대 체력은 음식으로 늘어나므로 상수가 아니라 서버가 알려준 값을 쓴다.
-    const maxHp = me?.maxHp || wavesData.playerHp;
+    const maxHp = me?.maxHp || jobsData.base.maxHp;
     const ratio = me ? Math.min(1, Math.max(0, me.hp) / maxHp) : 0;
     this.selfBar.width = Math.max(0, SELF_BAR_WIDTH * this.uiScale * ratio);
     this.selfBar.fillColor = barColor(ratio);

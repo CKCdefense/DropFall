@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { World } from '../src/sim/world';
-import { craftingData, monstersData, wavesData } from '../src/data';
+import { craftingData, jobsData, monstersData, wavesData } from '../src/data';
 import { SLOT_COUNT } from '../src/sim/inventory';
 
 /** 1웨이브가 시작될 때까지(day → night) 틱을 진행시킨다. */
@@ -419,7 +419,7 @@ describe('World — 전원 다운 = 즉시 패배', () => {
     }
 
     expect(world.getWavePhase()).toBe('day');
-    expect(world.getPlayers().get('p1')!.hp).toBe(wavesData.playerHp);
+    expect(world.getPlayers().get('p1')!.hp).toBe(jobsData.base.maxHp);
   });
 });
 
@@ -1077,9 +1077,9 @@ describe('World — 모든 공격은 시도 → 예고 → 판정 → 정산', (
     tickSeconds(world, windup * 0.6, 0.01);
     expect(player.hp).toBe(100);
 
-    // 예고를 넘기면 그때 정산된다.
+    // 예고를 넘기면 그때 정산된다(자연 회복분 때문에 정수로 딱 떨어지지는 않는다).
     tickSeconds(world, windup, 0.01);
-    expect(player.hp).toBe(100 - monstersData.demon.damage);
+    expect(player.hp).toBeCloseTo(100 - monstersData.demon.damage, 0);
   });
 
   it('예고 중에 사거리 밖으로 빠지면 헛친다', () => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { World } from '../src/sim/world';
-import { coreUpgradesData, itemsData, monstersData, wavesData } from '../src/data';
+import { coreUpgradesData, itemsData, jobsData, monstersData, wavesData } from '../src/data';
 import { SLOT_COUNT } from '../src/sim/inventory';
 import { STORAGE_SLOT_COUNT } from '../src/sim/storage';
 
@@ -186,7 +186,7 @@ describe('개발자 커맨드 — 자원·진행', () => {
     world.runDevCommand('p1', 'heal');
     world.runDevCommand('p1', 'corehp 500');
 
-    expect(player.hp).toBe(wavesData.playerHp);
+    expect(player.hp).toBe(jobsData.base.maxHp);
     expect(world.getCore().hp).toBe(500);
   });
 

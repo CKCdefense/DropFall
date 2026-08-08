@@ -13,6 +13,7 @@ import coloniesJson from './colonies.json';
 import coreUpgradesJson from './coreUpgrades.json';
 import corePersonaJson from './corePersona.json';
 import companionJson from './companion.json';
+import jobsJson from './jobs.json';
 
 /**
  * JSON은 주석을 쓸 수 없어서 데이터 파일마다 `$comment` 키로 설명을 단다.
@@ -271,6 +272,44 @@ export type WeaponData = z.infer<typeof WeaponDataSchema>;
 
 export const weaponsData = loadData(WeaponsDataSchema, weaponsJson);
 
+// --- jobs.json ---------------------------------------------------------------
+
+/**
+ * 직업 하나의 기초 스탯. 스킬·특성은 아직 없다 — 지금은 "시작 수치가 다르다"까지가 전부다.
+ *
+ * `$role`은 사람이 읽는 설명이라 스키마에 넣지 않는다(z.object가 모르는 키를 버린다).
+ */
+const JobStatsSchema = z.object({
+  name: z.string(),
+  /** 최대 체력. 음식으로 늘어나는 보너스는 여기에 더해진다. */
+  maxHp: z.number().positive(),
+  /**
+   * 공격력. **무기 데미지에 그대로 더해지는 고정값**이다(배율이 아니다) — 약한 무기를
+   * 들었을 때 직업 차이가 크게 느껴지고, 강한 무기에서는 상대적으로 묻히게 하려는 의도다.
+   */
+  attack: z.number().nonnegative(),
+  /** 최대 스태미나. 달리면 줄고 걷거나 멈추면 찬다. */
+  maxStamina: z.number().positive(),
+});
+
+const JobsDataSchema = z.object({
+  /** 직업을 아직 안 골랐을 때(로컬 모드·관전 등) 쓰는 기준값. */
+  base: JobStatsSchema,
+  soldier: JobStatsSchema,
+  searchman: JobStatsSchema,
+  medic: JobStatsSchema,
+  engineer: JobStatsSchema,
+});
+
+export type JobStats = z.infer<typeof JobStatsSchema>;
+
+export const jobsData = loadData(JobsDataSchema, jobsJson);
+
+/** 직업 id에 해당하는 기초 스탯. 모르는 값(빈 문자열 포함)이면 base를 준다. */
+export function jobStats(job: string): JobStats {
+  return (jobsData as Record<string, JobStats>)[job] ?? jobsData.base;
+}
+
 // --- waves.json --------------------------------------------------------------
 
 const WaveEntrySchema = z.object({
@@ -303,7 +342,6 @@ const WaveEntrySchema = z.object({
 
 const WavesDataSchema = z.object({
   coreHp: z.number().positive(),
-  playerHp: z.number().positive(),
   /** 몬스터가 스폰되는, 코어를 중심으로 한 원의 반지름(px) */
   spawnRadius: z.number().positive(),
   /** 낮 페이즈 길이(초). 스킵 투표는 별도 팀 협의 후 추가 예정(docs/backend/11 §4.2) */
@@ -412,9 +450,10 @@ const ItemDataSchema = z.object({
   /**
    * consumable 전용(음식): 영구 스탯 증가. 세션이 끝날 때까지 유지된다.
    *  - maxHp:    최대 체력 +amount (현재 체력도 같이 오른다 — 먹자마자 손해 보지 않게)
-   *  - attack:   모든 공격 데미지 +amount×100% (0.05 = +5%)
-   *  - stamina:  이동속도 +amount×100% — 스태미나 게이지 시스템이 아직 없어
-   *              "지구력 = 발이 오래/빨리 간다"로 해석했다. 게이지가 생기면 그쪽으로 옮긴다.
+   *  - attack:   공격력 스탯 +amount(고정값). 직업 기초 공격력과 같은 축이다 —
+   *              배율과 고정값이 섞이면 HUD에 "공격력"을 숫자 하나로 못 쓴다.
+   *  - stamina:  이동속도 +amount×100%. 스태미나 **게이지 최대치**가 아니라 발이
+   *              빨라지는 쪽이다 — 최대치는 직업이 정하고, 음식은 체감되는 기동성을 준다.
    */
   statBonus: z
     .object({

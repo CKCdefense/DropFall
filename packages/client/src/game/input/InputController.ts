@@ -74,7 +74,7 @@ type BuildMode = (typeof BUILD_MODES)[number];
  */
 export class InputController {
   private readonly keys: Record<
-    'up' | 'down' | 'left' | 'right',
+    'up' | 'down' | 'left' | 'right' | 'sprint',
     Phaser.Input.Keyboard.Key
   >;
   private seq = 0;
@@ -112,6 +112,8 @@ export class InputController {
       down: keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.S),
       left: keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A),
       right: keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D),
+      // 달리기. 누르고 있는 동안만 유효한 상태라 이벤트가 아니라 매 틱 입력에 실어 보낸다.
+      sprint: keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT),
     };
 
     // 낮 넘기기 투표(만장일치). 서버가 중복 투표를 무시하므로 한 번만 보내면 된다.
@@ -191,6 +193,7 @@ export class InputController {
     this.keys.down.reset();
     this.keys.left.reset();
     this.keys.right.reset();
+    this.keys.sprint.reset();
     this.fireTimer = 0;
     this.seq += 1;
     this.connection.sendInput(this.buildInput());
@@ -295,6 +298,7 @@ export class InputController {
       seq: this.seq,
       ...normalized,
       aimAngle: this.aimAngle,
+      sprint: this.keys.sprint.isDown,
     };
   }
 }

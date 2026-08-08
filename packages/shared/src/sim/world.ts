@@ -7,6 +7,7 @@ import {
   coreUpgradesData,
   craftingData,
   itemsData,
+  jobStats,
   shopData,
   loadoutData,
   monstersData,
@@ -120,6 +121,28 @@ export const PICKUP_RADIUS = 22;
  * 못 하면 도구를 잃었을 때 할 수 있는 게 없어진다 — 대신 데미지가 매우 낮다.
  */
 export const BARE_HANDS_WEAPON_ID = 'fist';
+
+/**
+ * 달리기(Shift). 스태미나를 태워 이동속도를 올린다 — 낮에 자원을 찾아 멀리 나가고,
+ * 밤에 몰리면 빠져나오는 데 쓴다. 배율이 너무 높으면 걷기가 무의미해지고, 너무 낮으면
+ * 스태미나를 쓸 이유가 없다.
+ */
+const SPRINT_SPEED_MULTIPLIER = 1.6;
+/** 달리는 동안 초당 소모되는 스태미나. 기본 100이면 약 5초 전력질주다. */
+const SPRINT_STAMINA_DRAIN = 20;
+/** 걷거나 멈춰 있을 때 초당 회복량. 소모보다 느려야 "아껴 쓴다"는 판단이 생긴다. */
+const STAMINA_REGEN = 12;
+/**
+ * 달리기를 멈춘 뒤 회복이 시작되기까지의 지연(초). 없으면 달리기·놓기를 반복해서
+ * 사실상 무한히 달릴 수 있다.
+ */
+const STAMINA_REGEN_DELAY = 0.8;
+/**
+ * 자연 회복 속도(hp/초). "2초당 1"이라 아주 느리다 — 전투 중에 의미 있는 양이 아니라,
+ * 밤을 넘기지 않고도 붕대 없이 조금씩 아무는 정도다. 다운(hp 0) 상태에서는 돌지 않는다:
+ * 부활은 동료가 해야 하는 일이다(§revivePlayers).
+ */
+const HP_REGEN_PER_SECOND = 0.5;
 
 /** 개발 커맨드로 몬스터를 부를 때 코어에서 띄우는 거리(px). 바로 옆에 붙여 놓으면 코어가 즉사한다. */
 const DEV_SPAWN_RADIUS = 160;
@@ -249,10 +272,25 @@ export interface PlayerEntity {
   /** 이번 틱에 몬스터에게 맞았는지. 매 틱 시작 시 초기화되고, damagePlayer()가 세팅한다. */
   tookDamageThisTick: boolean;
 
-  /** 음식(도넛/당근케이크)으로 늘어난 최대 체력. 기본값은 wavesData.playerHp에 더해진다. */
+  /**
+   * 고른 직업. 기초 스탯(체력·공격력·스태미나)이 여기서 나온다. 로비에서 정해지므로
+   * 참가 시점엔 비어 있고, 게임이 시작될 때 호출자가 setPlayerJob으로 알려준다.
+   */
+  job: string;
+  /** 남은 스태미나. 달리면 줄고 걷거나 멈추면 찬다. */
+  stamina: number;
+  /** 이번 틱에 달리기를 눌렀는가(입력). 실제로 달렸는지는 스태미나가 정한다. */
+  sprinting: boolean;
+  /** 달리기를 멈춘 뒤 회복이 시작되기까지 남은 시간(초). */
+  staminaRegenDelay: number;
+  /** 음식(도넛/당근케이크)으로 늘어난 최대 체력. 직업 기초 체력에 더해진다. */
   maxHpBonus: number;
-  /** 음식(너겟/라자냐)으로 쌓인 공격력 증가율의 합(0.05 = +5%). 모든 공격 데미지에 ×(1+합). */
-  attackBonus: number;
+  /**
+   * 음식(너겟/라자냐)으로 쌓인 공격력. 직업 기초 공격력과 같은 축이라 **고정값**으로
+   * 더한다 — 배율과 고정값을 섞으면 "공격력 스탯"이 무엇을 뜻하는지 화면에서 설명할
+   * 수 없다(HUD에 숫자 하나로 나와야 한다).
+   */
+  attackFlatBonus: number;
   /** 음식(초콜릿/사과주스)으로 쌓인 이동속도 증가율의 합. 스태미나 게이지 도입 전의 해석. */
   staminaBonus: number;
   /** 진통제: 남은 시간(초) 동안 체력이 1 아래로 떨어지지 않는다. */
@@ -641,17 +679,22 @@ export class World {
     const inventory = new Inventory();
     for (const entry of loadoutData.playerStarting) inventory.add(entry.itemId, entry.count);
 
+    const stats = jobStats('');
     this.players.set(id, {
       id,
       x,
       y,
       aimAngle: 0,
       lastProcessedSeq: 0,
-      hp: wavesData.playerHp,
+      hp: stats.maxHp,
       inventory,
       tookDamageThisTick: false,
+      job: '',
+      stamina: stats.maxStamina,
+      sprinting: false,
+      staminaRegenDelay: 0,
       maxHpBonus: 0,
-      attackBonus: 0,
+      attackFlatBonus: 0,
       staminaBonus: 0,
       hpFloorTimer: 0,
       speedBuffTimer: 0,
@@ -660,14 +703,89 @@ export class World {
     });
   }
 
-  /** 음식 보너스를 반영한 이 플레이어의 최대 체력. 회복 상한·부활·HP바가 전부 이 값을 쓴다. */
-  playerMaxHp(player: PlayerEntity): number {
-    return wavesData.playerHp + player.maxHpBonus;
+  /**
+   * 직업을 확정한다. 로비에서 고르므로 참가 시점엔 알 수 없다 — 게임이 시작될 때
+   * 호출자가 정확히 한 번 알려준다. 체력·스태미나는 새 최대치로 가득 채운다(시작 전이다).
+   */
+  setPlayerJob(playerId: string, job: string): void {
+    const player = this.players.get(playerId);
+    if (!player) return;
+    player.job = job;
+    const stats = jobStats(job);
+    player.hp = stats.maxHp + player.maxHpBonus;
+    player.stamina = this.playerMaxStamina(player);
   }
 
-  /** 이동속도 배율 = 영구 스태미나 보너스 × (아드레날린 지속 중이면 그 배율). */
+  /**
+   * 스태미나 소모·회복. **실제로 달리고 있을 때만** 탄다 — 제자리에서 Shift를 누르고
+   * 있다고 줄면 플레이어는 이유를 알 수 없다.
+   */
+  private tickStamina(player: PlayerEntity, dtSeconds: number): void {
+    const input = this.inputs.get(player.id);
+    const moving = input !== undefined && (input.moveX !== 0 || input.moveY !== 0);
+    const running = player.sprinting && moving && player.stamina > 0 && player.hp > 0;
+
+    if (running) {
+      player.stamina = Math.max(0, player.stamina - SPRINT_STAMINA_DRAIN * dtSeconds);
+      player.staminaRegenDelay = STAMINA_REGEN_DELAY;
+      return;
+    }
+
+    // 지연이 남아 있으면 먼저 깎고, **남은 시간만큼은 같은 틱에 회복시킨다** — 지연만
+    // 깎고 끝내면 한 틱이 길 때(테스트의 큰 dt, 프레임 드랍) 그 틱의 회복이 통째로 증발한다.
+    let seconds = dtSeconds;
+    if (player.staminaRegenDelay > 0) {
+      const spent = Math.min(player.staminaRegenDelay, seconds);
+      player.staminaRegenDelay -= spent;
+      seconds -= spent;
+      if (seconds <= 0) return;
+    }
+    player.stamina = Math.min(
+      this.playerMaxStamina(player),
+      player.stamina + STAMINA_REGEN * seconds,
+    );
+  }
+
+  /**
+   * 아주 느린 자연 회복. 소수점을 그대로 들고 다닌다 — 정수로 깎아 저장하면 0.5씩
+   * 오르는 값이 매 틱 버려져서 영영 차지 않는다(틱당 0.025hp).
+   */
+  private tickHpRegen(player: PlayerEntity, dtSeconds: number): void {
+    if (player.hp <= 0) return; // 다운 상태는 동료가 일으켜야 한다
+    const maxHp = this.playerMaxHp(player);
+    if (player.hp >= maxHp) return;
+    player.hp = Math.min(maxHp, player.hp + HP_REGEN_PER_SECOND * dtSeconds);
+  }
+
+  /** 직업 기초 체력 + 음식 보너스. 회복 상한·부활·HP바가 전부 이 값을 쓴다. */
+  playerMaxHp(player: PlayerEntity): number {
+    return jobStats(player.job).maxHp + player.maxHpBonus;
+  }
+
+  /** 직업 기초 스태미나. 음식의 "스태미나" 보너스는 이동속도로 가고 최대치는 안 건드린다. */
+  playerMaxStamina(player: PlayerEntity): number {
+    return jobStats(player.job).maxStamina;
+  }
+
+  /**
+   * 무기 데미지에 더해지는 고정 공격력. 직업 기초값 + 음식(너겟/라자냐)으로 쌓은 몫이다.
+   * 배율(attackBonus)과 달리 약한 무기일수록 체감이 크다.
+   */
+  playerAttack(player: PlayerEntity): number {
+    return jobStats(player.job).attack + player.attackFlatBonus;
+  }
+
+  /**
+   * 이동속도 배율 = 영구 스태미나 보너스 × 아드레날린 × 달리기.
+   * 달리기는 **스태미나가 남아 있고 실제로 달리기를 누른 동안**에만 곱해진다.
+   */
   playerSpeedMultiplier(player: PlayerEntity): number {
-    return (1 + player.staminaBonus) * (player.speedBuffTimer > 0 ? player.speedBuffMultiplier : 1);
+    const sprint = player.sprinting && player.stamina > 0 ? SPRINT_SPEED_MULTIPLIER : 1;
+    return (
+      (1 + player.staminaBonus) *
+      (player.speedBuffTimer > 0 ? player.speedBuffMultiplier : 1) *
+      sprint
+    );
   }
 
   removePlayer(id: string): void {
@@ -707,6 +825,10 @@ export class World {
       moveY,
       aimAngle: input.aimAngle,
     });
+    // 달리기는 이동 입력과 달리 되감기 대상이 아니라 "지금 누르고 있나"라는 상태다 —
+    // 순서가 뒤바뀐 입력에서도 마지막으로 받은 값을 그대로 쓴다.
+    const player = this.players.get(id);
+    if (player) player.sprinting = input.sprint === true;
   }
 
   /**
@@ -773,7 +895,7 @@ export class World {
         // 최대치만 늘고 현재 체력이 그대로면 "먹었는데 체감이 없다" — 늘어난 만큼 같이 채운다.
         player.hp = Math.min(this.playerMaxHp(player), player.hp + item.statBonus.amount);
       } else if (item.statBonus.stat === 'attack') {
-        player.attackBonus += item.statBonus.amount;
+        player.attackFlatBonus += item.statBonus.amount;
       } else {
         player.staminaBonus += item.statBonus.amount;
       }
@@ -842,9 +964,12 @@ export class World {
       aimAngle: player.aimAngle,
     });
 
-    const damageScale = 1 + player.attackBonus;
+    // 공격력 스탯은 **한 번의 공격**에 더한다. 산탄은 펠릿마다 더하면 6배로 불어나므로
+    // 나눠 싣는다 — "한 발의 총 위력 = 무기 위력 + 공격력"이 어느 무기에서나 같아야 한다.
+    const attack = this.playerAttack(player);
+    const pellets = result.projectiles?.length ?? 1;
     for (const projectile of result.projectiles ?? []) {
-      projectile.damage *= damageScale;
+      projectile.damage += attack / pellets;
       // 총구가 플레이어 좌표에서 muzzleOffset만큼 떨어진 곳에서 "순간이동하듯" 생겨난다
       // (연출용 총구 위치 보정, backend/frontend 병합분). 그런데 몬스터가 그 사이
       // 간격(0~muzzleOffset)에 딱 붙어 있으면, 투사체가 몬스터를 지나친 자리에서
@@ -857,7 +982,7 @@ export class World {
       }
     }
     if (result.meleeHit) {
-      result.meleeHit.damage *= damageScale;
+      result.meleeHit.damage += attack;
       this.applyMeleeHit(result.meleeHit);
       this.applyMeleeHitToResourceNode(player, result.meleeHit, weaponId);
     }
@@ -1530,6 +1655,8 @@ export class World {
       player.tookDamageThisTick = false;
       if (player.hpFloorTimer > 0) player.hpFloorTimer -= dtSeconds;
       if (player.speedBuffTimer > 0) player.speedBuffTimer -= dtSeconds;
+      this.tickStamina(player, dtSeconds);
+      this.tickHpRegen(player, dtSeconds);
     }
     this.ammo.tick(dtSeconds);
     this.tickBursts(dtSeconds);

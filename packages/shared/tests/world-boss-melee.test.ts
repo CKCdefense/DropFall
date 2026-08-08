@@ -247,11 +247,13 @@ describe('World — 3일차 보스(흑기사) 창술', () => {
       const p = boss.pattern;
       if (p.kind === 'meleeSwing' && p.nextHit === 1) break;
     }
-    expect(player.hp).toBe(hpBefore - COMBO.hits[0]!.damage);
+    // 체력은 초당 조금씩 자연 회복하므로(HP_REGEN) 정수로 딱 떨어지지 않는다 —
+    // 이 테스트가 보는 건 "몇 번째 타격까지 들어갔나"라 1 미만 오차는 무시한다.
+    expect(player.hp).toBeCloseTo(hpBefore - COMBO.hits[0]!.damage, 0);
 
     // 끝까지 진행하면 두 번째 타격까지 들어간다.
     for (let i = 0; i < 80 && boss.pattern.kind === 'meleeSwing'; i += 1) world.tick(0.02);
-    expect(player.hp).toBe(hpBefore - COMBO.hits[0]!.damage - COMBO.hits[1]!.damage);
+    expect(player.hp).toBeCloseTo(hpBefore - COMBO.hits[0]!.damage - COMBO.hits[1]!.damage, 0);
   });
 
   it('3번 기술(착지 가시)은 전방향이라 등 뒤로 돌아도 맞는다', () => {

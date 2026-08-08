@@ -30,7 +30,7 @@ function equip(world: World, itemId: string): void {
  * 진통제 같은 "피해 처리 규칙"은 실제 몬스터 공격으로 확인해야 의미가 있다.
  * 원점(플레이어 자리)에 한 마리 붙여 두고 공격 주기를 여러 번 넘긴다.
  */
-function beatenByMonster(world: World): void {
+function beatenByMonster(world: World): number {
   world.runDevCommand('p1', 'killall');
   world.runDevCommand('p1', 'spawn demon 1');
   for (const monster of world.getMonsters().values()) {
@@ -38,9 +38,15 @@ function beatenByMonster(world: World): void {
     monster.y = 0;
   }
   // 맞자마자 멈춘다 — 오래 두들기면 버프 지속시간(3초)을 넘겨 검증 자체가 무의미해진다.
+  // 체력이 초당 조금씩 자연 회복하므로 "값이 달라졌나"가 아니라 "눈에 띄게 줄었나"로 본다.
   const player = world.getPlayers().get('p1')!;
   const before = player.hp;
-  for (let i = 0; i < 40 && player.hp === before; i += 1) world.tick(0.05);
+  let lowest = player.hp;
+  for (let i = 0; i < 40 && player.hp > before - 1; i += 1) {
+    world.tick(0.05);
+    lowest = Math.min(lowest, player.hp);
+  }
+  return lowest;
 }
 
 /**
@@ -228,16 +234,17 @@ describe('소모품 — 치료와 버프', () => {
     world.useSelectedItem('p1');
     expect(player.hpFloorTimer).toBeCloseTo(itemsData.painkiller.hpFloorSeconds!, 5);
 
-    // 보스에게 맞아도 1로 버틴다 — 몬스터 공격이 damagePlayer를 거치는 유일한 경로다.
+    // 몬스터에게 맞아도 1 아래로는 안 내려간다 — 몬스터 공격이 damagePlayer를 거치는
+    // 유일한 경로라, 규칙이 실제로 도는지 보려면 진짜로 맞아야 한다.
     world.runDevCommand('p1', 'hp 5');
-    beatenByMonster(world);
-    expect(player.hp).toBe(1);
+    expect(beatenByMonster(world)).toBe(1);
 
     // 시간이 지나면 보호가 풀리고 같은 공격에 쓰러진다.
     world.tick(itemsData.painkiller.hpFloorSeconds!);
     expect(player.hpFloorTimer).toBeLessThanOrEqual(0);
-    beatenByMonster(world);
-    expect(player.hp).toBe(0);
+    // 보호가 없으면 같은 공격에 1 아래로 내려간다(자연 회복분 때문에 정확히 0은 아니다).
+    world.runDevCommand('p1', 'hp 5');
+    expect(beatenByMonster(world)).toBeLessThan(1);
   });
 
   it('아드레날린은 지속시간 동안 이동속도를 올린다', () => {
@@ -278,17 +285,21 @@ describe('음식 — 영구 스탯', () => {
     expect(player.hp).toBe(beforeHp + bonus);
   });
 
-  it('너겟은 공격력을 올려 같은 무기의 피해가 커진다', () => {
+  it('너겟은 공격력 스탯을 올려 무기 데미지에 그대로 더해진다', () => {
     const world = worldWithPlayer();
+    const player = world.getPlayers().get('p1')!;
+    const attackBefore = world.playerAttack(player);
     equip(world, 'nuggets');
     world.useSelectedItem('p1');
+
+    expect(world.playerAttack(player)).toBe(attackBefore + itemsData.nuggets.statBonus!.amount);
 
     equip(world, 'handgun');
     world.fireWeapon('p1');
 
     const projectile = [...world.getProjectiles().values()][0]!;
     expect(projectile.damage).toBeCloseTo(
-      weaponsData.handgun.damage * (1 + itemsData.nuggets.statBonus!.amount),
+      weaponsData.handgun.damage + world.playerAttack(player),
       5,
     );
   });

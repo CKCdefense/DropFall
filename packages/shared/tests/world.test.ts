@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { World } from '../src/sim/world';
-import { wavesData } from '../src/data';
+import { jobsData, } from '../src/data';
 
 describe('World', () => {
   it('입력받은 방향으로 tick 이후 플레이어가 이동한다', () => {
@@ -28,7 +28,7 @@ describe('World', () => {
       y: 5,
       aimAngle: 0,
       lastProcessedSeq: 0,
-      hp: wavesData.playerHp,
+      hp: jobsData.base.maxHp,
     });
   });
 

@@ -1,6 +1,5 @@
 {
   "$comment": "아이템 카탈로그. 무기는 itemId == weaponId 규약(클라 아이콘이 WEAPON_VISUALS를 그대로 쓴다). rarity+buyPrice가 둘 다 있어야 상점 로테이션 후보가 된다.",
-
   "wood": {
     "name": "나무",
     "kind": "material",
@@ -25,7 +24,6 @@
     "stackSize": 200,
     "sellPrice": 25
   },
-
   "bat": {
     "name": "뭉둥이",
     "kind": "weapon",
@@ -82,7 +80,6 @@
     "rarity": "legendary",
     "buyPrice": 450
   },
-
   "slingshot": {
     "name": "새총",
     "kind": "weapon",
@@ -179,7 +176,6 @@
     "rarity": "legendary",
     "buyPrice": 550
   },
-
   "bandage": {
     "name": "붕대",
     "kind": "consumable",
@@ -221,11 +217,13 @@
     "rarity": "rare",
     "buyPrice": 50
   },
-
   "chocolate": {
     "name": "초콜릿",
     "kind": "consumable",
-    "statBonus": { "stat": "stamina", "amount": 0.04 },
+    "statBonus": {
+      "stat": "stamina",
+      "amount": 0.04
+    },
     "stackSize": 3,
     "rarity": "common",
     "buyPrice": 40
@@ -233,7 +231,10 @@
   "donut": {
     "name": "도넛",
     "kind": "consumable",
-    "statBonus": { "stat": "maxHp", "amount": 10 },
+    "statBonus": {
+      "stat": "maxHp",
+      "amount": 10
+    },
     "stackSize": 3,
     "rarity": "common",
     "buyPrice": 40
@@ -241,7 +242,10 @@
   "nuggets": {
     "name": "너겟",
     "kind": "consumable",
-    "statBonus": { "stat": "attack", "amount": 0.05 },
+    "statBonus": {
+      "stat": "attack",
+      "amount": 3
+    },
     "stackSize": 3,
     "rarity": "common",
     "buyPrice": 45
@@ -249,7 +253,10 @@
   "carrot_cake": {
     "name": "당근 케이크",
     "kind": "consumable",
-    "statBonus": { "stat": "maxHp", "amount": 25 },
+    "statBonus": {
+      "stat": "maxHp",
+      "amount": 25
+    },
     "stackSize": 2,
     "rarity": "epic",
     "buyPrice": 110
@@ -257,7 +264,10 @@
   "apple_juice": {
     "name": "사과주스",
     "kind": "consumable",
-    "statBonus": { "stat": "stamina", "amount": 0.08 },
+    "statBonus": {
+      "stat": "stamina",
+      "amount": 0.08
+    },
     "stackSize": 2,
     "rarity": "epic",
     "buyPrice": 100
@@ -265,12 +275,14 @@
   "lasagna": {
     "name": "라자냐",
     "kind": "consumable",
-    "statBonus": { "stat": "attack", "amount": 0.12 },
+    "statBonus": {
+      "stat": "attack",
+      "amount": 7
+    },
     "stackSize": 2,
     "rarity": "epic",
     "buyPrice": 120
   },
-
   "repair_kit": {
     "name": "수리키트",
     "kind": "consumable",
@@ -295,7 +307,6 @@
     "rarity": "legendary",
     "buyPrice": 400
   },
-
   "axe_t1": {
     "name": "돌도끼",
     "kind": "weapon",

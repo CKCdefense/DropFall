@@ -36,6 +36,9 @@ interface RemotePlayerState {
   lastProcessedSeq: number;
   hp: number;
   maxHp: number;
+  stamina: number;
+  maxStamina: number;
+  attack: number;
   ammo: number;
   ammoMagazine: number;
   reloadRemaining: number;
@@ -369,6 +372,9 @@ export class ColyseusConnection implements GameConnection {
         lastProcessedSeq: player.lastProcessedSeq,
         hp: player.hp,
         maxHp: player.maxHp,
+        stamina: player.stamina,
+        maxStamina: player.maxStamina,
+        attack: player.attack,
         ammo: player.ammo,
         ammoMagazine: player.ammoMagazine,
         reloadRemaining: player.reloadRemaining,

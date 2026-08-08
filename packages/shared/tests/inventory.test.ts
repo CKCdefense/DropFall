@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Inventory, SLOT_COUNT, itemOfSlot } from '../src/sim/inventory';
 import { World } from '../src/sim/world';
-import { wavesData } from '../src/data';
+import { jobsData, } from '../src/data';
 
 /**
  * 고정된 4칸 구성(권총/도끼/곡괭이/붕대)을 손에 쥐여준다. 실제 시작 지급품은 창고
@@ -192,12 +192,12 @@ describe('World 인벤토리 연동', () => {
     world.addPlayer('p1');
     equipDefaultKit(world, 'p1');
     const player = world.getPlayers().get('p1')!;
-    player.hp = wavesData.playerHp - 5;
+    player.hp = jobsData.base.maxHp - 5;
 
     world.selectSlot('p1', 3);
     world.useSelectedItem('p1');
 
-    expect(player.hp).toBe(wavesData.playerHp);
+    expect(player.hp).toBe(jobsData.base.maxHp);
   });
 
   it('체력이 가득이면 붕대를 소모하지 않는다', () => {

@@ -24,8 +24,13 @@ export interface PlayerView {
   aimAngle: number;
   lastProcessedSeq: number;
   hp: number;
-  /** 음식(도넛/당근케이크)으로 늘어날 수 있는 최대 체력. HP바 비율은 상수 대신 이 값. */
+  /** 직업 기초 체력 + 음식 보너스. HP바 비율은 상수 대신 이 값. */
   maxHp: number;
+  /** 남은 스태미나와 최대치. 달리기 게이지가 이 둘로 그려진다. */
+  stamina: number;
+  maxStamina: number;
+  /** 무기 데미지에 더해지는 고정 공격력(직업 + 음식). */
+  attack: number;
   /** 장착 무기 탄약. 근접/맨손이면 ammoMagazine이 0이고 HUD가 표시를 걷는다. */
   ammo: number;
   ammoMagazine: number;

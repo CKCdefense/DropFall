@@ -328,6 +328,11 @@ export class GameRoom extends Room {
 
   private startGame(): void {
     this.state.phase = RoomPhase.PLAYING;
+    // 직업은 로비에서 정해진다 — 시뮬레이션은 참가 시점엔 알 수 없으므로 여기서
+    // 한 번 넘긴다. 기초 스탯(체력·공격력·스태미나)이 이때 확정된다.
+    for (const [id, player] of this.state.players) {
+      this.world.setPlayerJob(id, player.job);
+    }
     // 콜로니는 여기서 처음 만든다 — 로비 동안은 인원이 계속 바뀔 수 있어서
     // World 생성 시점(onCreate, 아직 아무도 안 들어온 때)엔 몇 명일지 알 수
     // 없었다. 시작 버튼을 누른 지금이 인원이 확정되는 시점이다(docs/backend/41).
@@ -355,6 +360,9 @@ export class GameRoom extends Room {
       schema.lastProcessedSeq = player.lastProcessedSeq;
       schema.hp = player.hp;
       schema.maxHp = this.world.playerMaxHp(player);
+      schema.stamina = player.stamina;
+      schema.maxStamina = this.world.playerMaxStamina(player);
+      schema.attack = this.world.playerAttack(player);
       schema.speedMultiplier = this.world.playerSpeedMultiplier(player);
       schema.burstMode = player.burstMode;
       // 장착 무기의 탄약 상태. 근접/맨손이면 magazine 0으로 두고 HUD가 표시를 걷는다.

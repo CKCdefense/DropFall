@@ -215,6 +215,9 @@ export class LocalConnection implements GameConnection {
         lastProcessedSeq: player.lastProcessedSeq,
         hp: player.hp,
         maxHp: this.world.playerMaxHp(player),
+        stamina: player.stamina,
+        maxStamina: this.world.playerMaxStamina(player),
+        attack: this.world.playerAttack(player),
         ammo: this.world.ammoView(id)?.loaded ?? 0,
         ammoMagazine: this.world.ammoView(id)?.magazine ?? 0,
         reloadRemaining: this.world.ammoView(id)?.reloadRemaining ?? 0,
@@ -371,6 +374,8 @@ export class LocalConnection implements GameConnection {
 
   selectJob(job: JobId): void {
     this.job = job;
+    // 로컬 모드는 로비가 없어 "게임 시작" 시점이 따로 없다 — 고르는 즉시 반영한다.
+    this.world.setPlayerJob(LOCAL_SESSION_ID, job);
   }
 
   setReady(): void {
