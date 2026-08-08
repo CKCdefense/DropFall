@@ -1,6 +1,18 @@
 import Phaser from 'phaser';
 import { itemsData, shopData, type ItemRarity } from '@dropfall/shared';
-import { ACCENT, BODY_TEXT, DIM_TEXT, FONT, FONT_SMALL, PANEL_STROKE, SIZE_BODY, SIZE_SMALL } from './theme';
+import {
+  ACCENT,
+  BODY_TEXT,
+  DETAIL_MAX_HEIGHT,
+  DETAIL_MIN_HEIGHT,
+  DETAIL_RATIO,
+  DIM_TEXT,
+  FONT,
+  FONT_SMALL,
+  PANEL_STROKE,
+  SIZE_BODY,
+  SIZE_SMALL,
+} from './theme';
 import type { PanelBuilder } from './Modal';
 import { SlotIcon } from '../render/itemSprite';
 
@@ -26,8 +38,6 @@ const ICON_INSET = 16;
 /** 구역 상자 안쪽 여백과 상자 사이 간격. 세 구역이 같은 값을 써야 줄이 맞는다. */
 const SECTION_PAD = 12;
 const SECTION_GAP = 10;
-/** 상세 구역 높이 — 아이콘 한 칸 + 위아래 여백. */
-const DETAIL_HEIGHT = 86;
 const BUY_WIDTH = 84;
 const BUY_HEIGHT = 32;
 const SELL_ROW_HEIGHT = 26;
@@ -81,9 +91,18 @@ export class StorePanel {
     const rightX = leftWidth + SECTION_GAP;
     const rightWidth = builder.width - rightX;
 
+    // 제작 탭과 같은 규칙: 아래 상세 띠를 먼저 잘라내고 남은 높이를 진열 격자에 준다
+    // (theme.DETAIL_RATIO). 두 탭의 아래 띠가 같은 자리에 있어야 탭을 오갈 때 안 흔들린다.
+    const detailHeight = Phaser.Math.Clamp(
+      Math.round(builder.height * DETAIL_RATIO),
+      DETAIL_MIN_HEIGHT,
+      DETAIL_MAX_HEIGHT,
+    );
     const gridRows = Math.ceil(STOCK_SIZE / SLOT_COLS);
-    const gridHeight =
-      SECTION_PAD * 2 + 16 + gridRows * SLOT_SIZE + (gridRows - 1) * SLOT_GAP;
+    const gridHeight = Math.max(
+      SECTION_PAD * 2 + 16 + gridRows * SLOT_SIZE + (gridRows - 1) * SLOT_GAP,
+      builder.height - detailHeight - SECTION_GAP,
+    );
 
     builder.addSection(0, 0, leftWidth, gridHeight);
     this.dayText = scene.add.text(SECTION_PAD, SECTION_PAD, '오늘의 진열', {
@@ -130,13 +149,11 @@ export class StorePanel {
       this.slotIcons.push(icon);
     }
 
-    // --- 상세: 고른 물건 하나를 크게 설명하고 그 자리에서 산다.
-    // 상세는 왼쪽 열의 남은 높이를 전부 쓴다.
+    // --- 상세: 고른 물건 하나를 크게 설명하고 그 자리에서 산다. 높이는 위에서 정해졌다.
     const detailY = gridHeight + SECTION_GAP;
-    const detailHeight = Math.max(DETAIL_HEIGHT, builder.height - detailY);
     builder.addSection(0, detailY, leftWidth, detailHeight);
 
-    const iconSize = DETAIL_HEIGHT - SECTION_PAD * 2;
+    const iconSize = detailHeight - SECTION_PAD * 2;
     this.detailIcon = new SlotIcon(scene, iconSize);
     this.detailIcon.place(SECTION_PAD + iconSize / 2, detailY + SECTION_PAD + iconSize / 2, iconSize);
     if (this.detailIcon.object) builder.add(this.detailIcon.object);

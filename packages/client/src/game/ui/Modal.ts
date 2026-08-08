@@ -36,12 +36,18 @@ const CONTENT_TOP = PAD + 18;
  * 아래로 조금 내려앉아 뒤에 겹쳐 있는 것처럼 보인다. 나중에 9-slice 그림을 끼울 때도
  * 이 구조(높이·겹침)는 그대로 쓴다.
  */
-const TAB_HEIGHT = 38;
-const TAB_GAP = 3;
+const TAB_HEIGHT = 52;
+const TAB_GAP = 4;
 /** 선택 안 된 탭이 아래로 내려앉는 정도(px). 서류철에서 뒤에 밀린 탭을 흉내낸다. */
-const TAB_INACTIVE_SINK = 5;
+const TAB_INACTIVE_SINK = 6;
 /** 탭 라벨 좌우 여백. 탭 폭은 글자 길이에 맞춘다 — 균등 분할하면 버튼 줄처럼 보인다. */
-const TAB_LABEL_PAD = 22;
+const TAB_LABEL_PAD = 30;
+/**
+ * 탭 글자는 본문(11px)의 정수 2배를 쓴다. 탭은 창에서 제일 먼저 읽어야 하는 요소인데
+ * 본문 크기로 두면 커진 탭 판 안에서 글자만 작게 떠 보인다. 픽셀 폰트라 1.5배 같은
+ * 중간값은 획이 뭉개지므로 정수배 외의 선택지가 없다(theme.ts 참고).
+ */
+const TAB_FONT_SIZE = SIZE_BODY * 2;
 /** 선택된 탭이 내용 판 위로 겹쳐 들어가는 깊이(px). 이만큼 경계선이 지워져 하나로 이어진다. */
 const TAB_SEAM = 2;
 
@@ -342,7 +348,7 @@ export class Modal {
       const text = scene.add
         .text(0, 0, label, {
           fontFamily: FONT,
-          fontSize: `${SIZE_BODY}px`,
+          fontSize: `${TAB_FONT_SIZE}px`,
           color: BODY_TEXT,
         })
         .setOrigin(0.5, 0.5);

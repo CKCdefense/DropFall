@@ -90,16 +90,18 @@
 
 .landing-bottom {
   gap: clamp(12px, 2.5vh, 24px);
-  padding-bottom: clamp(4px, 2vh, 24px);
+  /* 버튼 줄을 화면 맨 아래에서 조금 띄운다 */
+  padding-bottom: clamp(16px, 8vh, 72px);
 }
 
 /* 화면 가장자리가 아니라 로고(타이틀) 폭 안쪽에 세 버튼을 한 줄로 모은다 */
 .landing-actions {
   display: flex;
   justify-content: center;
-  gap: var(--gap);
+  /* 버튼 사이는 조금 벌리고(아래 max-width 축소와 합쳐 버튼 폭이 그만큼 줄어든다) */
+  gap: clamp(16px, 2.2vw, 32px);
   width: 100%;
-  max-width: var(--logo-box-w);
+  max-width: calc(var(--logo-box-w) * 0.94);
 }
 
 .landing-actions .btn {

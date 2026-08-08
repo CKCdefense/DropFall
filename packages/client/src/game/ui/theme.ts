@@ -29,6 +29,18 @@ export const DIM_TEXT = '#79828f';
 export const BODY_TEXT = '#cfd6e4';
 export const DOWN_COLOR = '#d9756b';
 
+/**
+ * 탭 페이지 아래에 붙는 **상세 구역**(고른 물건 하나를 설명하는 띠)의 높이 규칙.
+ *
+ * 예전에는 "남은 높이를 전부 쓴다"였다. 창이 세로로 길어지자 상세가 격자보다 커져서,
+ * 정작 고르는 곳(격자)은 좁고 설명 칸만 텅 빈 채 넓어졌다 — 무엇을 하는 창인지가
+ * 뒤집힌다. 상세는 **판의 일부**여야 하므로 비율 상한을 두고 잘라낸다.
+ * 제작/상점 두 탭이 같은 값을 써야 탭을 오갈 때 아래 띠가 같은 자리에 있다.
+ */
+export const DETAIL_RATIO = 0.22;
+export const DETAIL_MIN_HEIGHT = 96;
+export const DETAIL_MAX_HEIGHT = 132;
+
 /** 와이어프레임의 테두리 상자 색. 전 구역이 같은 모양을 쓴다. */
 export const PANEL_FILL = 0x14161d;
 export const PANEL_STROKE = 0x4a5262;

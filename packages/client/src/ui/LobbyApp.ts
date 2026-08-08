@@ -100,7 +100,13 @@ export class LobbyApp {
 
     if (!body) return null;
 
-    const modal = el('div', { class: 'modal', ...assetAttr('modal') }, [body]);
+    // 방 목록만 가로로 긴 상자를 쓴다(네 열짜리 표). 입력 몇 칸뿐인 화면은 같은 상자에
+    // 담으면 좌우가 통째로 비므로 세로로 선 폼 상자로 바꾼다(§.modal-form).
+    const isTable = this.screen === 'browse' && this.browseMode === 'list';
+    const modal = el('div', {
+      class: `modal ${isTable ? '' : 'modal-form'}`.trim(),
+      ...assetAttr('modal'),
+    }, [body]);
     const backdrop = el('div', { class: 'modal-backdrop' }, [modal]);
 
     // 바깥을 누르면 닫힌다. 접속 중에는 닫지 않는다.
@@ -251,7 +257,7 @@ export class LobbyApp {
    * 목록에서 잠긴 방을 고른 경우에는 코드가 이미 정해져 있어 칸을 채운 채 잠근다.
    */
   private renderCodeForm(): HTMLElement {
-    const password = this.passwordField('비밀번호:');
+    const password = this.passwordField('없으면 비워 둔다');
     const submit = () => {
       const value = normalizeRoomCode(code.getValue());
       if (!isValidRoomCode(value)) {
@@ -272,9 +278,10 @@ export class LobbyApp {
     });
 
     return el('div', { class: 'code-form' }, [
+      el('div', { class: 'screen-head' }, [el('h2', {}, ['코드로 참가'])]),
       el('div', { class: 'code-form-label' }, ['방 코드']),
       code.wrapper,
-      password.wrapper,
+      el('label', { class: 'field-block' }, [el('span', {}, ['비밀번호']), password.wrapper]),
       el('div', { class: 'modal-actions' }, [
         this.button('참가', 'primary', submit),
         this.button('뒤로', 'primary', () => {

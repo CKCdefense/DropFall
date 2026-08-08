@@ -11,8 +11,12 @@ import { ACCENT, FONT_SMALL, SIZE_SMALL } from './theme';
  * 창고는 각자 또 다른 작은 창으로 떠서 화면에 창이 두세 개씩 겹쳤다. 코어 앞에서 하는
  * 일이 전부 한 창 안에 있어야 "코어를 조작한다"는 하나의 행동이 된다.
  */
-const PANEL_WIDTH = 700;
-const PANEL_HEIGHT = 470;
+/**
+ * 가로가 세로보다 길면 격자가 한 줄로 늘어지고 아래 상세 띠만 두꺼워진다.
+ * 창고(5열)·제작(4열) 격자가 여러 줄로 쌓이는 **세로가 조금 더 긴 비율**로 잡는다.
+ */
+const PANEL_WIDTH = 600;
+const PANEL_HEIGHT = 640;
 
 const ROW_GAP = 20;
 const BUTTON_HEIGHT = 30;
