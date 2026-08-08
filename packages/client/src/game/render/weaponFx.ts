@@ -77,6 +77,13 @@ export interface WeaponVisual {
   /** 맨손 전용. 첫 손을 그립이 아니라 몸 앞 가드 위치에 둔다. */
   guardHand?: boolean;
   orbitRadius: number;
+  /**
+   * 몸 중심에서 **그려진 무기 끝**까지의 거리(컨테이너 px). measured()가 직접 잰다.
+   *
+   * 스윙 이펙트의 바깥 호와 서버 판정 사거리(weapons.json range)가 둘 다 이 값에
+   * 맞춰져야 "칼 끝에서 이펙트가 나가고, 이펙트 끝까지가 맞는 거리"가 된다.
+   */
+  tipReach: number;
   /** ranged 전용: 총구 끝(스프라이트 좌표) */
   muzzle?: Point;
   melee?: MeleeSwing;
@@ -116,18 +123,21 @@ export const MELEE_REST_TILT = (50 * Math.PI) / 180;
  */
 const MELEE_HAND_REACH = 12;
 
-function meleeSwingFrom(weapon: WeaponData): MeleeSwing {
+function meleeSwingFrom(weapon: WeaponData, tipReach: number): MeleeSwing {
   const halfArc = ((weapon.arc ?? 360) * Math.PI) / 360;
   return {
     halfArc,
     // 들고 있는 자세에서 그대로 내려친다 — 젖히는 각이 곧 평소 자세다.
     windup: MELEE_REST_TILT,
     /**
-     * 이펙트 바깥 호를 무기 사거리에 맞춘다. 여기에 몬스터 히트박스(10px)까지 더하면
-     * 판정 최대 거리와는 일치하지만, 화면에서는 호가 캐릭터 발밑까지 내려와 몸집을 압도한다.
-     * 이펙트는 "날이 지나간 자리"를 그리는 것이지 판정 경계선을 그리는 게 아니다.
+     * 이펙트 바깥 호를 **그려진 칼끝**에 맞춘다(weapons.json의 range가 아니라).
+     *
+     * 예전엔 판정 사거리를 그대로 썼는데, 그 숫자는 그림과 따로 관리되는 값이라
+     * 무기 배율(MELEE_SHRINK)을 한 번 손대면 바로 어긋났다 — 실제로 칼끝은 여기,
+     * 궤적은 저기서 끝나 보였다. 그림에서 잰 값을 쓰면 배율을 어떻게 바꾸든
+     * "칼이 지나간 자리"가 항상 칼끝에서 끝난다.
      */
-    fxScale: (weapon.range ?? 0) / SWING_FX_RADIUS,
+    fxScale: tipReach / SWING_FX_RADIUS,
   };
 }
 
@@ -161,13 +171,25 @@ function measured(options: {
   const { frame, grip, axis, scale, orbitRadius, center, ranged } = options;
   const [near, tip] = axis;
   const forward = Math.atan2(tip.y - near.y, tip.x - near.x);
+  const pivot = projectOntoAxis(grip, near, tip);
+
+  /*
+   * 몸 중심에서 그려진 무기 끝까지의 거리.
+   *
+   * pivot이 손 위치에 놓이므로, 손에서 끝까지는 (tip - pivot)에 배율을 곱한 값이다.
+   * 거기에 손이 몸에서 뻗은 거리를 더하면 화면에 실제로 보이는 리치가 된다 —
+   * 근접은 손을 MELEE_HAND_REACH만큼 내밀고, 원거리는 궤도 반경에 그대로 얹힌다.
+   */
+  const handReach = ranged ? orbitRadius : MELEE_HAND_REACH;
+  const tipReach = handReach + Math.hypot(tip.x - pivot.x, tip.y - pivot.y) * scale;
 
   return {
     frame,
     center,
     scale,
     forward,
-    pivot: projectOntoAxis(grip, near, tip),
+    tipReach,
+    pivot,
     // 뒷손은 손잡이, 앞손은 조금 앞. 총열 방향으로 띄워야 두 손이 무기를 따라 놓인다.
     grips: [
       grip,
@@ -463,11 +485,11 @@ export const WEAPON_VISUALS: Record<string, WeaponVisual> = {
   ),
 };
 
-// weapons.json이 근접이라고 한 무기에만 휘두르기 값을 붙인다. 두 곳에 같은 숫자를
-// 적어두면 반드시 어긋나므로, 각도·사거리는 항상 서버 데이터에서 유도한다.
+// weapons.json이 근접이라고 한 무기에만 휘두르기 값을 붙인다. 각도는 서버 데이터에서
+// 유도하고, 이펙트 크기는 그림에서 잰 칼끝 거리(tipReach)에서 유도한다.
 for (const [id, visual] of Object.entries(WEAPON_VISUALS)) {
   const weapon = weaponsData[id];
-  if (weapon?.type === 'melee') visual.melee = meleeSwingFrom(weapon);
+  if (weapon?.type === 'melee') visual.melee = meleeSwingFrom(weapon, visual.tipReach);
 }
 
 /** 표에 없는 무기를 들었을 때의 대체. 맨손은 어떤 상태에서도 그릴 수 있다. */
@@ -479,6 +501,20 @@ export function weaponVisual(weaponId: string): WeaponVisual {
 
 /** 손에 든 일반 아이템을 그릴 때의 목표 크기(px). 맨손보다 조금 크게 잡아 눈에 띈다. */
 const HELD_ITEM_TARGET = 16;
+
+/**
+ * 근접 무기별 **그려진 칼끝 거리**(컨테이너 px). weapons.json의 `range`를 이 값에
+ * 맞춰야 "이펙트 끝 = 맞는 거리"가 된다.
+ *
+ * 숫자를 손으로 옮겨 적는 대신 노출해 두는 이유: 무기 배율(MELEE_SHRINK)이나 axis
+ * 실측값을 고치면 여기가 저절로 따라 바뀌므로, 어긋났는지 확인할 근거가 코드 안에
+ * 남는다(tools/print-melee-reach.mjs가 이 값을 찍는다).
+ */
+export const MELEE_TIP_REACH: Readonly<Record<string, number>> = Object.fromEntries(
+  Object.entries(WEAPON_VISUALS)
+    .filter(([id]) => weaponsData[id]?.type === 'melee')
+    .map(([id, visual]) => [id, Math.round(visual.tipReach)]),
+);
 
 /** 만든 시각 정보를 아이템 id로 캐시한다 — 프레임마다 새로 만들면 GC가 계속 돈다. */
 const heldItemCache = new Map<string, WeaponVisual>();
