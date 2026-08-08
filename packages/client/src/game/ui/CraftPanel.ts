@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { craftingData, itemsData, type CraftRecipe } from '@dropfall/shared';
 import { ACCENT, BODY_TEXT, DIM_TEXT, FONT, FONT_SMALL, PANEL_STROKE, SIZE_BODY, SIZE_SMALL } from './theme';
-import { Modal } from './Modal';
+import type { PanelBuilder } from './Modal';
 import { SlotIcon, createItemIcon } from '../render/itemSprite';
 
 /** ACCENT('#6fd08c')의 숫자판 — setStrokeStyle은 숫자 색만 받는다. */
@@ -9,8 +9,6 @@ const SELECTED_STROKE = 0x6fd08c;
 /** 재료가 모자랄 때의 붉은 글자. */
 const LACKING_TEXT = '#d98a8a';
 
-const PANEL_WIDTH = 300;
-const PANEL_HEIGHT = 300;
 const SLOT_SIZE = 48;
 const SLOT_GAP = 8;
 const SLOT_COLS = 4;
@@ -27,7 +25,7 @@ const CRAFT_HEIGHT = 30;
  * 여부는 서버가 최종 판정하고(World.craftItem), 여기서는 같은 규칙으로 미리
  * 보여주기만 한다.
  */
-export class CraftModal extends Modal {
+export class CraftPanel {
   onCraft: (recipeId: string) => void = () => {};
 
   private readonly recipes: CraftRecipe[] = craftingData.recipes;
@@ -43,21 +41,21 @@ export class CraftModal extends Modal {
   private stock: Record<string, number> = {};
   private coreTier = 0;
 
-  constructor(scene: Phaser.Scene) {
-    super(scene, { title: '제작', width: PANEL_WIDTH, height: PANEL_HEIGHT });
+  constructor(private readonly builder: PanelBuilder) {
+    const scene = builder.scene;
 
     this.recipes.forEach((recipe, index) => {
       const col = index % SLOT_COLS;
       const row = Math.floor(index / SLOT_COLS);
       const x = col * (SLOT_SIZE + SLOT_GAP);
       const y = row * (SLOT_SIZE + SLOT_GAP);
-      const box = this.addSlot(x, y, SLOT_SIZE, '', () => this.select(index));
+      const box = this.builder.addSlot(x, y, SLOT_SIZE, '', () => this.select(index));
       this.slotBoxes.push(box);
 
       const icon = createItemIcon(scene, recipe.itemId, SLOT_SIZE - 14);
       if (icon) {
         icon.setPosition(x + SLOT_SIZE / 2, y + SLOT_SIZE / 2 - 4);
-        this.addContent(icon);
+        this.builder.add(icon);
       }
 
       // 칸 아래 작은 글씨는 티어다 — 아이콘만으로는 T1/T2를 구분할 수 없다.
@@ -68,7 +66,7 @@ export class CraftModal extends Modal {
           color: DIM_TEXT,
         })
         .setOrigin(0.5, 1);
-      this.addContent(label);
+      this.builder.add(label);
       this.slotLabels.push(label);
     });
 
@@ -78,7 +76,7 @@ export class CraftModal extends Modal {
     // 스냅샷마다 다시 그리는 자리라 이미지를 새로 만들지 않고 프레임만 갈아 끼운다.
     this.detailIcon = new SlotIcon(scene, SLOT_SIZE - 8);
     this.detailIcon.place(SLOT_SIZE / 2, detailY + SLOT_SIZE / 2, SLOT_SIZE - 8);
-    if (this.detailIcon.object) this.addContent(this.detailIcon.object);
+    if (this.detailIcon.object) this.builder.add(this.detailIcon.object);
 
     this.nameText = scene.add.text(SLOT_SIZE + 8, detailY, '-', {
       fontFamily: FONT,
@@ -95,12 +93,12 @@ export class CraftModal extends Modal {
       fontSize: `${SIZE_BODY}px`,
       color: DIM_TEXT,
     });
-    this.addContent(this.nameText);
-    this.addContent(this.tierText);
-    this.addContent(this.costText);
+    this.builder.add(this.nameText);
+    this.builder.add(this.tierText);
+    this.builder.add(this.costText);
 
-    this.addButton(
-      this.contentWidth - CRAFT_WIDTH,
+    this.builder.addButton(
+      this.builder.width - CRAFT_WIDTH,
       detailY + SLOT_SIZE + 4,
       CRAFT_WIDTH,
       CRAFT_HEIGHT,

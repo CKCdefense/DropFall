@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { itemsData, shopData, type ItemRarity } from '@dropfall/shared';
 import { ACCENT, BODY_TEXT, DIM_TEXT, FONT, FONT_SMALL, PANEL_STROKE, SIZE_BODY, SIZE_SMALL } from './theme';
-import { Modal } from './Modal';
+import type { PanelBuilder } from './Modal';
 import { SlotIcon } from '../render/itemSprite';
 
 /** ACCENT('#6fd08c')의 숫자판 — setStrokeStyle은 숫자 색만 받는다. */
@@ -19,8 +19,6 @@ const RARITY: Record<ItemRarity, { label: string; text: string; stroke: number }
   legendary: { label: '전설', text: '#e8b44c', stroke: 0xc8942c },
 };
 
-const PANEL_WIDTH = 300;
-const PANEL_HEIGHT = 320;
 const SLOT_SIZE = 48;
 const SLOT_GAP = 8;
 const SLOT_COLS = 3;
@@ -48,7 +46,7 @@ const SELLABLE = ['drop_rare', 'drop_normal'];
  * 실제 소비/지급은 서버가 한다(World.buyFromShop / sellToShop). 여기서는 같은 규칙으로
  * 살 수 있는지만 미리 색으로 알려준다.
  */
-export class StoreModal extends Modal {
+export class StorePanel {
   onPurchase: (itemId: string) => void = () => {};
   onSell: (itemId: string, count: number) => void = () => {};
 
@@ -68,8 +66,8 @@ export class StoreModal extends Modal {
   private money = 0;
   private storage: Record<string, number> = {};
 
-  constructor(scene: Phaser.Scene) {
-    super(scene, { title: '상점', width: PANEL_WIDTH, height: PANEL_HEIGHT });
+  constructor(private readonly builder: PanelBuilder) {
+    const scene = builder.scene;
 
     this.dayText = scene.add.text(0, 0, '오늘의 진열', {
       fontFamily: FONT_SMALL,
@@ -77,14 +75,14 @@ export class StoreModal extends Modal {
       color: DIM_TEXT,
     });
     this.moneyText = scene.add
-      .text(this.contentWidth, 0, '0 G', {
+      .text(this.builder.width, 0, '0 G', {
         fontFamily: FONT,
         fontSize: `${SIZE_BODY}px`,
         color: ACCENT,
       })
       .setOrigin(1, 0);
-    this.addContent(this.dayText);
-    this.addContent(this.moneyText);
+    this.builder.add(this.dayText);
+    this.builder.add(this.moneyText);
 
     for (let index = 0; index < STOCK_SIZE; index += 1) {
       const col = index % SLOT_COLS;
@@ -92,7 +90,7 @@ export class StoreModal extends Modal {
       const x = col * (SLOT_SIZE + SLOT_GAP);
       const y = HEADER_HEIGHT + row * (SLOT_SIZE + SLOT_GAP);
 
-      this.slotBoxes.push(this.addSlot(x, y, SLOT_SIZE, '', () => this.select(index)));
+      this.slotBoxes.push(this.builder.addSlot(x, y, SLOT_SIZE, '', () => this.select(index)));
       // addSlot이 만든 라벨은 직접 잡을 수 없어서 가격 글자를 따로 얹는다.
       const price = scene.add
         .text(x + SLOT_SIZE / 2, y + SLOT_SIZE - 3, '', {
@@ -101,12 +99,12 @@ export class StoreModal extends Modal {
           color: DIM_TEXT,
         })
         .setOrigin(0.5, 1);
-      this.addContent(price);
+      this.builder.add(price);
       this.slotPrices.push(price);
 
       const icon = new SlotIcon(scene, SLOT_SIZE - ICON_INSET);
       icon.place(x + SLOT_SIZE / 2, y + SLOT_SIZE / 2 - 4, SLOT_SIZE - ICON_INSET);
-      if (icon.object) this.addContent(icon.object);
+      if (icon.object) this.builder.add(icon.object);
       this.slotIcons.push(icon);
     }
 
@@ -115,7 +113,7 @@ export class StoreModal extends Modal {
 
     this.detailIcon = new SlotIcon(scene, SLOT_SIZE - 8);
     this.detailIcon.place(SLOT_SIZE / 2, detailY + SLOT_SIZE / 2, SLOT_SIZE - 8);
-    if (this.detailIcon.object) this.addContent(this.detailIcon.object);
+    if (this.detailIcon.object) this.builder.add(this.detailIcon.object);
 
     this.nameText = scene.add.text(SLOT_SIZE + 8, detailY, '-', {
       fontFamily: FONT,
@@ -132,12 +130,12 @@ export class StoreModal extends Modal {
       fontSize: `${SIZE_BODY}px`,
       color: DIM_TEXT,
     });
-    this.addContent(this.nameText);
-    this.addContent(this.rarityText);
-    this.addContent(this.priceText);
+    this.builder.add(this.nameText);
+    this.builder.add(this.rarityText);
+    this.builder.add(this.priceText);
 
-    this.addButton(
-      this.contentWidth - BUY_WIDTH,
+    this.builder.addButton(
+      this.builder.width - BUY_WIDTH,
       detailY + (SLOT_SIZE - BUY_HEIGHT) / 2,
       BUY_WIDTH,
       BUY_HEIGHT,
@@ -151,7 +149,7 @@ export class StoreModal extends Modal {
     // --- 판매 구역: 창고에 든 몬스터 드랍을 **한 종류씩 통째로** 판다.
     // 개수를 고르는 UI를 만들어봐야 결국 "전부 팔기"만 쓰게 된다.
     const sellTop = detailY + SLOT_SIZE + 14;
-    this.addContent(
+    this.builder.add(
       scene.add.text(0, sellTop, '판매', {
         fontFamily: FONT_SMALL,
         fontSize: `${SIZE_SMALL}px`,
@@ -166,11 +164,11 @@ export class StoreModal extends Modal {
         fontSize: `${SIZE_BODY}px`,
         color: DIM_TEXT,
       });
-      this.addContent(label);
+      this.builder.add(label);
       this.sellLabels.set(itemId, label);
 
-      this.addButton(
-        this.contentWidth - SELL_BUTTON_WIDTH,
+      this.builder.addButton(
+        this.builder.width - SELL_BUTTON_WIDTH,
         y,
         SELL_BUTTON_WIDTH,
         SELL_ROW_HEIGHT - 4,

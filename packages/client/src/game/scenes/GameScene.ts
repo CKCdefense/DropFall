@@ -18,6 +18,7 @@ import {
 import { DayNightOverlay } from '../render/DayNightOverlay';
 import { EntityRenderer } from '../render/EntityRenderer';
 import { queueGameAtlas } from '../render/playerSprite';
+import { queueUiFrames } from '../ui/uiFrame';
 import { queueMonsterAtlas } from '../render/monsterSprite';
 import { TerrainLayer, hasTerrainTileset, queueTerrainTileset } from '../render/TerrainLayer';
 import { InputController } from '../input/InputController';
@@ -62,6 +63,9 @@ export class GameScene extends Phaser.Scene {
     // 라이센스 에셋이라 저장소에 없을 수 있다 — 없으면 도형 플레이스홀더로 떨어진다.
     queueMonsterAtlas(this);
     queueTerrainTileset(this);
+    // HUD 모달의 돌 테두리. 텍스처는 게임 전체가 공유하므로 여기서 한 번 올리면
+    // 나중에 뜨는 HudScene에서도 그대로 쓴다.
+    queueUiFrames(this);
   }
 
   create(): void {
