@@ -40,6 +40,7 @@
 | [backend/49-work-report-core-blind-zone-and-hit-alert.md](backend/49-work-report-core-blind-zone-and-hit-alert.md) | 작업 보고서 — 코어 북쪽 사각지대 반투명 처리(12시 방향 공격 안 보이던 버그) + 피격 알림(월드+HUD) |
 | [backend/50-work-report-downed-player-action-lockout.md](backend/50-work-report-downed-player-action-lockout.md) | 작업 보고서 — 다운된(hp 0) 플레이어가 이동 말고는 아무 동작도 못 하게 막음 |
 | [backend/51-work-report-companion-core-stuck-movement.md](backend/51-work-report-companion-core-stuck-movement.md) | 작업 보고서 — 티모시가 코어에 막혀 영원히 멈추는 이동 버그(접선 미끄러짐+탈출 점프 이식) |
+| [backend/54-work-report-player-client-prediction.md](backend/54-work-report-player-client-prediction.md) | 작업 보고서 — 내 캐릭터 클라이언트 예측+재조정(멀티플레이 텔레포트/끊김 원인 분석 및 해결) |
 
 ### 역할 C — 클라이언트/렌더/UI 작업 문서 ([frontend/](frontend/))
 
