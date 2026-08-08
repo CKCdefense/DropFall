@@ -37,6 +37,15 @@ function buildSpawnPoints(count: number, radius: number, rng: () => number): Spa
 
 export interface WaveManagerOptions {
   rng?: () => number;
+  /** 지금 접속해 있는 인원수. 웨이브 시작 시점(beginNextWave)에만 읽는다 —
+   * 밤 도중에 인원이 바뀌어도 이미 확정된 스폰 큐는 안 흔들린다. */
+  playerCount?: () => number;
+}
+
+/** waves.json spawns 숫자에 인원수 스케일링을 적용한 뒤 반올림한다. */
+function scaledSpawnCount(rawCount: number, playerCount: number): number {
+  const { baseMultiplier, base, perPlayer } = wavesData.playerScaling;
+  return Math.round(rawCount * baseMultiplier * (base + perPlayer * playerCount));
 }
 
 /**
@@ -51,6 +60,7 @@ export interface WaveManagerOptions {
  */
 export class WaveManager {
   private readonly rng: () => number;
+  private readonly playerCount: () => number;
   private phase: GamePhase = 'day';
   private phaseTimer: number;
   private waveIndex = -1;
@@ -73,6 +83,7 @@ export class WaveManager {
 
   constructor(options: WaveManagerOptions = {}) {
     this.rng = options.rng ?? Math.random;
+    this.playerCount = options.playerCount ?? (() => 1);
     this.phaseTimer = wavesData.dayDuration;
   }
 
@@ -116,11 +127,18 @@ export class WaveManager {
       return;
     }
 
+    // waves.json 숫자는 인원수 스케일링 전 "기준값"이다 — 실제 스폰 수는
+    // scaledSpawnCount(playerScaling)를 거쳐서 나온다(데모 준비도 리뷰 피드백 #2).
+    const players = this.playerCount();
     const flat: MonsterType[] = [];
     for (const [type, count] of Object.entries(entry.spawns)) {
-      for (let i = 0; i < count; i += 1) flat.push(type as MonsterType);
+      const scaled = scaledSpawnCount(count, players);
+      for (let i = 0; i < scaled; i += 1) flat.push(type as MonsterType);
     }
-    // 엘리트는 확정이 아니라 밤 시작에 count번 독립적으로 굴린다 — "나올 수도 있다"가 목적.
+    // 엘리트는 확정이 아니라 밤 시작에 count번 독립적으로 굴린다 — "나올 수도 있다"가
+    // 목적이다. 이 count는 인원수 스케일링을 안 받는다 — 받으면 "낮은 확률로 어쩌다
+    // 하나"가 "매 판 여러 마리 확정"으로 바뀌어 버려서 엘리트라는 설계 의도 자체가
+    // 깨진다(일반 잡몹처럼 물량으로 밀어붙이는 대상이 아니다).
     if (entry.elite) {
       for (let i = 0; i < entry.elite.count; i += 1) {
         if (this.rng() < entry.elite.chance) flat.push(entry.elite.type as MonsterType);

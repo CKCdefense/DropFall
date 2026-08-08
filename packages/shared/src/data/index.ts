@@ -351,6 +351,24 @@ const WaveEntrySchema = z.object({
   bossType: z.string().optional(),
 });
 
+/**
+ * 인원수에 따라 웨이브 스폰 수를 불리는 계수. 최종 마릿수는
+ * `round(spawns[type] * baseMultiplier * (base + perPlayer * 인원수))`.
+ *
+ * 원래 기획서(01-game-design.md §10.2)의 "몬스터 수 = 기본값 × (0.6 + 0.4 × 인원수)"를
+ * 그대로 구현하니 실제로는 너무 적었다(자원 수급처 부족 피드백) — 기본값 자체를
+ * baseMultiplier로 한 번 키우고, 인원당 증가폭(perPlayer)도 0.4 → 2로 훨씬 가파르게
+ * 늘렸다(데모 준비도 리뷰 피드백 #2).
+ */
+const WavePlayerScalingSchema = z.object({
+  /** waves.json의 spawns 숫자에 곱하는 기본 배율. */
+  baseMultiplier: z.number().positive(),
+  /** 인원수와 무관한 고정분 계수. */
+  base: z.number().nonnegative(),
+  /** 인원 1명당 추가되는 계수. */
+  perPlayer: z.number().nonnegative(),
+});
+
 const WavesDataSchema = z.object({
   coreHp: z.number().positive(),
   /** 몬스터가 스폰되는, 코어를 중심으로 한 원의 반지름(px) */
@@ -362,10 +380,12 @@ const WavesDataSchema = z.object({
    * 보스가 아무 예고 없이 떨어지면 이미 붙어 있는 상태로 전투가 시작된다.
    */
   bossWarningSeconds: z.number().nonnegative(),
+  playerScaling: WavePlayerScalingSchema,
   waves: z.array(WaveEntrySchema).min(1),
 });
 
 export type WaveEntry = z.infer<typeof WaveEntrySchema>;
+export type WavePlayerScaling = z.infer<typeof WavePlayerScalingSchema>;
 
 export const wavesData = loadData(WavesDataSchema, wavesJson);
 

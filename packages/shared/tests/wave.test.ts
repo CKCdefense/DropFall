@@ -11,14 +11,26 @@ function seededRng(seed: number): () => number {
   };
 }
 
-/** 엘리트 굴림 제외 기본 스폰 총원. 엘리트는 확률이라 정확 수치 검증에서 뺀다. */
-function baseTotal(entry: WaveEntry): number {
-  return Object.values(entry.spawns).reduce((a, b) => a + b, 0);
+/**
+ * 엘리트 굴림 제외 기본 스폰 총원 — waves.json 원본 수치가 아니라 인원수 스케일링
+ * (playerScaling, 데모 준비도 리뷰 피드백 #2)까지 반영한 **실제로 스폰될** 총원이다.
+ * 이 테스트 파일은 전부 인원수를 지정 안 하는 WaveManager를 쓰므로 기본값(1명) 기준.
+ */
+function baseTotal(entry: WaveEntry, playerCount = 1): number {
+  const { baseMultiplier, base, perPlayer } = wavesData.playerScaling;
+  return Object.values(entry.spawns).reduce(
+    (sum, count) => sum + Math.round(count * baseMultiplier * (base + perPlayer * playerCount)),
+    0,
+  );
 }
 
-/** 엘리트가 전부 성공했을 때의 상한. 실제 스폰 수는 [base, max] 안에 있어야 한다. */
-function maxTotal(entry: WaveEntry): number {
-  return baseTotal(entry) + (entry.elite?.count ?? 0);
+/**
+ * 엘리트가 전부 성공했을 때의 상한. 실제 스폰 수는 [base, max] 안에 있어야 한다.
+ * 엘리트 굴림 횟수(elite.count)는 인원수 스케일링을 안 받는다(wave.ts 주석 참고) —
+ * 받으면 "낮은 확률로 어쩌다 하나"가 "매 판 여러 마리 확정"이 되어 설계 의도가 깨진다.
+ */
+function maxTotal(entry: WaveEntry, playerCount = 1): number {
+  return baseTotal(entry, playerCount) + (entry.elite?.count ?? 0);
 }
 
 /**
@@ -31,7 +43,12 @@ function drainMinionSpawns(
   onSpawn: (type: string, x: number, y: number) => void,
 ): number {
   let alive = 0;
-  for (let i = 0; i < 5000 && alive < maxTotal(entry); i += 1) {
+  // 큐가 실제로 빌 때까지 돈다 — 예전엔 "baseTotal 이상 스폰 + i>60이면 조기 종료"였는데,
+  // 인원수 스케일링(피드백 #2)으로 총원 자체가 커지면서 baseTotal에 도달하는 데만도
+  // 60번을 훌쩍 넘겨서, 그 순간 바로 멈춰버려 엘리트 여분이 큐에 남은 채(스폰 안 됨)
+  // 끝나버렸다 — pendingSpawnCount가 남아 있으면 밤이 안 끝나므로 이후 보스 판정
+  // 테스트가 전부 깨졌다. "큐가 실제로 비었는가"로 직접 판정하는 게 맞다.
+  for (let i = 0; i < 5000 && (alive < baseTotal(entry) || manager.pendingSpawnCount > 0); i += 1) {
     manager.tick(
       entry.groupIntervalSeconds / 4,
       () => alive,
@@ -40,9 +57,6 @@ function drainMinionSpawns(
         onSpawn(type, x, y);
       },
     );
-    // 큐가 다 비었는지는 밖에서 알 수 없으니, base 이상 스폰된 뒤 한 사이클을 더 돌려
-    // 엘리트 성공분까지 회수한다. 상한 도달이면 즉시 끝.
-    if (alive >= baseTotal(entry) && i > 60) break;
   }
   return alive;
 }

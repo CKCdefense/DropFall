@@ -601,7 +601,7 @@ export class World {
    * 첫 발 이후의 나머지를 틱에서 예약 발사한다. 플레이어당 하나만 진행된다.
    */
   private readonly bursts = new Map<string, { weaponId: string; shotsLeft: number; timer: number }>();
-  private readonly waveManager = new WaveManager();
+  private readonly waveManager = new WaveManager({ playerCount: () => this.players.size });
   private readonly buildings = new BuildingRegistry();
   /** 코어 AI 페르소나 트레잇. 웨이브 종료/콜로니 파괴/코어 상호작용마다 조금씩 바뀐다. */
   private personaTraits: CorePersonaTraits = createInitialPersonaTraits();
