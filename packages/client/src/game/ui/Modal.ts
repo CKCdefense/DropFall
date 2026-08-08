@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { FRAME_INSET, buttonBox, frameBox, setButtonHighlighted } from './uiFrame';
+import { BOTTOM_BAR_RESERVED } from './QuickSlotBar';
 import {
   ACCENT,
   BODY_TEXT,
@@ -19,6 +20,8 @@ const ACCENT_STROKE = 0x6fd08c;
 const DEPTH_PANEL = 20001;
 
 const PANEL_ALPHA = 0.95;
+/** 창이 화면 가장자리에 딱 붙지 않게 남기는 여백. */
+const MIN_SCREEN_MARGIN = 8;
 /** 구역 상자 배경. 내용 판(BOARD_FILL)보다 살짝 밝아 "판 위에 얹힌 상자"로 읽힌다. */
 const SECTION_FILL = 0x171a22;
 /**
@@ -241,20 +244,27 @@ export class Modal {
 
   constructor(scene: Phaser.Scene, opts: ModalOptions) {
     this.scene = scene;
-    this.panelWidth = opts.width;
-    this.panelHeight = opts.height;
-    this.contentWidth = opts.width - PAD * 2;
+    this.panelWidth = Math.min(opts.width, scene.scale.width - MIN_SCREEN_MARGIN * 2);
+    // 창은 **하단 바 위 공간보다 커질 수 없다.** 더 크면 퀵슬롯을 덮어서, 창고에서
+    // 끌어다 놓는 조작 자체가 막힌다(실제로 그랬다 — 640짜리 창 + 140짜리 바가
+    // 664 화면에 함께 들어가지 않는다). 안쪽 내용은 이 높이에서 다시 계산되므로
+    // 구역들이 알아서 줄어든다(§PanelBuilder.height).
+    this.panelHeight = Math.min(
+      opts.height,
+      scene.scale.height - BOTTOM_BAR_RESERVED - MIN_SCREEN_MARGIN * 2,
+    );
+    this.contentWidth = this.panelWidth - PAD * 2;
 
     this.root = scene.add
       .container(
-        scene.scale.width / 2 - opts.width / 2,
-        scene.scale.height / 2 - opts.height / 2,
+        scene.scale.width / 2 - this.panelWidth / 2,
+        scene.scale.height / 2 - this.panelHeight / 2,
       )
       .setDepth(DEPTH_PANEL)
       .setVisible(false);
 
     // 바깥 테두리는 돌 프레임(9-slice)이다. 에셋이 없으면 예전처럼 단색 사각형이 온다.
-    const panel = frameBox(scene, 0, 0, opts.width, opts.height);
+    const panel = frameBox(scene, 0, 0, this.panelWidth, this.panelHeight);
     // 패널 위 클릭이 아래 요소(퀵슬롯 등)로 떨어지지 않게 이벤트를 먹는다.
     panel.setInteractive();
     // 돌 프레임은 안쪽이 밝은 회색이라 그 위에 HUD의 어두운 글자를 얹으면 읽히지 않는다.
@@ -264,8 +274,8 @@ export class Modal {
       .rectangle(
         FRAME_INSET,
         FRAME_INSET,
-        opts.width - FRAME_INSET * 2,
-        opts.height - FRAME_INSET * 2,
+        this.panelWidth - FRAME_INSET * 2,
+        this.panelHeight - FRAME_INSET * 2,
         PANEL_FILL,
         PANEL_ALPHA,
       )
@@ -275,13 +285,13 @@ export class Modal {
     const headerHeight = tabbed ? PAD + TAB_HEIGHT : CONTENT_TOP;
     // 내용 판. 탭이 이 판의 윗변에 얹히므로 판을 먼저 잡고 탭을 그 위에 그린다.
     const boardTop = PAD + TAB_HEIGHT;
-    const boardHeight = opts.height - PAD - boardTop;
-    const boardWidth = opts.width - PAD * 2;
+    const boardHeight = this.panelHeight - PAD - boardTop;
+    const boardWidth = this.panelWidth - PAD * 2;
 
     // 머리줄 전체가 드래그 손잡이다. 탭 모달에서는 탭 버튼이 이 위에 얹히므로(나중에
     // 추가되는 자식이 위에 온다) 탭을 눌러도 창이 끌려가지 않는다.
     const titleBar = scene.add
-      .rectangle(0, 0, opts.width - 24, headerHeight, PANEL_FILL, 0.01)
+      .rectangle(0, 0, this.panelWidth - 24, headerHeight, PANEL_FILL, 0.01)
       .setOrigin(0, 0)
       .setInteractive({ useHandCursor: true });
     titleBar.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
@@ -291,7 +301,7 @@ export class Modal {
     scene.input.on(Phaser.Input.Events.POINTER_UP, this.onDragEnd, this);
 
     const closeButton = scene.add
-      .text(opts.width - PAD, PAD, 'X', {
+      .text(this.panelWidth - PAD, PAD, 'X', {
         fontFamily: FONT,
         fontSize: `${SIZE_BODY}px`,
         color: DIM_TEXT,
@@ -304,7 +314,7 @@ export class Modal {
 
     this.contentHeight = tabbed
       ? boardHeight - BOARD_PAD * 2
-      : opts.height - CONTENT_TOP - PAD;
+      : this.panelHeight - CONTENT_TOP - PAD;
     if (tabbed) this.contentWidth = boardWidth - BOARD_PAD * 2;
 
     this.content = scene.add.container(
@@ -438,6 +448,22 @@ export class Modal {
 
   private onDragEnd(): void {
     this.dragOffset = null;
+  }
+
+  /**
+   * 창을 다시 가운데로 놓는다. **하단 HUD가 차지하는 높이를 빼고** 그 위 공간의 가운데다 —
+   * 창이 커지고 퀵슬롯이 3배가 되면서 기본 가운데 정렬로는 창이 슬롯을 덮어, 창고에서
+   * 퀵슬롯으로 끌어다 놓는 조작 자체가 막혔다(실제로 그랬다).
+   *
+   * 화면 크기가 바뀔 때도 다시 부른다 — 예전엔 생성 시점에 한 번만 놓아서, 창을 열어 둔
+   * 채 창 크기를 바꾸면 화면 밖으로 밀려났다.
+   */
+  recenter(screenWidth: number, screenHeight: number, bottomReserved: number): void {
+    const available = Math.max(this.panelHeight, screenHeight - bottomReserved);
+    this.root.setPosition(
+      Math.round(screenWidth / 2 - this.panelWidth / 2),
+      Math.max(0, Math.round((available - this.panelHeight) / 2)),
+    );
   }
 
   open(): void {
