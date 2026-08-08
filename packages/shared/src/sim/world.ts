@@ -1157,7 +1157,13 @@ export class World {
 
     // 공격력 스탯은 **한 번의 공격**에 더한다. 산탄은 펠릿마다 더하면 6배로 불어나므로
     // 나눠 싣는다 — "한 발의 총 위력 = 무기 위력 + 공격력"이 어느 무기에서나 같아야 한다.
-    const attack = this.playerAttack(player);
+    //
+    // 그런데 "한 발당 고정값"을 그대로 두면 연사속도(fireRate)가 빠른 무기일수록
+    // 초당 챙기는 보너스가 커진다 — 스탯을 공격력에 몰빵하고 연사 무기를 들면 DPS가
+    // 몇 배로 뛰어 보스가 무의미해지는 원인이었다(docs/backend 데모 준비도 리뷰 피드백
+    // #1). fireRate로 나눠서 **초당 보너스**를 무기 종류와 무관하게 고정한다 — 위
+    // 펠릿 나누기와 같은 원칙을 시간 축에도 적용한 것.
+    const attack = this.playerAttack(player) / (weaponsData[weaponId]?.fireRate || 1);
     const pellets = result.projectiles?.length ?? 1;
     for (const projectile of result.projectiles ?? []) {
       projectile.damage += attack / pellets;
