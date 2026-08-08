@@ -55,6 +55,9 @@ export class PlayerSchema extends Schema {
   @type('number') reloadRemaining = 0;
   /** 점사 모드 토글 상태(돌격소총). */
   @type('boolean') burstMode = false;
+  /** 마지막으로 쓴 소모품의 이펙트 종류(USE_FX)와 사용 횟수. 값이 바뀌면 클라가 이펙트를 튼다. */
+  @type('uint8') useFxKind = 0;
+  @type('uint8') useFxSeq = 0;
 }
 
 export class MonsterSchema extends Schema {

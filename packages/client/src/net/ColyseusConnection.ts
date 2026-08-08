@@ -43,6 +43,8 @@ interface RemotePlayerState {
   ammoMagazine: number;
   reloadRemaining: number;
   burstMode: boolean;
+  useFxKind: number;
+  useFxSeq: number;
   wood: number;
   stone: number;
   parts: number;
@@ -391,6 +393,8 @@ export class ColyseusConnection implements GameConnection {
         ammoMagazine: player.ammoMagazine,
         reloadRemaining: player.reloadRemaining,
         burstMode: player.burstMode,
+        useFxKind: player.useFxKind,
+        useFxSeq: player.useFxSeq,
         wood: player.wood,
         stone: player.stone,
         parts: player.parts,
