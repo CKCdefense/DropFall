@@ -212,21 +212,48 @@ const HURT_BODY_SHAKE_MS = 45;
  * 회복은 원래 루프용으로 그려진 10프레임이라 조금 느리게(14fps, 약 0.7초) 한 바퀴만 돌린다.
  * 버프·스탯은 한 번 터지고 끝나는 8프레임이라 더 빠르게(18fps, 약 0.44초) 넘긴다.
  */
-const USE_FX_ANIMS: Record<number, { anim: string; prefix: string; frames: number; rate: number }> =
-  {
-    [USE_FX.heal]: { anim: 'fx_use_heal', prefix: 'fx_heal_heal_', frames: 10, rate: 14 },
-    [USE_FX.buff]: { anim: 'fx_use_buff', prefix: 'fx_boost_buff_', frames: 8, rate: 18 },
-    [USE_FX.statup]: { anim: 'fx_use_statup', prefix: 'fx_boost_statup_', frames: 8, rate: 18 },
-  };
+const USE_FX_ANIMS: Record<
+  number,
+  { anim: string; prefix: string; frames: number; rate: number }
+> = {
+  [USE_FX.heal]: { anim: 'fx_use_heal', prefix: 'fx_heal_heal_', frames: 10, rate: 14 },
+  [USE_FX.buff]: { anim: 'fx_use_buff', prefix: 'fx_boost_buff_', frames: 8, rate: 18 },
+  [USE_FX.statup]: { anim: 'fx_use_statup', prefix: 'fx_boost_statup_', frames: 8, rate: 18 },
+};
 
 /**
- * 레벨업 이펙트(fx_levelup.lua). 10프레임을 16fps로 — 소모품 이펙트보다 길게(0.6초)
- * 남긴다. 판마다 몇 번 없는 사건이라 스쳐 지나가면 축하로 안 읽힌다.
+ * 소모품 이펙트의 **바닥선 비율**(캔버스 높이 대비). 원점을 여기로 잡아야 이펙트의
+ * 발밑 고리가 캐릭터 발밑에 놓인다.
+ *
+ * 예전엔 원점을 캔버스 한가운데(0.5)로 두고 캐릭터 위치에 놓았는데, 이펙트 그림은
+ * 가운데가 아니라 y=33(40px 캔버스)에 바닥이 그려져 있어서 **13px 아래로 밀렸다** —
+ * 고리가 발밑이 아니라 정강이 아래 땅에 떠 있었다. 세 이펙트 모두 같은 규격이라 값이
+ * 하나다(생성기의 GROUND / 캔버스 높이 = 33 / 40).
+ */
+const USE_FX_GROUND_Y = 33 / 40;
+
+/**
+ * 레벨업 이펙트(fx_levelup.lua) — 하얀 빛기둥이 한 번 번쩍한다. 6프레임을 14fps로,
+ * 약 0.43초짜리 짧은 섬광이다.
+ *
+ * 예전엔 금빛 기둥에 고리·불티·별 광채까지 얹은 10프레임이었는데, 레벨업은 캐릭터에게
+ * 일어나는 일이지 화면에 일어나는 일이라 거창한 연출이 정작 캐릭터를 가렸다.
  */
 const LEVEL_UP_ANIM = 'fx_levelup';
 const LEVEL_UP_PREFIX = 'fx_levelup_levelup_';
-const LEVEL_UP_FRAMES = 10;
-const LEVEL_UP_RATE = 16;
+const LEVEL_UP_FRAMES = 6;
+const LEVEL_UP_RATE = 14;
+/** 그림의 바닥선 비율(생성기의 GROUND 40 / 캔버스 높이 48). 소모품 이펙트와 같은 규약이다. */
+const LEVEL_UP_GROUND_Y = 40 / 48;
+/**
+ * 레벨업 때 캐릭터가 하얗게 점멸하는 횟수와 간격(ms), 그리고 시작을 늦추는 시간.
+ *
+ * 기둥과 **겹치지 않게 늦춘다.** 동시에 터뜨렸더니 하얘진 캐릭터와 흰 기둥이 한 덩어리로
+ * 뭉쳐서 실루엣이 통째로 사라졌다 — 기둥이 번쩍한 뒤에 캐릭터가 깜빡여야 둘 다 읽힌다.
+ */
+const LEVEL_UP_BLINKS = 3;
+const LEVEL_UP_BLINK_GAP_MS = 130;
+const LEVEL_UP_BLINK_DELAY_MS = 160;
 
 /** 피격 아웃라인 색(눌린 빨강 — fx_hurt 팔레트와 동일)과 유지 시간(ms). */
 const HURT_OUTLINE_COLOR = 0xd95c4a;
@@ -784,9 +811,9 @@ export class EntityRenderer {
   }
 
   /**
-   * 소모품 사용 이펙트. 캐릭터 **중심**에 겹쳐 놓는다 — 세 이펙트 모두 캔버스 가운데가
-   * 대상 중심이고 발밑 고리까지 포함해 그려져 있어서, 피격 스파크처럼 가슴 높이로
-   * 올리면 고리가 배 위에 뜬다.
+   * 소모품 사용 이펙트. **그림의 바닥선을 캐릭터 발밑에 맞춰** 겹쳐 놓는다 — 세 이펙트
+   * 모두 발밑 고리를 포함해 그려져 있어서, 피격 스파크처럼 가슴 높이로 올리면 고리가
+   * 배 위에 뜬다.
    *
    * 깊이는 캐릭터보다 한 단계 위다. 회복 십자가는 몸을 가려도 되는 종류의 그림이고,
    * 뒤로 깔면 캐릭터에 거의 다 먹힌다.
@@ -797,21 +824,45 @@ export class EntityRenderer {
 
     const burst = this.scene.add
       .sprite(container.x, container.y, GAME_ATLAS, `${fx.prefix}0`)
+      // 그림의 바닥선을 캐릭터 발밑에 맞춘다(§USE_FX_GROUND_Y).
+      .setOrigin(0.5, USE_FX_GROUND_Y)
       .setDepth(container.y + 1);
     burst.play(fx.anim);
     burst.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => burst.destroy());
   }
 
   /**
-   * 레벨업 빛 기둥. 소모품 이펙트와 달리 **캐릭터 뒤에** 깐다 — 기둥이 몸을 덮으면
-   * 정작 레벨이 오른 사람이 안 보인다.
+   * 레벨업 — **캐릭터가 하얗게 몇 번 점멸하고 빛기둥이 번쩍한다.**
+   *
+   * 점멸은 그림이 아니라 스프라이트 틴트로 낸다(피격 플래시와 같은 문법) — 어떤 직업이든
+   * 같은 실루엣으로 반응하고, 직업마다 이펙트를 그릴 필요가 없다.
+   *
+   * 기둥은 **캐릭터 뒤에** 깐다. 앞에 두면 정작 레벨이 오른 사람이 가려진다.
+   * 사라짐은 프레임이 아니라 알파로 처리한다 — 그림에서 밝기를 디더로 표현하면
+   * 기둥이 얼룩덜룩해져 "빛"이 아니라 "무늬"로 보인다.
    */
   private playLevelUpFx(container: Phaser.GameObjects.Container): void {
+    const body = container.getByName('body');
+    if (body instanceof Phaser.GameObjects.Sprite) {
+      for (let i = 0; i < LEVEL_UP_BLINKS; i += 1) {
+        this.scene.time.delayedCall(LEVEL_UP_BLINK_DELAY_MS + i * LEVEL_UP_BLINK_GAP_MS, () => {
+          if (body.active) this.flashSprite(body);
+        });
+      }
+    }
+
     if (!this.scene.anims.exists(LEVEL_UP_ANIM)) return;
     const burst = this.scene.add
       .sprite(container.x, container.y, GAME_ATLAS, `${LEVEL_UP_PREFIX}0`)
+      .setOrigin(0.5, LEVEL_UP_GROUND_Y)
       .setDepth(container.y - 1);
     burst.play(LEVEL_UP_ANIM);
+    this.scene.tweens.add({
+      targets: burst,
+      alpha: 0,
+      duration: (LEVEL_UP_FRAMES / LEVEL_UP_RATE) * 1000,
+      ease: 'Quad.easeIn',
+    });
     burst.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => burst.destroy());
   }
 

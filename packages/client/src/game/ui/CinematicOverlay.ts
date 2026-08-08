@@ -9,9 +9,9 @@ const DEPTH = 30000;
 
 /**
  * 큰 문구의 글자 크기(px). **Galmuri11의 정수배만 쓴다** — 사이 값을 쓰면 획이 뭉개져서
- * 오히려 기본 폰트보다 못 읽힌다(§theme.FONT). 99 = 11 × 9.
+ * 오히려 기본 폰트보다 못 읽힌다(§theme.FONT). 132 = 11 × 12.
  */
-const TITLE_SIZE = 99;
+const TITLE_SIZE = 132;
 
 /**
  * 시작 암전: 완전히 검은 상태에서 얼마나 머물고, 얼마에 걸쳐 밝아지는지(ms).
@@ -77,6 +77,9 @@ export class CinematicOverlay {
       .text(width / 2, height / 2, '', {
         fontFamily: FONT,
         fontSize: `${TITLE_SIZE}px`,
+        // 굵은 자족(Galmuri11-Bold, weight 700)이 이미 등록돼 있다(§ui/fonts.ts).
+        // 화면을 가로지르는 큰 글자는 기본 굵기로는 획이 가늘어 배경에 묻힌다.
+        fontStyle: 'bold',
         color: DAY_COLOR,
       })
       .setOrigin(0.5, 0.5)
