@@ -66,6 +66,7 @@
 | [frontend/15-work-report-consumable-fx-and-melee-scale.md](frontend/15-work-report-consumable-fx-and-melee-scale.md) | 작업 보고서 — 소모품 사용 이펙트(회복/버프/스탯) 연결, 근접 무기 일괄 축소, 휘두르기 이펙트 좌우 반전 수정 |
 | [frontend/16-work-report-solo-setup-and-companion-toggle.md](frontend/16-work-report-solo-setup-and-companion-toggle.md) | 작업 보고서 — 혼자하기 직업 선택 모달, 멀티·싱글 티모시 켜고 끄기 |
 | [frontend/17-work-report-controls-and-prompts.md](frontend/17-work-report-controls-and-prompts.md) | 작업 보고서 — 걷기 모션 복구, 소모품 우클릭·휠 슬롯 전환, 코어 E 키 안내, 제작 진행 화살표 |
+| [frontend/18-work-report-attack-fx-gating.md](frontend/18-work-report-attack-fx-gating.md) | 작업 보고서 — 연타 시 쿨다운을 무시하고 나오던 공격 연출 수정(재장전·빈 탄창 포함) |
 
 ## 한 줄 요약
 

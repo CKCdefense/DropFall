@@ -81,12 +81,21 @@ export class InputController {
   /** 지금 고른 퀵슬롯. 스냅샷에서 갱신되고 휠이 다음 칸을 셀 때 기준이 된다. */
   private selectedSlot = 0;
 
+  /**
+   * 누적 시간(ms). 무기별 다음 발사 가능 시각을 재는 기준이다 — 버튼을 떼도 계속
+   * 흐르므로 연타로 쿨다운을 건너뛸 수 없다.
+   */
+  private clock = 0;
+  /** 무기 id → 다음 발사 가능 시각. 서버 CooldownTracker가 (플레이어, 무기)별인 것과 같다. */
+  private readonly nextFireAt = new Map<string, number>();
+  /** 이번에 누른 동안 건축물을 이미 놓았는지. 홀드 연타 방지용. */
+  private placedThisPress = false;
+
   private readonly keys: Record<
     'up' | 'down' | 'left' | 'right' | 'sprint',
     Phaser.Input.Keyboard.Key
   >;
   private seq = 0;
-  private fireTimer = 0;
   private elapsed = 0;
   private aimAngle = 0;
   private buildModeIndex = 0;
@@ -149,7 +158,6 @@ export class InputController {
     // 거절했을 때 두 상태가 어긋난다.
     for (let index = 0; index < SLOT_COUNT; index += 1) {
       keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ONE + index).on('down', () => {
-        this.fireTimer = 0;
         this.connection.selectSlot(index);
       });
     }
@@ -254,7 +262,7 @@ export class InputController {
     this.keys.left.reset();
     this.keys.right.reset();
     this.keys.sprint.reset();
-    this.fireTimer = 0;
+    this.placedThisPress = false;
     this.seq += 1;
     const input = this.buildInput();
     this.connection.sendInput(input);
@@ -269,40 +277,60 @@ export class InputController {
    * 좌클릭은 **언제나 공격이다** — 무기를 들었으면 그 무기로, 아니면 맨손으로.
    * 사용(소모품)은 우클릭으로 갈라져 있다(§pointerdown).
    *
-   * 재전송 간격은 무기 fireRate에서 나오고, 실제 쿨다운·소모 판정은 전부 서버가 한다.
-   * 건축모드일 땐 좌클릭이 설치로 쓰이므로 통째로 건너뛴다.
+   * **연출은 "실제로 나갈 공격"에만 붙는다.** 예전엔 버튼을 뗄 때마다 발사 타이머를
+   * 0으로 되돌려서, 연타하면 쿨다운과 무관하게 매번 휘두르기·총구 화염이 나왔다 —
+   * 서버는 하나만 받아들이는데 화면만 대여섯 번 번쩍였다. 이제 타이머를 무기별로
+   * 계속 흘려보내고(서버 CooldownTracker와 같은 단위), 재장전 중·빈 탄창·쓰러진
+   * 상태도 스냅샷으로 미리 걸러 낸다.
+   *
+   * 서버 응답을 기다리지 않는 것은 그대로다 — 타격감은 지연되면 안 된다. 대신
+   * 클라이언트가 서버보다 **너그럽지 않게** 판단해서 헛연출이 안 나오게 한다.
    */
-  private updateFire(delta: number): void {
-    const pointer = this.scene.input.activePointer;
-    if (this.isPointerOverHud?.(pointer.x, pointer.y)) {
-      this.fireTimer = 0;
-      return;
-    }
-    if (this.buildMode !== 'off' || !pointer.leftButtonDown()) {
-      this.fireTimer = 0;
-      return;
-    }
+  private updateFire(delta: number, self: PlayerView): void {
+    this.clock += delta;
 
-    this.fireTimer -= delta;
-    if (this.fireTimer > 0) return;
+    const pointer = this.scene.input.activePointer;
+    const holding =
+      pointer.leftButtonDown() &&
+      this.buildMode === 'off' &&
+      !this.isPointerOverHud?.(pointer.x, pointer.y);
+    if (!holding) {
+      this.placedThisPress = false;
+      return;
+    }
 
     const { kind, weaponId } = this.equipped;
-    this.fireTimer = fireIntervalMs(weaponId);
 
     if (kind === 'building') {
-      // 건축물도 홀드 연타를 막는다 — 커서를 조금 움직이는 사이에 인벤토리가 비어버린다.
-      this.fireTimer = Infinity;
+      // 건축물은 홀드 연타를 막는다 — 커서를 조금 움직이는 사이에 인벤토리가 비어버린다.
+      if (this.placedThisPress) return;
+      this.placedThisPress = true;
       const cell = this.cursorCell();
       this.connection.placeHeldBuilding(cell.cx, cell.cy);
       return;
     }
 
     if (kind !== 'weapon' || !weaponId) return;
+    if (!this.canAttack(self, weaponId)) return;
 
+    this.nextFireAt.set(weaponId, this.clock + fireIntervalMs(weaponId));
     this.connection.fire();
-    // 연출은 서버 응답을 기다리지 않고 즉시 그린다 — 타격감은 지연되면 안 된다.
-    // (서버가 쿨다운으로 실제 공격을 거절하면 연출만 헛나오는데, 연출이라 문제되지 않는다)
+    // 연출은 서버 응답을 기다리지 않고 즉시 그린다 — 위 검사를 통과했으면 서버도
+    // 받아들일 공격이다.
     this.onAttack?.(weaponId);
+  }
+
+  /**
+   * 지금 이 공격이 **실제로 나갈 수 있는가.** 서버 `World.fireWeapon`의 관문을 같은
+   * 순서로 다시 본다 — 쓰러짐 → 쿨다운 → 탄약. 서버가 쓰는 여유(FIRE_COOLDOWN_GRACE)는
+   * 일부러 안 쓴다. 클라이언트가 더 너그러우면 헛연출이 다시 생긴다.
+   */
+  private canAttack(self: PlayerView, weaponId: string): boolean {
+    if (self.hp <= 0) return false;
+    if (self.reloadRemaining > 0) return false;
+    // 탄창이 있는 무기(ammoMagazine > 0)만 탄약을 본다 — 근접·맨손은 0이다.
+    if (self.ammoMagazine > 0 && self.ammo <= 0) return false;
+    return this.clock >= (this.nextFireAt.get(weaponId) ?? 0);
   }
 
   /** 매 프레임 호출. 실제 전송은 SEND_INTERVAL_MS 마다 한 번. */
@@ -312,7 +340,7 @@ export class InputController {
     this.selectedSlot = self.selectedSlot;
     this.equipped = readEquipped(self);
     this.updateAim(self.x, self.y);
-    this.updateFire(delta);
+    this.updateFire(delta, self);
 
     this.elapsed += delta;
     if (this.elapsed < SEND_INTERVAL_MS) return;
