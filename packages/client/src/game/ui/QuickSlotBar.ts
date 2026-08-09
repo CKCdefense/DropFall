@@ -23,6 +23,7 @@ import {
   SIZE_SMALL,
   applyTextShadow,
   barColor,
+  forceSetText,
 } from './theme';
 
 /**
@@ -317,7 +318,10 @@ export class QuickSlotBar {
 
       // 아이콘이 있으면 그림만 보여준다 — 좁은 칸에서 그림과 글자가 겹치면 둘 다 못 읽는다.
       this.icons[index].setItem(slot?.itemId ?? null);
-      this.nameLabels[index].setText(this.icons[index].isShowing ? '' : (item?.name ?? ''));
+      // setText()만으로는 드물게 화면이 이전 글자에 멈추고 안 갱신되는 경우가
+      // 있었다(코어 충전 칸에서 실측·재현, CorePanel.setChargeSlots 참고) — 여기도
+      // 칸 여러 개를 매 프레임 setText로 채우는 같은 패턴이라 forceSetText로 바꾼다.
+      forceSetText(this.nameLabels[index], this.icons[index].isShowing ? '' : (item?.name ?? ''));
       // 1개짜리(무기)는 개수를 안 띄운다 — 항상 "1"이면 정보가 아니라 잡음이다.
       this.countLabels[index].setText(slot && slot.count > 1 ? `${slot.count}` : '');
 

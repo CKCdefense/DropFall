@@ -11,6 +11,7 @@ import {
   PANEL_STROKE,
   SIZE_BODY,
   SIZE_SMALL,
+  forceSetText,
 } from './theme';
 
 const SECTION_PAD = 14;
@@ -281,7 +282,7 @@ export class CorePanel {
 
       this.icons[index]?.setItem(slot?.itemId ?? null);
       this.counts[index]?.setText(slot && slot.count > 1 ? String(slot.count) : '');
-      this.labels[index]?.setText(locked ? '잠김' : item ? '' : '비었음');
+      forceSetText(this.labels[index], locked ? '잠김' : item ? '' : '비었음');
       cell.box.setAlpha(locked ? 0.35 : 1);
       // 거절 깜빡임 중에는 테두리를 건드리지 않는다 — 다음 스냅샷이 바로 덮어쓴다.
       if (this.rejecting.has(index)) return;

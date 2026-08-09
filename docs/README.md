@@ -58,6 +58,7 @@
 | [backend/70-work-report-craft-output-stacking.md](backend/70-work-report-craft-output-stacking.md) | 작업 보고서 — 제작 결과 칸에 같은 물건 쌓기(상한 100), 되돌리기 경로에서 초과분이 사라지던 버그 수정 |
 | [backend/71-work-report-drop-rate-monster-count-ranged-value.md](backend/71-work-report-drop-rate-monster-count-ranged-value.md) | 작업 보고서 — 부품 드랍률 50%+개수 증가, 몬스터 수 하향(baseMultiplier 3→2), 원거리 무기 가성비 2차 조정(rifle/sniper_rifle/샷건 2종) |
 | [backend/72-work-report-pickup-key-and-quickslot-click.md](backend/72-work-report-pickup-key-and-quickslot-click.md) | 작업 보고서 — 줍기 전용 키(스페이스) 추가, 퀵슬롯 좌클릭으로 무기 장착(SlotDrag.onClickSelect) |
+| [backend/73-work-report-slot-label-render-staleness-bug.md](backend/73-work-report-slot-label-render-staleness-bug.md) | 작업 보고서 — 퀵무브/충전 칸 라벨이 화면에 고착되는 Phaser Text 렌더링 버그, Playwright 실측 재현으로 원인 특정·수정 |
 
 ### 역할 C — 클라이언트/렌더/UI 작업 문서 ([frontend/](frontend/))
 
