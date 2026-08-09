@@ -31,6 +31,7 @@ import type { Modal } from '../ui/Modal';
 import { DevConsole } from '../ui/DevConsole';
 import { DevItemModal } from '../ui/DevItemModal';
 import { GuideModal } from '../ui/GuideModal';
+import { Keycap } from '../ui/keycap';
 import { MINIMAP_SIZE, Minimap } from '../ui/Minimap';
 import { PartyPanel } from '../ui/PartyPanel';
 import { BOTTOM_BAR_RESERVED, QuickSlotBar } from '../ui/QuickSlotBar';
@@ -56,11 +57,9 @@ import {
   DIM_TEXT,
   DOWN_COLOR,
   FONT,
-  FONT_SMALL,
   PANEL_FILL,
   PANEL_STROKE,
   SIZE_BODY,
-  SIZE_SMALL,
   applyTextShadow,
 } from '../ui/theme';
 
@@ -77,7 +76,6 @@ export const HUD_SCENE_KEY = 'Hud';
 
 /** HUD는 카메라 줌 1(네이티브 해상도)에 그려진다 — 그래서 실제 픽셀 크기를 그대로 쓴다. */
 const DIM_STYLE = { fontFamily: FONT, fontSize: `${SIZE_BODY}px`, color: DIM_TEXT } as const;
-const SMALL_STYLE = { fontFamily: FONT_SMALL, fontSize: `${SIZE_SMALL}px`, color: DIM_TEXT } as const;
 const PAD = 12;
 const CORE_PANEL_WIDTH = 220;
 /**
@@ -139,6 +137,18 @@ const GUIDE_BUTTON_SIZE = 28;
 const GUIDE_BUTTON_GAP = 8;
 /** 호버 강조 테두리. ACCENT는 글자용 문자열이라 도형에는 같은 색의 숫자 값을 쓴다. */
 const GUIDE_BUTTON_HOVER = 0x6fd08c;
+/**
+ * 도움말 토글 키. **가이드 창의 안내(GuideModal.SECTIONS)와 반드시 같은 글자**여야
+ * 한다 — 여기만 바꾸면 안내가 거짓말이 된다.
+ */
+const GUIDE_TOGGLE_KEY = Phaser.Input.Keyboard.KeyCodes.H;
+/**
+ * 첫 입장 도움말이 뜨기까지 기다리는 시간(ms).
+ *
+ * 시작 암전(500 + 1800)과 DAY 1 자막이 지나간 뒤여야 한다 — 연출 위에 창이 겹치면
+ * 둘 다 못 읽는다(CinematicOverlay의 OPEN_HOLD/OPEN_FADE_IN 합보다 넉넉히 뒤).
+ */
+const GUIDE_AUTO_OPEN_MS = 2800;
 /**
  * 콜로니 증가분(`+N`) 색. 잡몹 숫자보다 **진한 경고색**이다 — 정원과 나란히 붙어 있어
  * 같은 톤이면 한 숫자로 읽히고, 이건 "내가 안 치운 콜로니 때문에 늘어난 몫"이라
@@ -207,7 +217,12 @@ export class HudScene extends Phaser.Scene {
   private monsterText!: Phaser.GameObjects.Text;
   /** 낮 스킵 투표 칸. 방 정원만큼 미리 만들어 두고 인원수에 맞춰 보이고 숨긴다. */
   private voteBoxes!: Phaser.GameObjects.Image[];
-  private voteHint!: Phaser.GameObjects.Text;
+  /**
+   * 투표 단축키 표식. `[V]`라는 흐린 7px 글자였는데, 대괄호는 "이건 키다"를 관습으로만
+   * 알려줄 뿐이라 눈에 걸리지 않았다 — 가이드 창에서 쓰는 것과 **같은 키캡 그림**을
+   * 놓으면 그림 하나로 끝난다.
+   */
+  private voteHint!: Keycap;
   /** 상황 판 제목. 낮/밤에 글자만 바뀐다. */
   private statusHeadText!: Phaser.GameObjects.Text;
   /**
@@ -256,8 +271,6 @@ export class HudScene extends Phaser.Scene {
    * 나중에 다시 열어서 확인할 수 있게).
    */
   private aiToastText!: Phaser.GameObjects.Text;
-  /** 로컬 모드에서만 존재한다 — connection.debugJumpToWave가 없으면 아예 안 만든다. */
-  private debugJumpButton?: Phaser.GameObjects.Text;
   /** 패널 배경 없이 지형 위에 바로 얹히는 글자들. 그림자를 넣어 대비를 준다. */
   private looseTexts: Phaser.GameObjects.Text[] = [];
   /** 바 너비를 다시 계산할 때 필요해서 보관한다. */
@@ -350,7 +363,8 @@ export class HudScene extends Phaser.Scene {
       .text(0, 0, '', { fontFamily: FONT, fontSize: `${SIZE_BODY}px`, color: MONSTER_BONUS_COLOR })
       .setOrigin(0, 0.5)
       .setVisible(false);
-    this.voteHint = this.add.text(0, 0, '[V]', SMALL_STYLE).setOrigin(1, 0.5).setVisible(false);
+    this.voteHint = new Keycap(this, 'V');
+    this.voteHint.setVisible(false);
 
     // 상단 중앙 원형 — 웨이브 번호 + 남은 시간
     this.waveDial = new WaveDial(this);
@@ -388,22 +402,9 @@ export class HudScene extends Phaser.Scene {
       .setOrigin(0.5, 0)
       .setAlpha(0);
 
-    // 로컬 모드 전용 테스트 버튼 — 웨이브 5(보스 웨이브)로 바로 점프해서 밸런스를
-    // 테스트한다(docs/backend/23). 실제 멀티플레이(ColyseusConnection)에는
-    // debugJumpToWave 자체가 없으니, 존재 여부만 확인하면 자연히 로컬 전용이 된다.
-    if (this.connection.debugJumpToWave) {
-      this.debugJumpButton = this.add
-        .text(0, 0, '[TEST] WAVE 5', {
-          fontFamily: FONT_SMALL,
-          fontSize: `${SIZE_SMALL}px`,
-          color: '#1c1f26',
-          backgroundColor: ACCENT,
-          padding: { x: 6, y: 3 },
-        })
-        .setOrigin(0, 0)
-        .setInteractive({ useHandCursor: true })
-        .on('pointerdown', () => this.connection.debugJumpToWave?.(5));
-    }
+    // 웨이브 5로 점프하던 로컬 전용 [TEST] 딱지는 걷어냈다 — 밸런스 확인용이었는데
+    // 화면 왼쪽에 늘 초록 태그로 떠 있어 플레이 중에 거슬렸다. 같은 일은 개발자
+    // 콘솔(F9)의 wave 명령으로 할 수 있다.
 
     this.createCoreModals();
     this.createChat();
@@ -459,9 +460,31 @@ export class HudScene extends Phaser.Scene {
       .setOrigin(0.5, 0.5);
     this.guideButton.on('pointerover', () => this.guideButton.setStrokeStyle(2, GUIDE_BUTTON_HOVER));
     this.guideButton.on('pointerout', () => this.guideButton.setStrokeStyle(1, PANEL_STROKE));
-    this.guideButton.on('pointerdown', () => {
-      if (this.guideModal.isOpen()) this.guideModal.close();
-      else this.guideModal.open();
+    this.guideButton.on('pointerdown', () => this.toggleGuide());
+    /*
+     * 도움말 토글(H). `?` 버튼은 마우스를 미니맵 옆까지 가져가야 하는데, 조작이
+     * 막히는 순간은 대개 손이 키보드에 있을 때다 — 키가 하나 있어야 그 자리에서 연다.
+     *
+     * 채팅·개발자 콘솔이 열리면 전역 키보드가 꺼지므로(ChatBox/DevConsole) 타이핑 중
+     * 'h'가 창을 여는 일은 없다. WASD·전투 키와 멀고, 다른 곳에 안 쓰이는 키다.
+     */
+    this.input.keyboard?.addKey(GUIDE_TOGGLE_KEY).on('down', () => this.toggleGuide());
+
+    /*
+     * 첫 입장(1일차 낮)에는 도움말을 **한 번 저절로 띄운다.**
+     *
+     * 조작을 아무것도 모른 채 떨어지는 게 이 게임의 첫 경험인데, 안내가 미니맵 옆
+     * 작은 `?` 뒤에만 있으면 그걸 찾는 것부터가 과제다. 시작 암전과 DAY 1 자막이
+     * 지나간 뒤에 열어야 연출을 가리지 않는다.
+     *
+     * 도중에 합류하거나(2일차 이후) 이미 다른 창을 열어 둔 경우에는 건너뛴다 —
+     * 하던 일을 가로채는 창만큼 성가신 것이 없다.
+     */
+    this.time.delayedCall(GUIDE_AUTO_OPEN_MS, () => {
+      const status = this.connection.getSnapshot().status;
+      if (status.currentWave > 1 || status.wavePhase !== 'day') return;
+      if (this.anyModalOpen()) return;
+      this.guideModal.open();
     });
     // 하단 바의 직업/스탯 칸이 이 창을 연다 — 스탯을 보는 곳이 한 군데여야 한다.
     this.quickSlots.onProfile = () => {
@@ -475,8 +498,8 @@ export class HudScene extends Phaser.Scene {
     // 집은 채 탭 위에 올리면 그 탭으로 넘어간다(Modal.isDragActive) — 창고에서 집은
     // 재료를 코어 충전 칸에 바로 가져갈 수 있다.
     this.coreModal.isDragActive = () => this.slotDrag.isDragging();
-    this.slotDrag.onMove = (from, fromIndex, to, toIndex) =>
-      this.connection.moveItem(from, fromIndex, to, toIndex);
+    this.slotDrag.onMove = (from, fromIndex, to, toIndex, count) =>
+      this.connection.moveItem(from, fromIndex, to, toIndex, count);
     /*
      * 퀵슬롯을 옮기지 않고 그냥 좌클릭만 하면 그 칸을 손에 든다 — 숫자키(1~4)와
      * 완전히 같은 동작이라 selectSlot을 그대로 재사용한다. 창고 등 다른 칸은
@@ -705,6 +728,12 @@ export class HudScene extends Phaser.Scene {
     return this.openModals().length > 0;
   }
 
+  /** 도움말 열기·닫기. `?` 버튼과 H 키가 같은 문을 쓴다. */
+  private toggleGuide(): void {
+    if (this.guideModal.isOpen()) this.guideModal.close();
+    else this.guideModal.open();
+  }
+
   private closeAllModals(): void {
     this.coreModal.close();
     this.characterModal.close();
@@ -843,9 +872,14 @@ export class HudScene extends Phaser.Scene {
     this.voteBoxes.forEach((box, index) => {
       box.setScale(statusScale).setPosition(statusLeft + index * (boxSize + VOTE_BOX_GAP * scale), statusMidY);
     });
-    this.voteHint
-      .setFontSize(SIZE_SMALL * scale)
-      .setPosition(pad + panelW - 12 * scale, statusMidY);
+    // 키캡은 오른쪽 끝에 붙인다 — 폭이 글자에 따라 달라지므로 자리를 잡은 뒤 재서 민다.
+    const capScale = Math.max(1, Math.round(scale * HUD_BAR_SCALE));
+    this.voteHint.layout(0, 0, capScale);
+    this.voteHint.layout(
+      pad + panelW - 12 * scale - this.voteHint.width,
+      statusMidY - this.voteHint.heightAt(capScale) / 2,
+      capScale,
+    );
 
     // --- 좌측 세로: 팀원 체력. 몬스터 판 아래에서 시작한다(밤에만 뜨는 판이지만
     // 자리를 항상 비워 둔다 — 밤이 될 때마다 팀원 칸이 아래로 밀리면 눈이 어지럽다).
@@ -870,10 +904,6 @@ export class HudScene extends Phaser.Scene {
     // --- 나머지
     for (const text of this.looseTexts) applyTextShadow(text, scale);
 
-    if (this.debugJumpButton) {
-      this.debugJumpButton.setFontSize(SIZE_SMALL * scale);
-      this.debugJumpButton.setPosition(pad, pad + panelH + 10 * scale + this.party.height + 8 * scale);
-    }
   }
 
   update(): void {

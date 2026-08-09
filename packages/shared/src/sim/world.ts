@@ -91,7 +91,15 @@ export type SlotContainer = 'inventory' | 'storage' | 'charge' | 'craft';
 
 /** moveItem이 컨테이너에게 요구하는 최소한의 계약. 창고·인벤토리·충전 슬롯이 모두 만족한다. */
 interface SlotAccess {
-  takeAt(index: number): InventorySlot | null;
+  /**
+   * 칸에 무엇이 들었는지 **건드리지 않고** 본다.
+   *
+   * 낱개 분할(§moveItem)이 옮기기 전에 "나눠도 되는 자리인가"를 판단해야 해서 생겼다 —
+   * 일단 꺼낸 뒤 되돌리는 방식은, 원래 칸에 나머지가 남아 있을 때 되돌릴 자리가 없다.
+   */
+  peekAt(index: number): InventorySlot | null;
+  /** `count`를 주면 그만큼만 떼고 나머지는 칸에 남긴다. 없으면 통째로 꺼낸다. */
+  takeAt(index: number, count?: number): InventorySlot | null;
   placeAt(index: number, incoming: InventorySlot): InventorySlot | null;
 }
 
@@ -1735,6 +1743,7 @@ export class World {
     fromIndex: unknown,
     to: unknown,
     toIndex: unknown,
+    count?: unknown,
   ): void {
     const player = this.players.get(playerId);
     if (!player || player.hp <= 0) return;
@@ -1759,7 +1768,32 @@ export class World {
     const source = this.container(player, from);
     const target = this.container(player, to);
 
-    const taken = source.takeAt(fromIndex as number);
+    const held = source.peekAt(fromIndex as number);
+    if (!held) return;
+
+    /*
+     * 낱개 분할. 개수를 안 주면 예전처럼 통째로 옮긴다.
+     *
+     * 클라이언트가 보낸 값은 **1..보유량으로 조인다** — 개수를 주장할 수 있으면 한 개를
+     * 백 개로 부풀리는 길이 열린다(무기를 주장할 수 없게 만든 것과 같은 이유).
+     */
+    const wanted = Number.isInteger(count)
+      ? Math.max(1, Math.min(held.count, count as number))
+      : held.count;
+
+    /*
+     * 나눠 옮기는 이동은 **빈 칸이나 같은 물건 위에만** 놓을 수 있다.
+     *
+     * 다른 물건 위에 놓으면 자리 바꾸기가 되는데, 원래 칸에는 나머지가 남아 있어서
+     * 밀려난 물건을 되돌릴 자리가 없다 — 둘 중 하나가 조용히 사라진다. 그래서 옮기기
+     * 전에 미리 막는다(peekAt이 있는 이유).
+     */
+    if (wanted < held.count) {
+      const occupant = target.peekAt(toIndex as number);
+      if (occupant && occupant.itemId !== held.itemId) return;
+    }
+
+    const taken = source.takeAt(fromIndex as number, wanted);
     if (!taken) return;
 
     // 충전 슬롯은 태울 수 있는 것만 받는다. 무기를 던져 넣어도 아무 일이 안 일어나면
@@ -1790,9 +1824,15 @@ export class World {
     if (name === 'craft') {
       // 제작 결과 칸은 한 칸짜리다 — **꺼내 가기만** 되고 넣을 수는 없다.
       return {
-        takeAt: (index) => {
+        peekAt: (index) => (index === 0 ? player.craftOutput : null),
+        takeAt: (index, count) => {
           if (index !== 0) return null;
           const slot = player.craftOutput;
+          if (!slot) return null;
+          if (count !== undefined && count < slot.count) {
+            slot.count -= count;
+            return { itemId: slot.itemId, count };
+          }
           player.craftOutput = null;
           return slot;
         },
@@ -1814,9 +1854,15 @@ export class World {
       };
     }
     return {
-      takeAt: (index) => {
+      peekAt: (index) => this.core.chargeSlots[index] ?? null,
+      takeAt: (index, count) => {
         const slot = this.core.chargeSlots[index] ?? null;
         if (!slot) return null;
+        // 일부만 꺼내면 타던 진행분은 그대로 둔다 — 남은 재료가 계속 타는 중이다.
+        if (count !== undefined && count < slot.count) {
+          slot.count -= count;
+          return { itemId: slot.itemId, count };
+        }
         this.core.chargeSlots[index] = null;
         this.chargeProgress[index] = 0;
         return slot;

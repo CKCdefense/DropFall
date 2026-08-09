@@ -310,7 +310,17 @@ export interface GameConnection {
    * 슬롯 사이 아이템 이동(드래그앤드롭). 인벤토리↔창고, 인벤토리 내부 재배치 모두
    * 이 하나로 처리한다. 창고가 얽힌 이동은 서버가 코어 거리로 거른다.
    */
-  moveItem(from: SlotContainer, fromIndex: number, to: SlotContainer, toIndex: number): void;
+  /**
+   * 칸에서 칸으로 옮긴다. `count`를 주면 그만큼만 나눠 옮긴다(Ctrl+드래그 = 절반).
+   * 서버가 1..보유량으로 조이므로 클라이언트가 개수를 주장할 수는 없다.
+   */
+  moveItem(
+    from: SlotContainer,
+    fromIndex: number,
+    to: SlotContainer,
+    toIndex: number,
+    count?: number,
+  ): void;
   /**
    * 쉬프트 클릭 빠른 이동(docs/backend/44). 목적지 칸은 안 정한다 — 항상 반대편
    * 컨테이너에, 서버가 알아서 쌓거나 빈 칸을 골라 넣는다.

@@ -143,6 +143,8 @@ export class GameRoom extends Room {
         payload?.fromIndex,
         payload?.to,
         payload?.toIndex,
+        // 개수는 그대로 넘긴다 — 유효 범위로 조이는 건 World가 한다(§moveItem).
+        payload?.count,
       );
     },
     quickMoveItem: (client: Client, payload: QuickMoveItemMessage) => {
