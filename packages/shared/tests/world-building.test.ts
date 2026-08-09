@@ -594,6 +594,35 @@ describe('World — 창고 칸 비우기(폐기)', () => {
     expect(() => world.discardFromStorage('ghost', 3)).not.toThrow();
     expect(storedCount(world, 'bandage')).toBe(3);
   });
+
+  it('인벤토리 칸도 같은 방식으로 버린다 — 창고에 넣지 않아도 된다', () => {
+    const world = createTestWorld();
+    world.addPlayer('p1', 10, 0);
+    emptyHands(world, 'p1');
+    world.getPlayers().get('p1')!.inventory.add('bandage', 2);
+    expect(carriedCount(world, 'p1', 'bandage')).toBe(2);
+
+    const index = world
+      .getPlayers()
+      .get('p1')!
+      .inventory.toView()
+      .slots.findIndex((slot) => slot?.itemId === 'bandage');
+    world.discardItem('p1', 'inventory', index);
+
+    expect(carriedCount(world, 'p1', 'bandage')).toBe(0);
+    expect(droppedCount(world, 'bandage')).toBe(2);
+  });
+
+  it('충전·제작 칸은 버릴 수 없다 — 넣어 둔 것을 빼는 조작과 몸짓이 겹치면 안 된다', () => {
+    const world = createTestWorld();
+    world.addPlayer('p1', 10, 0);
+
+    for (const container of ['charge', 'craft', 'nonsense', null, undefined]) {
+      expect(() => world.discardItem('p1', container, 0)).not.toThrow();
+    }
+    expect(storedCount(world, 'bandage')).toBe(3);
+    expect(droppedCount(world, 'bandage')).toBe(0);
+  });
 });
 
 describe('World — 쉬프트 클릭 빠른 이동(quickMoveItem, docs/backend/44)', () => {

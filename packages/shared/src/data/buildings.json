@@ -1,5 +1,5 @@
 {
-  "$comment": "건축물. 나무(티어1) → 돌(티어2) → 철(티어3)로 갈수록 튼튼하다. 설치는 **제작한 아이템을 들고** 하는 경로 하나뿐이다(건축 모드는 제거됐다) — 아이템 한 개가 곧 비용이라 여기엔 비용 항목이 없다. repairPerHit/repairCost는 해머로 한 번 때릴 때 회복되는 체력과 그때 드는 자원이다.",
+  "$comment": "건축물. 나무(티어1) → 돌(티어2) → 철(티어3)로 갈수록 튼튼하다. 설치는 **제작한 아이템을 들고** 하는 경로 하나뿐이다(건축 모드는 제거됐다) — 아이템 한 개가 곧 비용이라 여기엔 비용 항목이 없다. repairPerHit/repairCost는 해머로 한 번 때릴 때 회복되는 체력과 그때 드는 자원이다. 스파이크는 벽의 반대다 — **막지 않고 늦춘다**(blocksMovement false). 잡몹은 뚫린 길로 알고 그 위를 지나오고, 밟는 동안 slowMultiplier로 감속된다(보스 제외, 플레이어 포함). 내구도는 위에 있는 몬스터 수 × 시간으로 닳는다(wearPerMonsterSecond). 수리·파괴·해머 회수는 벽과 같은 규칙이다.",
   "fence": {
     "repairPerHit": 6,
     "repairCost": 2,
@@ -41,5 +41,32 @@
     "hp": 900,
     "blocksMovement": true,
     "blocksProjectile": true
+  },
+  "spike": {
+    "repairPerHit": 5,
+    "repairCost": 2,
+    "hp": 40,
+    "blocksMovement": false,
+    "blocksProjectile": false,
+    "slowMultiplier": 0.8,
+    "wearPerMonsterSecond": 3
+  },
+  "stone_spike": {
+    "repairPerHit": 12,
+    "repairCost": 5,
+    "hp": 90,
+    "blocksMovement": false,
+    "blocksProjectile": false,
+    "slowMultiplier": 0.7,
+    "wearPerMonsterSecond": 3
+  },
+  "iron_spike": {
+    "repairPerHit": 25,
+    "repairCost": 13,
+    "hp": 180,
+    "blocksMovement": false,
+    "blocksProjectile": false,
+    "slowMultiplier": 0.6,
+    "wearPerMonsterSecond": 3
   }
 }

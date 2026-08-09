@@ -96,6 +96,15 @@
       }
     },
     {
+      "id": "spike",
+      "itemId": "spike",
+      "requiresTier": 1,
+      "count": 6,
+      "cost": {
+        "resource": 60
+      }
+    },
+    {
       "id": "wall",
       "itemId": "wall",
       "requiresTier": 1,
@@ -111,6 +120,15 @@
       "count": 6,
       "cost": {
         "resource": 150
+      }
+    },
+    {
+      "id": "stone_spike",
+      "itemId": "stone_spike",
+      "requiresTier": 2,
+      "count": 6,
+      "cost": {
+        "resource": 130
       }
     },
     {
@@ -131,6 +149,16 @@
       "cost": {
         "resource": 240,
         "energy": 36
+      }
+    },
+    {
+      "id": "iron_spike",
+      "itemId": "iron_spike",
+      "requiresTier": 3,
+      "count": 6,
+      "cost": {
+        "resource": 210,
+        "energy": 30
       }
     },
     {
