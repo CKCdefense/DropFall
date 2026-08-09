@@ -769,6 +769,7 @@ const CraftRecipeSchema = z.object({
 const CraftingDataSchema = z.object({
   /** 제작 한 건에 걸리는 시간(초). 즉시 완성이면 밤이 오기 전 준비라는 압박이 없다. */
   craftSeconds: z.number().positive(),
+  outputStackLimit: z.number().int().positive(),
   recipes: z.array(CraftRecipeSchema),
 });
 
