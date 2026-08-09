@@ -31,6 +31,7 @@
 --   hud_icon_resource 12x12 코어 패널 — 자원 표식(주황 광석 덩이)
 --   hud_icon_energy 12x12  코어 패널 — 에너지 표식(세로로 긴 보라 전지)
 --   hud_icon_check_off/on 12x12  낮 스킵 투표 칸(빈 홈 / 초록 체크)
+--   hud_icon_trash  16x16  창고 아래 폐기 구역(뚜껑 달린 금속 휴지통)
 --
 -- 실행 (저장소 루트에서 — outdir는 절대경로):
 --   "$ASE" -b --script-param outdir="$(pwd)/assets/ui/hud" --script assets/_generators/ui_hud.lua
@@ -385,6 +386,34 @@ local function iconEnergy(img)
   }, { o = OUTLINE, p = ENERGY, h = ENERGY_HI, d = ENERGY_DK })
 end
 
+--- 폐기. 뚜껑 달린 **금속 휴지통**. 창고 아래 폐기 구역에 얹히므로 12px로는 작아서
+--- 16px로 뽑는다 — 물건을 끌어다 놓는 자리라 "여기가 무엇이냐"가 멀리서도 읽혀야 한다.
+--- 몸통의 세로 줄무늬(h/d)는 통을 원통으로 보이게 하는 장치다.
+local BIN      = Color{ r = 0x8A, g = 0x91, b = 0xA0 } -- PANEL_STROKE 계열 금속
+local BIN_HI   = Color{ r = 0xB9, g = 0xC0, b = 0xCC }
+local BIN_DK   = Color{ r = 0x5A, g = 0x61, b = 0x70 }
+
+local function iconTrash(img)
+  fromMask(img, {
+    '................',
+    '......oooo......',
+    '......o..o......',
+    '..oooooooooooo..',
+    '..ohhhhmmmmmmo..',
+    '..oooooooooooo..',
+    '...ohmmdmmhmo...',
+    '...ohmmdmmhmo...',
+    '...ohmmdmmhmo...',
+    '...ohmmdmmhmo...',
+    '...ohmmdmmhmo...',
+    '...ohmmdmmhmo...',
+    '...ohmmdmmhmo...',
+    '...ohmmdmmhmo...',
+    '....ommmmmmo....',
+    '....oooooooo....',
+  }, { o = OUTLINE, m = BIN, h = BIN_HI, d = BIN_DK })
+end
+
 
 -- ---------------------------------------------------------------- 생성
 
@@ -403,3 +432,4 @@ save('hud_icon_resource', 12, 12, function(img) iconResource(img) end)
 save('hud_icon_energy', 12, 12, function(img) iconEnergy(img) end)
 save('hud_icon_check_off', 12, 12, function(img) iconCheckOff(img) end)
 save('hud_icon_check_on', 12, 12, function(img) iconCheckOn(img) end)
+save('hud_icon_trash', 16, 16, function(img) iconTrash(img) end)

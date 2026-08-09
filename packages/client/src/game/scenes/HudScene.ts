@@ -249,9 +249,7 @@ export class HudScene extends Phaser.Scene {
   private lastBossId: string | undefined;
   /** 패널 제목. 굵은 자체로 그려 무슨 판인지 먼저 읽히게 한다. */
   private coreHeadText!: Phaser.GameObjects.Text;
-  private resourceText!: Phaser.GameObjects.Text;
-  private debugText!: Phaser.GameObjects.Text;
-  private helpText!: Phaser.GameObjects.Text;
+
   /**
    * 코어 AI 페르소나 대사 토스트 — 웨이브 다이얼 아래에서 잠깐 떴다 사라진다.
    * CoreModal을 안 열어도 보이게 하려고 추가했다(모달 안 대사는 그대로 유지 —
@@ -385,9 +383,6 @@ export class HudScene extends Phaser.Scene {
     // 탄약은 체력 바 오른쪽 끝에 붙인다 — 쏘는 동안 눈이 화면 아래 중앙을 벗어나지 않게.
     this.ammoText = this.add.text(0, 0, '', DIM_STYLE).setOrigin(1, 1);
 
-    this.resourceText = this.add.text(0, 0, '휴대 나무 0 · 돌 0 · 부품 0', DIM_STYLE);
-    this.debugText = this.add.text(0, 0, '', SMALL_STYLE);
-    this.helpText = this.add.text(0, 0, '', DIM_STYLE).setOrigin(0.5, 1);
     this.aiToastText = this.add
       .text(0, 0, '', { fontFamily: FONT, fontSize: `${SIZE_BODY}px`, color: ACCENT, align: 'center' })
       .setOrigin(0.5, 0)
@@ -416,12 +411,7 @@ export class HudScene extends Phaser.Scene {
 
     // 패널 밖에 떠 있는 글자는 지형 위에 그대로 얹혀서 대비가 필요하다.
     // 패널 안 글자(코어, 퀵슬롯, 팀원)는 어두운 상자가 이미 받쳐주므로 놔둔다.
-    this.looseTexts = [
-      this.resourceText,
-      this.debugText,
-      this.helpText,
-      this.aiToastText,
-    ];
+    this.looseTexts = [this.aiToastText];
 
     this.layout();
     this.cinematic = new CinematicOverlay(this);
@@ -442,10 +432,10 @@ export class HudScene extends Phaser.Scene {
    */
   private createCoreModals(): void {
     this.coreModal = new CoreModal(this);
-    this.connection.onCoreCommentary((text) => {
-      this.coreModal.setCommentary(text);
-      this.showAiToast(text);
-    });
+    // 대사는 화면 위 토스트로만 흘린다. 예전엔 코어 창에도 같은 줄을 띄웠는데,
+    // "특별한 것 없다" 같은 말이 창을 열 때마다 자리를 차지하고 있었다 —
+    // 지나가는 말은 지나가게 두는 편이 맞다.
+    this.connection.onCoreCommentary((text) => this.showAiToast(text));
     this.characterModal = new CharacterModal(this);
 
     // 조작법 창 + 미니맵 왼쪽의 `?` 버튼.
@@ -557,6 +547,13 @@ export class HudScene extends Phaser.Scene {
         isActive: () => this.coreModal.isCoreTabVisible(),
       });
     }
+    // 폐기 구역 — 창고 탭 아래 휴지통. 창고 칸과 같은 규칙으로 그 탭이 보일 때만 산다.
+    this.slotDrag.register({
+      container: 'trash',
+      index: 0,
+      box: this.coreModal.trashCell,
+      isActive: () => this.coreModal.isWarehouseVisible(),
+    });
     // 제작 결과 칸 — 여기서 인벤토리로 끌어다 꺼낸다(넣는 쪽은 서버가 거절한다).
     this.slotDrag.register({
       container: 'craft',
@@ -577,7 +574,9 @@ export class HudScene extends Phaser.Scene {
     this.characterModal.onSpendPoint = (stat) => this.connection.spendStatPoint(stat);
     this.coreModal.onCraft = (recipeId: string) => this.connection.craft(recipeId);
     this.coreModal.onPurchase = (itemId: string) => this.connection.shopBuy(itemId);
-    this.coreModal.onDiscard = (index: number) => this.connection.discardStorageItem(index);
+    this.coreModal.onReroll = () => this.connection.rerollShop();
+    this.slotDrag.onDiscard = (container, index) => this.connection.discardItem(container, index);
+    this.slotDrag.onTrashHover = (armed) => this.coreModal.setTrashArmed(armed);
 
     // 코어 창을 여는 길은 **코어 앞에서 E** 하나뿐이다(CORE_INTERACT_KEY).
     // 예전엔 F로 맵 어디서나 열렸는데, 창고·제작·상점이 전부 "코어 앞에서 하는 일"이라
@@ -866,10 +865,6 @@ export class HudScene extends Phaser.Scene {
     for (const modal of this.allModals()) modal.recenter(width, height, reserved);
 
     // --- 나머지
-    this.resourceText.setFontSize(SIZE_BODY * scale).setPosition(pad, height - 40 * scale);
-    this.debugText.setFontSize(SIZE_SMALL * scale).setPosition(pad, height - 58 * scale);
-    this.helpText.setFontSize(SIZE_BODY * scale).setPosition(width / 2, height - 4 * scale);
-
     for (const text of this.looseTexts) applyTextShadow(text, scale);
 
     if (this.debugJumpButton) {
@@ -903,6 +898,8 @@ export class HudScene extends Phaser.Scene {
     this.minimap.update(snapshot, this.connection.sessionId, localPosition);
     this.party.update(
       snapshot.players.filter((player) => player.id !== this.connection.sessionId),
+      snapshot.players,
+      this.connection.sessionId,
     );
     this.latestInventory = me?.slots ?? [];
     this.latestStorage = status.coreStorage;
@@ -918,12 +915,11 @@ export class HudScene extends Phaser.Scene {
       output: me?.craftOutput ?? null,
     });
     this.latestCraftOutput = me?.craftOutput ?? null;
-    this.coreModal.setStoreContext(status.shopStock, status.coreEnergy);
+    this.coreModal.setStoreContext(status.shopStock, status.coreEnergy, status.shopRerollCost);
     this.quickSlots.update(me, this.slotDrag.hoverCellOf('inventory'));
     this.reviveBanner.update(me, this.connection.solo);
     this.characterModal.setPlayer(me);
     this.updateAmmo(me);
-    this.updateTexts(snapshot, me);
 
     // 코어는 항상 원점(0,0). 서버(World.isNearCore)와 같은 함수로 판정해야
     // "E가 안 먹는다"는 어긋남이 안 생긴다 — 코어가 8각 발자국이 되면서 반경
@@ -1100,32 +1096,6 @@ export class HudScene extends Phaser.Scene {
     );
   }
 
-  private updateTexts(snapshot: WorldSnapshot, me: PlayerView | undefined): void {
-    const { status } = snapshot;
-
-    this.debugText.setText(
-      me
-        ? `x:${me.x.toFixed(0)} y:${me.y.toFixed(0)} mob:${snapshot.monsters.length} proj:${snapshot.projectiles.length}`
-        : '동기화 대기 중...',
-    );
-    this.resourceText.setText(
-      me
-        ? `휴대 나무 ${me.wood} · 돌 ${me.stone} · 부품 ${me.parts}`
-        : '휴대 나무 0 · 돌 0 · 파편 0',
-    );
-
-    // 낮에만 스킵 안내를 띄운다 — 밤에는 쓸 수 없는 조작이라 보여줄 이유가 없다.
-    // 전체 목록은 조작법 창(미니맵 옆 `?`)에 있다 — 이 줄은 손이 가장 자주 가는 것만
-    // 남기고, 나머지는 창을 열어 보게 한다.
-    const controlsHint = `WASD 이동 · 좌클릭 공격 · 우클릭 사용 · [Space] 줍기 · [1~${SLOT_COUNT}] 퀵슬롯 · [E] 코어 · [?] 조작법`;
-    // 개발 도구가 붙어 있을 때만 그 키를 안내한다 — 없는 키를 알려주면 안 된다.
-    const devHint = this.devConsole ? ' · [`] 콘솔 · [F9] 아이템' : '';
-    this.helpText.setText(
-      status.wavePhase === 'day'
-        ? `${controlsHint} · [V] 낮 넘기기 ${status.skipVoteCount}/${snapshot.players.length}${devHint}`
-        : `${controlsHint} · ESC 나가기${devHint}`,
-    );
-  }
 }
 
 /**

@@ -227,6 +227,8 @@ export class GameRoomState extends Schema {
   @type('number') upgradeEnergyCost = 0;
   /** 오늘의 상점 진열(아이템 id). 낮이 될 때마다 통째로 바뀐다. */
   @type(['string']) shopStock = new ArraySchema<string>();
+  /** 지금 리롤에 드는 에너지. 돌릴수록 오른다(World.getShopRerollCost). */
+  @type('number') shopRerollCost = 0;
   /**
    * 팀이 밝힌 지역(칸당 1비트, 128×128 = 2KB). Colyseus가 **바뀐 바이트만** 델타로
    * 보내주므로 별도 메시지가 필요 없다 — 새로 합류한 사람은 전체를 한 번 받고,

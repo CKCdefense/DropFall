@@ -13,14 +13,14 @@ import {
   DETAIL_RATIO,
   DIM_TEXT,
   FONT,
-  FONT_SMALL,
   PANEL_FILL,
   PANEL_STROKE,
   SIZE_BODY,
-  SIZE_SMALL,
 } from './theme';
 import type { PanelBuilder } from './Modal';
 import { SlotIcon } from '../render/itemSprite';
+import { CostTag } from './costTag';
+import { ICON_ENERGY, ICON_RESOURCE } from './hudBar';
 
 /** ACCENT('#6fd08c')의 숫자판 — setStrokeStyle은 숫자 색만 받는다. */
 const SELECTED_STROKE = 0x6fd08c;
@@ -32,23 +32,77 @@ const SLOT_GAP = 10;
 const SLOT_COLS = 4;
 const SECTION_PAD = 12;
 const SECTION_GAP = 10;
-/** 티어 고르는 왼쪽 열의 폭과 버튼 높이. */
-const TIER_WIDTH = 96;
-const TIER_BUTTON_HEIGHT = 34;
-const TIER_BUTTON_GAP = 8;
-const CRAFT_WIDTH = 84;
-const CRAFT_HEIGHT = 32;
+/**
+ * 티어 고르는 왼쪽 열. 버튼은 **상단 탭과 같은 어휘**로 그린다 — 돌 프레임(9-slice)
+ * 버튼은 이 창 안에서 유일하게 다른 재질이라 눈에 걸렸고, 무엇보다 "지금 이 티어를
+ * 보고 있다"를 색으로 말해주지 못했다. 탭처럼 초록 테두리 + 밝은 판이면 선택 상태가
+ * 그대로 읽히고, 잠긴 티어는 흐리게 눌러 두면 된다.
+ */
+const TIER_WIDTH = 128;
+const TIER_BUTTON_HEIGHT = 52;
+const TIER_BUTTON_GAP = 10;
+/** 티어 버튼 배경/테두리. Modal의 탭과 같은 값이다. */
+const TIER_ACTIVE_FILL = 0x0f1117;
+const TIER_IDLE_FILL = 0x14161d;
 
-/** 진행 화살표와 결과 상자. "재료 → (시간) → 결과"를 한 줄로 읽히게 한다. */
+/** 카테고리 제목 줄 높이와 묶음 사이 간격. */
+const CATEGORY_HEAD = 20;
+const CATEGORY_GAP = 12;
+/** 스크롤 막대 폭과 최소 길이. 목록이 넘칠 때만 나타난다. */
+const SCROLL_WIDTH = 4;
+const SCROLL_MIN = 24;
+/**
+ * 휠 한 칸에 움직이는 거리 = **한 줄**.
+ *
+ * 넘치는 부분을 마스크로 자르지 않고 **줄째로 숨기기** 때문이다(§cullList).
+ * 마스크를 쓰려면 도형을 창 컨테이너 밖에 두고 창을 끌 때마다 월드 좌표를 다시
+ * 맞춰야 하는데(컨테이너 안에 넣으면 부모 변환을 못 받아 엉뚱한 자리를 가린다 —
+ * 실제로 그래서 목록이 통째로 사라졌다), 목록이 몇 줄뿐이라 그 복잡도를 살 이유가 없다.
+ * 반 줄씩 움직이면 잘린 칸이 생기므로 한 줄씩 딱 떨어지게 움직인다.
+ */
+const SCROLL_STEP = SLOT_SIZE + SLOT_GAP;
+
+/**
+ * 제작 버튼 — 아래 띠의 **높이를 통째로** 쓰는 홀로그램 판(상점의 구매/리롤과 같은 재질).
+ * 돌 프레임 32px짜리 작은 버튼은 이 창에서 유일하게 다른 재질인 데다, 정작 가장 자주
+ * 누르는 것인데 가장 눈에 안 띄었다.
+ */
+const CRAFT_BUTTON_WIDTH = 116;
+
+/** 진행 화살표와 상자들. "만들 것 → (시간) → 결과"를 한 줄로 읽히게 한다. */
 const ARROW_LENGTH = 46;
 const ARROW_SHAFT_HALF = 5;
 const ARROW_HEAD_HALF = 11;
 const ARROW_HEAD_LENGTH = 16;
-const RESULT_BOX = 52;
+/**
+ * 왼쪽 그림 상자와 오른쪽 결과 상자는 **같은 크기**다. 예전엔 결과 상자만 52px이라
+ * 왼쪽 그림보다 작아서, 한 줄로 읽혀야 할 "→" 관계가 크기 차이 때문에 어긋나 보였다.
+ */
+const BOX_SIZE = 84;
+const BOX_ICON_INSET = 14;
 const GAP = 10;
+/** 아래 띠 글줄. 이름(22px) 아래로 세 줄. 상점 상세와 같은 규칙이다. */
+const DETAIL_LINE_TOP = 26;
+const DETAIL_LINE_GAP = 18;
 /** 화살표 색: 아직 안 찬 부분(어둡게)과 찬 부분(흰색). */
 const ARROW_TRACK = 0x2a2f3a;
 const ARROW_FILL = 0xffffff;
+
+/**
+ * 목록을 가르는 갈래. **아이템 종류(items.json의 kind)로 나눈다** — 레시피에 분류를
+ * 따로 적어두면 아이템을 옮길 때마다 두 곳을 고쳐야 한다.
+ *
+ * 무기(weapon)는 지금 전부 채집 도구라 '도구'로 부른다. 나중에 진짜 무기를 제작하게
+ * 되면 여기서 갈래를 하나 더 내면 된다.
+ */
+const CATEGORIES: readonly { title: string; kinds: readonly string[] }[] = [
+  { title: '도구', kinds: ['weapon'] },
+  { title: '건설물', kinds: ['building'] },
+  { title: '아이템', kinds: ['consumable'] },
+];
+
+/** 어느 갈래에도 안 걸린 것들이 모이는 자리. 새 종류가 생겨도 목록에서 사라지지 않는다. */
+const OTHER_CATEGORY = '기타';
 
 /** 레시피에 등장하는 티어들(오름차순). 데이터가 늘면 버튼도 따라 늘어난다. */
 const TIERS = [...new Set(craftingData.recipes.map((recipe) => recipe.requiresTier))].sort(
@@ -128,15 +182,35 @@ export class CraftPanel {
   onCraft: (recipeId: string) => void = () => {};
 
   private readonly recipes: CraftRecipe[] = craftingData.recipes;
-  private readonly tierButtons: (Phaser.GameObjects.NineSlice | Phaser.GameObjects.Rectangle)[] = [];
+  private readonly tierButtons: Phaser.GameObjects.Rectangle[] = [];
   private readonly tierLabels: Phaser.GameObjects.Text[] = [];
   /** 격자 칸은 티어를 바꿀 때 내용만 갈아 끼운다 — 티어마다 다시 만들면 선택이 풀린다. */
   private readonly slotBoxes: Phaser.GameObjects.Rectangle[] = [];
   private readonly slotIcons: SlotIcon[] = [];
+  /** 카테고리 제목 줄. 칸과 같은 방식으로 미리 만들어 두고 보이고 숨긴다. */
+  private readonly categoryLabels: Phaser.GameObjects.Text[] = [];
+  /**
+   * 목록이 담기는 통. 스크롤은 이 통을 위아래로 **움직여서** 만든다 —
+   * 창을 끌어 옮길 수 있어서 마스크의 월드 좌표를 따로 맞춰야 하는데, 마스크 도형을
+   * 같은 통에 넣어 두면 창과 함께 움직이므로 좌표를 다시 잡을 일이 없다.
+   */
+  private listView!: Phaser.GameObjects.Container;
+  private scrollTrack!: Phaser.GameObjects.Rectangle;
+  private scrollThumb!: Phaser.GameObjects.Rectangle;
+  /** 목록 통의 보이는 높이와, 지금 얼마나 내렸는지. */
+  private viewHeight = 0;
+  private contentHeight = 0;
+  private scrollY = 0;
   private readonly nameText: Phaser.GameObjects.Text;
-  private readonly costText: Phaser.GameObjects.Text;
+  /** 비용 두 줄 — 글자 대신 게이지 아이콘 + 숫자. */
+  private readonly costTag: CostTag;
+  private readonly energyTag: CostTag;
+  /** 제작 중에만 뜨는 남은 시간. 비용 줄과 같은 자리를 나눠 쓴다. */
+  private readonly progressText: Phaser.GameObjects.Text;
   private readonly tierText: Phaser.GameObjects.Text;
   private readonly detailIcon: SlotIcon;
+  /** 아래 띠 왼쪽의 그림 상자. 오른쪽 결과 상자와 같은 크기라 "→"가 한 줄로 읽힌다. */
+  private readonly detailFrame: Phaser.GameObjects.Rectangle;
 
   /** 지금 보고 있는 티어와, 그 티어 안에서 고른 칸. */
   private tier = TIERS[0] ?? 1;
@@ -164,7 +238,7 @@ export class CraftPanel {
 
     const gridX = TIER_WIDTH + SECTION_GAP;
     const gridWidth = builder.width - gridX;
-    const gridRows = Math.ceil(this.maxRecipesPerTier() / SLOT_COLS);
+
 
     // 아래 상세 띠를 **먼저** 잘라내고 나머지를 전부 위(고르는 곳)에 준다.
     // 반대로 하면(위를 내용 높이에 맞추고 남은 걸 상세에) 창이 세로로 길어질수록
@@ -175,33 +249,32 @@ export class CraftPanel {
       DETAIL_MAX_HEIGHT,
     );
     // 위 구역의 최소 높이는 **격자와 티어 열 중 큰 쪽**이다. 격자만 보고 잡으면 티어가
-    // 넷 이상일 때 마지막 버튼이 상자 밖으로 나가 아래 구역에 가려진다(실제로 그랬다).
+    // 넷 이상일 때 마지막 버튼이 아래 구역에 가려진다(실제로 그랬다).
     const tierHeight =
-      SECTION_PAD * 2 + TIERS.length * TIER_BUTTON_HEIGHT + (TIERS.length - 1) * TIER_BUTTON_GAP;
-    const topHeight = Math.max(
-      SECTION_PAD * 2 + gridRows * SLOT_SIZE + (gridRows - 1) * SLOT_GAP,
-      tierHeight,
-      builder.height - detailHeight - SECTION_GAP,
-    );
+      TIERS.length * TIER_BUTTON_HEIGHT + (TIERS.length - 1) * TIER_BUTTON_GAP;
+    // 목록은 스크롤되므로 격자 높이에 창을 맞출 이유가 없다. 티어 열이 잘리지 않을
+    // 만큼만 보장하고 나머지는 창이 주는 높이를 그대로 쓴다.
+    const topHeight = Math.max(tierHeight, builder.height - detailHeight - SECTION_GAP);
 
-    // --- 왼쪽: 티어 고르기. 격자와 같은 높이의 상자로 세워 둔다.
-    builder.addSection(0, 0, TIER_WIDTH, topHeight);
+    // --- 왼쪽: 티어 고르기. **구역 상자를 씌우지 않는다** — 버튼마다 이미 테두리가
+    // 있는데 그걸 또 상자로 감싸면 테두리가 두 겹이 되고, 버튼 넷 아래로 남는 빈 상자
+    // 바닥이 "여기 뭐가 더 있어야 하나" 싶게 만든다. 버튼만 세워 두면 그만이다.
     TIERS.forEach((tier, index) => {
-      const y = SECTION_PAD + index * (TIER_BUTTON_HEIGHT + TIER_BUTTON_GAP);
-      const button = builder.addButton(
-        SECTION_PAD,
-        y,
-        TIER_WIDTH - SECTION_PAD * 2,
-        TIER_BUTTON_HEIGHT,
-        '',
-        () => this.selectTier(tier),
-      );
+      const y = index * (TIER_BUTTON_HEIGHT + TIER_BUTTON_GAP);
+      const button = scene.add
+        .rectangle(0, y, TIER_WIDTH, TIER_BUTTON_HEIGHT, TIER_IDLE_FILL, 1)
+        .setOrigin(0, 0)
+        .setStrokeStyle(1, PANEL_STROKE)
+        .setInteractive({ useHandCursor: true });
+      button.on('pointerdown', () => this.selectTier(tier));
+      builder.add(button);
       this.tierButtons.push(button);
 
       const label = scene.add
-        .text(TIER_WIDTH / 2, y + TIER_BUTTON_HEIGHT / 2, `Tier ${tier}`, {
+        .text(TIER_WIDTH / 2, y + TIER_BUTTON_HEIGHT / 2, `T${tier}`, {
           fontFamily: FONT,
-          fontSize: `${SIZE_BODY}px`,
+          fontSize: `${SIZE_BODY * 2}px`,
+          fontStyle: 'bold',
           color: BODY_TEXT,
         })
         .setOrigin(0.5, 0.5);
@@ -209,64 +282,127 @@ export class CraftPanel {
       this.tierLabels.push(label);
     });
 
-    // --- 오른쪽: 그 티어의 물건들.
+    // --- 오른쪽: 그 티어의 물건들을 갈래별로 세운다.
     builder.addSection(gridX, 0, gridWidth, topHeight);
-    for (let index = 0; index < this.maxRecipesPerTier(); index += 1) {
-      const col = index % SLOT_COLS;
-      const row = Math.floor(index / SLOT_COLS);
-      const x = gridX + SECTION_PAD + col * (SLOT_SIZE + SLOT_GAP);
-      const y = SECTION_PAD + row * (SLOT_SIZE + SLOT_GAP);
 
-      const box = builder.addSlot(x, y, SLOT_SIZE, '', () => this.select(index));
+    this.viewHeight = topHeight - SECTION_PAD * 2;
+    this.listViewTop = SECTION_PAD;
+    this.listView = scene.add.container(gridX + SECTION_PAD, this.listViewTop);
+    builder.add(this.listView);
+
+    // 칸은 **모든 티어·모든 직업을 통틀어 가장 많은 경우**만큼 만들어 둔다.
+    // 예전엔 만들 때의 직업(빈 문자열)으로 셈해서, 의무병 붕대처럼 직업 전용 레시피는
+    // 칸이 아예 없어 목록에 뜨지 못했다.
+    for (let index = 0; index < this.maxRows(); index += 1) {
+      const box = builder.addSlot(0, 0, SLOT_SIZE, '', () => this.select(index));
+      this.listView.add(box);
       this.slotBoxes.push(box);
 
       const icon = new SlotIcon(scene, SLOT_SIZE - 16);
-      icon.place(x + SLOT_SIZE / 2, y + SLOT_SIZE / 2, SLOT_SIZE - 16);
-      if (icon.object) builder.add(icon.object);
+      icon.place(0, 0, SLOT_SIZE - 16);
+      if (icon.object) this.listView.add(icon.object);
       this.slotIcons.push(icon);
     }
+    for (let index = 0; index < CATEGORIES.length + 1; index += 1) {
+      const label = scene.add
+        .text(0, 0, '', {
+          fontFamily: FONT,
+          fontSize: `${SIZE_BODY}px`,
+          fontStyle: 'bold',
+          color: ACCENT,
+        })
+        .setOrigin(0, 0);
+      this.listView.add(label);
+      this.categoryLabels.push(label);
+    }
 
-    // --- 아래: 고른 것 하나를 설명하고 그 자리에서 만든다. 높이는 위에서 이미 정해졌다.
-    const detailY = topHeight + SECTION_GAP;
-    builder.addSection(0, detailY, builder.width, detailHeight);
+    // 스크롤 막대. 넘칠 때만 보인다 — 항상 그려 두면 짧은 목록에서도 "더 있나" 싶어진다.
+    const scrollX = gridX + gridWidth - SECTION_PAD - SCROLL_WIDTH;
+    this.scrollTrack = scene.add
+      .rectangle(scrollX, SECTION_PAD, SCROLL_WIDTH, this.viewHeight, PANEL_STROKE, 0.25)
+      .setOrigin(0, 0)
+      .setVisible(false);
+    this.scrollThumb = scene.add
+      .rectangle(scrollX, SECTION_PAD, SCROLL_WIDTH, SCROLL_MIN, SELECTED_STROKE, 0.8)
+      .setOrigin(0, 0)
+      .setVisible(false);
+    builder.add(this.scrollTrack);
+    builder.add(this.scrollThumb);
 
-    const iconSize = detailHeight - SECTION_PAD * 2;
-    this.detailIcon = new SlotIcon(scene, iconSize);
-    this.detailIcon.place(SECTION_PAD + iconSize / 2, detailY + SECTION_PAD + iconSize / 2, iconSize);
-    if (this.detailIcon.object) builder.add(this.detailIcon.object);
-
-    const textX = SECTION_PAD * 2 + iconSize;
-    this.nameText = scene.add.text(textX, detailY + SECTION_PAD, '-', {
-      fontFamily: FONT,
-      fontSize: `${SIZE_BODY}px`,
-      color: BODY_TEXT,
-    });
-    this.tierText = scene.add.text(textX, detailY + SECTION_PAD + 20, '', {
-      fontFamily: FONT,
-      fontSize: `${SIZE_BODY}px`,
-      color: DIM_TEXT,
-    });
-    this.costText = scene.add.text(textX, detailY + SECTION_PAD + 40, '', {
-      fontFamily: FONT,
-      fontSize: `${SIZE_BODY}px`,
-      color: DIM_TEXT,
-    });
-    builder.add(this.nameText);
-    builder.add(this.tierText);
-    builder.add(this.costText);
+    // 목록 위에서 휠을 굴리면 스크롤한다.
+    //
+    // 칸(setInteractive)에 휠 핸들러를 다는 대신 **씬 단위로 받고 좌표로 판정**한다 —
+    // Phaser는 기본적으로 포인터 아래 **가장 위 객체 하나**에만 입력을 주므로, 뒤에
+    // 깔아 둔 판에 핸들러를 달면 정작 칸 위에서 굴렸을 때 아무 일도 안 일어난다.
+    //
+    // 구역 판정용 사각형은 그리지도 만지지도 않는다 — 창을 끌어 옮겨도 월드 좌표가
+    // 따라오는 자(尺) 역할만 한다.
+    this.wheelArea = scene.add.rectangle(gridX, 0, gridWidth, topHeight).setOrigin(0, 0).setVisible(false);
+    builder.add(this.wheelArea);
+    scene.input.on(
+      Phaser.Input.Events.POINTER_WHEEL,
+      (pointer: Phaser.Input.Pointer, _over: unknown, _dx: number, dy: number) => {
+        if (!this.isListVisible()) return;
+        if (!this.wheelArea.getBounds().contains(pointer.x, pointer.y)) return;
+        this.scrollBy(dy > 0 ? SCROLL_STEP : -SCROLL_STEP);
+      },
+    );
 
     /*
-     * "재료 → (차오르는 화살표) → 결과" 한 줄. 제작 버튼 왼쪽에 붙여서, 누른 뒤 시선이
-     * 그 자리에 머문 채로 진행과 결과를 다 볼 수 있게 한다.
+     * --- 아래: 고른 것 하나를 설명하고 그 자리에서 만든다. 높이는 위에서 이미 정해졌다.
+     *
+     * 한 줄로 읽힌다: [만들 것] 설명 → (차오르는 화살표) → [결과]  ‖ [제작]
+     * 제작 버튼만 상자 밖으로 빼서 띠 높이를 통째로 쓴다 — 누르는 자리가 설명과 섞이지
+     * 않아야 한다(상점 탭의 구매/리롤과 같은 배치다).
      */
+    const detailY = topHeight + SECTION_GAP;
+    const detailWidth = builder.width - CRAFT_BUTTON_WIDTH - SECTION_GAP;
+    builder.addSection(0, detailY, detailWidth, detailHeight);
+
     const rowMidY = detailY + detailHeight / 2;
-    const resultX = builder.width - SECTION_PAD - CRAFT_WIDTH - GAP - RESULT_BOX;
+    this.detailFrame = scene.add
+      .rectangle(SECTION_PAD + BOX_SIZE / 2, rowMidY, BOX_SIZE, BOX_SIZE, PANEL_FILL, 0.9)
+      .setStrokeStyle(1, PANEL_STROKE);
+    builder.add(this.detailFrame);
+
+    this.detailIcon = new SlotIcon(scene, BOX_SIZE - BOX_ICON_INSET);
+    this.detailIcon.place(SECTION_PAD + BOX_SIZE / 2, rowMidY, BOX_SIZE - BOX_ICON_INSET);
+    if (this.detailIcon.object) builder.add(this.detailIcon.object);
+
+    // 네 줄: 이름(크게) · 만들 수 있는지 · 자원 · 에너지. 흐린 11px 한 덩어리였던 걸
+    // 굵게 나눠 놓는다 — 모자란 게 자원인지 에너지인지가 줄 단위로 보여야 한다.
+    const textX = SECTION_PAD * 2 + BOX_SIZE;
+    const line = (offsetY: number, size: number, color: string) => {
+      const text = scene.add.text(textX, detailY + SECTION_PAD + offsetY, '', {
+        fontFamily: FONT,
+        fontSize: `${size}px`,
+        fontStyle: 'bold',
+        color,
+      });
+      builder.add(text);
+      return text;
+    };
+    this.nameText = line(0, SIZE_BODY * 2, BODY_TEXT).setText('-');
+    this.tierText = line(DETAIL_LINE_TOP, SIZE_BODY, DIM_TEXT);
+    // 비용 두 줄은 "자원"·"에너지"라는 글자 대신 **게이지와 같은 그림**을 앞에 세운다
+    // (CostTag) — 코어 탭의 게이지, 화면 왼쪽 위 HUD와 같은 아이콘이라 어느 게이지에서
+    // 나가는지가 글자 없이 읽힌다.
+    this.costTag = new CostTag(builder, ICON_RESOURCE);
+    this.energyTag = new CostTag(builder, ICON_ENERGY);
+    const costY = detailY + SECTION_PAD + DETAIL_LINE_TOP + DETAIL_LINE_GAP + SIZE_BODY / 2;
+    this.costTag.place(textX, costY);
+    this.energyTag.place(textX, costY + DETAIL_LINE_GAP);
+    // 제작 중에는 비용 대신 남은 시간이 그 자리를 쓴다. 시간에는 붙일 그림이 없어서
+    // 글줄을 따로 두고 둘을 번갈아 보여준다.
+    this.progressText = line(DETAIL_LINE_TOP + DETAIL_LINE_GAP, SIZE_BODY, ACCENT);
+
+    const resultX = detailWidth - SECTION_PAD - BOX_SIZE;
     const arrowX = resultX - GAP - ARROW_LENGTH;
 
     this.arrow = new ProgressArrow(builder, arrowX, rowMidY);
 
     this.resultBox = scene.add
-      .rectangle(resultX, rowMidY - RESULT_BOX / 2, RESULT_BOX, RESULT_BOX, PANEL_FILL, 0.9)
+      .rectangle(resultX, rowMidY - BOX_SIZE / 2, BOX_SIZE, BOX_SIZE, PANEL_FILL, 0.9)
       .setOrigin(0, 0)
       .setStrokeStyle(1, PANEL_STROKE)
       // 여기서 끌어다 인벤토리로 꺼낸다 — SlotDrag는 pointerdown을 받으려면
@@ -274,37 +410,48 @@ export class CraftPanel {
       .setInteractive({ useHandCursor: true });
     builder.add(this.resultBox);
 
-    this.resultIcon = new SlotIcon(scene, RESULT_BOX - 14);
-    this.resultIcon.place(resultX + RESULT_BOX / 2, rowMidY, RESULT_BOX - 14);
+    this.resultIcon = new SlotIcon(scene, BOX_SIZE - BOX_ICON_INSET);
+    this.resultIcon.place(resultX + BOX_SIZE / 2, rowMidY, BOX_SIZE - BOX_ICON_INSET);
     if (this.resultIcon.object) builder.add(this.resultIcon.object);
 
     this.resultCount = scene.add
-      .text(resultX + RESULT_BOX - 4, rowMidY + RESULT_BOX / 2 - 3, '', {
-        fontFamily: FONT_SMALL,
-        fontSize: `${SIZE_SMALL}px`,
+      .text(resultX + BOX_SIZE - 4, rowMidY + BOX_SIZE / 2 - 3, '', {
+        fontFamily: FONT,
+        fontSize: `${SIZE_BODY}px`,
+        fontStyle: 'bold',
         color: BODY_TEXT,
       })
       .setOrigin(1, 1);
     builder.add(this.resultCount);
 
-    builder.addButton(
-      builder.width - SECTION_PAD - CRAFT_WIDTH,
-      detailY + detailHeight - SECTION_PAD - CRAFT_HEIGHT,
-      CRAFT_WIDTH,
-      CRAFT_HEIGHT,
+    builder.addHoloButton(
+      builder.width - CRAFT_BUTTON_WIDTH,
+      detailY,
+      CRAFT_BUTTON_WIDTH,
+      detailHeight,
       '제작',
       () => {
         const recipe = this.visibleRecipes()[this.selected];
         if (recipe) this.onCraft(recipe.id);
       },
+      SIZE_BODY * 2,
     );
 
     this.selectTier(this.tier);
   }
 
-  /** 한 티어에 들어갈 수 있는 최대 레시피 수 = 격자 칸 수. */
-  private maxRecipesPerTier(): number {
-    return Math.max(...TIERS.map((tier) => this.recipesOfTier(tier).length));
+  /**
+   * 만들어 둘 칸 수 = **어느 티어·어느 직업이든 나올 수 있는 최대 개수**.
+   *
+   * 지금 직업으로 세면 안 된다 — 이 값은 창을 만들 때 한 번만 쓰는데, 그 시점의 직업은
+   * 아직 빈 문자열이라 의무병 붕대 같은 직업 전용 레시피가 칸을 못 받았다(그래서
+   * 목록에 영영 안 떴다). 칸 몇 개를 더 만들어 두는 비용이 그 버그보다 싸다.
+   */
+  private maxRows(): number {
+    const counts = TIERS.map(
+      (tier) => this.recipes.filter((recipe) => recipe.requiresTier === tier).length,
+    );
+    return Math.max(...counts);
   }
 
   private recipesOfTier(tier: number): CraftRecipe[] {
@@ -387,34 +534,182 @@ export class CraftPanel {
   private selectTier(tier: number): void {
     this.tier = tier;
     this.selected = 0;
+    // 티어를 바꾸면 목록이 통째로 갈리므로 스크롤도 맨 위로 되돌린다.
+    this.scrollY = 0;
     this.refreshTiers();
     this.refreshGrid();
     this.refreshDetail();
   }
 
-  /** 잠긴 티어는 흐리게 — 버튼은 남겨두어 "코어를 올리면 열린다"를 계속 보여준다. */
+  /**
+   * 티어 버튼 모양. 상단 탭과 같은 규칙이다 — 고른 것은 밝은 판 + 초록 테두리 + 초록
+   * 글자, 나머지는 어두운 판. 잠긴 티어는 흐리게 눌러 두되 **지우지는 않는다**
+   * ("코어를 올리면 열린다"를 계속 보여줘야 한다).
+   */
   private refreshTiers(): void {
     TIERS.forEach((tier, index) => {
       const locked = tier > this.coreTier;
       const active = tier === this.tier;
-      this.tierLabels[index]!.setColor(active ? ACCENT : locked ? LACKING_TEXT : BODY_TEXT);
-      this.tierButtons[index]!.setAlpha(locked ? 0.55 : 1);
+      const button = this.tierButtons[index]!;
+      button.setFillStyle(active ? TIER_ACTIVE_FILL : TIER_IDLE_FILL, 1);
+      button.setStrokeStyle(active ? 2 : 1, active ? SELECTED_STROKE : PANEL_STROKE);
+      button.setAlpha(locked ? 0.5 : 1);
+      this.tierLabels[index]!.setColor(active ? ACCENT : locked ? LACKING_TEXT : DIM_TEXT);
     });
   }
 
-  /** 격자를 지금 티어의 레시피로 채운다. 남는 칸은 비워 둔다(칸 수는 티어마다 다르다). */
+  /**
+   * 지금 티어의 레시피를 **갈래별로** 세운다. 갈래 제목 아래에 그 갈래의 칸들이 오고,
+   * 빈 갈래는 제목째 건너뛴다 — 없는 칸에 제목만 남으면 "여기 뭔가 있어야 하나" 싶어진다.
+   *
+   * 배치가 끝나면 전체 높이를 재서 스크롤이 필요한지 판단한다.
+   */
   private refreshGrid(): void {
     const recipes = this.visibleRecipes();
-    this.slotBoxes.forEach((box, index) => {
-      const recipe = recipes[index];
-      box.setVisible(recipe !== undefined);
-      this.slotIcons[index]!.setItem(recipe ? recipe.itemId : null);
-      box.setStrokeStyle(1, index === this.selected ? SELECTED_STROKE : PANEL_STROKE);
-    });
+    const groups = this.groupRecipes(recipes);
+
+    let y = 0;
+    let slot = 0;
+    let labelAt = 0;
+
+    for (const group of groups) {
+      const label = this.categoryLabels[labelAt]!;
+      labelAt += 1;
+      label.setText(group.title).setPosition(0, y).setVisible(true);
+      y += CATEGORY_HEAD;
+
+      group.recipes.forEach((recipe, indexInGroup) => {
+        const col = indexInGroup % SLOT_COLS;
+        const row = Math.floor(indexInGroup / SLOT_COLS);
+        const box = this.slotBoxes[slot]!;
+        const x = col * (SLOT_SIZE + SLOT_GAP);
+        const top = y + row * (SLOT_SIZE + SLOT_GAP);
+
+        box.setPosition(x, top).setVisible(true);
+        box.setStrokeStyle(1, recipe.index === this.selected ? SELECTED_STROKE : PANEL_STROKE);
+        this.slotIcons[slot]!.setItem(recipe.recipe.itemId);
+        this.slotIcons[slot]!.place(x + SLOT_SIZE / 2, top + SLOT_SIZE / 2, SLOT_SIZE - 16);
+        // 칸을 누르면 **원래 목록에서의 번호**를 고른다 — 갈래로 나누면서 화면 순서와
+        // 목록 순서가 달라지므로, 눌린 칸이 어느 레시피인지 여기서 묶어 둔다.
+        this.slotOfBox[slot] = recipe.index;
+        slot += 1;
+      });
+
+      const rows = Math.ceil(group.recipes.length / SLOT_COLS);
+      y += rows * SLOT_SIZE + (rows - 1) * SLOT_GAP + CATEGORY_GAP;
+    }
+
+    // 남은 칸·제목은 숨긴다.
+    for (let index = slot; index < this.slotBoxes.length; index += 1) {
+      this.slotBoxes[index]!.setVisible(false);
+      this.slotIcons[index]!.setItem(null);
+    }
+    for (let index = labelAt; index < this.categoryLabels.length; index += 1) {
+      this.categoryLabels[index]!.setVisible(false);
+    }
+
+    this.usedSlots = slot;
+    this.usedLabels = labelAt;
+    this.contentHeight = Math.max(0, y - CATEGORY_GAP);
+    this.applyScroll();
   }
 
-  private select(index: number): void {
-    if (index >= this.visibleRecipes().length) return;
+  /** 화면 칸 번호 → 레시피 목록 번호. 갈래로 나누면서 순서가 달라져서 필요하다. */
+  private readonly slotOfBox: number[] = [];
+  /** 지금 쓰이는 칸 수와 갈래 제목 수. 컬링이 "원래 보여야 할 것"을 알아야 한다. */
+  private usedSlots = 0;
+  private usedLabels = 0;
+
+  /**
+   * 보이는 창(viewHeight) 밖으로 나간 칸·제목을 숨긴다.
+   *
+   * 마스크로 자르는 대신 통째로 숨기는 이유는 SCROLL_STEP 주석에 적어 뒀다.
+   * **완전히 들어오는 것만** 남긴다 — 반쯤 걸친 칸을 남기면 아래 상세 띠를 침범한다.
+   */
+  private cullList(): void {
+    const top = this.scrollY;
+    const bottom = this.scrollY + this.viewHeight;
+
+    for (let index = 0; index < this.usedSlots; index += 1) {
+      const box = this.slotBoxes[index]!;
+      const inside = box.y >= top - 0.5 && box.y + SLOT_SIZE <= bottom + 0.5;
+      box.setVisible(inside);
+      // SlotIcon은 아틀라스가 없으면 그림 자체가 없다 — 있을 때만 숨긴다.
+      this.slotIcons[index]!.object?.setVisible(inside);
+    }
+    for (let index = 0; index < this.usedLabels; index += 1) {
+      const label = this.categoryLabels[index]!;
+      label.setVisible(label.y >= top - 0.5 && label.y + CATEGORY_HEAD <= bottom + 0.5);
+    }
+  }
+
+  /** 레시피를 갈래별로 묶는다. 원래 목록에서의 번호를 함께 들고 간다. */
+  private groupRecipes(
+    recipes: CraftRecipe[],
+  ): { title: string; recipes: { recipe: CraftRecipe; index: number }[] }[] {
+    const groups = [...CATEGORIES.map((c) => ({ title: c.title, kinds: c.kinds })), {
+      title: OTHER_CATEGORY,
+      kinds: [] as readonly string[],
+    }].map((c) => ({ title: c.title, kinds: c.kinds, recipes: [] as { recipe: CraftRecipe; index: number }[] }));
+
+    recipes.forEach((recipe, index) => {
+      const kind = itemsData[recipe.itemId]?.kind ?? '';
+      const group =
+        groups.find((candidate) => candidate.kinds.includes(kind)) ?? groups[groups.length - 1]!;
+      group.recipes.push({ recipe, index });
+    });
+
+    return groups.filter((group) => group.recipes.length > 0);
+  }
+
+  /** 휠 한 칸. 끝을 넘어가지 않게 가둔다. */
+  private scrollBy(delta: number): void {
+    const max = Math.max(0, this.contentHeight - this.viewHeight);
+    this.scrollY = Phaser.Math.Clamp(this.scrollY + delta, 0, max);
+    this.applyScroll();
+  }
+
+  /** 통을 내린 만큼 올리고, 보이는 창 밖으로 나간 줄을 숨기고, 막대를 비율에 맞춘다. */
+  private applyScroll(): void {
+    const max = Math.max(0, this.contentHeight - this.viewHeight);
+    this.scrollY = Phaser.Math.Clamp(this.scrollY, 0, max);
+    this.listView.setY(this.listViewTop - this.scrollY);
+    this.cullList();
+
+    const overflow = max > 0;
+    this.scrollTrack.setVisible(overflow);
+    this.scrollThumb.setVisible(overflow);
+    if (!overflow) return;
+
+    const ratio = this.viewHeight / this.contentHeight;
+    const thumbHeight = Math.max(SCROLL_MIN, this.viewHeight * ratio);
+    const travel = this.viewHeight - thumbHeight;
+    this.scrollThumb.setSize(SCROLL_WIDTH, thumbHeight);
+    this.scrollThumb.setY(this.scrollTrack.y + (max > 0 ? (this.scrollY / max) * travel : 0));
+  }
+
+  /** 목록 통의 원래 y(스크롤 0일 때). 생성 시 정하고 바뀌지 않는다. */
+  private listViewTop = 0;
+  /** 휠을 받을 구역(그리지 않는 자). 창을 끌어 옮기면 월드 좌표가 따라온다. */
+  private wheelArea!: Phaser.GameObjects.Rectangle;
+
+  /**
+   * 이 목록이 지금 화면에 있는가. 제작 탭이 아니거나 창이 닫혀 있으면 휠을 무시해야
+   * 한다 — 씬 단위로 받기 때문에 안 보이는 동안에도 이벤트가 들어온다.
+   */
+  private isListVisible(): boolean {
+    let node: Phaser.GameObjects.GameObject | null = this.listView;
+    while (node) {
+      const display = node as unknown as { visible: boolean; parentContainer: Phaser.GameObjects.Container | null };
+      if (!display.visible) return false;
+      node = display.parentContainer;
+    }
+    return true;
+  }
+
+  private select(boxIndex: number): void {
+    const index = this.slotOfBox[boxIndex];
+    if (index === undefined || index >= this.visibleRecipes().length) return;
     this.selected = index;
     this.refreshGrid();
     this.refreshDetail();
@@ -425,12 +720,18 @@ export class CraftPanel {
     if (!recipe) {
       this.nameText.setText('-');
       this.tierText.setText('');
-      this.costText.setText('');
+      this.progressText.setText('');
+      this.costTag.setVisible(false);
+      this.energyTag.setVisible(false);
       this.detailIcon.setItem(null);
       return;
     }
 
-    this.nameText.setText(itemsData[recipe.itemId]?.name ?? recipe.itemId);
+    const produced = recipe.count && recipe.count > 1 ? ` ×${recipe.count}` : '';
+    this.nameText.setText((itemsData[recipe.itemId]?.name ?? recipe.itemId) + produced);
+    // 그림은 **레시피가 바뀌면 항상** 갈아 끼운다. 예전엔 이 줄이 함수 맨 끝에 있어서,
+    // 제작 중일 때 일찍 return하면 그림만 이전 것으로 남았다.
+    this.detailIcon.setItem(recipe.itemId);
 
     const locked = recipe.requiresTier > this.coreTier;
     this.tierText
@@ -438,28 +739,28 @@ export class CraftPanel {
       .setColor(locked ? LACKING_TEXT : ACCENT);
 
     /*
-     * 비용은 코어 게이지에서 나간다 — 가진 만큼/필요한 만큼을 같이 적어 모자란 쪽이
-     * 어느 게이지인지 바로 보이게 한다. 제작 중이면 남은 시간이 그 자리를 대신한다.
+     * 비용은 코어 게이지에서 나간다 — 가진 만큼/필요한 만큼을 **줄을 나눠** 적어,
+     * 모자란 쪽이 어느 게이지인지 붉은 줄 하나로 보이게 한다. 제작 중이면 남은 시간이
+     * 자원 줄을 대신한다(글줄 폭이 좁아 긴 문장은 넘친다 — 짧게 끊는다).
      */
     if (this.craftingId) {
-      const name = itemsData[
-        craftingData.recipes.find((entry) => entry.id === this.craftingId)?.itemId ?? ''
-      ]?.name;
-      this.costText
-        .setText(`${name ?? '제작'} 만드는 중... ${this.craftRemaining.toFixed(1)}초`)
-        .setColor(ACCENT);
+      this.progressText.setText(`만드는 중 ${this.craftRemaining.toFixed(1)}초`);
+      this.costTag.setVisible(false);
+      this.energyTag.setVisible(false);
       return;
     }
 
+    this.progressText.setText('');
     const energyNeed = recipe.cost.energy ?? 0;
-    const parts = [`자원 ${this.resource}/${recipe.cost.resource}`];
-    if (energyNeed > 0) parts.push(`에너지 ${this.energy}/${energyNeed}`);
-    const lacking = this.resource < recipe.cost.resource || this.energy < energyNeed;
-    const produced = recipe.count && recipe.count > 1 ? `  (${recipe.count}개)` : '';
-    this.costText
-      .setText(parts.join('   ') + produced)
-      .setColor(lacking ? LACKING_TEXT : BODY_TEXT);
-
-    this.detailIcon.setItem(recipe.itemId);
+    this.costTag.setVisible(true);
+    this.costTag.setValue(
+      `${this.resource} / ${recipe.cost.resource}`,
+      this.resource < recipe.cost.resource ? LACKING_TEXT : BODY_TEXT,
+    );
+    this.energyTag.setVisible(energyNeed > 0);
+    this.energyTag.setValue(
+      `${this.energy} / ${energyNeed}`,
+      this.energy < energyNeed ? LACKING_TEXT : BODY_TEXT,
+    );
   }
 }

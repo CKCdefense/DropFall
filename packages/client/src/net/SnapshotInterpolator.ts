@@ -202,6 +202,7 @@ const EMPTY_STATUS: WorldStatus = {
   upgradeResourceCost: 0,
   upgradeEnergyCost: 0,
   shopStock: [],
+  shopRerollCost: 0,
   coreTier: 0,
   coreBuildRadius: 0,
   craftingUnlocked: false,
