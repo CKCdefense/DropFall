@@ -110,7 +110,7 @@
     "weaponId": "rifle",
     "stackSize": 1,
     "rarity": "rare",
-    "buyPrice": 150
+    "buyPrice": 110
   },
   "revolver": {
     "name": "리볼버",
@@ -142,7 +142,7 @@
     "weaponId": "double_barrel_shotgun",
     "stackSize": 1,
     "rarity": "epic",
-    "buyPrice": 260
+    "buyPrice": 230
   },
   "assault_rifle": {
     "name": "돌격 소총",
@@ -158,7 +158,7 @@
     "weaponId": "pump_shotgun",
     "stackSize": 1,
     "rarity": "legendary",
-    "buyPrice": 480
+    "buyPrice": 420
   },
   "sniper_rifle": {
     "name": "저격 라이플",
@@ -166,7 +166,7 @@
     "weaponId": "sniper_rifle",
     "stackSize": 1,
     "rarity": "legendary",
-    "buyPrice": 520
+    "buyPrice": 365
   },
   "minigun": {
     "name": "미니건",

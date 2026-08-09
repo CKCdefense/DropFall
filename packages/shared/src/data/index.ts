@@ -363,7 +363,9 @@ const WaveEntrySchema = z.object({
  * 원래 기획서(01-game-design.md §10.2)의 "몬스터 수 = 기본값 × (0.6 + 0.4 × 인원수)"를
  * 그대로 구현하니 실제로는 너무 적었다(자원 수급처 부족 피드백) — 기본값 자체를
  * baseMultiplier로 한 번 키우고, 인원당 증가폭(perPlayer)도 0.4 → 2로 훨씬 가파르게
- * 늘렸다(데모 준비도 리뷰 피드백 #2).
+ * 늘렸다(데모 준비도 리뷰 피드백 #2). 그런데 이번엔 반대로 "너무 많아서 어렵다"는
+ * 피드백을 받았다(솔로 1웨이브 기준 63마리) — perPlayer(인원당 증가폭)는 그대로 두고
+ * baseMultiplier만 3→2로 낮췄다(솔로 1웨이브 약 41마리, docs/backend/70).
  */
 const WavePlayerScalingSchema = z.object({
   /** waves.json의 spawns 숫자에 곱하는 기본 배율. */
