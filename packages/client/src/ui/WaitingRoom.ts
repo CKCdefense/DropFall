@@ -1,15 +1,7 @@
-import {
-  JOBS,
-  MAX_CLIENTS_PER_ROOM,
-  RoomPhase,
-  SLOT_COUNT,
-  itemsData,
-  jobStats,
-  jobStartingItems,
-  type JobId,
-} from '@dropfall/shared';
+import { JOBS, MAX_CLIENTS_PER_ROOM, RoomPhase, jobStats, type JobId } from '@dropfall/shared';
 import type { GameConnection, LobbyPlayer } from '../net/GameConnection';
-import { characterPortrait, itemIcon, jobIcon } from './characterPortrait';
+import { characterPortrait, jobIcon } from './characterPortrait';
+import { jobKitRow } from './jobKit';
 import { clear, el } from './dom';
 
 /**
@@ -162,7 +154,7 @@ export class WaitingRoom {
         el('div', { class: 'slot-name' }, ['비어 있음']),
         el('div', { class: 'slot-job' }, ['-']),
         el('div', { class: 'slot-detail' }),
-        this.renderSlotKit(null),
+        jobKitRow(null),
       ]);
     }
 
@@ -182,7 +174,7 @@ export class WaitingRoom {
         el('div', { class: 'slot-name' }, [player.nickname]),
         el('div', { class: 'slot-job' }, [job ? `${job.name} · ${job.summary}` : '선택 중...']),
         this.renderSlotTrait(job?.id ?? null),
-        this.renderSlotKit(job?.id ?? null),
+        jobKitRow(job?.id ?? null),
       ],
     );
   }
@@ -196,43 +188,6 @@ export class WaitingRoom {
       el('div', { class: 'slot-stats' }, [`체력 ${stats.maxHp} · 기력 ${stats.maxStamina}`]),
       stats.trait ? el('div', { class: 'slot-trait' }, [stats.trait]) : null,
     ]);
-  }
-
-  /**
-   * 시작 지급품 — **퀵슬롯 네 칸 그대로** 보여준다.
-   *
-   * 글자로 적으면 "붕대 ×2"가 몇 번 칸에 있는지 알 수 없다. 지급품은 칸까지 정해져
-   * 있으므로(loadout.json의 slot) 인게임과 같은 배치로 보여주는 편이 정확하고, 게임에
-   * 들어간 뒤에도 손이 같은 자리를 찾는다.
-   */
-  private renderSlotKit(job: JobId | null): HTMLElement {
-    const kit = job ? jobStartingItems(job) : [];
-
-    return el(
-      'div',
-      { class: 'slot-kit' },
-      Array.from({ length: SLOT_COUNT }, (_, index) => {
-        const entry = kit.find((item) => (item.slot ?? -1) === index);
-        if (!entry) {
-          return el('div', { class: 'kit-cell' }, [
-            el('span', { class: 'kit-num' }, [`${index + 1}`]),
-          ]);
-        }
-
-        const name = itemsData[entry.itemId]?.name ?? entry.itemId;
-        // 인원수만큼 주는 항목(의무병 붕대)은 숫자 대신 그렇다고 적는다 — 대기실에서는
-        // 아직 인원이 확정되지 않아 정확한 개수를 말할 수 없다.
-        const count = entry.perPlayer ? '×N' : entry.count > 1 ? `${entry.count}` : '';
-        return el(
-          'div',
-          { class: 'kit-cell kit-filled', title: `${name}${count ? ` ${count}` : ''}` },
-          [
-            itemIcon(entry.itemId) ?? el('span', { class: 'kit-mark' }, [name.charAt(0)]),
-            count ? el('span', { class: 'kit-count' }, [count]) : null,
-          ],
-        );
-      }),
-    );
   }
 
   /**

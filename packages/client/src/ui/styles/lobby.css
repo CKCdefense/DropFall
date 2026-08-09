@@ -301,18 +301,19 @@
  * 떠 있어서 칩까지 그림을 달 이유가 없다. 혼자하기는 이 모달 하나가 대기실 전체를
  * 대신하므로, 고르는 자리에서 얼굴이 보여야 한다.
  */
+/* minmax(0, 1fr) — 기본값(auto)이면 카드가 제 내용보다 작아지지 못해 격자를 넘친다. */
 .job-cards {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: var(--gap-sm);
 }
 
 .job-card {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  padding: 8px 4px;
+  align-items: stretch;
+  gap: 3px;
+  padding: 8px 6px;
   color: inherit;
   font: inherit;
   background: rgba(10, 12, 17, 0.5);
@@ -329,25 +330,50 @@
   border-color: var(--accent);
 }
 
-/* 카드 안에서는 초상화를 한 단계 작게 — 네 장이 한 줄에 들어가야 한다. */
-.job-card-portrait {
+/*
+ * 직업 아이콘. **초상화(전신)를 쓰지 않는다** — 서 있는 그림은 세로를 많이 먹는데
+ * 이 카드는 이름·특성·지급품까지 담아야 한다. 아이콘은 그 크기에서 읽히게 그려져
+ * 있어 같은 자리에 더 많은 것이 들어간다.
+ */
+.job-card-icon {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: center;
-  min-height: calc(32px * 2);
-}
-
-.job-card-portrait .portrait {
-  --crop-scale: 2;
+  min-height: 64px;
 }
 
 .job-card-name {
-  font-size: 13px;
+  font-weight: 700;
+  font-size: 14px;
+  text-align: center;
 }
 
 .job-card-summary {
   color: var(--text-dim);
   font-size: 11px;
+  text-align: center;
+}
+
+.job-card-stats {
+  color: var(--text-dim);
+  font-size: 11px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+/* 고유 특성 — 무엇이 다른 직업인지가 여기서 갈린다. 두 줄까지 자리를 잡아 둔다. */
+.job-card-trait {
+  min-height: 2.6em;
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 11px;
+  line-height: 1.3;
+  text-align: center;
+}
+
+/* 선택되지 않은 카드도 특성 색은 유지한다 — 비교하려고 보는 값이다. */
+.job-card .slot-kit {
+  margin-top: 4px;
 }
 
 /* ------------------------------------------------------------- 체크박스 */
