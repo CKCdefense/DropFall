@@ -187,6 +187,8 @@ export interface WorldStatus {
   coreMaxResource: number;
   /** 오늘의 상점 진열(아이템 id). 낮이 될 때마다 통째로 바뀐다. */
   shopStock: string[];
+  /** 지금 리롤에 드는 에너지. 돌릴수록 오른다. */
+  shopRerollCost: number;
   /** 창고에 쌓인 부품(drop_normal). 상점 판매의 주 수입원이다. */
   coreParts: number;
   /** 에너지 게이지와 상한. 코어 강화와 상점 구매가 여기서 나간다. */
@@ -315,9 +317,10 @@ export interface GameConnection {
    */
   quickMoveItem(container: SlotContainer, index: number, to?: 'storage' | 'charge'): void;
   /**
-   * 창고 칸 하나를 비운다(폐기). 지우지 않고 발밑에 떨어뜨리므로 잘못 눌러도 되돌릴 수 있다.
+   * 창고나 인벤토리 칸 하나를 비운다(폐기). 지우지 않고 발밑에 떨어뜨리므로 잘못
+   * 버려도 되돌릴 수 있다 — 창고 탭 아래 휴지통 칸에 끌어다 놓으면 이게 나간다.
    */
-  discardStorageItem(index: number): void;
+  discardItem(container: SlotContainer, index: number): void;
   /**
    * 손에 든 건축 아이템을 이 칸에 설치한다. 무엇을 짓는지는 보내지 않는다 —
    * 서버가 선택된 칸을 읽는다(무기와 같은 규칙).
@@ -358,6 +361,8 @@ export interface GameConnection {
   readonly solo: boolean;
   /** 상점에서 산다(물건은 창고로). */
   shopBuy(itemId: string): void;
+  /** 에너지를 내고 오늘의 진열을 다시 뽑는다. 비용은 서버가 판정한다. */
+  rerollShop(): void;
   /** 매 프레임 호출된다. 구현체는 새 객체를 만들지 말고 내부 버퍼를 재사용할 것. */
   getSnapshot(): WorldSnapshot;
   /**

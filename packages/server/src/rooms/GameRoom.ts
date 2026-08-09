@@ -131,6 +131,10 @@ export class GameRoom extends Room {
       if (this.state.phase !== RoomPhase.PLAYING) return;
       this.world.buyFromShop(client.sessionId, payload?.itemId);
     },
+    shopReroll: (client: Client) => {
+      if (this.state.phase !== RoomPhase.PLAYING) return;
+      this.world.rerollShop(client.sessionId);
+    },
     moveItem: (client: Client, payload: MoveItemMessage) => {
       if (this.state.phase !== RoomPhase.PLAYING) return;
       this.world.moveItem(
@@ -154,9 +158,9 @@ export class GameRoom extends Room {
       if (this.state.phase !== RoomPhase.PLAYING) return;
       this.world.placeHeldBuilding(client.sessionId, payload?.cx, payload?.cy);
     },
-    discardStorageItem: (client: Client, payload: { index?: unknown }) => {
+    discardItem: (client: Client, payload: { container?: unknown; index?: unknown }) => {
       if (this.state.phase !== RoomPhase.PLAYING) return;
-      this.world.discardFromStorage(client.sessionId, payload?.index);
+      this.world.discardItem(client.sessionId, payload?.container, payload?.index);
     },
     selectSlot: (client: Client, payload: SelectSlotMessage) => {
       this.world.selectSlot(client.sessionId, payload?.index);
@@ -496,6 +500,7 @@ export class GameRoom extends Room {
     this.state.waveMonsterTotal = this.world.getWaveMonsterTotal();
     this.state.waveMonsterRemaining = this.world.getWaveMonsterRemaining();
     this.state.waveMonsterBonus = this.world.getWaveMonsterBonus();
+    this.state.shopRerollCost = this.world.getShopRerollCost();
     this.state.skipVoteCount = this.world.getSkipVoteCount();
 
     // LLM 호출은 네트워크 왕복이 있어 이번 틱 안에 못 끝난다 — fire-and-forget으로

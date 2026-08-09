@@ -7,7 +7,8 @@ import {
   hashString,
   minimapTerrainAt,
 } from '@dropfall/shared';
-import type { WorldSnapshot } from '../../net/GameConnection';
+import type { PlayerView, WorldSnapshot } from '../../net/GameConnection';
+import { playerColors } from './playerColors';
 import { PANEL_FILL, PANEL_STROKE } from './theme';
 
 /** 미니맵 한 변(px). 코어 패널이 같은 높이를 쓰려고 가져간다(HudScene). */
@@ -24,13 +25,40 @@ const SIZE = MINIMAP_SIZE;
 const WORLD_RANGE = (MAP_SIZE_TILES * TILE_SIZE) / 2;
 
 const CORE_COLOR = 0x7f8fa6;
-const SELF_COLOR = 0x6fd08c;
 const ALLY_COLOR = 0xcfd6e4;
+
+/**
+ * 플레이어 점 크기(px). 나는 조금 크게 찍어 한눈에 찾게 한다.
+ *
+ * 한때 직업 스프라이트의 얼굴을 잘라 띄웠는데, 지도가 168px뿐이라 넷이 뭉치면
+ * 얼굴끼리 겹쳐 오히려 누가 누군지 알 수 없었다. 점으로 되돌리고 **사람마다 색**을
+ * 주는 편이 작은 지도에서 훨씬 잘 읽힌다 — 그 색표는 왼쪽 파티 칸이 들고 있다.
+ */
+const PLAYER_DOT = 3;
+const SELF_DOT = 4;
+
+/** 쓰러진 사람은 붉게 깜빡인다. 지도에서 "누가 누워 있다"가 색만으로 잡혀야 한다. */
+const DOWNED_TINT = 0xff4a4a;
+const DOWNED_BLINK_MS = 420;
 const MONSTER_COLOR = 0xd9756b;
 const RESOURCE_COLOR = 0x5b8c4a;
 const BUILDING_COLOR = 0xb08a5c;
 const COLONY_COLOR = 0x7a3fb0;
 const COLONY_PURIFIED_COLOR = 0x4a3f52;
+
+/**
+ * 건축 가능 구역(코어 주변 마당) 표시.
+ *
+ * 이 구역은 **정사각형**이다 — 판정이 체비쇼프 거리라(PlacementPreview:
+ * `max(|x|,|y|) > coreBuildRadius`) 원이 아니다. 미니맵에서도 같은 모양으로 그려야
+ * "여기까지 지을 수 있다"가 화면과 지도에서 같은 뜻이 된다.
+ *
+ * 안개보다 **위에** 그린다. 내 진지라 안 가봤을 리가 없고, 안개에 덮이면
+ * 정작 확장됐을 때 그 사실이 지도에 안 보인다.
+ */
+const BUILD_AREA_COLOR = 0x6fd08c;
+const BUILD_AREA_FILL_ALPHA = 0.1;
+const BUILD_AREA_LINE_ALPHA = 0.55;
 
 /** 지형 이미지를 살짝 죽여 엔티티 점이 위로 뜨게 한다. */
 const TERRAIN_ALPHA = 0.9;
@@ -62,8 +90,13 @@ export class Minimap {
   private left = 0;
   private top = 0;
   private size = SIZE;
+  /** 미니맵이 커진 배수(uiScale). 얼굴·원반도 같이 커져야 지도와 따로 놀지 않는다. */
+  private uiScale = 1;
 
-  constructor(scene: Phaser.Scene, seedSource: string) {
+  constructor(
+    private readonly scene: Phaser.Scene,
+    seedSource: string,
+  ) {
     this.frame = scene.add
       .rectangle(0, 0, SIZE, SIZE, PANEL_FILL, 0.86)
       .setOrigin(0, 0)
@@ -85,6 +118,7 @@ export class Minimap {
   /** right가 오른쪽 경계, top이 위쪽 경계다(우상단 정렬). */
   layout(right: number, top: number, scale: number): void {
     this.size = SIZE * scale;
+    this.uiScale = scale;
     this.left = right - this.size;
     this.top = top;
     this.frame.setSize(this.size, this.size).setPosition(this.left, this.top);
@@ -103,6 +137,10 @@ export class Minimap {
   update(snapshot: WorldSnapshot, ownSessionId: string, selfPosition?: { x: number; y: number }): void {
     this.applyFog(snapshot.explored);
     this.dots.clear();
+
+    // 건축 가능 구역을 **제일 먼저** 그린다 — 엔티티 점이 그 위에 얹혀야 한다.
+    // 스냅샷의 반경을 매번 그대로 쓰므로 코어를 강화하면 그 프레임에 바로 넓어진다.
+    this.drawBuildArea(snapshot.status.coreBuildRadius);
 
     // 코어는 월드 원점이자 미니맵 중앙이다.
     const centerX = this.left + this.size / 2;
@@ -125,10 +163,38 @@ export class Minimap {
     this.plot(snapshot.monsters, MONSTER_COLOR, 1.5);
 
     // 플레이어는 마지막에 찍어야 몬스터 무리에 묻히지 않는다.
-    for (const player of snapshot.players) {
+    this.drawPlayers(snapshot.players, ownSessionId, selfPosition);
+  }
+
+  /**
+   * 플레이어를 색 점으로 찍는다. 색은 파티 칸의 색 조각과 **같은 규칙**으로 정한다
+   * (§playerColors) — 두 곳이 어긋나면 색으로 사람을 찾는다는 발상 자체가 무너진다.
+   *
+   * 쓰러진 사람은 붉게 깜빡인다. 깜빡임은 시계(scene.time.now)로 계산해서 사람마다
+   * 트윈을 만들지 않는다 — 들락날락해도 위상이 어긋나지 않는다.
+   */
+  private drawPlayers(
+    players: readonly PlayerView[],
+    ownSessionId: string,
+    selfPosition?: { x: number; y: number },
+  ): void {
+    const colors = playerColors(players, ownSessionId);
+    const blinkOn = Math.floor(this.scene.time.now / DOWNED_BLINK_MS) % 2 === 0;
+
+    for (const player of players) {
       const isMe = player.id === ownSessionId;
-      const point = isMe && selfPosition ? { ...player, ...selfPosition } : player;
-      this.plot([point], isMe ? SELF_COLOR : ALLY_COLOR, isMe ? 2 : 1.5);
+      const at = isMe && selfPosition ? selfPosition : player;
+      if (Math.abs(at.x) > WORLD_RANGE || Math.abs(at.y) > WORLD_RANGE) continue;
+
+      const x = this.left + ((at.x + WORLD_RANGE) / (WORLD_RANGE * 2)) * this.size;
+      const y = this.top + ((at.y + WORLD_RANGE) / (WORLD_RANGE * 2)) * this.size;
+      const downed = player.hp <= 0;
+      const radius = (isMe ? SELF_DOT : PLAYER_DOT) * this.uiScale;
+
+      // 쓰러졌으면 붉은색과 제 색을 번갈아 — 깜빡이는 동안에도 누구인지는 유지된다.
+      const color = downed && blinkOn ? DOWNED_TINT : (colors.get(player.id) ?? ALLY_COLOR);
+      this.dots.fillStyle(color, 1);
+      this.dots.fillRect(x - radius, y - radius, radius * 2, radius * 2);
     }
   }
 
@@ -162,6 +228,28 @@ export class Minimap {
   }
 
   /** 월드 좌표를 미니맵 안으로 옮겨 점을 찍는다. 범위를 벗어난 것은 그리지 않는다. */
+  /**
+   * 코어 주변 건축 가능 구역(정사각형)을 옅게 칠하고 테두리를 두른다.
+   * 반경 0(=아직 못 짓는 상태)이면 아무것도 안 그린다.
+   */
+  private drawBuildArea(radiusPx: number): void {
+    if (radiusPx <= 0) return;
+
+    // 월드 좌표 → 미니맵 좌표는 plot과 같은 환산이다. 코어가 원점이므로 반경 하나로
+    // 네 변이 다 정해진다.
+    const half = (radiusPx / (WORLD_RANGE * 2)) * this.size;
+    const centerX = this.left + this.size / 2;
+    const centerY = this.top + this.size / 2;
+    const left = centerX - half;
+    const top = centerY - half;
+    const side = half * 2;
+
+    this.dots.fillStyle(BUILD_AREA_COLOR, BUILD_AREA_FILL_ALPHA);
+    this.dots.fillRect(left, top, side, side);
+    this.dots.lineStyle(1, BUILD_AREA_COLOR, BUILD_AREA_LINE_ALPHA);
+    this.dots.strokeRect(left, top, side, side);
+  }
+
   private plot(entities: { x: number; y: number }[], color: number, radius: number): void {
     this.dots.fillStyle(color, 1);
 

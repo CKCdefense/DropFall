@@ -208,6 +208,17 @@ export class HudBar {
     // 채움은 값이 0이면 원래 숨어 있다 — 켤 때 그 상태를 되살린다.
     this.fill.setVisible(visible && this.ratio > 0);
   }
+
+  /**
+   * 조각들을 다른 통(모달 컨테이너 등)으로 옮긴다.
+   *
+   * 게이지는 scene.add로 만들어져 씬에 바로 붙는데, 모달 안에서 쓰려면 그 컨테이너에
+   * 들어가야 한다 — 안 그러면 창을 끌어 옮겨도 게이지만 제자리에 남는다.
+   */
+  attach(add: (object: Phaser.GameObjects.GameObject) => void): void {
+    add(this.back);
+    add(this.fill);
+  }
 }
 
 /**
@@ -230,3 +241,5 @@ export const ICON_ENERGY = 'hud_icon_energy_base_0';
 /** 낮 스킵 투표 칸. 빈 홈 / 초록 체크 두 장을 바꿔 끼워 상태를 보여준다. */
 export const ICON_CHECK_OFF = 'hud_icon_check_off_base_0';
 export const ICON_CHECK_ON = 'hud_icon_check_on_base_0';
+/** 창고 탭 아래 폐기 구역의 휴지통. 16px 원본이라 정수배로만 키운다. */
+export const ICON_TRASH = 'hud_icon_trash_base_0';

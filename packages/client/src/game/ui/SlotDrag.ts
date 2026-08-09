@@ -11,8 +11,19 @@ const GHOST_ALPHA = 0.72;
 const ACCENT_HEX = 0x6fd08c;
 const IDLE_STROKE = 0x4a5262;
 
+/**
+ * 놓을 수 있는 자리. 'trash'는 **칸이 아니라 구멍**이다 — 창고 탭 아래 폐기 구역으로,
+ * 여기 놓은 물건은 옮겨지지 않고 발밑에 떨어진다(World.discardItem).
+ */
+export type DragTarget = SlotContainer | 'trash';
+
+/** 폐기할 수 있는 출발지. 충전·제작 칸은 "넣어 둔 것"이라 버리는 몸짓을 받지 않는다. */
+function isDiscardable(container: DragTarget): container is 'inventory' | 'storage' {
+  return container === 'inventory' || container === 'storage';
+}
+
 export interface DragCell {
-  container: SlotContainer;
+  container: DragTarget;
   index: number;
   box: Phaser.GameObjects.Rectangle;
   /** 지금 이 칸을 집거나 놓을 수 있는지(모달이 닫혀 있으면 창고 칸은 죽는다). */
@@ -53,6 +64,18 @@ export class SlotDrag {
    * (반대편 컨테이너 안 어디에 넣을지는 서버가 고른다).
    */
   onQuickMove: (container: SlotContainer, index: number) => void = () => {};
+
+  /**
+   * 폐기 구역에 놓았을 때. HudScene이 connection.discardItem으로 배선한다 —
+   * 물건은 사라지지 않고 발밑에 떨어지므로 잘못 놓아도 되돌릴 수 있다.
+   */
+  onDiscard: (container: 'inventory' | 'storage', index: number) => void = () => {};
+
+  /**
+   * 물건을 든 손이 폐기 구역 위에 있는가. 놓으면 사라지는 자리라 놓기 **전에**
+   * 알려야 한다 — 창고 탭이 이 신호로 휴지통 칸을 물들인다.
+   */
+  onTrashHover: (armed: boolean) => void = () => {};
   /**
    * 옮길 수 없는 조합(예: 충전 칸에 무기)을 화면이 먼저 거른다. true를 돌려주면
    * 요청을 보내지 않는다 — 서버에 보내 봐야 아무 일도 안 일어나고, 그러면 사용자는
@@ -60,8 +83,11 @@ export class SlotDrag {
    */
   isRejected: (to: SlotContainer, toIndex: number, itemId: string) => boolean = () => false;
 
-  /** 칸 내용 조회. 빈 칸은 집을 수 없어야 해서 최신 스냅샷을 물어본다. */
-  getSlot: (container: SlotContainer, index: number) => InventorySlot | null = () => null;
+  /**
+   * 칸 내용 조회. 빈 칸은 집을 수 없어야 해서 최신 스냅샷을 물어본다.
+   * 폐기 구역('trash')은 항상 비어 있다 — 그래서 거기서는 아무것도 집히지 않는다.
+   */
+  getSlot: (container: DragTarget, index: number) => InventorySlot | null = () => null;
 
   private readonly cells: DragCell[] = [];
   private source: DragCell | null = null;
@@ -101,6 +127,7 @@ export class SlotDrag {
   /** 쉬프트+클릭 빠른 이동(docs/backend/44). 드래그 상태를 전혀 안 건드린다 —
    * 유령도 안 띄우고 그 자리에서 바로 요청만 보낸다. */
   private quickMove(cell: DragCell): void {
+    if (cell.container === 'trash') return; // 버리는 자리에는 "반대편"이 없다
     if (!cell.isActive()) return;
     const slot = this.getSlot(cell.container, cell.index);
     if (!slot) return; // 빈 칸은 옮길 게 없다
@@ -157,9 +184,15 @@ export class SlotDrag {
     if (this.hover && this.hover.container === 'storage') {
       this.hover.box.setStrokeStyle(1, IDLE_STROKE);
     }
+    if (this.hover?.container === 'trash') this.onTrashHover(false);
     this.hover = over;
     if (over && over.container === 'storage' && over !== this.source) {
       over.box.setStrokeStyle(2, ACCENT_HEX);
+    }
+    // 폐기 구역은 **버릴 수 있는 것을 들었을 때만** 켠다 — 충전 칸에서 집어 온 물건을
+    // 올려놓고 켜지면 놓아도 아무 일이 없는 이유를 알 수 없다.
+    if (over?.container === 'trash' && this.source && isDiscardable(this.source.container)) {
+      this.onTrashHover(true);
     }
   }
 
@@ -173,9 +206,16 @@ export class SlotDrag {
     if (!target) return;
     if (target === source) {
       // 옮기지 않고 같은 칸에서 뗐다 — "그냥 눌렀다"로 본다.
-      this.onClickSelect(source.container, source.index);
+      if (source.container !== 'trash') this.onClickSelect(source.container, source.index);
       return;
     }
+
+    // 폐기 구역에 놓았다. 옮기는 게 아니라 버리는 거라 onMove를 타지 않는다.
+    if (target.container === 'trash') {
+      if (isDiscardable(source.container)) this.onDiscard(source.container, source.index);
+      return;
+    }
+    if (source.container === 'trash') return; // 폐기 구역에서는 아무것도 못 집는다
 
     const slot = this.getSlot(source.container, source.index);
     if (slot && this.isRejected(target.container, target.index, slot.itemId)) return;
@@ -188,6 +228,7 @@ export class SlotDrag {
     this.ghost = null;
     this.source = null;
     if (this.hover?.container === 'storage') this.hover.box.setStrokeStyle(1, IDLE_STROKE);
+    if (this.hover?.container === 'trash') this.onTrashHover(false);
     this.hover = null;
   }
 
