@@ -306,6 +306,18 @@ export class QuickSlotBar {
   }
 
   /**
+   * 화면 좌표가 칸 줄(퀵슬롯 4칸 + 직업 버튼) 위인가.
+   *
+   * HudScene의 입력 차단(HUD_BLOCK_KEY)이 쓴다 — 칸을 클릭해 무기를 드는 조작이
+   * 생기면서, 그 클릭이 월드로 새어 공격까지 나가면 안 된다. 물건이 든 칸은 드래그가
+   * 시작되며 저절로 막히지만 **빈 칸과 칸 사이 틈은** 좌표로 직접 막아야 한다.
+   */
+  containsPoint(x: number, y: number): boolean {
+    if (this.profileBox.getBounds().contains(x, y)) return true;
+    return this.boxes.some((box) => box.getBounds().contains(x, y));
+  }
+
+  /**
    * @param hoverIndex 드래그로 놓을 대상 칸. 선택 강조보다 우선한다 —
    *   지금 손에 든 것이 어디로 갈지가 더 급한 정보다.
    */
