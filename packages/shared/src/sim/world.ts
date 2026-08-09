@@ -183,6 +183,15 @@ const HP_REGEN_PER_SECOND = 0.5;
 const REVIVE_HP_RATIO = 0.5;
 
 /**
+ * 콜로니 수호대를 원거리에서 맞혀도 "교전 중"으로 쳐 주는 유예 시간(초, §ColonyEntity.
+ * engagedTimer). `guardTrickleSeconds`(트리클 소환 주기)보다 살짝 길게 잡는다 —
+ * 정확히 같은 값을 쓰면, 계속 원거리로 교전을 이어가도 "다음 트리클 수호대가 뜨는
+ * 바로 그 순간" 유예가 동시에 0으로 떨어져 소환 자체가 막히는(그리고 곧바로 정화되는)
+ * 경합이 생긴다 — 여유를 둬서 다음 수호대가 뜰 때까지는 반드시 "교전 중"이 유지되게 한다.
+ */
+const COLONY_ENGAGE_GRACE_SECONDS = coloniesData.guardTrickleSeconds + 1;
+
+/**
  * 보스가 **벽·울타리**에 주는 피해 배수.
  *
  * 보스는 밤의 결승전인데 방벽 한 줄에 갇혀 몇십 초를 두들기고 있으면 그동안 아무
@@ -3140,7 +3149,16 @@ export class World {
     for (const colony of this.colonies.values()) {
       if (colony.purified) continue;
 
-      const triggered = this.anyAlivePlayerWithin(colony.x, colony.y, coloniesData.triggerRadius);
+      // 근접 트리거 반경 안에 있거나(triggerRadius), 원거리 무기로 이 콜로니 수호대를
+      // 최근에 맞혔으면(engagedTimer, §ColonyEntity 주석) 둘 다 "교전 중"으로 본다 —
+      // 안 그러면 사거리가 900px까지 나오는 원거리 무기로 트리거 반경(240) 밖에서
+      // 수호대를 잡는 정상적인 플레이가 마지막 한 마리를 잡는 순간 즉시 정화돼버린다.
+      // 판정보다 먼저 감소시켜야, 유예를 넘기는 큰 dt(테스트가 몰아 치는 경우 등)를
+      // 한 번의 tick 안에서 바로 반영해 "유예가 끝났는데도 한 틱 더 걸린다"를 피한다.
+      colony.engagedTimer = Math.max(0, colony.engagedTimer - dtSeconds);
+      const triggered =
+        this.anyAlivePlayerWithin(colony.x, colony.y, coloniesData.triggerRadius) ||
+        colony.engagedTimer > 0;
 
       // 정화: 저장분도 수호대도 남지 않았고, 아무도 트리클을 유지하고 있지 않을 때만.
       // 플레이어가 트리거 반경 안에 있으면(triggered) 저장분이 0이어도 트리클로 계속
@@ -4706,10 +4724,11 @@ export class World {
       if (projectile.hitIds?.has(monsterId)) continue;
       if (projectileSweepHits(projectile, monster.x, monster.y, monsterRadius(monster))) {
         this.damageMonster(monsterId, monster.hp - projectile.damage);
-        if (!projectile.pierce) {
+        if (projectile.pierceRemaining <= 0) {
           this.projectiles.delete(projectileId);
           return true;
         }
+        projectile.pierceRemaining -= 1;
         projectile.hitIds?.add(monsterId);
         hitAny = true;
       }
@@ -4757,13 +4776,29 @@ export class World {
       if (monster) {
         // 수호대였다면 소속 콜로니 장부에서 지운다 — 저장분은 복원되지 않는다
         // (죽은 몬스터는 영구히 줄어드는 게 정화로 가는 길이다).
-        if (monster.homeColonyId) this.colonies.get(monster.homeColonyId)?.guardIds.delete(id);
+        if (monster.homeColonyId) {
+          const colony = this.colonies.get(monster.homeColonyId);
+          colony?.guardIds.delete(id);
+          // 마지막 한 방(치명타)도 "교전 중" 갱신에 포함한다 — 안 그러면 원거리로
+          // 마지막 수호대를 잡는 바로 그 히트가 engagedTimer를 못 채우고 죽으면서
+          // guardIds가 0이 되는 순간과 겹쳐 즉시 정화로 이어질 수 있다.
+          if (colony) colony.engagedTimer = COLONY_ENGAGE_GRACE_SECONDS;
+        }
         this.grantMonsterDrop(monster);
       }
       return;
     }
+
     const monster = this.monsters.get(id);
-    if (monster) monster.hp = remainingHp;
+    if (monster) {
+      monster.hp = remainingHp;
+      // 수호대가 죽지 않을 정도로만 맞아도(원거리 무기로 트리거 반경 밖에서 딜을
+      // 넣는 정상적인 플레이 포함) "교전 중"으로 본다 — §ColonyEntity.engagedTimer 주석.
+      if (monster.homeColonyId) {
+        const colony = this.colonies.get(monster.homeColonyId);
+        if (colony) colony.engagedTimer = COLONY_ENGAGE_GRACE_SECONDS;
+      }
+    }
   }
 
   /**

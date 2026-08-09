@@ -52,6 +52,9 @@
 | [backend/64-work-report-terrain-resource-placement.md](backend/64-work-report-terrain-resource-placement.md) | 작업 보고서 — 자원 노드를 클러스터 배치에서 지형 기반 확률 배치로 전면 교체, 인원수 스케일링(피드백 #4) |
 | [backend/65-work-report-revive-system.md](backend/65-work-report-revive-system.md) | 작업 보고서 — 부활 시스템(쓰러짐/유령, 혼자하기 10초 자동 부활, 동료 구조 5초, AID 즉시 부활, 낮에 코어에서 에너지로 유령 부활) |
 | [backend/66-work-report-wave-spawn-cadence.md](backend/66-work-report-wave-spawn-cadence.md) | 작업 보고서 — 웨이브 무리 크기를 총원과 같은 배율로 스케일링 + 스폰 지점 전체 동시 분산(사방에서 동시 공격) |
+| [backend/67-work-report-colony-ranged-engagement-bug.md](backend/67-work-report-colony-ranged-engagement-bug.md) | 작업 보고서 — 원거리 무기로 콜로니를 farm하면 트리클 없이 즉시 정화되던 버그 수정(engagedTimer 유예 추가) |
+| [backend/68-design-proposal-bullet-pierce.md](backend/68-design-proposal-bullet-pierce.md) | 구현 기획서 — 무기별 총알 관통 횟수 도입, 근접 광역 vs 원거리 탄약제약 트레이드오프 분석(→ backend/69에서 구현) |
+| [backend/69-work-report-bullet-pierce-and-reload.md](backend/69-work-report-bullet-pierce-and-reload.md) | 작업 보고서 — 무기별 총알 관통 횟수 구현(backend/68 대안 C) + 전 원거리 무기 재장전 절반 단축 |
 
 ### 역할 C — 클라이언트/렌더/UI 작업 문서 ([frontend/](frontend/))
 
@@ -76,6 +79,7 @@
 | [frontend/17-work-report-controls-and-prompts.md](frontend/17-work-report-controls-and-prompts.md) | 작업 보고서 — 걷기 모션 복구, 소모품 우클릭·휠 슬롯 전환, 코어 E 키 안내, 제작 진행 화살표 |
 | [frontend/18-work-report-attack-fx-gating.md](frontend/18-work-report-attack-fx-gating.md) | 작업 보고서 — 연타 시 쿨다운을 무시하고 나오던 공격 연출 수정(재장전·빈 탄창 포함) |
 | [frontend/19-work-report-fx-alignment-and-title-weight.md](frontend/19-work-report-fx-alignment-and-title-weight.md) | 작업 보고서 — 소모품 이펙트 발밑 정렬, 레벨업 연출 미니멀화, 중앙 문구 볼드·확대 |
+| [frontend/20-work-report-downed-visuals.md](frontend/20-work-report-downed-visuals.md) | 작업 보고서 — 쓰러진 캐릭터를 발밑 축으로 눕히고, 하단 바 위에 HELP!·부활/유령 카운터·구조 게이지 표시 |
 
 ## 한 줄 요약
 

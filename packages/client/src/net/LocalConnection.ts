@@ -158,6 +158,8 @@ export class LocalConnection implements GameConnection {
     this.world.spendStatPoint(LOCAL_SESSION_ID, stat);
   }
 
+  readonly solo = true;
+
   reviveGhost(targetId: string): void {
     this.world.reviveGhostAtCore(LOCAL_SESSION_ID, targetId);
   }

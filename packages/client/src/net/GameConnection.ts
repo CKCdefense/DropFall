@@ -342,6 +342,15 @@ export interface GameConnection {
   spendStatPoint(stat: 'maxHp' | 'attack' | 'stamina'): void;
   /** 코어에서 유령이 된 동료를 되살린다(낮·에너지 소모). */
   reviveGhost(targetId: string): void;
+  /**
+   * 혼자하기인가. 쓰러졌을 때 안내 문구가 갈린다 — 혼자면 "곧 코어에서 일어난다"이고
+   * 여럿이면 "동료가 일으켜 줘야 한다"이다.
+   *
+   * 스냅샷이 아니라 **접속 방식**에서 나온다. 인원수로 짐작하면 멀티 방에 혼자 남은
+   * 순간 안내가 거짓말이 된다(그 방에서는 아무도 일으켜 줄 수 없는데 "곧 일어난다"고
+   * 뜬다) — 서버 World가 solo를 사람 수로 정하지 않는 것과 같은 이유다.
+   */
+  readonly solo: boolean;
   /** 상점에서 산다(물건은 창고로). */
   shopBuy(itemId: string): void;
   /** 매 프레임 호출된다. 구현체는 새 객체를 만들지 말고 내부 버퍼를 재사용할 것. */

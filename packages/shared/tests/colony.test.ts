@@ -3,6 +3,14 @@ import { World } from '../src/sim/world';
 import { colonyStageData, maxColonyStage } from '../src/sim/colony';
 import { coloniesData, wavesData } from '../src/data';
 
+/**
+ * world.ts의 private 상수 `COLONY_ENGAGE_GRACE_SECONDS`를 그대로 미러링한다(다른
+ * 파일들과 같은 이유로 export 안 함 — world-building.test.ts의 §worldToCell 주석
+ * 패턴 참고). 마지막으로 수호대를 맞힌 뒤 "교전 중"으로 쳐 주는 유예 시간 — 정확히
+ * 이 시간이 지나야 트리거 반경 밖에서도 정화가 성립한다.
+ */
+const COLONY_ENGAGE_GRACE_SECONDS = coloniesData.guardTrickleSeconds + 1;
+
 /** 매번 같은 시퀀스를 내는 결정론적 rng — world-building.test.ts와 동일 패턴(재현성용). */
 function seededRng(seed: number): () => number {
   let state = seed;
@@ -206,9 +214,57 @@ describe('World — 수호대 소환/귀환', () => {
     const player = world.getPlayers().get('p1')!;
     player.x = 0;
     player.y = 0;
-    world.tick(0.1);
+    // 마지막 킬샷이 engagedTimer를 COLONY_ENGAGE_GRACE_SECONDS만큼 채워 놨다
+    // (§ColonyEntity.engagedTimer, 원거리로 마지막 수호대를 잡는 순간 즉시 정화되는
+    // 버그 수정) — 그 유예가 다 지나야 실제로 "자리를 떴다"는 판정이 선다.
+    world.tick(COLONY_ENGAGE_GRACE_SECONDS + 0.1);
 
     expect(colony.purified).toBe(true);
+  });
+
+  it('트리거 반경 밖에서 원거리로 수호대를 잡아도(교전 중) 정화되지 않는다', () => {
+    // 회귀 테스트: 저격총 등 원거리 무기는 사거리가 900px까지 나와 triggerRadius
+    // (240px)보다 훨씬 멀리서 수호대를 잡을 수 있다. 근접 여부로만 "교전 중"을
+    // 판정하면, 트리거 반경 밖에서 마지막 수호대를 잡는 순간 즉시 정화돼버린다 —
+    // 실제로는 계속 싸우고 있었는데도 "몇 마리만 잡고 사라진다"는 버그로 보고됐다.
+    const world = createTestWorld();
+    const [colony] = [...world.getColonies().values()];
+    // 트리거 반경(240) 밖, 리시 반경(360) 안 — 원거리 무기로 딱 싸울 만한 거리.
+    world.addPlayer('sniper', colony!.x + 300, colony!.y);
+    const kill = (world as unknown as { damageMonster(id: string, hp: number): void }).damageMonster.bind(
+      world,
+    );
+
+    // 트리거 반경 밖이라 애초에 수호대가 안 나온다는 걸 먼저 확인한다(근접 판정만
+    // 있었다면 여기서부터 이미 아무 일도 안 일어난다).
+    world.tick(coloniesData.guardRespawnSeconds + 0.1);
+    expect(world.getMonsters().size).toBe(0);
+    expect(colony!.purified).toBe(false); // 아직 저장분이 있으니 정화도 아니다
+
+    // 플레이어가 트리거 반경 안으로 한 번 들어가 콜로니를 "깨운" 뒤(예: 접근해서
+    // 첫 수호대를 유인한 뒤), 원거리 사거리 안(리시 반경 이내)으로 물러나 그 뒤로는
+    // 계속 원거리로만 처치한다.
+    world.getPlayers().get('sniper')!.x = colony!.x + 60;
+    for (let i = 0; i < 300 && (colony!.stored > 0 || world.getMonsters().size > 0); i += 1) {
+      world.tick(coloniesData.guardRespawnSeconds / 2);
+      // 트리거 반경 밖(원거리)으로 물러난 채로 처치를 계속한다.
+      world.getPlayers().get('sniper')!.x = colony!.x + 300;
+      for (const monster of [...world.getMonsters().values()]) kill(monster.id, 0);
+    }
+
+    expect(colony!.stored).toBe(0);
+    expect(world.getMonsters().size).toBe(0);
+    // 계속 원거리로 교전 중이었으므로 아직 정화되면 안 된다 — engagedTimer가
+    // 살아 있다.
+    expect(colony!.purified).toBe(false);
+
+    // 이후로는 손을 뗀 채로 트리클 주기(guardTrickleSeconds)만 기다린다. 교전 유예
+    // (COLONY_ENGAGE_GRACE_SECONDS)가 트리클 주기보다 살짝 길게 잡혀 있어서(§world.ts
+    // 주석), 다음 트리클 수호대가 뜰 때까지는 여전히 "교전 중"으로 남아 정화되지
+    // 않고 새 수호대가 나온다.
+    world.tick(coloniesData.guardTrickleSeconds + 0.1);
+    expect(world.getMonsters().size).toBeGreaterThan(0); // 트리클로 새 수호대가 나왔다
+    expect(colony!.purified).toBe(false);
   });
 
   it('수호대가 죽으면 stored는 복원되지 않는다(영구 감소)', () => {
@@ -239,6 +295,10 @@ describe('World — 정화/성장/재보급', () => {
    * 나가 정화를 완성한다. 다 비운 뒤에도 플레이어가 트리거 반경 안에 있으면
    * guardTrickleSeconds로 계속 수호대가 나와서(§tickColonyGuards) 정화가 안 된다 —
    * 실제로 자리를 떠야 "그만 지킨다"는 의미가 되어 정화 판정이 성립한다.
+   *
+   * 자리를 떠도 즉시 정화되지는 않는다 — 마지막 타격(킬샷 포함)이 engagedTimer를
+   * COLONY_ENGAGE_GRACE_SECONDS만큼 채운다(§ColonyEntity.engagedTimer, 원거리로
+   * 마지막 수호대를 잡는 순간 즉시 정화돼버리는 버그 수정). 그 유예가 다 지나야 한다.
    */
   function purifyByCombat(world: World, colonyId: string): void {
     const kill = (world as unknown as { damageMonster(id: string, hp: number): void }).damageMonster.bind(
@@ -256,7 +316,7 @@ describe('World — 정화/성장/재보급', () => {
     const player = world.getPlayers().get('p1')!;
     player.x = 0;
     player.y = 0;
-    world.tick(0.1);
+    world.tick(COLONY_ENGAGE_GRACE_SECONDS + 0.1);
 
     if (!colony.purified) throw new Error('정화에 도달하지 못했다');
   }

@@ -33,6 +33,7 @@ import { DevItemModal } from '../ui/DevItemModal';
 import { MINIMAP_SIZE, Minimap } from '../ui/Minimap';
 import { PartyPanel } from '../ui/PartyPanel';
 import { BOTTOM_BAR_RESERVED, QuickSlotBar } from '../ui/QuickSlotBar';
+import { ReviveBanner } from '../ui/ReviveBanner';
 import { WaveDial } from '../ui/WaveDial';
 import {
   BAR_BOSS,
@@ -219,6 +220,8 @@ export class HudScene extends Phaser.Scene {
   private minimap!: Minimap;
   private party!: PartyPanel;
   private quickSlots!: QuickSlotBar;
+  /** 쓰러졌을 때 하단 바 위에 뜨는 안내(HELP! + 남은 시간 + 구조 진행도). */
+  private reviveBanner!: ReviveBanner;
 
   private ammoText!: Phaser.GameObjects.Text;
 
@@ -364,6 +367,8 @@ export class HudScene extends Phaser.Scene {
     this.party = new PartyPanel(this, MAX_CLIENTS_PER_ROOM - 1);
     // 하단 중앙 — 퀵슬롯
     this.quickSlots = new QuickSlotBar(this, SLOT_COUNT);
+    // 창(모달)보다는 아래, 나머지 HUD보다는 위 — 창을 연 채로 쓰러져도 안내가 창을 덮지 않는다.
+    this.reviveBanner = new ReviveBanner(this, 5000);
 
 
     // 탄약은 체력 바 오른쪽 끝에 붙인다 — 쏘는 동안 눈이 화면 아래 중앙을 벗어나지 않게.
@@ -789,6 +794,8 @@ export class HudScene extends Phaser.Scene {
     // --- 하단 중앙: 퀵슬롯 + 내 체력 바
     const slotsBottom = height - pad - 20 * scale;
     this.quickSlots.layout(width / 2, slotsBottom, scale);
+    // 체력·스태미나 막대 **바로 위**에 쌓는다 — 그 자리가 이미 "내 몸 상태"를 보는 자리다.
+    this.reviveBanner.layout(width / 2, this.quickSlots.barsTop, scale);
 
     // 탄약은 스태미나 막대 오른쪽 위에 붙인다 — 쏘는 동안 눈이 하단 바를 벗어나지 않게.
     this.ammoText
@@ -846,6 +853,7 @@ export class HudScene extends Phaser.Scene {
     this.latestCraftOutput = me?.craftOutput ?? null;
     this.coreModal.setStoreContext(status.shopStock, status.coreEnergy);
     this.quickSlots.update(me, this.slotDrag.hoverCellOf('inventory'));
+    this.reviveBanner.update(me, this.connection.solo);
     this.characterModal.setPlayer(me);
     this.updateAmmo(me);
     this.updateTexts(snapshot, me);

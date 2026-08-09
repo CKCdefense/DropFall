@@ -165,6 +165,46 @@ describe('원거리 특수 능력', () => {
     expect(world.getMonsters().size).toBe(0);
   });
 
+  it('관통 횟수가 정해진 무기는 그 수만큼만 뚫고, 그다음 몬스터는 못 맞힌다', () => {
+    // docs/backend/68 — pierceCount는 "첫 타격 포함 몇 마리까지"가 아니라 "첫 타격 이후
+    // 몇 마리를 더 뚫는지"다. crossbow는 pierceCount:2라 총 3마리(첫 타격+2관통)까지만
+    // 맞아야 하고, 줄 세운 4번째는 맞지 않아야 한다.
+    const world = worldWithPlayer();
+    expect(weaponsData.crossbow.pierceCount).toBe(2);
+    equip(world, 'crossbow');
+    for (const node of world.getResourceNodes().values()) {
+      node.x = 5000;
+      node.y = 5000;
+    }
+
+    const player = world.getPlayers().get('p1')!;
+    player.x = 300;
+    player.y = 0;
+
+    // 조준선(+x) 위에 넉넉히 간격을 두고 4마리를 세운다. 총구 간격(muzzleOffset=42,
+    // 즉 x=300~342 사이)에 몬스터가 있으면 투사체를 만들지도 않고 그 자리에서 바로
+    // 맞힌 것으로 처리해버려(§resolveMuzzleGapHit, 관통과 무관한 별개 경로) 이
+    // 테스트가 보려는 "관통" 자체를 안 타게 된다 — 그래서 첫 몬스터도 총구 간격
+    // 밖(400)에 세운다.
+    world.runDevCommand('p1', 'spawn demon 4');
+    const monsters = [...world.getMonsters().values()];
+    for (let i = 0; i < monsters.length; i += 1) {
+      monsters[i]!.x = 400 + i * 40;
+      monsters[i]!.y = 0;
+      monsters[i]!.hp = 1;
+    }
+    const survivorId = monsters[3]!.id; // 줄 맨 끝(가장 먼) 몬스터
+
+    world.fireWeapon('p1');
+    for (let i = 0; i < 60 && world.getProjectiles().size > 0; i += 1) world.tick(1 / 60);
+
+    const alive = [...world.getMonsters().values()];
+    expect(alive.length).toBe(1); // 4마리 중 1마리(줄 맨 끝)만 살아남는다
+    // 몬스터가 그사이 플레이어 쪽으로 걸어와 좌표는 안 맞을 수 있으니(demon speed=45),
+    // 위치가 아니라 살아남은 개체의 id로 "정확히 4번째"인지 확인한다.
+    expect(alive[0]!.id).toBe(survivorId);
+  });
+
   it('점사 모드는 방아쇠 한 번에 여러 발이 나가고, 지원하지 않는 무기에서는 켜지지 않는다', () => {
     const world = worldWithPlayer();
     equip(world, 'assault_rifle');
