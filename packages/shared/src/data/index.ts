@@ -221,6 +221,14 @@ const WeaponDataSchema = z.object({
    */
   toolFamily: z.string().optional(),
   /**
+   * 채집할 수 있는 계열들. 없으면 `toolFamily` 하나만 캔다.
+   *
+   * `toolFamily`를 배열로 바꾸지 않은 이유는 그 값이 **채집 말고도** 쓰이기 때문이다 —
+   * 해머 판정(수리·철거)은 "이 무기가 해머인가" 하나만 물어서, 배열이 되면 그쪽 질문이
+   * 애매해진다. 채집만 여러 계열을 허용한다.
+   */
+  toolFamilies: z.array(z.string()).optional(),
+  /**
    * 자원 종류를 가리지 않고 캘 수 있다(맨손). 계열이 하나뿐인 toolFamily로는
    * "무엇이든"을 표현할 수 없어서 따로 뒀다 — 대신 데미지가 매우 낮다.
    */
@@ -306,6 +314,19 @@ const JobStatsSchema = z.object({
   attack: z.number().nonnegative(),
   /** 최대 스태미나. 달리면 줄고 걷거나 멈추면 찬다. */
   maxStamina: z.number().positive(),
+
+  /*
+   * 고유 능력. 전부 **기본값이 "없음"**이라, 값을 안 적은 직업은 아무 효과도 받지 않는다 —
+   * 능력이 늘어도 다른 직업 데이터를 건드릴 필요가 없다.
+   */
+  /** 병사: 받는 경험치 배수. */
+  xpMultiplier: z.number().positive().optional(),
+  /** 탐색꾼: 걷는 속도 배수(달리기 배수와 곱해진다). */
+  speedMultiplier: z.number().positive().optional(),
+  /** 엔지니어: 해머 수리에 드는 자원 배수. */
+  repairCostMultiplier: z.number().nonnegative().optional(),
+  /** 의무병: requiresJob이 걸린 붕대 레시피를 쓸 수 있다. 실제 판정은 레시피 쪽이 한다. */
+  craftsBandage: z.boolean().optional(),
 });
 
 const JobsDataSchema = z.object({
@@ -540,14 +561,20 @@ export const itemsData = loadData(ItemsDataSchema, itemsJson);
 const LoadoutEntrySchema = z.object({
   itemId: z.string(),
   count: z.number().int().positive(),
+  /**
+   * 들어갈 퀵슬롯 번호(0-based). 칸을 명시하는 이유는 "1번칸에 무기"가 곧 조작 습관이라
+   * 직업마다 무기 칸이 달라지면 안 되기 때문이다. 없으면 빈 칸을 순서대로 채운다.
+   */
+  slot: z.number().int().nonnegative().optional(),
+  /** true면 개수 × 접속 인원. 의무병이 팀 몫의 붕대를 들고 시작하는 데 쓴다. */
+  perPlayer: z.boolean().optional(),
 });
 
 const LoadoutDataSchema = z.object({
-  /**
-   * 참가 시 개인 인벤토리에 들어가는 아이템. 순서가 곧 퀵슬롯 순서다.
-   * 지금은 비어 있다 — 도구는 팀 창고에서 꺼내 쓰는 것이 협동 게임의 시작점이라고 봤다.
-   */
+  /** 아직 직업이 없는 사람(관전·테스트)에게만 쓰는 지급품. */
   playerStarting: z.array(LoadoutEntrySchema),
+  /** 직업별 지급품. 이 목록이 그 사람의 퀵슬롯 4칸을 통째로 정한다. */
+  byJob: z.record(z.string(), z.array(LoadoutEntrySchema)),
   /** 게임 시작 시 팀 창고에 한 번 들어가는 아이템. 인원과 무관하게 한 세트다. */
   coreStorage: z.array(LoadoutEntrySchema),
 });
@@ -758,6 +785,11 @@ const CraftRecipeSchema = z.object({
   itemId: z.string(),
   /** 코어가 이 티어 이상이어야 제작할 수 있다. */
   requiresTier: z.number().int().positive(),
+  /**
+   * 이 직업만 만들 수 있다(없으면 누구나). 직업 고유 능력을 **레시피 쪽에** 적는 이유는,
+   * 능력이 늘 때마다 World에 분기를 하나씩 심는 대신 데이터가 조건을 들고 있게 하려는 것이다.
+   */
+  requiresJob: z.string().optional(),
   /**
    * 코어 게이지에서 차감되는 비용. 창고의 재료를 직접 먹지 않는다 — 나무·돌·드랍은
    * 충전을 거쳐 게이지가 되고, 레시피는 그 게이지만 본다.

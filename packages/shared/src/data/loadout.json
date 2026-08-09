@@ -1,11 +1,71 @@
 {
-  "$comment": "playerStarting은 참가 시 개인 인벤토리에(인원수만큼 자연히 늘어난다), coreStorage는 게임 시작 시 팀 창고에 한 번 들어간다.",
+  "$comment": "시작 지급품. byJob이 직업을 고른 사람의 4칸을 통째로 정하고, playerStarting은 아직 직업이 없는 사람(관전·테스트)에게만 쓴다.",
+  "$slotComment": "slot은 0-based 퀵슬롯 번호다(0=1번칸). 칸을 명시하는 이유는 '1번칸에 무기'가 곧 조작 습관이기 때문이다 — 순서대로 채우면 직업마다 무기 칸이 달라진다.",
+  "$perPlayerComment": "perPlayer가 true면 개수 × 접속 인원이다. 의무병이 팀 몫의 붕대를 들고 시작한다는 뜻이라, 인원이 늘면 같이 늘어야 의미가 산다.",
   "playerStarting": [
     {
+      "slot": 3,
       "itemId": "bandage",
       "count": 1
     }
   ],
+  "byJob": {
+    "soldier": [
+      {
+        "slot": 0,
+        "itemId": "revolver",
+        "count": 1
+      },
+      {
+        "slot": 3,
+        "itemId": "bandage",
+        "count": 1
+      }
+    ],
+    "engineer": [
+      {
+        "slot": 0,
+        "itemId": "hammer_t2",
+        "count": 1
+      },
+      {
+        "slot": 3,
+        "itemId": "bandage",
+        "count": 1
+      }
+    ],
+    "medic": [
+      {
+        "slot": 1,
+        "itemId": "bandage",
+        "count": 1,
+        "perPlayer": true
+      },
+      {
+        "slot": 2,
+        "itemId": "pills",
+        "count": 2
+      },
+      {
+        "slot": 3,
+        "itemId": "aid_kit",
+        "count": 1
+      }
+    ],
+    "searchman": [
+      {
+        "slot": 0,
+        "itemId": "tomahauk",
+        "count": 1
+      },
+      {
+        "slot": 3,
+        "itemId": "painkiller",
+        "count": 1
+      }
+    ]
+  },
+  "$coreComment": "게임 시작 시 팀 창고에 한 번 들어간다. 직업 지급품과 겹치지 않는 기본 채집 도구다 — 누구든 꺼내 쓸 수 있어야 한다.",
   "coreStorage": [
     {
       "itemId": "bat",

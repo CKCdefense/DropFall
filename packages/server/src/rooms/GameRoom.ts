@@ -540,17 +540,27 @@ export class GameRoom extends Room {
       let schema = this.state.monsters.get(id);
       if (!schema) {
         schema = new MonsterSchema();
+        // 스폰 시점에 한 번만 정해지는 값 — 타입은 바뀌지 않고, 최대 체력도 고정이다.
         schema.type = monster.type;
         schema.maxHp = monster.maxHp;
-      schema.attacking = monster.attackAnimTimer > 0;
-      schema.attackAnim = monster.attackAnim;
-      schema.attackSeq = monster.attackSeq;
-      schema.facingLeft = monster.facingX < 0;
         this.state.monsters.set(id, schema);
       }
       schema.x = monster.x;
       schema.y = monster.y;
       schema.hp = monster.hp;
+      /*
+       * 동작·방향은 **매 틱** 실어야 한다.
+       *
+       * 한동안 이 네 줄이 위의 `if (!schema)` 안에 들어가 있었다(들여쓰기만 바깥처럼
+       * 보였다). 그러면 스폰된 순간의 값이 그대로 굳어서, 멀티에서는 몬스터가 영원히
+       * 같은 방향을 보고 attackSeq가 절대 안 바뀐다 — 클라이언트는 그 번호가 **바뀌는
+       * 순간**에 공격 모션을 트니까(§EntityRenderer.updateMonsterAnim) 공격 애니메이션이
+       * 한 번도 재생되지 않는다. 혼자하기는 월드 엔티티를 직접 읽어서 멀쩡했다.
+       */
+      schema.attacking = monster.attackAnimTimer > 0;
+      schema.attackAnim = monster.attackAnim;
+      schema.attackSeq = monster.attackSeq;
+      schema.facingLeft = monster.facingX < 0;
 
       const telegraph = describeBossTelegraph(monster, monstersData[monster.type]);
       schema.telegraphKind = telegraph?.kind ?? '';

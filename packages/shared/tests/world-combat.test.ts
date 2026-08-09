@@ -1018,7 +1018,8 @@ describe('World — 몬스터 처치 보상(부품/에너지)', () => {
   it('부품은 인벤토리에 들어오고, 창고로 끌어다 놓으면 팀 공유분이 된다', () => {
     const world = new World();
     world.addPlayer('p1', 10, 0); // 코어 상호작용 반경 안
-    world.getPlayers().get('p1')!.inventory.add('drop_normal', 5); // 0번은 참가 지급 붕대
+    // 3번은 참가 지급 붕대 자리다(loadout.json) — 겹치지 않게 1번에 직접 넣는다.
+    world.getPlayers().get('p1')!.inventory.placeAt(1, { itemId: 'drop_normal', count: 5 });
 
     // 인벤토리 1번 → 창고 첫 빈 칸(초기 지급품 도구 3종 다음)
     world.moveItem('p1', 'inventory', 1, 'storage', 3);

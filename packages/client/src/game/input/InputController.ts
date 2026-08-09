@@ -102,8 +102,8 @@ export class InputController {
     /** 공격 순간 호출된다. 총구 화염·휘두르기처럼 즉시 반응해야 하는 연출에 쓴다. */
     private readonly onAttack?: (weaponId: string) => void,
     /**
-     * E를 눌렀을 때 먼저 호출된다. true를 돌려주면(예: 코어 모달을 열었다) 줍기를
-     * 건너뛴다 — 코어 앞에서 E가 두 가지 일을 동시에 하지 않게 하는 장치다.
+     * E를 눌렀을 때 호출된다(코어 모달 열기·닫기, 쓰러진 동료 구조 등). 줍기는
+     * 스페이스로 분리돼 있어(§SPACE 핸들러) 이 콜백의 반환값과는 무관하다.
      */
     private readonly onInteract?: () => boolean,
     /**
@@ -144,19 +144,15 @@ export class InputController {
       this.connection.voteSkipDay();
     });
 
-    // 상호작용(E). 무엇을 할지는 서 있는 위치가 정한다 — 코어 옆이면 창고를 열고,
-    // 아니면 바닥 드롭을 줍는다. 키를 늘리는 대신 맥락으로 나누는 편이 조작이 단순하다.
-    // 채집(자원 노드 타격)은 좌클릭 근접 공격이라 이 키와 무관하다.
+    // 상호작용(E) — 코어 창 열기·닫기, 쓰러진 동료 구조.
     keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.E).on('down', () => {
-      if (this.onInteract?.()) return;
-      this.connection.pickUp();
+      this.onInteract?.();
     });
 
-    // 줍기 전용 키(스페이스, 게임 흐름 피드백). E가 WASD 바로 옆이라 이동하면서
-    // 줍기가 어렵다는 지적을 받았다 — 스페이스는 왼손이 WASD를 쥔 채로 엄지가
-    // 바로 닿는 자리라 훨씬 편하다. 코어/티모시 맥락 판단(onInteract) 없이
-    // **항상** 줍기만 한다 — E와 달리 이 키의 역할은 하나뿐이다. E도 그대로
-    // 두었다(맥락에 따라 여전히 줍기 fallback으로 동작 — 손에 익은 사람을 위해).
+    // 줍기(스페이스). 예전엔 E 하나가 "앞의 것에 손을 댄다"를 전부 맡아서, 코어 앞에
+    // 떨어진 드롭을 밟고 있으면 줍기와 창 열기가 서로 순서를 양보하느라 둘 다 답답했다.
+    // 키를 나누면 "무엇을 할지"를 플레이어가 고르므로 그 다툼 자체가 없어진다(게임
+    // 흐름 피드백 — E가 WASD 바로 옆이라 이동하면서 줍기가 어렵다는 지적).
     keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE).on('down', () => {
       this.connection.pickUp();
     });

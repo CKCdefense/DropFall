@@ -6,6 +6,18 @@
   "outputStackLimit": 100,
   "recipes": [
     {
+      "$comment": "의무병 전용. 붕대는 상점에서 20에너지에 사는 물건인데, 의무병은 자원을 주로 써서 더 싸게 찍어낸다 — 팀의 소모품 보급이 한 사람 몫의 역할이 되게 하려는 것이다.",
+      "id": "bandage",
+      "itemId": "bandage",
+      "requiresTier": 1,
+      "requiresJob": "medic",
+      "count": 2,
+      "cost": {
+        "resource": 30,
+        "energy": 2
+      }
+    },
+    {
       "id": "axe_t1",
       "itemId": "axe_t1",
       "requiresTier": 1,
