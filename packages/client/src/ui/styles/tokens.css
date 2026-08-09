@@ -73,6 +73,15 @@
   /* 랜딩 배경 이미지 */
   --asset-landing-bg: none;
 
+  /*
+   * 홀로그램 초록. 대기실의 작전 판(강하 지점·티모시·시스템 로그)이 쓰는 색이다 —
+   * HUD의 강조색(--accent)과 굳이 나눈 이유는, 저건 "내 상태"고 이건 "함선이 띄운
+   * 화면"이라 다른 물건으로 읽혀야 하기 때문이다.
+   */
+  --holo: #4dffa0;
+  --holo-dim: #2f7d55;
+  --holo-glow: rgba(77, 255, 160, 0.35);
+
   /* 대기실 배경과 그 위에 얹는 행성 */
   --asset-lobby-bg: none;
   --asset-lobby-planet: none;

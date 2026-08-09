@@ -1,4 +1,5 @@
 import type { JobId } from '@dropfall/shared';
+import { itemFrame } from '../game/render/itemSprite';
 import { resolveAssetUrl } from './assets';
 import { el } from './dom';
 
@@ -48,6 +49,15 @@ export function characterPortrait(job: JobId): HTMLElement | null {
  */
 export function jobIcon(job: JobId): HTMLElement | null {
   return cropFrame(`character_icon_${job}_0`, 'job-icon');
+}
+
+/**
+ * 아이템 아이콘. **인게임과 같은 표**(itemSprite.itemFrame)를 본다 — 대기실에서 본
+ * 그림과 인벤토리에서 볼 그림이 다르면 같은 물건인지 알 수 없다.
+ */
+export function itemIcon(itemId: string): HTMLElement | null {
+  const frame = itemFrame(itemId);
+  return frame ? cropFrame(frame, 'item-icon') : null;
 }
 
 /** 아틀라스 PNG를 배경으로 깔고 한 프레임만큼 밀어 잘라낸 요소. */
