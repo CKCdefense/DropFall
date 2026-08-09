@@ -44,10 +44,13 @@ const SFX_VOLUME: Record<SfxKey, number> = {
   gunEmpty: 0.45,
   gunShotgun: 0.55,
   gunReload: 0.5,
-  monsterSpawn: 0.45,
-  monster1: 0.4,
-  monster2: 0.4,
-  monster3: 0.4,
+  // 콜로니가 트리클 스폰으로 수호대를 계속 뽑으며 서로 싸우면 이 소리들이 가장 자주,
+  // 가장 오래 겹쳐 들린다 — 거리 컷(MONSTER_SFX_RANGE)을 넣은 뒤에도 범위 안에서는
+  // 여전히 잦아서 다른 SFX보다 한 단계 더 낮췄다(제보 — "콜로니 사운드 줄여줘").
+  monsterSpawn: 0.25,
+  monster1: 0.2,
+  monster2: 0.2,
+  monster3: 0.2,
 };
 
 /**
