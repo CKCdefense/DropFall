@@ -142,8 +142,8 @@ export class LocalConnection implements GameConnection {
     this.world.placeHeldBuilding(LOCAL_SESSION_ID, cx, cy);
   }
 
-  discardStorageItem(index: number): void {
-    this.world.discardFromStorage(LOCAL_SESSION_ID, index);
+  discardItem(container: SlotContainer, index: number): void {
+    this.world.discardItem(LOCAL_SESSION_ID, container, index);
   }
 
   quickMoveItem(container: SlotContainer, index: number, to?: 'storage' | 'charge'): void {
@@ -165,6 +165,10 @@ export class LocalConnection implements GameConnection {
 
   reviveGhost(targetId: string): void {
     this.world.reviveGhostAtCore(LOCAL_SESSION_ID, targetId);
+  }
+
+  rerollShop(): void {
+    this.world.rerollShop(LOCAL_SESSION_ID);
   }
 
   shopBuy(itemId: string): void {
@@ -393,6 +397,7 @@ export class LocalConnection implements GameConnection {
         upgradeResourceCost: this.world.nextCoreUpgrade()?.cost.resource ?? 0,
         upgradeEnergyCost: this.world.nextCoreUpgrade()?.cost.energy ?? 0,
         shopStock: [...core.shopStock],
+        shopRerollCost: this.world.getShopRerollCost(),
         coreTier: core.tier,
         coreBuildRadius: this.world.getBuildRadius(),
         craftingUnlocked: this.world.isCraftingUnlocked(),

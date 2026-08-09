@@ -133,6 +133,7 @@ interface RemoteGameState {
   upgradeResourceCost: number;
   upgradeEnergyCost: number;
   shopStock: ArrayLike<string>;
+  shopRerollCost: number;
   explored: ArrayLike<number>;
   coreTier: number;
   coreBuildRadius: number;
@@ -321,8 +322,8 @@ export class ColyseusConnection implements GameConnection {
     this.room.send('placeHeldBuilding', { cx, cy });
   }
 
-  discardStorageItem(index: number): void {
-    this.room.send('discardStorageItem', { index });
+  discardItem(container: SlotContainer, index: number): void {
+    this.room.send('discardItem', { container, index });
   }
 
   quickMoveItem(container: SlotContainer, index: number, to?: 'storage' | 'charge'): void {
@@ -345,6 +346,10 @@ export class ColyseusConnection implements GameConnection {
 
   reviveGhost(targetId: string): void {
     this.room.send('reviveGhost', { targetId });
+  }
+
+  rerollShop(): void {
+    this.room.send('shopReroll', {});
   }
 
   shopBuy(itemId: string): void {
@@ -571,6 +576,7 @@ export class ColyseusConnection implements GameConnection {
         upgradeResourceCost: state?.upgradeResourceCost ?? 0,
         upgradeEnergyCost: state?.upgradeEnergyCost ?? 0,
         shopStock: Array.from(state?.shopStock ?? []),
+        shopRerollCost: state?.shopRerollCost ?? 0,
         coreTier: state?.coreTier ?? 0,
         coreBuildRadius: state?.coreBuildRadius ?? 0,
         craftingUnlocked: state?.craftingUnlocked ?? false,

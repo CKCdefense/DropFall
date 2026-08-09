@@ -95,11 +95,6 @@ export class CoreModal extends Modal {
     return this.isOpen() && this.currentTab === CORE_TAB.CRAFT;
   }
 
-  /** 코어 AI 페르소나의 새 대사를 반영한다. HudScene이 onCoreCommentary 콜백에서 호출한다. */
-  setCommentary(text: string): void {
-    this.core.setCommentary(text);
-  }
-
   // ------------------------------------------------------------------ 탭 위임
   //
   // 바깥(HudScene)에서 보면 창이 하나이므로, 각 탭의 콜백·갱신도 이 창의 것처럼 보이게
@@ -113,16 +108,26 @@ export class CoreModal extends Modal {
     this.store.onPurchase = handler;
   }
 
-  set onDiscard(handler: (index: number) => void) {
-    this.warehouse.onDiscard = handler;
+  /** 폐기 칸 손잡이. SlotDrag가 **놓을 자리**로 등록한다. */
+  get trashCell(): Phaser.GameObjects.Rectangle {
+    return this.warehouse.trashCell;
+  }
+
+  /** 물건을 든 손이 폐기 칸 위에 있다고 알린다(SlotDrag → 창고 탭). */
+  setTrashArmed(armed: boolean): void {
+    this.warehouse.setTrashArmed(armed);
   }
 
   setCraftContext(context: Parameters<CraftPanel['setContext']>[0]): void {
     this.craft.setContext(context);
   }
 
-  setStoreContext(stock: string[], energy: number): void {
-    this.store.setContext(stock, energy);
+  setStoreContext(stock: string[], energy: number, rerollCost: number): void {
+    this.store.setContext(stock, energy, rerollCost);
+  }
+
+  set onReroll(handler: () => void) {
+    this.store.onReroll = handler;
   }
 
   setStorageSlots(storage: (InventorySlot | null)[]): void {

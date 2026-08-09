@@ -66,6 +66,11 @@ export interface ModalOptions {
   width: number;
   height: number;
   /**
+   * 제목 글자 크기(px). 기본은 본문 크기(11)다 — 가이드처럼 제목이 곧 창의 정체인
+   * 창은 22를 준다. 픽셀 폰트라 **11의 정수배만** 유효하다.
+   */
+  titleSize?: number;
+  /**
    * 있으면 제목 줄 대신 **상단 탭 줄**이 생기고, 탭 수만큼 페이지가 만들어진다.
    * 페이지는 `page(index)`로 꺼내 각자 채운다(§TabbedModal).
    */
@@ -172,6 +177,47 @@ export class PanelBuilder {
     box.on('pointerdown', () => onClick());
     this.container.add([box, text]);
     return box;
+  }
+
+  /**
+   * 홀로그램 버튼 — 어두운 판 + 초록 테두리 + 초록 글자.
+   *
+   * 상단 탭의 **선택된** 모습과 같은 재질이다. 돌 프레임 버튼(addButton)은 창 바깥
+   * 세계의 물건처럼 보여서 창 안에서 쓰면 혼자 다른 재질로 튄다 — 제작 탭의 티어 열을
+   * 이 재질로 바꾼 것과 같은 이유다.
+   *
+   * 상자와 글자를 **둘 다** 돌려준다. 눌러도 소용없는 상태(에너지 부족 등)를 흐리게
+   * 표현하려면 호출부가 글자 색까지 만져야 하기 때문이다.
+   */
+  addHoloButton(
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    label: string,
+    onClick: () => void,
+    /** 픽셀 폰트는 **정수배에서만** 선명하다 — SIZE_BODY의 배수만 넘길 것. */
+    fontSize: number = SIZE_BODY,
+  ): { box: Phaser.GameObjects.Rectangle; label: Phaser.GameObjects.Text } {
+    const box = this.scene.add
+      .rectangle(x, y, width, height, BOARD_FILL, 1)
+      .setOrigin(0, 0)
+      .setStrokeStyle(1, ACCENT_STROKE)
+      .setInteractive({ useHandCursor: true });
+    const text = this.scene.add
+      .text(x + width / 2, y + height / 2, label, {
+        fontFamily: FONT,
+        fontSize: `${fontSize}px`,
+        fontStyle: 'bold',
+        color: ACCENT,
+      })
+      .setOrigin(0.5, 0.5);
+    // 호버는 판을 한 단 밝히는 것으로만 말한다 — 테두리까지 바뀌면 눌린 것처럼 보인다.
+    box.on('pointerover', () => box.setFillStyle(PANEL_FILL, 1));
+    box.on('pointerout', () => box.setFillStyle(BOARD_FILL, 1));
+    box.on('pointerdown', () => onClick());
+    this.container.add([box, text]);
+    return { box, label: text };
   }
 
   /**
@@ -340,7 +386,9 @@ export class Modal {
       this.root.add(
         scene.add.text(PAD, PAD, opts.title, {
           fontFamily: FONT,
-          fontSize: `${SIZE_BODY}px`,
+          fontSize: `${opts.titleSize ?? SIZE_BODY}px`,
+          // 굵은 자체(Galmuri11-Bold)가 등록돼 있어 실제 다른 글꼴로 그려진다.
+          fontStyle: 'bold',
           color: BODY_TEXT,
         }),
       );

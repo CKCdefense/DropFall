@@ -24,7 +24,7 @@
     "duration": 100
    },
    "hud_bar_fill_boss_base_0": {
-    "frame": { "x": 123, "y": 39, "w": 6, "h": 16 },
+    "frame": { "x": 75, "y": 52, "w": 6, "h": 16 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 6, "h": 16 },
@@ -32,7 +32,7 @@
     "duration": 100
    },
    "hud_bar_fill_l_base_0": {
-    "frame": { "x": 75, "y": 52, "w": 6, "h": 12 },
+    "frame": { "x": 82, "y": 57, "w": 6, "h": 12 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 6, "h": 12 },
@@ -80,14 +80,6 @@
     "duration": 100
    },
    "hud_icon_check_off_base_0": {
-    "frame": { "x": 110, "y": 39, "w": 12, "h": 12 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 12, "h": 12 },
-    "sourceSize": { "w": 12, "h": 12 },
-    "duration": 100
-   },
-   "hud_icon_check_on_base_0": {
     "frame": { "x": 85, "y": 44, "w": 12, "h": 12 },
     "rotated": false,
     "trimmed": false,
@@ -95,7 +87,7 @@
     "sourceSize": { "w": 12, "h": 12 },
     "duration": 100
    },
-   "hud_icon_energy_base_0": {
+   "hud_icon_check_on_base_0": {
     "frame": { "x": 23, "y": 48, "w": 12, "h": 12 },
     "rotated": false,
     "trimmed": false,
@@ -103,7 +95,7 @@
     "sourceSize": { "w": 12, "h": 12 },
     "duration": 100
    },
-   "hud_icon_heart_base_0": {
+   "hud_icon_energy_base_0": {
     "frame": { "x": 36, "y": 48, "w": 12, "h": 12 },
     "rotated": false,
     "trimmed": false,
@@ -111,7 +103,7 @@
     "sourceSize": { "w": 12, "h": 12 },
     "duration": 100
    },
-   "hud_icon_orb_base_0": {
+   "hud_icon_heart_base_0": {
     "frame": { "x": 49, "y": 48, "w": 12, "h": 12 },
     "rotated": false,
     "trimmed": false,
@@ -119,7 +111,7 @@
     "sourceSize": { "w": 12, "h": 12 },
     "duration": 100
    },
-   "hud_icon_resource_base_0": {
+   "hud_icon_orb_base_0": {
     "frame": { "x": 62, "y": 52, "w": 12, "h": 12 },
     "rotated": false,
     "trimmed": false,
@@ -127,8 +119,16 @@
     "sourceSize": { "w": 12, "h": 12 },
     "duration": 100
    },
+   "hud_icon_resource_base_0": {
+    "frame": { "x": 98, "y": 56, "w": 12, "h": 12 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 12, "h": 12 },
+    "sourceSize": { "w": 12, "h": 12 },
+    "duration": 100
+   },
    "hud_icon_skull_base_0": {
-    "frame": { "x": 98, "y": 52, "w": 12, "h": 12 },
+    "frame": { "x": 111, "y": 56, "w": 12, "h": 12 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 12, "h": 12 },
@@ -137,6 +137,14 @@
    },
    "hud_icon_skull_l_base_0": {
     "frame": { "x": 110, "y": 22, "w": 16, "h": 16 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 16, "h": 16 },
+    "sourceSize": { "w": 16, "h": 16 },
+    "duration": 100
+   },
+   "hud_icon_trash_base_0": {
+    "frame": { "x": 110, "y": 39, "w": 16, "h": 16 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 16, "h": 16 },
@@ -157,9 +165,10 @@
   "version": "1.3.18.1-x64",
   "image": "ui.png",
   "format": "RGBA8888",
-  "size": { "w": 130, "h": 65 },
+  "size": { "w": 129, "h": 70 },
   "scale": "1",
   "frameTags": [
+   { "name": "base", "from": 0, "to": 0, "direction": "forward", "color": "#000000ff" },
    { "name": "base", "from": 0, "to": 0, "direction": "forward", "color": "#000000ff" },
    { "name": "base", "from": 0, "to": 0, "direction": "forward", "color": "#000000ff" },
    { "name": "base", "from": 0, "to": 0, "direction": "forward", "color": "#000000ff" },
