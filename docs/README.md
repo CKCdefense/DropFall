@@ -92,6 +92,7 @@
 | [frontend/19-work-report-fx-alignment-and-title-weight.md](frontend/19-work-report-fx-alignment-and-title-weight.md) | 작업 보고서 — 소모품 이펙트 발밑 정렬, 레벨업 연출 미니멀화, 중앙 문구 볼드·확대 |
 | [frontend/20-work-report-downed-visuals.md](frontend/20-work-report-downed-visuals.md) | 작업 보고서 — 쓰러진 캐릭터를 발밑 축으로 눕히고, 하단 바 위에 HELP!·부활/유령 카운터·구조 게이지 표시 |
 | [frontend/21-work-report-waiting-room-redesign.md](frontend/21-work-report-waiting-room-redesign.md) | 작업 보고서 — 대기실을 와이어프레임(강하 준비)대로 재구성, 직업 아이콘·행성·배경 에셋 연결, 대기실에서 티모시 on/off |
+| [frontend/22-work-report-companion-harvest-swing.md](frontend/22-work-report-companion-harvest-swing.md) | 작업 보고서 — 티모시가 자원을 캐는 동안 손을 휘두르게 함(맨손 일습 재사용, 캐는 동안 반복), 전용 swing 상태 분리 |
 
 ## 한 줄 요약
 
