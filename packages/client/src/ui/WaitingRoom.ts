@@ -115,7 +115,8 @@ export class WaitingRoom {
           el('span', { class: 'waiting-title' }, ['강하 준비']),
           el('span', { class: 'waiting-room-name' }, [roomName]),
           el('span', { class: 'waiting-room-code' }, [roomCode]),
-          el('button', { class: 'btn btn-small waiting-leave', type: 'button' }, ['나가기']),
+          // .btn을 쓰지 않는다 — 그 클래스는 9-slice 돌 프레임을 늘 얹는다(§components.css).
+          el('button', { class: 'waiting-leave', type: 'button' }, ['나가기']),
         ]),
 
         /*
