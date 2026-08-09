@@ -39,6 +39,15 @@ export class SlotDrag {
   ) => void = () => {};
 
   /**
+   * 옮기지 않고 **제자리에서 뗀 클릭**일 때 호출된다(게임 흐름 피드백 — 예전엔 드래그를
+   * 시작했다가 아무 일 없이 취소되는 게 다였다. 퀵슬롯을 좌클릭만으로 손에 들 방법이
+   * 없어서, 드래그앤드롭으로 옮기는 것 말고는 무기를 바꿀 길이 숫자키뿐이었다).
+   * HudScene이 inventory 칸에 한해 connection.selectSlot으로 배선한다 — 창고 등
+   * 다른 칸은 "손에 든다"는 개념이 없어 무시한다.
+   */
+  onClickSelect: (container: SlotContainer, index: number) => void = () => {};
+
+  /**
    * 쉬프트+클릭했을 때 호출된다(docs/backend/44). HudScene이
    * connection.quickMoveItem으로 배선한다 — 목적지 칸은 여기서 정하지 않는다
    * (반대편 컨테이너 안 어디에 넣을지는 서버가 고른다).
@@ -161,7 +170,12 @@ export class SlotDrag {
     const target = this.cellAt(pointer.x, pointer.y);
     this.endDrag();
 
-    if (!target || target === source) return;
+    if (!target) return;
+    if (target === source) {
+      // 옮기지 않고 같은 칸에서 뗐다 — "그냥 눌렀다"로 본다.
+      this.onClickSelect(source.container, source.index);
+      return;
+    }
 
     const slot = this.getSlot(source.container, source.index);
     if (slot && this.isRejected(target.container, target.index, slot.itemId)) return;

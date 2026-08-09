@@ -152,6 +152,15 @@ export class InputController {
       this.connection.pickUp();
     });
 
+    // 줍기 전용 키(스페이스, 게임 흐름 피드백). E가 WASD 바로 옆이라 이동하면서
+    // 줍기가 어렵다는 지적을 받았다 — 스페이스는 왼손이 WASD를 쥔 채로 엄지가
+    // 바로 닿는 자리라 훨씬 편하다. 코어/티모시 맥락 판단(onInteract) 없이
+    // **항상** 줍기만 한다 — E와 달리 이 키의 역할은 하나뿐이다. E도 그대로
+    // 두었다(맥락에 따라 여전히 줍기 fallback으로 동작 — 손에 익은 사람을 위해).
+    keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE).on('down', () => {
+      this.connection.pickUp();
+    });
+
     // 퀵슬롯 선택(1~4). 슬롯 번호만 보내고 그 칸에 뭐가 들었는지는 서버가 판단한다.
     // 화면 반영도 서버 스냅샷을 통해서만 이뤄진다 — 로컬에서 미리 바꾸면 서버가
     // 거절했을 때 두 상태가 어긋난다.

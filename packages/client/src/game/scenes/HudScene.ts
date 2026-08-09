@@ -451,6 +451,15 @@ export class HudScene extends Phaser.Scene {
     this.slotDrag.onMove = (from, fromIndex, to, toIndex) =>
       this.connection.moveItem(from, fromIndex, to, toIndex);
     /*
+     * 퀵슬롯을 옮기지 않고 그냥 좌클릭만 하면 그 칸을 손에 든다 — 숫자키(1~4)와
+     * 완전히 같은 동작이라 selectSlot을 그대로 재사용한다. 창고 등 다른 칸은
+     * "손에 든다"는 개념이 없어 무시한다.
+     */
+    this.slotDrag.onClickSelect = (container, index) => {
+      if (container !== 'inventory') return;
+      this.connection.selectSlot(index);
+    };
+    /*
      * 쉬프트 클릭의 목적지는 **지금 열려 있는 탭**이 정한다. 코어 탭이면 충전 칸,
      * 그 밖에는 예전대로 창고다 — 눈에 보이는 곳으로 가는 게 가장 덜 놀랍다.
      * 태울 수 없는 물건이면 보내지 않고 그 자리에서 거절을 보여준다.
