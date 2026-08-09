@@ -4394,19 +4394,28 @@ export class World {
   }
 
   /**
-   * 몬스터가 (x,y)에 있다고 가정했을 때 자원 노드/콜로니와 겹치는지 검사한다.
+   * 몬스터가 (x,y)에 있다고 가정했을 때 자원 노드/콜로니/코어와 겹치는지 검사한다.
    * `isBlockedForPlayer`와 같은 모양이지만 반경이 `HIT_RADIUS`(플레이어 고정값) 대신
    * 인자로 받은 몬스터 반경(`monsterRadius(monster)`, 타입마다 다름)이다.
    *
    * 건축물은 여기서 다루지 않는다 — 몬스터에게 건축물은 "부수는 대상"이라
    * `findBlockingBuildingInRange`가 따로 처리한다(가로막으면 멈추는 게 아니라
-   * 공격해서 없앤다). 코어도 다루지 않는다 — 몬스터의 목표 자체라 막으면 안 된다
-   * (docs/backend/38).
+   * 공격해서 없앤다).
+   *
+   * 코어는 **막는다** — 처음엔(docs/backend/38) "몬스터의 목표 자체라 막으면 안
+   * 된다"며 뺐는데, 그 판단은 몬스터가 실제로 코어를 향해 걸어갈 때만 맞았다.
+   * 아그로가 걸려 **플레이어를 쫓을 때**는 목표가 코어가 아니어서, 코어 반대편에
+   * 선 플레이어를 향해 그냥 직선으로 걸으면 아무것도 안 막아 코어를 그대로
+   * 뚫고 지나갔다(스크린샷 제보 — 몬스터가 코어 받침대를 통과해 반대쪽으로
+   * 나갔다). 코어를 향해 걷는 쪽은 걱정할 필요가 없다 — `attackRange`가 모든
+   * 몬스터 타입에서 `hitRadius`(=몬스터 반경)보다 크므로, 코어 발자국에 실제로
+   * 부딪히기 전에 항상 먼저 공격 사거리 조건(§tickMonsterAI)에 걸려 이동 자체를
+   * 멈추고 공격으로 넘어간다 — 이 판정에 닿을 일이 없다.
    */
   /**
-   * `crushes`가 true면 자원 노드/콜로니를 통과한다(거구 보스). 회피가 물리적으로
-   * 불가능한 덩치라 막아봐야 갈리기만 하고, 거대한 보스가 나무 한 그루에 멈춰 서는
-   * 그림도 이상하다(§MonsterData.crushesObstacles).
+   * `crushes`가 true면 자원 노드/콜로니/코어를 전부 통과한다(거구 보스). 회피가
+   * 물리적으로 불가능한 덩치라 막아봐야 갈리기만 하고, 거대한 보스가 나무 한
+   * 그루에 멈춰 서는 그림도 이상하다(§MonsterData.crushesObstacles).
    */
   private isBlockedForMonster(
     x: number,
@@ -4424,6 +4433,7 @@ export class World {
     for (const colony of this.colonies.values()) {
       if (circlesOverlap(x, y, colony.x, colony.y, monsterR + COLONY_RADIUS)) return true;
     }
+    if (coreDistance(x, y) < monsterR) return true;
     return false;
   }
 
@@ -4457,6 +4467,12 @@ export class World {
         nearestGap = gap;
         nearest = { x: colony.x, y: colony.y };
       }
+    }
+    // 코어(8각형이지만 원점 대칭에 가까워 접선 방향엔 원점 근사로 충분하다 —
+    // §findNearestObstacleCenterForPlayer와 같은 근거). 마지막 후보라 갱신 후
+    // 다시 비교할 일이 없다.
+    if (coreDistance(x, y) < nearestGap) {
+      nearest = { x: 0, y: 0 };
     }
 
     return nearest;
