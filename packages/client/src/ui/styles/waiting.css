@@ -250,14 +250,17 @@
 
 /* ------------------------------------------------------- 지급품(퀵슬롯 4칸) */
 
-/* 지급품 줄은 카드 **맨 아래에 붙는다** — 남는 세로가 줄 뒤에 남으면 카드가 잘린
-   것처럼 보인다. 위쪽(특성과 사이)에 여백으로 두는 편이 사원증답다. */
+/*
+ * 지급품 줄은 카드 **아래쪽에 붙되 바닥에서 조금 뜬다.** 남는 세로는 위쪽(특성과 사이)에
+ * 두고, 아래에는 여백만 남긴다 — 테두리에 딱 붙으면 잘린 것처럼 보인다.
+ */
 .slot-kit {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 4px;
   flex: none;
   margin-top: auto;
+  margin-bottom: clamp(4px, 1vh, 10px);
 }
 
 .kit-cell {
@@ -452,37 +455,18 @@ html:not(.has-lobby-planet) .room-panel-art {
 /* ---------------------------------------------------------------- 아래 줄 */
 
 /*
- * 채팅 / (직업 선택 + 시작).
+ * 채팅 / 직업 선택.
  *
- * 채팅이 **남는 자리를 다 먹고**, 오른쪽은 내용만큼만 가져간다. 채팅 폭을 화면 기준
- * (42vw)으로 못 박아도 봤는데, 그러면 좁은 화면에서 직업 아이콘이 시작 버튼 뒤로
- * 밀려 두 개만 보였다 — 밀리면 안 되는 쪽은 아이콘이다.
+ * 시작 버튼이 오른쪽 판으로 내려간 덕에 이 줄은 둘만 나눠 가진다. **직업 선택이 필요한
+ * 만큼 먼저 가져가고 채팅이 남는 자리를 쓴다** — 아이콘은 크기가 곧 알아보기 쉬움이라
+ * 눌려서는 안 되고, 채팅은 좁아져도 글줄이 접힐 뿐이다.
  */
 .waiting-bottom {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: clamp(8px, 1.5vw, 18px);
+  gap: clamp(10px, 2vw, 24px);
   flex: none;
   height: clamp(118px, 22vh, 176px);
-}
-
-/*
- * 직업 선택 **위**, 시작 버튼 **아래**로 쌓는다.
- *
- * 나란히 두면 셋(채팅·아이콘·버튼)이 한 줄을 나눠 갖느라 1280px에서 아이콘이 잘렸다.
- * 세로로 쌓으면 이 칸의 폭이 아이콘 줄 하나로 줄어서, 그만큼이 채팅으로 간다.
- */
-.waiting-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-width: 0;
-}
-
-.waiting-actions .action-button {
-  flex: none;
-  height: clamp(34px, 5vh, 46px);
-  font-size: clamp(13px, 1.4vw, 17px);
 }
 
 /* ---------------------------------------------------------------- 채팅 */
@@ -554,11 +538,16 @@ html:not(.has-lobby-planet) .room-panel-art {
 }
 
 /*
- * 시작/준비 버튼. 같은 홀로그램 문법이되 **테두리를 두껍게** 해서 이 화면에서 유일하게
- * 누르는 것임을 알린다 — 채팅 입력은 글을 넣는 자리고 이건 결정을 내리는 자리다.
+ * 시작/준비 버튼. 작전 판의 **맨 아래**에 있다 — 지시가 내려오는 자리(시스템 로그) 바로
+ * 밑에서 그 지시를 실행하는 것이라, 직업 아이콘 옆에 있을 때보다 무엇을 누르는지가
+ * 분명해진다.
+ *
+ * 같은 홀로그램 문법이되 **테두리를 두껍게** 해서 누르는 것임을 알린다 — 채팅 입력은
+ * 글을 넣는 자리고 이건 결정을 내리는 자리다.
  */
 .action-button {
-  height: 100%;
+  flex: none;
+  height: clamp(38px, 5.5vh, 54px);
   border: 2px solid var(--holo-dim);
   background: rgba(6, 20, 12, 0.45);
   color: var(--holo);
@@ -597,9 +586,8 @@ html:not(.has-lobby-planet) .room-panel-art {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  justify-content: flex-start;
-  gap: 4px;
-  flex: 1;
+  justify-content: center;
+  gap: 8px;
   min-width: 0;
   min-height: 0;
 }
@@ -614,7 +602,7 @@ html:not(.has-lobby-planet) .room-panel-art {
 .job-picker-label {
   flex: none;
   font-weight: 700;
-  font-size: clamp(14px, 1.5vw, 18px);
+  font-size: clamp(15px, 1.7vw, 21px);
 }
 
 /*
@@ -624,7 +612,7 @@ html:not(.has-lobby-planet) .room-panel-art {
 .job-picker-hover {
   min-height: 1em;
   color: var(--accent);
-  font-size: clamp(11px, 1.1vw, 14px);
+  font-size: clamp(12px, 1.2vw, 16px);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -632,7 +620,7 @@ html:not(.has-lobby-planet) .room-panel-art {
 
 .job-picker-row {
   display: flex;
-  gap: clamp(4px, 0.7vw, 10px);
+  gap: clamp(6px, 0.9vw, 14px);
 }
 
 /*
@@ -643,8 +631,8 @@ html:not(.has-lobby-planet) .room-panel-art {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: clamp(44px, 5vw, 78px);
-  height: clamp(44px, 5vw, 78px);
+  width: clamp(58px, 6.6vw, 104px);
+  height: clamp(58px, 6.6vw, 104px);
   padding: 0;
   border: 2px solid var(--panel-line);
   background: rgba(10, 12, 17, 0.5);

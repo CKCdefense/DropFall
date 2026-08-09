@@ -132,15 +132,9 @@ export class WaitingRoom {
                 this.renderSlot(view.players[index]),
               ),
             ),
-            el('div', { class: 'waiting-bottom' }, [
-              this.renderChat(),
-              el('div', { class: 'waiting-actions' }, [
-                this.renderJobPicker(me),
-                this.renderActionButton(view.amHost, me),
-              ]),
-            ]),
+            el('div', { class: 'waiting-bottom' }, [this.renderChat(), this.renderJobPicker(me)]),
           ]),
-          this.renderRoomPanel(view.amHost, view.companionEnabled),
+          this.renderRoomPanel(view.amHost, view.companionEnabled, me),
         ]),
 
         this.errorMessage
@@ -245,8 +239,15 @@ export class WaitingRoom {
    *
    * 사람 슬롯과 같은 줄에서 시작해 **화면 아래까지 내려온다.** 왼쪽이 "누가 가는가"면
    * 오른쪽은 "어디로 가는가"라, 둘이 같은 무게로 서야 브리핑처럼 읽힌다.
+   *
+   * 강하 개시 버튼이 이 판의 **맨 아래**다. 지시가 내려오는 자리 바로 밑에서 그 지시를
+   * 실행하는 것이라, 직업 아이콘 옆에 있을 때보다 무엇을 누르는 것인지가 분명해진다.
    */
-  private renderRoomPanel(amHost: boolean, companionEnabled: boolean): HTMLElement {
+  private renderRoomPanel(
+    amHost: boolean,
+    companionEnabled: boolean,
+    me: LobbyPlayer | undefined,
+  ): HTMLElement {
     const check = el(
       'button',
       {
@@ -282,6 +283,7 @@ export class WaitingRoom {
         { class: 'system-log scroll-hidden' },
         this.systemLog.map((line) => el('div', { class: 'system-line' }, [line])),
       ),
+      this.renderActionButton(amHost, me),
     ]);
   }
 
