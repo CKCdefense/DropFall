@@ -53,6 +53,7 @@
 | [backend/65-work-report-revive-system.md](backend/65-work-report-revive-system.md) | 작업 보고서 — 부활 시스템(쓰러짐/유령, 혼자하기 10초 자동 부활, 동료 구조 5초, AID 즉시 부활, 낮에 코어에서 에너지로 유령 부활) |
 | [backend/66-work-report-wave-spawn-cadence.md](backend/66-work-report-wave-spawn-cadence.md) | 작업 보고서 — 웨이브 무리 크기를 총원과 같은 배율로 스케일링 + 스폰 지점 전체 동시 분산(사방에서 동시 공격) |
 | [backend/67-work-report-colony-ranged-engagement-bug.md](backend/67-work-report-colony-ranged-engagement-bug.md) | 작업 보고서 — 원거리 무기로 콜로니를 farm하면 트리클 없이 즉시 정화되던 버그 수정(engagedTimer 유예 추가) |
+| [backend/68-design-proposal-bullet-pierce.md](backend/68-design-proposal-bullet-pierce.md) | **구현 기획서(미구현)** — 무기별 총알 관통 횟수 도입, 근접 광역 vs 원거리 탄약제약 트레이드오프 분석 |
 
 ### 역할 C — 클라이언트/렌더/UI 작업 문서 ([frontend/](frontend/))
 
