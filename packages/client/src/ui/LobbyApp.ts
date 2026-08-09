@@ -321,18 +321,22 @@ export class LobbyApp {
    * 예전엔 이 단계가 통째로 없어서 혼자 하면 항상 기본 스탯으로만 시작했다.
    */
   private renderSolo(): HTMLElement {
+    /*
+     * 직업을 안 고르면 **시작 버튼이 아예 안 눌린다.**
+     *
+     * 예전엔 누를 수는 있고 "직업을 먼저 고르세요"라는 오류를 띄웠다 — 눌러 보고 나서야
+     * 안 되는 걸 아는 것보다, 눌리지 않는 편이 먼저 알려 준다.
+     */
+    const hasJob = this.soloJob !== null;
     const start = () => {
-      if (!this.soloJob) {
-        this.fail('직업을 먼저 고르세요.');
-        return;
-      }
+      if (!this.soloJob) return;
       this.startLocal(this.soloJob);
     };
 
     return el('div', { class: 'code-form' }, [
       el('div', { class: 'screen-head' }, [el('h2', {}, ['혼자하기'])]),
       el('div', { class: 'field-block' }, [
-        el('span', {}, ['직업']),
+        el('span', {}, ['직업 선택']),
         el(
           'div',
           { class: 'job-cards' },
@@ -381,7 +385,7 @@ export class LobbyApp {
       this.companionToggle(),
       // 시작·뒤로는 **가로로 나란히, 맨 아래**에 둔다(§.modal-actions-row).
       el('div', { class: 'modal-actions modal-actions-row' }, [
-        this.button('시작', 'primary', start),
+        this.button('시작', 'primary', start, !hasJob),
         this.button('뒤로', 'primary', () => this.goTitle()),
       ]),
     ]);
