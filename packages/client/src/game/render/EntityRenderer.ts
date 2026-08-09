@@ -400,6 +400,15 @@ const MOVE_EPSILON = 0.15;
  */
 const STILL_GRACE_FRAMES = 6;
 
+/**
+ * 쓰러진 몸이 눕는 각도(라디안). 발밑 원점을 축으로 도니 90도가 곧 "바닥에 완전히
+ * 누움"이다.
+ */
+const DOWNED_TILT = Math.PI / 2;
+
+/** 살아있지 않은 플레이어(쓰러짐·유령)의 불투명도. */
+const DOWNED_ALPHA = 0.35;
+
 /** 닉네임 라벨을 머리 위로 띄우는 거리(월드 단위). 캐릭터 32px 중 그림은 y 2~29에 있다. */
 const LABEL_OFFSET_SPRITE = 30;
 const LABEL_OFFSET_PLACEHOLDER = 12;
@@ -736,8 +745,8 @@ export class EntityRenderer {
       }
       sprite.setData('levelUpSeq', player.levelUpSeq);
 
-      // 다운된 플레이어는 흐리게 — 부활 대상임을 한눈에 보이게 한다.
-      sprite.setAlpha(player.hp > 0 ? 1 : 0.35);
+      // 쓰러지거나 유령이면 흐리게 — 부활 대상임을 한눈에 보이게 한다.
+      sprite.setAlpha(player.lifeState === 'alive' ? 1 : DOWNED_ALPHA);
 
       // 무기는 서버가 정한다. 무기가 아닌 걸 들었으면 맨손이다 — 소모품을 든 동안에도
       // 좌클릭으로 때릴 수 있으므로(서버의 BARE_HANDS_WEAPON_ID) 그림도 맨손이어야 한다.
@@ -755,6 +764,16 @@ export class EntityRenderer {
         const visual = this.visualOf(this.weaponOf(player.id));
         layoutWeapon(parts, visual, player.aimAngle, this.swings.get(player.id) ?? null);
         orderWeaponAgainstBody(sprite, parts, player.aimAngle);
+        /*
+         * 쓰러지거나 유령이면 무기와 손을 감춘다.
+         *
+         * 무기 배치는 **서 있는 몸**을 전제로 한 궤도 계산이라, 쓰러진 몸 옆에 방망이가
+         * 허공에 떠 있는 그림이 된다. 손을 놓았다고 보는 편이 자세와도 맞는다.
+         */
+        const armed = player.lifeState === 'alive';
+        parts.weapon.setVisible(armed);
+        parts.hands.forEach((hand) => hand.setVisible(armed && hand.visible));
+        parts.swingFx?.setVisible(armed && parts.swingFx.visible);
       } else if (aim instanceof Phaser.GameObjects.Rectangle) {
         aim.setPosition(Math.cos(player.aimAngle) * 12, Math.sin(player.aimAngle) * 12);
       }
@@ -1105,7 +1124,19 @@ export class EntityRenderer {
      */
     const stillFrames = (container.getData('still') as number | undefined) ?? 0;
     container.setData('still', moved ? 0 : stillFrames + 1);
-    const walking = (moved || stillFrames < STILL_GRACE_FRAMES) && player.hp > 0;
+    const walking = (moved || stillFrames < STILL_GRACE_FRAMES) && player.lifeState === 'alive';
+
+    /*
+     * **쓰러지면 눕는다.**
+     *
+     * 원점이 발밑(PLAYER_ORIGIN_Y 0.94)이라 그 점을 축으로 90도 돌리면 발은 제자리에
+     * 두고 몸만 옆으로 눕는다 — 넘어진 자세가 그대로 나온다. 눕는 쪽은 보고 있던
+     * 방향이다(등을 보이며 뒤로 자빠지는 것보다 자연스럽다).
+     *
+     * 유령은 눕히지 않는다. 떠다니는 상태라 서 있는 그림이 맞고, 흐린 알파만으로
+     * 이미 산 사람과 구분된다.
+     */
+    body.setRotation(player.lifeState === 'downed' ? (flipX ? -DOWNED_TILT : DOWNED_TILT) : 0);
 
     if (walking) {
       const key = walkAnimKey(job, direction);

@@ -337,6 +337,8 @@ export class ColyseusConnection implements GameConnection {
     this.room.send('spendStatPoint', { stat });
   }
 
+  readonly solo = false;
+
   reviveGhost(targetId: string): void {
     this.room.send('reviveGhost', { targetId });
   }

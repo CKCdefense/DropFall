@@ -77,6 +77,7 @@
 | [frontend/17-work-report-controls-and-prompts.md](frontend/17-work-report-controls-and-prompts.md) | 작업 보고서 — 걷기 모션 복구, 소모품 우클릭·휠 슬롯 전환, 코어 E 키 안내, 제작 진행 화살표 |
 | [frontend/18-work-report-attack-fx-gating.md](frontend/18-work-report-attack-fx-gating.md) | 작업 보고서 — 연타 시 쿨다운을 무시하고 나오던 공격 연출 수정(재장전·빈 탄창 포함) |
 | [frontend/19-work-report-fx-alignment-and-title-weight.md](frontend/19-work-report-fx-alignment-and-title-weight.md) | 작업 보고서 — 소모품 이펙트 발밑 정렬, 레벨업 연출 미니멀화, 중앙 문구 볼드·확대 |
+| [frontend/20-work-report-downed-visuals.md](frontend/20-work-report-downed-visuals.md) | 작업 보고서 — 쓰러진 캐릭터를 발밑 축으로 눕히고, 하단 바 위에 HELP!·부활/유령 카운터·구조 게이지 표시 |
 
 ## 한 줄 요약
 
