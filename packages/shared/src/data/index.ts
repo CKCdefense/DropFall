@@ -327,6 +327,14 @@ const JobStatsSchema = z.object({
   repairCostMultiplier: z.number().nonnegative().optional(),
   /** 의무병: requiresJob이 걸린 붕대 레시피를 쓸 수 있다. 실제 판정은 레시피 쪽이 한다. */
   craftsBandage: z.boolean().optional(),
+
+  /**
+   * 고유 능력을 한 줄로 적은 설명(대기실 카드용).
+   *
+   * 위의 배수들과 **같은 것을 두 번 적는** 셈이지만, 배수만 보여주면 화면에서 "1.2가
+   * 무엇에 붙는 값인지" 설명할 수가 없다. 숫자는 규칙이고 이 줄은 사람이 읽는 말이다.
+   */
+  trait: z.string().optional(),
 });
 
 const JobsDataSchema = z.object({
@@ -592,6 +600,14 @@ const LoadoutDataSchema = z.object({
 export type LoadoutEntry = z.infer<typeof LoadoutEntrySchema>;
 
 export const loadoutData = loadData(LoadoutDataSchema, loadoutJson);
+
+/**
+ * 그 직업이 들고 시작하는 것. 대기실 카드가 "무엇을 받는가"를 보여줄 때 쓴다.
+ * 칸 번호 순으로 정렬해서 화면에 나오는 순서가 실제 퀵슬롯 순서와 같게 한다.
+ */
+export function jobStartingItems(job: string): LoadoutEntry[] {
+  return [...(loadoutData.byJob[job] ?? [])].sort((a, b) => (a.slot ?? 99) - (b.slot ?? 99));
+}
 
 // --- colonies.json ------------------------------------------------------------
 

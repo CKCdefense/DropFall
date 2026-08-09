@@ -81,13 +81,20 @@
 /* ---------------------------------------------------------------- 위 줄 */
 
 /*
- * 슬롯 4칸 + 방 설정 판. 판은 슬롯 하나보다 조금 넓다 — 행성 그림이 들어가는 자리라
- * 정사각에 가까워야 그림이 눌리지 않는다.
+ * 슬롯 4칸 + 방 설정 판.
+ *
+ * **오른쪽 판이 가장 넓다.** 사람 카드는 이름·직업·지급품이라 세로로 읽히는 정보뿐이지만,
+ * 오른쪽은 가로로 긴 스캐너 화면이 들어가는 자리다 — 넷을 균등하게 나누면 그 그림만
+ * 작아진다.
+ *
+ * 카드는 위로 붙인다(align-items: start). 늘려서 채우면 지급품 몇 줄 아래로 빈 공간이
+ * 길게 남는다 — 사원증은 내용만큼만 크면 된다.
  */
 .waiting-roster {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: 1fr clamp(280px, 30vw, 480px);
   gap: clamp(8px, 1.5vw, 18px);
+  align-items: start;
   flex: 1;
   min-height: 0;
 }
@@ -95,16 +102,18 @@
 .slots {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: clamp(8px, 1.5vw, 18px);
+  gap: clamp(6px, 1vw, 12px);
+  /* 카드는 제 내용만큼만 — 늘려서 맞추면 빈 칸의 여백이 가장 크게 보인다. */
+  align-items: start;
   min-height: 0;
 }
 
 .slot {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  min-height: 0;
-  padding: clamp(6px, 1vh, 12px);
+  gap: 5px;
+  min-width: 0;
+  padding: clamp(5px, 0.8vh, 9px);
   border: calc(2px * var(--px)) solid var(--panel-line);
   background: rgba(18, 20, 26, 0.6);
 }
@@ -117,65 +126,127 @@
   opacity: 0.45;
 }
 
-/* 캐릭터 초상화 자리. */
-.slot-portrait {
+/*
+ * 증명사진 칸. 가로세로비를 못 박는 이유는 카드 높이를 **내용이** 정하게 하려는 것이다 —
+ * 예전처럼 남는 세로를 다 먹으면(flex: 1) 카드가 화면 높이만큼 늘어난다.
+ */
+.slot-photo {
   position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
-  flex: 1;
-  min-height: 0;
+  flex: none;
+  aspect-ratio: 1 / 1;
   border: 2px solid var(--panel-line);
   background: rgba(10, 12, 17, 0.5);
+  overflow: hidden;
 }
 
 /* 아틀라스에서 잘라낸 캐릭터 한 칸. 픽셀아트라 정수배로만 확대한다. */
 .portrait {
-  --crop-scale: 3;
+  --crop-scale: 4;
   background-repeat: no-repeat;
   image-rendering: pixelated;
 }
 
-@media (max-height: 700px) {
+@media (max-height: 800px) {
+  .portrait {
+    --crop-scale: 3;
+  }
+}
+
+@media (max-height: 620px) {
   .portrait {
     --crop-scale: 2;
   }
 }
 
-.slot-portrait-mark {
+.slot-photo-mark {
   color: var(--text-dim);
   font-size: clamp(24px, 4vw, 44px);
 }
 
-.slot-host,
-.slot-ready-mark {
+.slot-badge {
   position: absolute;
-  top: 4px;
-  padding: 2px 6px;
-  font-size: 11px;
-  background: rgba(10, 12, 17, 0.8);
+  top: 3px;
+  padding: 1px 5px;
+  font-size: 10px;
+  background: rgba(10, 12, 17, 0.85);
 }
 
 .slot-host {
-  left: 4px;
+  left: 3px;
   color: var(--text-dim);
 }
 
 .slot-ready-mark {
-  right: 4px;
+  right: 3px;
   color: var(--accent);
 }
 
-/* 이름 / 직업 칸 */
-.slot-line {
+/* 이름은 카드에서 가장 큰 글자다 — 누구 자리인지가 먼저 읽혀야 한다. */
+.slot-name {
   flex: none;
-  padding: 5px 8px;
-  border: 2px solid var(--panel-line);
-  font-size: 13px;
+  font-size: clamp(12px, 1.2vw, 15px);
   text-align: center;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.slot-job {
+  flex: none;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--panel-line);
+  color: var(--accent);
+  font-size: 11px;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.slot-empty .slot-job {
+  color: var(--text-dim);
+  border-bottom: none;
+}
+
+/* 아래 절반 — 무엇을 들고 내려가는가. */
+.slot-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.slot-stats {
+  color: var(--text-dim);
+  text-align: center;
+}
+
+.slot-trait {
+  color: var(--accent-dim, var(--accent));
+  text-align: center;
+}
+
+.slot-items {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--text-dim);
+}
+
+.slot-items li {
+  display: flex;
+  justify-content: space-between;
+  gap: 4px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.slot-item-count {
+  flex: none;
 }
 
 /* ------------------------------------------------------------ 방 설정 판 */
@@ -185,8 +256,8 @@
   flex-direction: column;
   /* 그림은 위, 토글은 아래 — 사이가 비면 그만큼 벌어진다(auto 여백). */
   justify-content: space-between;
-  gap: 6px;
-  width: clamp(150px, 18vw, 230px);
+  gap: 8px;
+  /* 폭은 격자가 정한다(§.waiting-roster) — 여기서 또 정하면 둘이 어긋난다. */
   min-height: 0;
   padding: clamp(6px, 1vh, 12px);
   border: calc(2px * var(--px)) solid var(--panel-line);
@@ -255,16 +326,19 @@ html:not(.has-lobby-planet) .room-panel-art {
 /* ---------------------------------------------------------------- 아래 줄 */
 
 /*
- * 채팅 / 직업 선택 / 시작. 가운데(직업 선택)를 auto로 두고 양옆을 고정폭으로 잡으면
- * 채팅이 남는 자리를 다 먹으면서도 아이콘 줄은 항상 가운데에 선다.
+ * 채팅 / 직업 선택 / 시작.
+ *
+ * **채팅은 화면 절반에서 끝난다.** 남는 자리를 다 먹게 두면(1fr) 채팅 상자만 화면을
+ * 가로지르는데, 아직 글자 한 줄 안 들어가는 자리다. 절반에서 끊고 남은 폭을 직업
+ * 아이콘에 준다 — 지금 대기실에서 실제로 하는 일은 채팅이 아니라 직업 고르기다.
  */
 .waiting-bottom {
   display: grid;
-  grid-template-columns: 1fr auto clamp(120px, 20vw, 180px);
+  grid-template-columns: calc(50% - clamp(4px, 0.75vw, 9px)) 1fr clamp(140px, 20vw, 200px);
   align-items: stretch;
   gap: clamp(8px, 1.5vw, 18px);
   flex: none;
-  height: clamp(96px, 19vh, 150px);
+  height: clamp(110px, 21vh, 168px);
 }
 
 .chat-box {
@@ -301,22 +375,45 @@ html:not(.has-lobby-planet) .room-panel-art {
 
 /* ---------------------------------------------------------------- 직업 선택 */
 
+/* 머리글이 왼쪽 위에 붙고 아이콘 줄이 그 아래로 온다 — 표의 제목과 내용 관계다. */
 .job-picker {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
   gap: 6px;
+  min-width: 0;
+}
+
+.job-picker-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
 }
 
 .job-picker-label {
-  color: var(--text-dim);
-  font-size: 13px;
+  flex: none;
+  font-weight: 700;
+  font-size: clamp(14px, 1.5vw, 18px);
+}
+
+/*
+ * 호버한 직업 이름. **자리를 항상 차지한다** — 마우스를 올릴 때마다 줄 높이가 바뀌면
+ * 아이콘이 위아래로 튄다.
+ */
+.job-picker-hover {
+  min-height: 1em;
+  color: var(--accent);
+  font-size: clamp(11px, 1.1vw, 14px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .job-picker-row {
   display: flex;
-  gap: clamp(6px, 1vw, 14px);
+  gap: clamp(6px, 0.9vw, 12px);
 }
 
 /*
@@ -327,8 +424,8 @@ html:not(.has-lobby-planet) .room-panel-art {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: clamp(46px, 5.5vw, 68px);
-  height: clamp(46px, 5.5vw, 68px);
+  width: clamp(58px, 7vw, 92px);
+  height: clamp(58px, 7vw, 92px);
   padding: 0;
   border: 2px solid var(--panel-line);
   background: rgba(10, 12, 17, 0.5);
@@ -346,7 +443,11 @@ html:not(.has-lobby-planet) .room-panel-art {
   box-shadow: inset 0 0 0 1px var(--accent-dim);
 }
 
-/* 아이콘은 67x64라 원본 그대로도 칸에 거의 들어찬다 — 확대하지 않는다. */
+/*
+ * 아이콘 원본은 67×64다. 칸이 그보다 커져도 **정수배로만** 키운다 — 픽셀아트를 1.4배
+ * 같은 값으로 늘리면 획 굵기가 칸마다 달라져 넷이 따로 논다. 칸이 원본의 두 배가 되기
+ * 전까지는 1배 그대로 두고 여백으로 채운다.
+ */
 .job-icon {
   --crop-scale: 1;
   background-repeat: no-repeat;

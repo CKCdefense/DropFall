@@ -1,4 +1,12 @@
-import { JOBS, MAX_CLIENTS_PER_ROOM, RoomPhase, type JobId } from '@dropfall/shared';
+import {
+  JOBS,
+  MAX_CLIENTS_PER_ROOM,
+  RoomPhase,
+  itemsData,
+  jobStats,
+  jobStartingItems,
+  type JobId,
+} from '@dropfall/shared';
 import type { GameConnection, LobbyPlayer } from '../net/GameConnection';
 import { assetAttr } from './assets';
 import { characterPortrait, jobIcon } from './characterPortrait';
@@ -23,6 +31,8 @@ import { clear, el } from './dom';
  */
 export class WaitingRoom {
   private errorMessage = '';
+  /** 직업 아이콘에 마우스를 올려 둔 동안 머리글 옆에 뜨는 이름. */
+  private hoveredJob: JobId | null = null;
 
   constructor(
     private readonly root: HTMLElement,
@@ -98,12 +108,19 @@ export class WaitingRoom {
     this.root.querySelector('.waiting-leave')?.addEventListener('click', () => this.onLeave());
   }
 
+  /**
+   * 플레이어 한 칸 — **사원증**처럼 짠다.
+   *
+   * 위에서부터 [사진] → [이름] → [직업] → [특성·지급품]. 위쪽 절반은 "누구인가",
+   * 아래쪽 절반은 "무엇을 들고 내려가는가"다. 직업을 고르기 전에는 아래 절반이 비어
+   * 있어서, 카드가 채워지는 것 자체가 "고르라"는 신호가 된다.
+   */
   private renderSlot(player: LobbyPlayer | undefined): HTMLElement {
     if (!player) {
       return el('div', { class: 'slot slot-empty' }, [
-        el('div', { class: 'slot-portrait' }),
-        el('div', { class: 'slot-line' }, ['비어 있음']),
-        el('div', { class: 'slot-line' }, ['-']),
+        el('div', { class: 'slot-photo' }),
+        el('div', { class: 'slot-name' }, ['비어 있음']),
+        el('div', { class: 'slot-job' }, ['-']),
       ]);
     }
 
@@ -113,17 +130,43 @@ export class WaitingRoom {
       'div',
       { class: `slot ${player.isMe ? 'slot-me' : ''} ${player.isReady ? 'slot-ready' : ''}`.trim() },
       [
-        el('div', { class: 'slot-portrait' }, [
+        el('div', { class: 'slot-photo' }, [
           // 스프라이트가 있으면 아틀라스에서 잘라 보여주고, 없으면 직업 첫 글자로 대체한다.
           (job && characterPortrait(job.id)) ??
-            el('span', { class: 'slot-portrait-mark' }, [job ? job.name.charAt(0) : '?']),
-          player.isHost ? el('span', { class: 'slot-host' }, ['방장']) : null,
-          player.isReady ? el('span', { class: 'slot-ready-mark' }, ['준비']) : null,
+            el('span', { class: 'slot-photo-mark' }, [job ? job.name.charAt(0) : '?']),
+          player.isHost ? el('span', { class: 'slot-badge slot-host' }, ['방장']) : null,
+          player.isReady ? el('span', { class: 'slot-badge slot-ready-mark' }, ['준비']) : null,
         ]),
-        el('div', { class: 'slot-line' }, [player.nickname]),
-        el('div', { class: 'slot-line' }, [job ? job.name : '선택 중...']),
+        el('div', { class: 'slot-name' }, [player.nickname]),
+        el('div', { class: 'slot-job' }, [job ? `${job.name} · ${job.summary}` : '선택 중...']),
+        job ? this.renderSlotDetail(job.id) : null,
       ],
     );
+  }
+
+  /** 카드 아래 절반 — 고유 특성 한 줄과 시작 지급품 목록. */
+  private renderSlotDetail(job: JobId): HTMLElement {
+    const stats = jobStats(job);
+    const items = jobStartingItems(job);
+
+    return el('div', { class: 'slot-detail' }, [
+      el('div', { class: 'slot-stats' }, [`체력 ${stats.maxHp} · 기력 ${stats.maxStamina}`]),
+      stats.trait ? el('div', { class: 'slot-trait' }, [stats.trait]) : null,
+      el(
+        'ul',
+        { class: 'slot-items' },
+        items.map((entry) =>
+          el('li', {}, [
+            itemsData[entry.itemId]?.name ?? entry.itemId,
+            // 인원수만큼 주는 항목(의무병 붕대)은 숫자 대신 그렇다고 적는다 — 대기실에서는
+            // 아직 인원이 확정되지 않아 정확한 개수를 말할 수 없다.
+            el('span', { class: 'slot-item-count' }, [
+              entry.perPlayer ? '×인원' : entry.count > 1 ? `×${entry.count}` : '',
+            ]),
+          ]),
+        ),
+      ),
+    ]);
   }
 
   /**
@@ -195,15 +238,26 @@ export class WaitingRoom {
   }
 
   /**
-   * 직업 선택 — 아이콘 네 칸.
+   * 직업 선택 — 머리글 + 아이콘 네 칸.
    *
-   * 예전엔 "병사 · 화력"처럼 글자로 늘어놓았는데, 와이어프레임의 이 자리는 가로가 짧아
-   * 글자가 들어가지 않는다. 고른 직업은 슬롯 카드에 이름으로 이미 적히므로 여기서 또 쓸
-   * 이유도 없다 — 설명은 툴팁으로 남긴다.
+   * 예전엔 "병사 · 화력"처럼 글자로 늘어놓았는데, 아이콘이 커지면서 이름을 넣을 자리가
+   * 없어졌다. 대신 **머리글 옆에 호버한 직업 이름**을 띄운다 — 이름은 넷 중 하나만
+   * 궁금한 정보라, 넷 다 상시로 적어 두는 것보다 가리키는 것 하나만 보여주는 편이 낫다.
+   * 고른 뒤에는 카드에 이름·특성·지급품이 전부 나오므로 여기서 더 설명할 필요도 없다.
    */
   private renderJobPicker(me: LobbyPlayer | undefined): HTMLElement {
-    return el('div', { class: 'job-picker' }, [
+    const hovered = this.hoveredJob ?? me?.job ?? null;
+    const hoveredName = JOBS.find((job) => job.id === hovered);
+
+    const head = el('div', { class: 'job-picker-head' }, [
       el('span', { class: 'job-picker-label' }, ['직업 선택']),
+      el('span', { class: 'job-picker-hover' }, [
+        hoveredName ? `${hoveredName.name} · ${hoveredName.summary}` : '',
+      ]),
+    ]);
+
+    return el('div', { class: 'job-picker' }, [
+      head,
       el(
         'div',
         { class: 'job-picker-row' },
@@ -214,12 +268,28 @@ export class WaitingRoom {
             {
               class: `job-cell ${selected ? 'is-selected' : ''}`.trim(),
               type: 'button',
-              title: `${job.name} · ${job.summary}`,
+              'aria-label': `${job.name} · ${job.summary}`,
             },
             // 아이콘이 아직 없으면 이름 첫 글자로 대신한다(초상화와 같은 규칙).
             [jobIcon(job.id) ?? el('span', { class: 'job-cell-mark' }, [job.name.charAt(0)])],
           );
           button.addEventListener('click', () => this.selectJob(job.id));
+          /*
+           * 호버 이름은 **다시 그리지 않고** 글자만 갈아 끼운다. render()를 부르면 그
+           * 순간 버튼이 새로 만들어져 마우스가 얹혀 있던 요소가 사라지고, 곧바로
+           * mouseleave가 날아와 이름이 깜빡인다.
+           */
+          button.addEventListener('mouseenter', () => {
+            this.hoveredJob = job.id;
+            head.querySelector('.job-picker-hover')!.textContent = `${job.name} · ${job.summary}`;
+          });
+          button.addEventListener('mouseleave', () => {
+            this.hoveredJob = null;
+            const fallback = JOBS.find((item) => item.id === me?.job);
+            head.querySelector('.job-picker-hover')!.textContent = fallback
+              ? `${fallback.name} · ${fallback.summary}`
+              : '';
+          });
           return button;
         }),
       ),

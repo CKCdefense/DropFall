@@ -14,7 +14,8 @@
     "attack": 8,
     "maxStamina": 100,
     "$xpComment": "경험치를 20% 더 받는다. 처치 경험치는 살아 있는 전원에게 같은 양이 들어가는데(levels.json), 그중 병사만 제 몫을 더 챙긴다 — 남의 몫을 뺏지 않는다.",
-    "xpMultiplier": 1.2
+    "xpMultiplier": 1.2,
+    "trait": "경험치 +20%"
   },
   "searchman": {
     "name": "탐색꾼",
@@ -23,7 +24,8 @@
     "attack": 3,
     "maxStamina": 125,
     "$speedComment": "걷는 속도 자체가 10% 빠르다. 달리기 배수와 곱해지므로 달릴 때도 그만큼 앞선다.",
-    "speedMultiplier": 1.1
+    "speedMultiplier": 1.1,
+    "trait": "이동속도 +10%"
   },
   "medic": {
     "name": "의무병",
@@ -32,7 +34,8 @@
     "attack": 2,
     "maxStamina": 100,
     "$craftComment": "붕대 레시피(crafting.json의 requiresJob)를 의무병만 쓸 수 있다. 코어 앞에서만 되는 일이라 전선에서 즉석으로 만들 수는 없다.",
-    "craftsBandage": true
+    "craftsBandage": true,
+    "trait": "코어에서 붕대 제작"
   },
   "engineer": {
     "name": "엔지니어",
@@ -41,6 +44,8 @@
     "attack": 4,
     "maxStamina": 80,
     "$repairComment": "해머 수리에 드는 자원이 절반이다. 자원은 정수라 올림한다 — 비용 2짜리 울타리가 0이 되면 수리가 공짜가 된다.",
-    "repairCostMultiplier": 0.5
-  }
+    "repairCostMultiplier": 0.5,
+    "trait": "수리 자원 -50%"
+  },
+  "$traitComment": "대기실 카드에 한 줄로 적는 고유 능력 설명. 숫자는 바로 위 필드에 있고 여기는 **사람이 읽는 문장**이다 — 배수만 보여주면 그게 무엇에 붙는 값인지 화면에서 설명할 수 없다."
 }
