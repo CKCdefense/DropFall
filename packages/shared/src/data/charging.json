@@ -3,11 +3,12 @@
   "$slotComment": "슬롯이 여러 개인 이유는 자원과 에너지를 동시에 충전할 수 있어야 해서다. 하나뿐이면 나무를 태우는 동안 드랍을 못 넣는다.",
   "slotCount": 3,
   "$rateComment": "슬롯 하나가 1초에 소화하는 아이템 개수. 즉시 변환이 아니라 시간이 드는 이유는, 밤이 오기 전에 무엇을 먼저 채울지 고르게 만들기 위해서다.",
+  "$dropEnergyComment": "drop_normal의 개당 에너지는 3에서 6으로 올렸다. 웨이브가 커지면서 바닥에 드랍이 수십 개씩 깔려 줍는 것 자체가 일이 됐는데, 마릿수를 줄일 수는 없으니 **드랍 확률을 0.5 → 0.2로 낮추고**(monsters.json) 대신 한 뭉치의 값을 올렸다 — 밤 전체 에너지 총량은 그대로 두고 바닥에 널린 개수만 줄이는 맞바꿈이다. 보스는 밤에 한 마리뿐이라 확률 대신 개수를 절반으로 줄여 같은 총량을 맞췄다.",
   "itemsPerSecond": 2,
   "materials": {
     "wood": { "gauge": "resource", "amount": 3 },
     "stone": { "gauge": "resource", "amount": 5 },
-    "drop_normal": { "gauge": "energy", "amount": 3 },
+    "drop_normal": { "gauge": "energy", "amount": 6 },
     "drop_rare": { "gauge": "energy", "amount": 12 }
   }
 }
