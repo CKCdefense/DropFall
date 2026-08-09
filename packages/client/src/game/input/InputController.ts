@@ -144,11 +144,15 @@ export class InputController {
       this.connection.voteSkipDay();
     });
 
-    // 상호작용(E). 무엇을 할지는 서 있는 위치가 정한다 — 코어 옆이면 창고를 열고,
-    // 아니면 바닥 드롭을 줍는다. 키를 늘리는 대신 맥락으로 나누는 편이 조작이 단순하다.
-    // 채집(자원 노드 타격)은 좌클릭 근접 공격이라 이 키와 무관하다.
+    // 상호작용(E) — 코어 창 열기·닫기, 쓰러진 동료 구조.
     keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.E).on('down', () => {
-      if (this.onInteract?.()) return;
+      this.onInteract?.();
+    });
+
+    // 줍기(스페이스). 예전엔 E 하나가 "앞의 것에 손을 댄다"를 전부 맡아서, 코어 앞에
+    // 떨어진 드롭을 밟고 있으면 줍기와 창 열기가 서로 순서를 양보하느라 둘 다 답답했다.
+    // 키를 나누면 "무엇을 할지"를 플레이어가 고르므로 그 다툼 자체가 없어진다.
+    keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE).on('down', () => {
       this.connection.pickUp();
     });
 
