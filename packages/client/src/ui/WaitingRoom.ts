@@ -9,7 +9,6 @@ import {
   type JobId,
 } from '@dropfall/shared';
 import type { GameConnection, LobbyPlayer } from '../net/GameConnection';
-import { assetAttr } from './assets';
 import { characterPortrait, itemIcon, jobIcon } from './characterPortrait';
 import { clear, el } from './dom';
 
@@ -293,7 +292,7 @@ export class WaitingRoom {
     if (amHost) {
       const button = el(
         'button',
-        { class: 'btn btn-primary action-button', type: 'button', ...assetAttr('button') },
+        { class: 'action-button', type: 'button' },
         ['시작'],
       );
       button.addEventListener('click', () => {
@@ -307,10 +306,9 @@ export class WaitingRoom {
     const button = el(
       'button',
       {
-        class: `btn btn-primary action-button ${me?.isReady ? 'is-ready' : ''}`.trim(),
+        class: `action-button ${me?.isReady ? 'is-ready' : ''}`.trim(),
         type: 'button',
         disabled: !hasJob,
-        ...assetAttr('button'),
       },
       [me?.isReady ? '준비 해제' : '준비'],
     );
@@ -395,7 +393,6 @@ export class WaitingRoom {
       maxlength: '120',
       placeholder: '메시지를 입력하고 Enter',
       value: this.chatDraft,
-      ...assetAttr('input'),
     }) as HTMLInputElement;
 
     input.addEventListener('input', () => {

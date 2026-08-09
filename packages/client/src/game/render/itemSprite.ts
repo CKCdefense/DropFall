@@ -106,6 +106,22 @@ function iconFit(frameWidth: number, frameHeight: number, boxSize: number, itemI
   };
 }
 
+/**
+ * 한 칸(boxSize)에 맞춘 배율·보정. **DOM(대기실)도 같은 계산을 쓴다** — 인벤토리에서
+ * 본 크기와 대기실에서 본 크기가 다르면 같은 물건인지 헷갈린다.
+ *
+ * 프레임 크기는 호출부가 준다. Phaser 쪽은 이미지에서 읽고, DOM 쪽은 아틀라스 JSON에서
+ * 읽어서 — 어느 쪽도 상대의 사정을 몰라도 되게 했다.
+ */
+export function itemIconFit(
+  itemId: string,
+  frameWidth: number,
+  frameHeight: number,
+  boxSize: number,
+): IconFit {
+  return iconFit(frameWidth, frameHeight, boxSize, itemId);
+}
+
 /** 회전·배율을 적용하고, 여백 보정만큼 위치를 되돌린다. */
 function applyIconFit(
   image: Phaser.GameObjects.Image,

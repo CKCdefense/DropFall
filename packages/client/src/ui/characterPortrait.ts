@@ -1,5 +1,5 @@
 import type { JobId } from '@dropfall/shared';
-import { itemFrame } from '../game/render/itemSprite';
+import { itemFrame, itemIconFit } from '../game/render/itemSprite';
 import { resolveAssetUrl } from './assets';
 import { el } from './dom';
 
@@ -55,17 +55,47 @@ export function jobIcon(job: JobId): HTMLElement | null {
  * 아이템 아이콘. **인게임과 같은 표**(itemSprite.itemFrame)를 본다 — 대기실에서 본
  * 그림과 인벤토리에서 볼 그림이 다르면 같은 물건인지 알 수 없다.
  */
-export function itemIcon(itemId: string): HTMLElement | null {
-  const frame = itemFrame(itemId);
-  return frame ? cropFrame(frame, 'item-icon') : null;
+export function itemIcon(itemId: string, boxSize = ITEM_ICON_BOX): HTMLElement | null {
+  const name = itemFrame(itemId);
+  const frame = name ? atlas?.frames[name] : undefined;
+  if (!name || !frame) return null;
+
+  /*
+   * 아이콘 원본은 재료 64px·무기 128px로 제각각이라 **칸에 맞춰 줄여야** 한다. 배율은
+   * 인게임과 같은 계산(itemIconFit)을 쓰고, 무기처럼 캔버스 안에서 그림이 치우친 것은
+   * 그 보정만큼 밀어 가운데에 세운다.
+   *
+   * 인게임이 길쭉한 아이콘에 주는 기울기는 여기서 쓰지 않는다 — 대기실 칸이 훨씬 작아
+   * 기울여 봐야 알아보기만 어려워진다.
+   */
+  const fit = itemIconFit(itemId, frame.frame.w, frame.frame.h, boxSize);
+  const node = cropFrame(name, 'item-icon', fit.scale);
+  if (node && (fit.offsetX !== 0 || fit.offsetY !== 0)) {
+    node.style.transform = `translate(${fit.offsetX * fit.scale}px, ${fit.offsetY * fit.scale}px)`;
+  }
+  return node;
 }
 
-/** 아틀라스 PNG를 배경으로 깔고 한 프레임만큼 밀어 잘라낸 요소. */
-function cropFrame(frameName: string, className: string): HTMLElement | null {
+/**
+ * 아이템 아이콘이 들어갈 칸의 기준 크기(px).
+ *
+ * 칸 자체는 화면 폭에 따라 늘고 줄지만 아이콘은 이 크기로 고정한다 — 픽셀 그림을 칸
+ * 크기에 실시간으로 맞추면 배율이 계속 바뀌어 획 굵기가 흔들린다.
+ */
+const ITEM_ICON_BOX = 30;
+
+/**
+ * 아틀라스 PNG를 배경으로 깔고 한 프레임만큼 밀어 잘라낸 요소.
+ *
+ * @param scale 배율. 안 주면 CSS(`--crop-scale`)가 정한다 — 초상화·직업 아이콘처럼
+ *   자리마다 크기가 다른 것들이 그 길을 쓴다.
+ */
+function cropFrame(frameName: string, className: string, scale?: number): HTMLElement | null {
   const frame = atlas?.frames[frameName];
   if (!atlas || !frame) return null;
 
   const node = el('div', { class: className });
+  if (scale !== undefined) node.style.setProperty('--crop-scale', `${scale}`);
   const { x, y, w, h } = frame.frame;
 
   // 배경 이미지를 프레임 크기에 맞춰 확대한 뒤, 원하는 칸이 보이도록 밀어낸다.
