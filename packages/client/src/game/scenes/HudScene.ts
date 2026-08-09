@@ -30,6 +30,7 @@ import { SlotDrag } from '../ui/SlotDrag';
 import type { Modal } from '../ui/Modal';
 import { DevConsole } from '../ui/DevConsole';
 import { DevItemModal } from '../ui/DevItemModal';
+import { GuideModal } from '../ui/GuideModal';
 import { MINIMAP_SIZE, Minimap } from '../ui/Minimap';
 import { PartyPanel } from '../ui/PartyPanel';
 import { BOTTOM_BAR_RESERVED, QuickSlotBar } from '../ui/QuickSlotBar';
@@ -133,6 +134,11 @@ const STATUS_PANEL_HEIGHT = 62;
 const STATUS_PANEL_GAP = 8;
 /** 투표 칸 사이 간격(화면 px). 칸 자체는 12px 원본 × HUD_BAR_SCALE = 24px다. */
 const VOTE_BOX_GAP = 6;
+/** 미니맵 왼쪽에 붙는 조작법(?) 버튼 크기와 미니맵과의 간격(화면 px). */
+const GUIDE_BUTTON_SIZE = 28;
+const GUIDE_BUTTON_GAP = 8;
+/** 호버 강조 테두리. ACCENT는 글자용 문자열이라 도형에는 같은 색의 숫자 값을 쓴다. */
+const GUIDE_BUTTON_HOVER = 0x6fd08c;
 /**
  * 콜로니 증가분(`+N`) 색. 잡몹 숫자보다 **진한 경고색**이다 — 정원과 나란히 붙어 있어
  * 같은 톤이면 한 숫자로 읽히고, 이건 "내가 안 치운 콜로니 때문에 늘어난 몫"이라
@@ -258,6 +264,11 @@ export class HudScene extends Phaser.Scene {
   private looseTexts: Phaser.GameObjects.Text[] = [];
   /** 바 너비를 다시 계산할 때 필요해서 보관한다. */
   private uiScale = 1;
+
+  /** 조작법 창과 그걸 여는 미니맵 옆 `?` 버튼. */
+  private guideModal!: GuideModal;
+  private guideButton!: Phaser.GameObjects.Rectangle;
+  private guideButtonLabel!: Phaser.GameObjects.Text;
 
   // 코어 허브 창 — 코어 앞에서 [E]로 열고, 안에서 탭(코어/제작/상점/창고)으로 오간다.
   private coreModal!: CoreModal;
@@ -436,6 +447,32 @@ export class HudScene extends Phaser.Scene {
       this.showAiToast(text);
     });
     this.characterModal = new CharacterModal(this);
+
+    // 조작법 창 + 미니맵 왼쪽의 `?` 버튼.
+    //
+    // 키 안내를 화면 아래 한 줄로만 흘려 두면 글자가 작아 아무도 안 읽고, 그렇다고
+    // 늘 띄워 두면 시야를 먹는다. 필요할 때만 여는 창이 맞고, 그 창을 여는 손잡이는
+    // "도움말은 물음표"라는 관습을 그대로 쓴다.
+    this.guideModal = new GuideModal(this);
+    this.guideButton = this.add
+      .rectangle(0, 0, GUIDE_BUTTON_SIZE, GUIDE_BUTTON_SIZE, PANEL_FILL, 0.86)
+      .setOrigin(0, 0)
+      .setStrokeStyle(1, PANEL_STROKE)
+      .setInteractive({ useHandCursor: true });
+    this.guideButtonLabel = this.add
+      .text(0, 0, '?', {
+        fontFamily: FONT,
+        fontSize: `${SIZE_BODY}px`,
+        fontStyle: 'bold',
+        color: ACCENT,
+      })
+      .setOrigin(0.5, 0.5);
+    this.guideButton.on('pointerover', () => this.guideButton.setStrokeStyle(2, GUIDE_BUTTON_HOVER));
+    this.guideButton.on('pointerout', () => this.guideButton.setStrokeStyle(1, PANEL_STROKE));
+    this.guideButton.on('pointerdown', () => {
+      if (this.guideModal.isOpen()) this.guideModal.close();
+      else this.guideModal.open();
+    });
     // 하단 바의 직업/스탯 칸이 이 창을 연다 — 스탯을 보는 곳이 한 군데여야 한다.
     this.quickSlots.onProfile = () => {
       if (this.characterModal.isOpen()) this.characterModal.close();
@@ -450,6 +487,15 @@ export class HudScene extends Phaser.Scene {
     this.coreModal.isDragActive = () => this.slotDrag.isDragging();
     this.slotDrag.onMove = (from, fromIndex, to, toIndex) =>
       this.connection.moveItem(from, fromIndex, to, toIndex);
+    /*
+     * 퀵슬롯을 옮기지 않고 그냥 좌클릭만 하면 그 칸을 손에 든다 — 숫자키(1~4)와
+     * 완전히 같은 동작이라 selectSlot을 그대로 재사용한다. 창고 등 다른 칸은
+     * "손에 든다"는 개념이 없어 무시한다.
+     */
+    this.slotDrag.onClickSelect = (container, index) => {
+      if (container !== 'inventory') return;
+      this.connection.selectSlot(index);
+    };
     /*
      * 쉬프트 클릭의 목적지는 **지금 열려 있는 탭**이 정한다. 코어 탭이면 충전 칸,
      * 그 밖에는 예전대로 창고다 — 눈에 보이는 곳으로 가는 게 가장 덜 놀랍다.
@@ -526,6 +572,8 @@ export class HudScene extends Phaser.Scene {
     // 강화는 코어 탭 안의 큰 버튼이다 — 예전엔 별도 창(UpgradeModal)이었는데,
     // "얼마 모였나"를 보고 "올릴까"를 정하는 사이에 창을 갈아타야 했다.
     this.coreModal.onUpgrade = () => this.connection.upgradeCore();
+    this.coreModal.onRepair = () => this.connection.repairCore();
+    this.coreModal.onReviveGhost = (targetId: string) => this.connection.reviveGhost(targetId);
     this.characterModal.onSpendPoint = (stat) => this.connection.spendStatPoint(stat);
     this.coreModal.onCraft = (recipeId: string) => this.connection.craft(recipeId);
     this.coreModal.onPurchase = (itemId: string) => this.connection.shopBuy(itemId);
@@ -558,7 +606,8 @@ export class HudScene extends Phaser.Scene {
         this.closeAllModals();
         return true;
       }
-      if (this.dropInReach) return false; // 줍기에 양보한다
+      // 줍기가 스페이스로 갈라져 나갔으므로 E는 더 이상 양보하지 않는다 —
+      // 드롭을 밟고 선 채로도 코어 창이 곧바로 열린다.
       if (!this.nearCore) {
         if (!this.nearCompanion) return false;
         // 코어 근처가 아니고 티모시 옆이면 대사 트리거. 사거리 판정은 서버가 다시 한다.
@@ -641,6 +690,7 @@ export class HudScene extends Phaser.Scene {
     return [
       this.coreModal,
       this.characterModal,
+      this.guideModal,
       ...(this.devItemModal ? [this.devItemModal] : []),
     ];
   }
@@ -727,6 +777,14 @@ export class HudScene extends Phaser.Scene {
     // --- 상단 중앙/우상단
     this.waveDial.layout(width / 2, pad, scale);
     this.minimap.layout(width - pad, pad, scale);
+    // `?`는 미니맵 **왼쪽**에 붙인다. 오른쪽·위는 화면 끝이고, 아래는 미니맵이 쓴다.
+    const guideSize = GUIDE_BUTTON_SIZE * scale;
+    const guideX = width - pad - MINIMAP_SIZE * scale - GUIDE_BUTTON_GAP * scale - guideSize;
+    this.guideButton.setSize(guideSize, guideSize).setPosition(guideX, pad);
+    this.guideButton.input?.hitArea?.setSize(guideSize, guideSize);
+    this.guideButtonLabel
+      .setFontSize(SIZE_BODY * scale)
+      .setPosition(guideX + guideSize / 2, pad + guideSize / 2);
 
     // 보스 바 — 화면 중앙 상단의 주역. 위에 붙는 이름표도 같은 배율로 커지므로,
     // 다이얼 바닥(pad + 52)에 그 글자 높이(≈ SIZE_BODY × bossScale × 1.4)만큼
@@ -828,6 +886,14 @@ export class HudScene extends Phaser.Scene {
     this.updateCore(status, snapshot.players.length);
     this.coreModal.setCoreStatus(status);
     this.coreModal.setChargeSlots(status.coreCharge, status.openChargeSlots);
+    // 유령 부활 칸 — 나 자신은 목록에서 뺀다(내가 유령이면 이 창을 열 수 있는
+    // 처지가 아니지만, 그 경우에도 굳이 목록에 나를 넣어 보여줄 이유가 없다).
+    this.coreModal.setGhosts(
+      snapshot.players
+        .filter((player) => player.id !== this.connection.sessionId && player.lifeState === 'ghost')
+        .map((player) => ({ id: player.id, nickname: player.nickname })),
+      status.coreResource,
+    );
     this.updateCinematic(status);
     this.waveDial.update(status);
     this.updateBossBar(snapshot);
@@ -844,6 +910,7 @@ export class HudScene extends Phaser.Scene {
 
     this.coreModal.setCraftContext({
       coreTier: status.coreTier,
+      job: me?.job ?? '',
       resource: status.coreResource,
       energy: status.coreEnergy,
       craftingId: me?.craftRecipeId ?? '',
@@ -1048,7 +1115,9 @@ export class HudScene extends Phaser.Scene {
     );
 
     // 낮에만 스킵 안내를 띄운다 — 밤에는 쓸 수 없는 조작이라 보여줄 이유가 없다.
-    const controlsHint = `WASD 이동 · 좌클릭 공격 · 우클릭 사용 · [1~${SLOT_COUNT}] 퀵슬롯 · [E] 코어 (입고 / 메뉴)`;
+    // 전체 목록은 조작법 창(미니맵 옆 `?`)에 있다 — 이 줄은 손이 가장 자주 가는 것만
+    // 남기고, 나머지는 창을 열어 보게 한다.
+    const controlsHint = `WASD 이동 · 좌클릭 공격 · 우클릭 사용 · [Space] 줍기 · [1~${SLOT_COUNT}] 퀵슬롯 · [E] 코어 · [?] 조작법`;
     // 개발 도구가 붙어 있을 때만 그 키를 안내한다 — 없는 키를 알려주면 안 된다.
     const devHint = this.devConsole ? ' · [`] 콘솔 · [F9] 아이템' : '';
     this.helpText.setText(

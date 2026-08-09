@@ -1,19 +1,55 @@
 /*
- * 게임 로비(대기실).
+ * 게임 로비(대기실) — "강하 준비".
  *
- * 와이어프레임: 플레이어 슬롯 4개 가로 배치 / 아래에 채팅 영역 + Ready·Start 버튼.
- * 인원이 늘고 줄어도 슬롯 4칸은 항상 자리를 유지한다 — 레이아웃이 흔들리지 않게.
+ * 와이어프레임 배치:
+ *
+ *   강하 준비        방이름                  [나가기]
+ *   [슬롯][슬롯][슬롯][슬롯]      [행성 / 티모시]
+ *   [채팅]     직업 선택 ▣▣▣▣      [Ready/Start]
+ *
+ * 위 줄이 "누가 왔는가", 아래 줄이 "내가 무엇을 할 것인가"다. 슬롯 4칸은 인원이 늘고
+ * 줄어도 자리를 유지한다 — 사람이 들어올 때마다 레이아웃이 흔들리면 안 된다.
  */
 
 .waiting {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: clamp(10px, 2vh, 20px);
   width: 100%;
   height: 100%;
-  padding: clamp(16px, 3vh, 36px) clamp(16px, 3vw, 48px);
+  /* 여백을 조였다 — 브리핑 화면은 정보가 화면을 꽉 채우는 편이 긴장감이 산다. */
+  padding: clamp(10px, 1.6vh, 22px) clamp(12px, 1.8vw, 30px);
   overflow: hidden;
 }
+
+/*
+ * 배경. 랜딩과 **다른 그림**이라 따로 깐다 — 랜딩은 추락한 우주선을 올려다보는 그림이고
+ * 여기는 내려갈 행성을 앞에 둔 브리핑 화면이다.
+ *
+ * 에셋이 아직 없으면 이 규칙 자체가 안 걸려서(html.has-lobby-bg) 기존 배경이 그대로 남는다.
+ */
+.has-lobby-bg .waiting {
+  background-image: var(--asset-lobby-bg);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+/* 배경 위에 글자가 얹히므로 한 겹 어둡게 깔아 대비를 확보한다. */
+.has-lobby-bg .waiting::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(6, 8, 12, 0.82), rgba(6, 8, 12, 0.62));
+  pointer-events: none;
+}
+
+.has-lobby-bg .waiting > * {
+  position: relative;
+}
+
+/* ---------------------------------------------------------------- 머리줄 */
 
 .waiting-head {
   display: flex;
@@ -22,35 +58,107 @@
   flex: none;
 }
 
+/*
+ * "강하 준비" — 이 화면이 무엇인지. 방 이름과 **같은 무게**로 굵게 세운다. 둘 다
+ * 제목이라, 한쪽만 작으면 화면에 제목이 두 개 있는 것처럼 어정쩡해진다.
+ */
+.waiting-title,
 .waiting-room-name {
-  font-size: clamp(15px, 1.8vw, 19px);
+  font-weight: 700;
+  font-size: clamp(17px, 2vw, 26px);
+  line-height: 1.2;
+}
+
+.waiting-title {
+  flex: none;
+  color: var(--text-dim);
+}
+
+/* 방 이름은 가운데다. 양옆이 비대칭이라 auto 여백으로 밀어 중앙에 세운다. */
+.waiting-room-name {
+  margin: 0 auto;
 }
 
 .waiting-room-code {
+  flex: none;
   color: var(--accent);
   letter-spacing: 2px;
 }
 
+/*
+ * 나가기 — **붉은 홀로그램**이다. 이 화면의 다른 버튼(시작)이 초록으로 "진행"을
+ * 말하므로, 되돌아가는 쪽은 색으로 갈라 둔다. 9-slice 돌 프레임을 안 쓰는 이유는
+ * 채팅·시작과 같다(§.action-button).
+ */
 .waiting-leave {
-  margin-left: auto;
+  flex: none;
+  padding: 6px 14px;
+  border: 2px solid var(--holo-red-dim);
+  background: rgba(24, 8, 8, 0.45);
+  color: var(--holo-red);
+  font: inherit;
+  font-size: clamp(12px, 1.2vw, 15px);
+  text-shadow: 0 0 6px var(--holo-red-glow);
+  cursor: pointer;
 }
 
-/* ---------------------------------------------------------------- 슬롯 */
+.waiting-leave:hover {
+  border-color: var(--holo-red);
+  background: rgba(48, 12, 12, 0.6);
+  box-shadow: 0 0 10px var(--holo-red-glow);
+}
 
-.slots {
+/* ---------------------------------------------------------------- 본문 격자 */
+
+/*
+ * 두 칸짜리 격자. 왼쪽 칸은 위아래로 나뉘고(슬롯 / 채팅·직업), 오른쪽 칸은 하나로
+ * 이어져 **화면 아래까지 내려온다** — 작전 판이 중간에서 끊기면 스캐너와 지시가 따로
+ * 노는 것처럼 보인다.
+ *
+ * 오른쪽이 가장 넓다. 사람 카드는 세로로 읽히는 정보뿐이지만 오른쪽은 가로로 긴
+ * 스캐너 화면과 로그가 들어가는 자리라, 균등하게 나누면 그쪽만 좁아진다.
+ */
+.waiting-body {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: 1fr clamp(260px, 26vw, 420px);
   gap: clamp(8px, 1.5vw, 18px);
   flex: 1;
   min-height: 0;
 }
 
+.waiting-left {
+  display: flex;
+  flex-direction: column;
+  gap: clamp(8px, 1.5vh, 16px);
+  min-width: 0;
+  min-height: 0;
+}
+
+/* ---------------------------------------------------------------- 슬롯 */
+
+/*
+ * 카드는 **아래까지 늘어난다.** 내용만큼만 두면 빈 자리가 카드 아래로 길게 남아
+ * 화면이 반쯤 비어 보인다 — 지금 비어 있는 칸도 곧 사람이 들어올 자리다.
+ */
+.slots {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: clamp(6px, 1vw, 12px);
+  flex: 1;
+  min-height: 0;
+}
+
+/*
+ * 줄 사이를 넉넉히 벌린다. 남는 세로를 카드 **아래에 몰아 두면** 빈 판처럼 보이는데,
+ * 줄 간격으로 나눠 쓰면 같은 공간이 여백이 아니라 짜임새로 읽힌다.
+ */
 .slot {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: clamp(6px, 1.3vh, 14px);
+  min-width: 0;
   min-height: 0;
-  padding: clamp(6px, 1vh, 12px);
+  padding: clamp(5px, 0.8vh, 9px);
   border: calc(2px * var(--px)) solid var(--panel-line);
   background: rgba(18, 20, 26, 0.6);
 }
@@ -63,135 +171,539 @@
   opacity: 0.45;
 }
 
-/* 캐릭터 초상화 자리. 스프라이트가 준비되면 .asset 슬롯으로 교체한다. */
-.slot-portrait {
+/*
+ * 증명사진 칸. 남는 세로를 여기가 먹되 **절반을 넘기지 않는다** — 사진이 카드의 2/3를
+ * 차지하면 정작 읽어야 할 것(이름·특성·지급품)이 아래에 눌려 붙는다. 사원증에서
+ * 사진은 확인용이지 주인공이 아니다.
+ */
+.slot-photo {
   position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
   flex: 1;
   min-height: 0;
+  /*
+   * 남는 세로는 **사진이 마저 먹는다.** 줄 간격을 벌리고도 남는 몫을 카드 아래에 두면
+   * 그만큼이 빈 판으로 보인다 — 상한을 조금 열어 사진이 채우게 하되, 사진이 카드를
+   * 독차지하지는 않게 절반 근처에서 멈춘다.
+   */
+  max-height: 56%;
   border: 2px solid var(--panel-line);
   background: rgba(10, 12, 17, 0.5);
+  overflow: hidden;
 }
 
 /* 아틀라스에서 잘라낸 캐릭터 한 칸. 픽셀아트라 정수배로만 확대한다. */
 .portrait {
-  --portrait-scale: 3;
+  --crop-scale: 4;
   background-repeat: no-repeat;
   image-rendering: pixelated;
 }
 
-@media (max-height: 700px) {
+@media (max-height: 800px) {
   .portrait {
-    --portrait-scale: 2;
+    --crop-scale: 3;
   }
 }
 
-.slot-portrait-mark {
+@media (max-height: 620px) {
+  .portrait {
+    --crop-scale: 2;
+  }
+}
+
+.slot-photo-mark {
   color: var(--text-dim);
   font-size: clamp(24px, 4vw, 44px);
 }
 
-.slot-host,
-.slot-ready-mark {
+.slot-badge {
   position: absolute;
-  top: 4px;
-  padding: 2px 6px;
-  font-size: 11px;
-  background: rgba(10, 12, 17, 0.8);
+  top: 3px;
+  padding: 1px 5px;
+  font-size: 10px;
+  background: rgba(10, 12, 17, 0.85);
 }
 
 .slot-host {
-  left: 4px;
+  left: 3px;
   color: var(--text-dim);
 }
 
 .slot-ready-mark {
-  right: 4px;
+  right: 3px;
   color: var(--accent);
 }
 
-/* 이름 / 직업 칸 */
-.slot-line {
+/* 이름은 카드에서 가장 큰 글자다 — 누구 자리인지가 먼저 읽혀야 한다. */
+.slot-name {
   flex: none;
-  padding: 5px 8px;
-  border: 2px solid var(--panel-line);
-  font-size: 13px;
+  font-weight: 700;
+  font-size: clamp(15px, 1.5vw, 21px);
+  line-height: 1.3;
   text-align: center;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/* ---------------------------------------------------------------- 하단 */
-
-.waiting-bottom {
-  display: flex;
-  gap: clamp(8px, 1.5vw, 18px);
+.slot-job {
   flex: none;
-  height: clamp(88px, 18vh, 140px);
+  padding-bottom: 5px;
+  border-bottom: 1px solid var(--panel-line);
+  color: var(--accent);
+  font-size: clamp(12px, 1.15vw, 15px);
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.chat-box {
-  display: flex;
-  flex: 1;
-  min-width: 0;
-  padding: 10px 12px;
-  border: calc(2px * var(--px)) solid var(--panel-line);
-  background: rgba(10, 12, 17, 0.5);
-}
-
-.chat-box[data-asset] {
-  border-width: calc(var(--asset-input-slice) * 1px * var(--input-px));
-  border-color: transparent;
-  border-image-source: var(--asset-input);
-  border-image-slice: var(--asset-input-slice) fill;
-  border-image-width: calc(var(--asset-input-slice) * 1px * var(--input-px));
-  border-image-repeat: round;
-  background: none;
-}
-
-.chat-placeholder {
+.slot-empty .slot-job {
+  border-bottom: none;
   color: var(--text-dim);
-  font-size: 13px;
 }
 
-.action-button {
+/* 특성 두 줄. 직업이 없어도 자리를 지킨다 — 고를 때마다 카드가 들썩이면 안 된다. */
+.slot-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   flex: none;
-  width: clamp(120px, 20vw, 180px);
-  height: 100%;
-  font-size: clamp(15px, 1.8vw, 20px);
+  min-height: 3em;
+  font-size: clamp(11px, 1.05vw, 14px);
+  line-height: 1.35;
+  text-align: center;
 }
 
-.action-button.is-ready {
+.slot-stats {
+  color: var(--text-dim);
+}
+
+/* 고유 특성은 이 카드에서 **직업 다음으로 중요한 한 줄**이라 굵게 세운다. */
+.slot-trait {
+  font-weight: 700;
   color: var(--accent);
 }
 
-/* ---------------------------------------------------------------- 직업 선택 */
+/* ------------------------------------------------------- 지급품(퀵슬롯 4칸) */
 
-.job-picker {
+/*
+ * 지급품 줄은 **글자 바로 아래**에 붙는다. 카드 바닥으로 내려 두면(margin-top: auto)
+ * 특성과 지급품 사이가 통째로 비어, 한 카드가 위아래 두 덩어리로 갈라져 보인다 —
+ * 둘 다 "이 직업이 무엇인가"를 말하는 값이라 붙어 있어야 한 묶음으로 읽힌다.
+ */
+.slot-kit {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+  flex: none;
+}
+
+.kit-cell {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 1 / 1;
+  border: 1px solid var(--panel-line);
+  background: rgba(10, 12, 17, 0.55);
+  overflow: hidden;
+}
+
+.kit-filled {
+  border-color: var(--accent-dim);
+}
+
+/* 빈 칸의 번호. 인게임 퀵슬롯과 같은 자리, 같은 뜻이다. */
+.kit-num {
+  color: var(--text-dim);
+  font-size: 9px;
+  opacity: 0.6;
+}
+
+/*
+ * 아이템 그림. 배율은 **JS가 정한다**(characterPortrait.itemIcon) — 원본이 재료 64px·
+ * 무기 128px로 제각각이라 CSS 한 값으로는 맞출 수가 없고, 인게임과 같은 계산을 써야
+ * 인벤토리에서 본 크기와 어긋나지 않는다.
+ */
+.item-icon {
+  background-repeat: no-repeat;
+  image-rendering: pixelated;
+}
+
+.kit-count {
+  position: absolute;
+  right: 2px;
+  bottom: 1px;
+  color: var(--text);
+  font-size: 9px;
+  text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.9);
+}
+
+.kit-mark {
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+/* ------------------------------------------------------------ 작전 판(우측) */
+
+.room-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  padding: clamp(6px, 1vh, 12px);
+  border: calc(2px * var(--px)) solid var(--panel-line);
+  background: rgba(18, 20, 26, 0.6);
+}
+
+/* 강하 지점 머리글. 이 판이 무엇에 대한 것인지 한 줄로 못 박는다. */
+.panel-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex: none;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--holo-dim);
+}
+
+.panel-head-label {
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.panel-head-name {
+  font-weight: 700;
+  font-size: clamp(15px, 1.7vw, 21px);
+  letter-spacing: 2px;
+  color: var(--holo);
+  text-shadow: 0 0 8px var(--holo-glow);
+}
+
+/*
+ * 행성 — 스캐너 화면 한 장.
+ *
+ * 그림이 **제 테두리와 좌표 텍스트까지 갖춘 완성된 화면**이라, 테두리를 덧대지 않고
+ * 잘라내지도 않는다(cover면 양옆 텍스트가 날아간다). 상자에 그림의 가로세로비를 준다.
+ */
+.room-panel-art {
+  flex: none;
+  width: 100%;
+  aspect-ratio: 669 / 340;
+  background-image: var(--asset-lobby-planet);
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: contain;
+  image-rendering: pixelated;
+}
+
+/* 에셋이 없을 때만 빈 상자를 그려 자리를 보여준다. */
+html:not(.has-lobby-planet) .room-panel-art {
+  border: 2px solid var(--panel-line);
+  background-color: rgba(10, 12, 17, 0.5);
+}
+
+/* --------------------------------------------------------- 티모시 체크박스 */
+
+/*
+ * 홀로그램 체크박스. 버튼이지만 **버튼처럼 보이지 않게** 한다 — 이 판의 다른 요소가
+ * 전부 "읽는 것"인데 혼자 눌리는 상자로 서 있으면 튄다. 상태는 네모 안의 표시로만
+ * 말하고, 누를 수 있다는 건 호버에서 드러난다.
+ */
+.companion-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  padding: 4px 2px;
+  border: none;
+  background: none;
+  color: var(--holo-dim);
+  font: inherit;
+  font-size: clamp(11px, 1.1vw, 13px);
+  text-align: left;
+  cursor: pointer;
+}
+
+.companion-box {
   display: flex;
   align-items: center;
   justify-content: center;
   flex: none;
-  flex-wrap: wrap;
-  gap: var(--gap-sm);
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--holo-dim);
+  color: var(--holo);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.companion-check.is-on {
+  color: var(--holo);
+  text-shadow: 0 0 6px var(--holo-glow);
+}
+
+.companion-check.is-on .companion-box {
+  border-color: var(--holo);
+  box-shadow: 0 0 6px var(--holo-glow), inset 0 0 4px var(--holo-glow);
+}
+
+.companion-check:hover:not(:disabled) .companion-box {
+  border-color: var(--holo);
+}
+
+.companion-check:disabled {
+  cursor: default;
+}
+
+/* ------------------------------------------------------------ 시스템 로그 */
+
+/*
+ * 작전 지시. **아래를 채우는 것이 이 판의 마지막 일**이라 남는 세로를 여기가 먹는다.
+ * 서버가 내려주는 값이 아니라 화면이 스스로 쌓는 연출이다(§WaitingRoom.systemLog).
+ */
+.system-log {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 2px;
+  flex: 1;
+  min-height: 0;
+  padding: 8px;
+  border: 1px solid var(--holo-dim);
+  background: rgba(6, 20, 12, 0.45);
+  color: var(--holo);
+  font-size: clamp(10px, 1vw, 12px);
+  line-height: 1.6;
+  overflow-y: auto;
+}
+
+.system-line {
+  text-shadow: 0 0 6px var(--holo-glow);
+  word-break: break-all;
+}
+
+/* 마지막 줄이 가장 최근 지시다 — 그 줄만 밝게 둔다. */
+.system-line:not(:last-child) {
+  opacity: 0.55;
+}
+
+/* ---------------------------------------------------------------- 아래 줄 */
+
+/*
+ * 채팅 / 직업 선택.
+ *
+ * 시작 버튼이 오른쪽 판으로 내려간 덕에 이 줄은 둘만 나눠 가진다. **직업 선택이 필요한
+ * 만큼 먼저 가져가고 채팅이 남는 자리를 쓴다** — 아이콘은 크기가 곧 알아보기 쉬움이라
+ * 눌려서는 안 되고, 채팅은 좁아져도 글줄이 접힐 뿐이다.
+ */
+.waiting-bottom {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: clamp(10px, 2vw, 24px);
+  flex: none;
+  height: clamp(118px, 22vh, 176px);
+}
+
+/* ---------------------------------------------------------------- 채팅 */
+
+.chat {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+/*
+ * 채팅과 시작 버튼은 **9-slice 돌 프레임을 쓰지 않는다.**
+ *
+ * 그 프레임은 랜딩(우주선 잔해 위의 돌버튼)의 것이고, 대기실은 함선 안에서 화면을
+ * 보는 자리다 — 같은 화면 안에서 오른쪽은 홀로그램인데 왼쪽만 돌덩이면 두 장면이
+ * 겹쳐 보인다. 갈무리 폰트에 초록 발광만 얹어 같은 세계로 묶는다.
+ */
+.chat-log {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-height: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--holo-dim);
+  background: rgba(6, 20, 12, 0.35);
+  font-size: clamp(11px, 1.05vw, 13px);
+  line-height: 1.55;
+  overflow-y: auto;
+}
+
+.chat-line {
+  color: var(--holo);
+  text-shadow: 0 0 5px var(--holo-glow);
+  word-break: break-all;
+}
+
+/* 말한 사람은 밝게, 말한 내용은 한 톤 낮게 — 누가 말했는지가 먼저 잡힌다. */
+.chat-nickname {
+  margin-right: 6px;
+  font-weight: 700;
+}
+
+.chat-text {
+  opacity: 0.85;
+}
+
+.chat-input {
+  flex: none;
+  padding: 8px 10px;
+  border: 1px solid var(--holo-dim);
+  background: rgba(6, 20, 12, 0.5);
+  color: var(--holo);
+  font: inherit;
+  font-size: clamp(11px, 1.05vw, 13px);
+  text-shadow: 0 0 5px var(--holo-glow);
+}
+
+.chat-input::placeholder {
+  color: var(--holo-dim);
+  text-shadow: none;
+}
+
+.chat-input:focus {
+  outline: none;
+  border-color: var(--holo);
+  box-shadow: 0 0 8px var(--holo-glow), inset 0 0 6px rgba(77, 255, 160, 0.12);
+}
+
+/*
+ * 시작/준비 버튼. 작전 판의 **맨 아래**에 있다 — 지시가 내려오는 자리(시스템 로그) 바로
+ * 밑에서 그 지시를 실행하는 것이라, 직업 아이콘 옆에 있을 때보다 무엇을 누르는지가
+ * 분명해진다.
+ *
+ * 같은 홀로그램 문법이되 **테두리를 두껍게** 해서 누르는 것임을 알린다 — 채팅 입력은
+ * 글을 넣는 자리고 이건 결정을 내리는 자리다.
+ */
+.action-button {
+  flex: none;
+  height: clamp(38px, 5.5vh, 54px);
+  border: 2px solid var(--holo-dim);
+  background: rgba(6, 20, 12, 0.45);
+  color: var(--holo);
+  font: inherit;
+  font-weight: 700;
+  font-size: clamp(15px, 1.8vw, 20px);
+  letter-spacing: 1px;
+  text-shadow: 0 0 7px var(--holo-glow);
+  cursor: pointer;
+}
+
+.action-button:hover:not(:disabled) {
+  border-color: var(--holo);
+  background: rgba(10, 40, 24, 0.6);
+  box-shadow: 0 0 10px var(--holo-glow);
+}
+
+.action-button:disabled {
+  border-color: var(--panel-line);
+  color: var(--text-dim);
+  text-shadow: none;
+  cursor: default;
+}
+
+/* 준비를 마친 상태 — 눌러서 되돌리는 버튼이라 켜진 것처럼 보여야 한다. */
+.action-button.is-ready {
+  border-color: var(--holo);
+  background: rgba(10, 40, 24, 0.55);
+  box-shadow: inset 0 0 10px var(--holo-glow);
+}
+
+/* ---------------------------------------------------------------- 직업 선택 */
+
+/* 머리글이 왼쪽 위에 붙고 아이콘 줄이 그 아래로 온다 — 표의 제목과 내용 관계다. */
+.job-picker {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 0;
+}
+
+.job-picker-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
 }
 
 .job-picker-label {
-  color: var(--text-dim);
-  font-size: 13px;
+  flex: none;
+  font-weight: 700;
+  font-size: clamp(15px, 1.7vw, 21px);
 }
 
-.job-chip.is-selected {
+/*
+ * 호버한 직업 이름. **자리를 항상 차지한다** — 마우스를 올릴 때마다 줄 높이가 바뀌면
+ * 아이콘이 위아래로 튄다.
+ */
+.job-picker-hover {
+  min-height: 1em;
   color: var(--accent);
-  outline-color: var(--accent-dim);
+  font-size: clamp(12px, 1.2vw, 16px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.job-picker-row {
+  display: flex;
+  gap: clamp(6px, 0.9vw, 14px);
+}
+
+/*
+ * 아이콘 한 칸. 글자 버튼(.btn)을 쓰지 않는 이유는 그 안쪽 여백이 아이콘 크기를
+ * 정하는 데 방해가 되어서다 — 여기서는 칸 크기가 곧 아이콘 크기다.
+ */
+.job-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: clamp(58px, 6.6vw, 104px);
+  height: clamp(58px, 6.6vw, 104px);
+  padding: 0;
+  border: 2px solid var(--panel-line);
+  background: rgba(10, 12, 17, 0.5);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.job-cell:hover {
+  border-color: var(--accent-dim);
+}
+
+.job-cell.is-selected {
+  border-color: var(--accent);
   box-shadow: inset 0 0 0 1px var(--accent-dim);
 }
 
-/* 방 설정 안내 한 줄(예: 티모시 없음). 직업 선택 바로 아래에 붙는다. */
-.waiting-note {
+/*
+ * 아이콘 원본은 67×64다. 칸이 그보다 커져도 **정수배로만** 키운다 — 픽셀아트를 1.4배
+ * 같은 값으로 늘리면 획 굵기가 칸마다 달라져 넷이 따로 논다.
+ */
+.job-icon {
+  --crop-scale: 1;
+  background-repeat: no-repeat;
+  image-rendering: pixelated;
+}
+
+.job-cell-mark {
+  color: var(--text-dim);
+  font-size: clamp(18px, 2.5vw, 26px);
+}
+
+.waiting-error {
   flex: none;
   text-align: center;
 }

@@ -68,4 +68,23 @@ export function applyTextShadow(text: Phaser.GameObjects.Text, scale = 1): void 
   text.setShadow(scale, scale, SHADOW, 0, false, true);
 }
 
+/**
+ * `Text.setText()`만으로는 안 되는 경우가 있어서 만들었다.
+ *
+ * 코어 충전 칸이 잠김→열림으로 바뀌는 순간(문자열이 실제로 바뀌는 그 한 번)
+ * 텍스트 오브젝트의 `.text` 값은 정확히 갱신되는데(직접 읽어서 확인함) 화면
+ * 픽셀은 이전 문자열("잠김")에 멈춰 있는 채로 다시는 안 갱신되는 걸 실측으로
+ * 재현했다(Playwright로 직접 클릭·업그레이드를 재현해서 확인) — Phaser
+ * Text가 내부적으로 캔버스 텍스처를 다시 굽는 과정이 그 순간에만 씹히면,
+ * 그 뒤로는 문자열이 안 바뀌니(같은 값 재대입) 다시 구울 계기도 없다.
+ * `updateText()`(Phaser 내부 API, 공개 타입엔 없어서 캐스팅으로 부른다)를
+ * 강제로 한 번 더 불러 텍스처를 무조건 다시 굽게 한다 — 매 프레임 불러도
+ * 싼 연산이라 조건 분기 없이 그냥 항상 부른다.
+ */
+export function forceSetText(text: Phaser.GameObjects.Text | undefined, value: string): void {
+  if (!text) return;
+  text.setText(value);
+  (text as unknown as { updateText(): void }).updateText();
+}
+
 const SHADOW = '#0B0D12';

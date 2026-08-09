@@ -895,25 +895,42 @@ describe('World — debugJumpToWave(테스트용)', () => {
 });
 
 describe('World — 몬스터 처치 보상(부품/에너지)', () => {
+  /**
+   * 부품 드랍은 예전엔 확정(chance:1)이었는데, 게임 흐름 피드백(docs/backend/70) —
+   * "몬스터 수가 늘어난 뒤로 바닥에 흩어진 부품을 일일이 줍느라 아침 준비 시간이
+   * 모자라다" — 를 받아 확률을 50%로 낮추는 대신 개수를 늘렸다(§monsters.json
+   * drop_normal). 그래서 "한 마리 죽이면 반드시 드랍"을 더 이상 전제할 수 없다 —
+   * 이 describe의 테스트들은 드랍을 볼 때까지 여러 마리를 죽여 가며 재시도한다
+   * (실패 확률이 0.5^n로 지수적으로 줄어서 몇 번 안에 사실상 항상 성공한다).
+   */
+  const DROP_RETRY_LIMIT = 40;
+
   it('흔한 몬스터(잡몹)를 근접 무기로 죽이면 죽은 자리에 부품이 떨어진다', () => {
     const world = new World();
     world.addPlayer('p1', 0, 0);
     equipDefaultKit(world, 'p1');
     startFirstWave(world);
-
-    const [monster] = [...world.getMonsters().values()];
-    monster!.x = 5;
-    monster!.y = 0;
-    monster!.hp = 1; // 한 방에 죽도록
-
-    const partsBefore = droppedCount(world, 'drop_normal');
     world.selectSlot('p1', 1); // 도끼
-    world.fireWeapon('p1');
 
-    expect(world.getMonsters().has(monster!.id)).toBe(false); // 죽었다
-    const gained = droppedCount(world, 'drop_normal') - partsBefore;
-    // 부품은 확정 드랍이다 — 확률이 붙은 희귀부품과 달리 매번 min~max 사이로 나온다.
     const drop = monstersData.demon.itemDrops!.find((entry) => entry.itemId === 'drop_normal')!;
+    let gained = 0;
+    for (let i = 0; i < DROP_RETRY_LIMIT && gained === 0; i += 1) {
+      world.runDevCommand('p1', 'spawn demon 1');
+      // 이전 시도의 fireWeapon이 무기 쿨다운을 걸어 놨다 — 시간을 흘려보내 비운다
+      // (안 그러면 재시도의 fireWeapon이 조용히 무시된다).
+      world.tick(1);
+      const monster = [...world.getMonsters().values()].find((m) => m.type === 'demon')!;
+      monster.x = 5;
+      monster.y = 0;
+      monster.hp = 1; // 한 방에 죽도록
+
+      const partsBefore = droppedCount(world, 'drop_normal');
+      world.fireWeapon('p1');
+      expect(world.getMonsters().has(monster.id)).toBe(false); // 죽었다
+      gained = droppedCount(world, 'drop_normal') - partsBefore;
+    }
+
+    // 드랍이 났을 때는(확률을 뚫었을 때는) 여전히 min~max 사이로 확정이다.
     expect(gained).toBeGreaterThanOrEqual(drop.min);
     expect(gained).toBeLessThanOrEqual(drop.max);
   });
@@ -926,16 +943,22 @@ describe('World — 몬스터 처치 보상(부품/에너지)', () => {
     startFirstWave(world);
     clearResourceNodes(world);
 
-    const [monster] = [...world.getMonsters().values()];
-    monster!.x = 400;
-    monster!.y = 0;
-    monster!.hp = 1;
+    let gained = false;
+    for (let i = 0; i < DROP_RETRY_LIMIT && !gained; i += 1) {
+      world.runDevCommand('p1', 'spawn demon 1');
+      const monster = [...world.getMonsters().values()].find((m) => m.type === 'demon')!;
+      monster.x = 400;
+      monster.y = 0;
+      monster.hp = 1;
 
-    world.fireWeapon('p1'); // 기본 슬롯 = 권총
-    for (let i = 0; i < 60 && world.getProjectiles().size > 0; i += 1) world.tick(1 / 60);
+      const before = droppedCount(world, 'drop_normal');
+      world.fireWeapon('p1'); // 기본 슬롯 = 권총
+      for (let t = 0; t < 60 && world.getProjectiles().size > 0; t += 1) world.tick(1 / 60);
+      expect(world.getMonsters().has(monster.id)).toBe(false);
+      gained = droppedCount(world, 'drop_normal') > before;
+    }
 
-    expect(world.getMonsters().has(monster!.id)).toBe(false);
-    expect(droppedCount(world, 'drop_normal')).toBeGreaterThan(0);
+    expect(gained).toBe(true);
   });
 
   it('총구 간격(muzzle gap) 즉시 명중으로 죽여도 부품이 떨어진다', () => {
@@ -944,15 +967,23 @@ describe('World — 몬스터 처치 보상(부품/에너지)', () => {
     equipDefaultKit(world, 'p1');
     startFirstWave(world);
 
-    const [monster] = [...world.getMonsters().values()];
-    monster!.x = 8; // muzzleOffset(19)보다 가깝다 — resolveMuzzleGapHit 경로
-    monster!.y = 0;
-    monster!.hp = 1;
+    let gained = false;
+    for (let i = 0; i < DROP_RETRY_LIMIT && !gained; i += 1) {
+      world.runDevCommand('p1', 'spawn demon 1');
+      // 이전 시도의 fireWeapon이 무기 쿨다운을 걸어 놨다 — 시간을 흘려보내 비운다.
+      world.tick(1);
+      const monster = [...world.getMonsters().values()].find((m) => m.type === 'demon')!;
+      monster.x = 8; // muzzleOffset(19)보다 가깝다 — resolveMuzzleGapHit 경로
+      monster.y = 0;
+      monster.hp = 1;
 
-    world.fireWeapon('p1');
+      const before = droppedCount(world, 'drop_normal');
+      world.fireWeapon('p1');
+      expect(world.getMonsters().has(monster.id)).toBe(false);
+      gained = droppedCount(world, 'drop_normal') > before;
+    }
 
-    expect(world.getMonsters().has(monster!.id)).toBe(false);
-    expect(droppedCount(world, 'drop_normal')).toBeGreaterThan(0);
+    expect(gained).toBe(true);
   });
 
   it('보스를 죽이면 팀 공유 에너지와 바닥 드랍을 둘 다 준다', () => {
@@ -987,7 +1018,8 @@ describe('World — 몬스터 처치 보상(부품/에너지)', () => {
   it('부품은 인벤토리에 들어오고, 창고로 끌어다 놓으면 팀 공유분이 된다', () => {
     const world = new World();
     world.addPlayer('p1', 10, 0); // 코어 상호작용 반경 안
-    world.getPlayers().get('p1')!.inventory.add('drop_normal', 5); // 0번은 참가 지급 붕대
+    // 3번은 참가 지급 붕대 자리다(loadout.json) — 겹치지 않게 1번에 직접 넣는다.
+    world.getPlayers().get('p1')!.inventory.placeAt(1, { itemId: 'drop_normal', count: 5 });
 
     // 인벤토리 1번 → 창고 첫 빈 칸(초기 지급품 도구 3종 다음)
     world.moveItem('p1', 'inventory', 1, 'storage', 3);

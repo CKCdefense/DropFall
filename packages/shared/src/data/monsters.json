@@ -12,9 +12,9 @@
     "itemDrops": [
       {
         "itemId": "drop_normal",
-        "chance": 1,
-        "min": 1,
-        "max": 2
+        "chance": 0.5,
+        "min": 2,
+        "max": 4
       },
       {
         "itemId": "drop_rare",
@@ -38,9 +38,9 @@
     "itemDrops": [
       {
         "itemId": "drop_normal",
-        "chance": 1,
-        "min": 1,
-        "max": 2
+        "chance": 0.5,
+        "min": 2,
+        "max": 4
       },
       {
         "itemId": "drop_rare",
@@ -64,9 +64,9 @@
     "itemDrops": [
       {
         "itemId": "drop_normal",
-        "chance": 1,
-        "min": 1,
-        "max": 2
+        "chance": 0.5,
+        "min": 2,
+        "max": 4
       },
       {
         "itemId": "drop_rare",
@@ -90,9 +90,9 @@
     "itemDrops": [
       {
         "itemId": "drop_normal",
-        "chance": 1,
-        "min": 1,
-        "max": 2
+        "chance": 0.5,
+        "min": 2,
+        "max": 4
       },
       {
         "itemId": "drop_rare",
@@ -116,9 +116,9 @@
     "itemDrops": [
       {
         "itemId": "drop_normal",
-        "chance": 1,
-        "min": 2,
-        "max": 4
+        "chance": 0.5,
+        "min": 4,
+        "max": 8
       },
       {
         "itemId": "drop_rare",
@@ -146,9 +146,9 @@
     "itemDrops": [
       {
         "itemId": "drop_normal",
-        "chance": 1,
-        "min": 3,
-        "max": 5
+        "chance": 0.5,
+        "min": 6,
+        "max": 10
       },
       {
         "itemId": "drop_rare",

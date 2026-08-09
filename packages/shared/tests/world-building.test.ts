@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { cellCenterWorld } from '../src/constants';
 import { World, type MonsterEntity } from '../src/sim/world';
+import { coreDistance } from '../src/sim/coreShape';
 import { coloniesData, coreUpgradesData, itemsData, monstersData, resourcesData, wavesData } from '../src/data';
 import { HIT_RADIUS } from '../src/sim/combat';
 import { COLONY_RADIUS } from '../src/sim/colony';
@@ -369,13 +370,14 @@ describe('World — 코어 창고(moveItem)', () => {
     expect(storedCount(world, 'pickax_t1')).toBe(1);
   });
 
-  it('참가한 플레이어는 붕대 1개만 받는다(도구는 창고에서 꺼내 쓴다)', () => {
+  it('직업이 없는 플레이어는 붕대 1개만 받는다(도구는 창고에서 꺼내 쓴다)', () => {
     const world = createTestWorld();
     world.addPlayer('p1');
 
     const view = world.getPlayers().get('p1')!.inventory.toView();
-    expect(view.slots[0]).toEqual({ itemId: 'bandage', count: 1 });
-    expect(view.slots.slice(1).every((slot) => slot === null)).toBe(true);
+    // 소모품은 마지막 칸이 자리다 — 앞 칸은 무기·도구 몫으로 비워 둔다(loadout.json).
+    expect(view.slots[3]).toEqual({ itemId: 'bandage', count: 1 });
+    expect(view.slots.slice(0, 3).every((slot) => slot === null)).toBe(true);
   });
 
   it('코어 근처에서 창고 칸을 인벤토리 칸으로 끌면 옮겨진다', () => {
@@ -439,7 +441,7 @@ describe('World — 코어 창고(moveItem)', () => {
     const world = createTestWorld();
     world.addPlayer('p1', 10, 0);
     const inventory = world.getPlayers().get('p1')!.inventory;
-    inventory.add('bandage', 2);
+    inventory.placeAt(0, { itemId: 'bandage', count: 2 });
 
     world.moveItem('p1', 'inventory', 0, 'storage', 0); // 창고 0번 = 뭉둥이
 
@@ -1313,7 +1315,7 @@ describe('World — 자원 노드/콜로니/코어와 투사체(docs/backend/38)
   });
 });
 
-describe('World — 자원 노드/콜로니가 몬스터 이동을 막는다(docs/backend/38, docs/backend/40, docs/backend/42)', () => {
+describe('World — 자원 노드/콜로니/코어가 몬스터 이동을 막는다(docs/backend/38, docs/backend/40, docs/backend/42, docs/backend/76)', () => {
   /**
    * 예전엔 `world.tick(1)`처럼 큰 dt 한 번으로 충분했다 — "이미 막힘 반경 안에
    * 있으면 그 자리에서 완전히 멈춘다"는 사전 검사(findBlockingStaticObstacle)가
@@ -1386,6 +1388,39 @@ describe('World — 자원 노드/콜로니가 몬스터 이동을 막는다(doc
     tickFinely(world, 0.9); // 탈출 점프 임계값(1초) 전까지는 그대로 멈춰 있어야 한다
 
     expect(monster!.x).toBe(monsterXBefore);
+  });
+
+  it('플레이어를 쫓는 몬스터는 코어가 사이를 막아도 뚫고 지나가지 않고 우회한다(제보 — 반대편으로 그대로 통과)', () => {
+    // 몬스터가 "코어 자체"를 목표로 직행할 때는 attackRange가 항상 몬스터 반경보다
+    // 커서(모든 타입) 발자국에 닿기 전에 공격으로 전환돼 안전했다(위 테스트). 문제는
+    // 코어가 목표가 아니라 **길에 있을 때**였다 — 아그로가 걸려 코어 반대편의
+    // 플레이어를 직선으로 쫓으면 코어를 막을 게 없어 스프라이트를 그대로 뚫고
+    // 지나갔다(스크린샷 제보). isBlockedForMonster에 코어를 추가해 고쳤다.
+    const world = createTestWorld();
+    world.addPlayer('p1', 0, 0);
+    equipDefaultKit(world, 'p1');
+    startFirstWave(world);
+
+    const [monster] = [...world.getMonsters().values()];
+    (monster as { type: string }).type = 'hellhound'; // aggroRadius 240, 빠른 발
+    monster!.x = 150;
+    monster!.y = 0;
+
+    const player = world.getPlayers().get('p1')!;
+    player.x = -150;
+    player.y = 0; // 코어를 사이에 두고 몬스터 반대편(거리 300, 아그로 반경 240 안)
+
+    // 코어 발자국(coreDistance)이 몬스터 반경 밑으로 내려간 적이 있으면 곧 뚫고
+    // 지나갔다는 뜻이다 — 콜로니 우회 테스트와 같은 방식으로 궤적 전체를 훑는다.
+    const hitRadius = monstersData.hellhound.hitRadius;
+    let minCoreEdgeDistance = Infinity;
+    for (let i = 0; i < 500; i += 1) {
+      world.tick(0.1);
+      const distance = coreDistance(monster!.x, monster!.y);
+      if (distance < minCoreEdgeDistance) minCoreEdgeDistance = distance;
+    }
+
+    expect(minCoreEdgeDistance).toBeGreaterThanOrEqual(hitRadius);
   });
 
   it('코어로 걸어가는 몬스터는 콜로니가 직선 경로를 막아도 그대로 뚫고 가지 않고 우회한다(Flow Field)', () => {

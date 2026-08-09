@@ -61,9 +61,19 @@
  * 혼자하기 설정. 폼보다 넓다 — 직업 카드 네 장이 한 줄에 들어가야 하고, 세로로도
  * 카드·체크박스·버튼 두 개가 쌓인다. .modal-form의 변수만 다시 덮는다.
  */
+/*
+ * 혼자하기는 **직업 카드 네 장이 한 줄**에 들어가야 하고, 카드마다 이름·특성·지급품
+ * 네 칸까지 담는다 — 480px에서는 "체력 150 · 기력 100"이 두 줄로 접히고 지급품 칸이
+ * 알아볼 수 없을 만큼 작아졌다.
+ *
+ * **비율을 가로로 돌린 것이 핵심이다.** 폭은 `min(--modal-w, 92vw, 88vh × 비율)`이라
+ * 세로로 선 비율(0.72)에서는 창 높이가 폭을 먼저 잡아먹는다 — 664px 창에서 --modal-w를
+ * 660으로 올려도 실제 폭은 421px에 머물렀다. 내용이 가로로 넓어졌으면 비율도 같이
+ * 눕혀야 한다.
+ */
 .modal-solo {
-  --modal-w: 480px;
-  --modal-ratio: 0.78;
+  --modal-w: 720px;
+  --modal-ratio: 1.35;
 }
 
 /* 제목은 가운데. 폼은 좌우 대칭이라 제목만 왼쪽에 붙으면 축이 어긋나 보인다. */
@@ -83,6 +93,17 @@
 .modal-form .modal-actions .btn {
   width: 100%;
   min-width: 0;
+}
+
+/*
+ * 시작·뒤로를 **가로로 나란히** 둔다(혼자하기).
+ *
+ * 세로로 쌓으면 카드가 커진 만큼 모달이 길어져 버튼이 화면 밖으로 밀린다. 둘 다 한
+ * 줄에 있는 편이 "고르고 → 시작" 흐름의 끝으로도 자연스럽다.
+ */
+.modal-form .modal-actions-row {
+  flex-direction: row;
+  margin-top: auto;
 }
 
 /*
@@ -128,27 +149,94 @@
 .modal[data-asset] .modal-loading,
 .modal[data-asset] .field-block > span,
 .modal[data-asset] .code-form-label,
-.modal[data-asset] .job-card-summary,
 .modal[data-asset] .checkbox-hint,
 .modal[data-asset] .hint {
   color: #3f4753;
 }
 
-/* 프레임 안쪽이 밝은 회색이라, 어두운 배경을 전제로 한 칸들은 테두리만 남긴다. */
+/*
+ * 프레임 안쪽이 **밝은 회색**이라, 어두운 배경을 전제로 한 색은 여기서 전부 뒤집는다.
+ *
+ * 반투명(rgba)으로 얹지 않는다. 밝은 돌 위에 반투명 흰색을 깔면 카드가 배경에서
+ * 떠오르지 못하고 글자까지 같이 흐려진다 — 실제로 "카드가 어색하고 잘 안 보인다"는
+ * 제보를 받았다. **불투명한 한 색**으로 칠하고 글자는 어두운 잉크로 쓴다.
+ */
 .modal[data-asset] .job-card,
-.modal[data-asset] .checkbox-box {
-  background: rgba(255, 255, 255, 0.35);
-  border-color: #8b94a3;
+.modal[data-asset] .checkbox-row {
+  background: #cdd2d9;
+  border-color: #7c8595;
 }
 
+/*
+ * 모달 제목. 밝은 회색 프레임 위라 **검은 잉크**로 쓴다 — 어두운 화면용 밝은 회색
+ * (--text)이 그대로 오면 배경과 밝기가 비슷해 제목이 제일 안 읽히는 글자가 된다.
+ */
+.modal[data-asset] .screen-head h2 {
+  color: #0d1015;
+}
+
+.modal[data-asset] .job-card:hover,
+.modal[data-asset] .checkbox-row:hover {
+  border-color: #4d5566;
+}
+
+.modal[data-asset] .checkbox-box {
+  background: #eef1f5;
+  border-color: #7c8595;
+}
+
+/* 카드 안 글자 — 밝은 바탕이라 어두운 잉크로 쓴다. 중요도 순으로 어둡다. */
+.modal[data-asset] .job-card-name {
+  color: #12161d;
+}
+
+.modal[data-asset] .job-card-summary,
+.modal[data-asset] .job-card-stats {
+  color: #3b4250;
+}
+
+.modal[data-asset] .job-card-trait {
+  color: #145c38;
+}
+
+.modal[data-asset] .job-card-kit {
+  border-top-color: rgba(18, 22, 29, 0.22);
+  color: #4a5260;
+}
+
+/*
+ * 고른 카드는 **테두리만** 바뀐다.
+ *
+ * 바탕까지 초록으로 칠해도 봤는데, 카드 안이 통째로 다른 색이 되니 그 위의 글자까지
+ * 색 필터를 씌운 것처럼 보였다 — 골랐다는 표시가 읽어야 할 내용을 덮으면 안 된다.
+ * 대신 테두리를 굵게 해서 한 장만 도드라지게 한다.
+ */
 .modal[data-asset] .job-card.is-selected {
-  color: #1d5c39;
   border-color: #1d5c39;
+  box-shadow: inset 0 0 0 1px #1d5c39;
 }
 
 .modal[data-asset] .checkbox-input:checked + .checkbox-box {
   background: #1d5c39;
   border-color: #1d5c39;
+}
+
+/* 체크 표시는 어두운 초록 상자 위에 그려지므로 밝게 뒤집는다. */
+.modal[data-asset] .checkbox-input:checked + .checkbox-box::after {
+  border-color: #eef4f0;
+}
+
+.modal[data-asset] .checkbox-row:has(.checkbox-input:checked) {
+  background: #c2dcc9;
+  border-color: #1d5c39;
+}
+
+.modal[data-asset] .checkbox-label {
+  color: #12161d;
+}
+
+.modal[data-asset] .checkbox-row:has(.checkbox-input:checked) .checkbox-label {
+  color: #14522f;
 }
 
 .modal[data-asset] .room-code {

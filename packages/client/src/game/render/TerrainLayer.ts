@@ -9,8 +9,10 @@ import {
   TILE_SIZE,
   decorationTileAt,
   hashString,
+  minimapTerrainAt,
   pavementTileAt,
   terrainTileAt,
+  worldToCell,
   type TerrainKind,
 } from '@dropfall/shared';
 
@@ -174,6 +176,16 @@ export class TerrainLayer {
     layer.setCullPadding(CULL_PADDING_TILES, CULL_PADDING_TILES);
     layer.setDepth(TERRAIN_DEPTH);
     return layer;
+  }
+
+  /**
+   * 이 좌표에서 실제로 보이는 지형 종류(덧칠 순서상 맨 위 것). 발소리 SFX가
+   * "지금 뭘 밟고 있나"를 고를 때 쓴다 — 그리는 순서(overlay가 base를 덮는다)와
+   * 같은 규칙이어야 화면에 보이는 것과 들리는 소리가 어긋나지 않는다.
+   */
+  terrainKindAt(worldX: number, worldY: number): TerrainKind {
+    const { cx, cy } = worldToCell(worldX, worldY);
+    return minimapTerrainAt(cx, cy, this.seed);
   }
 
   destroy(): void {

@@ -4,6 +4,8 @@
   "baseBuildRadius": 175,
   "baseMaxResource": 400,
   "baseMaxEnergy": 150,
+  "$repairComment": "코어 수리(코어 메뉴 버튼, World.repairCore) — 자원을 체력으로 바꾼다. 옛 수리키트(200hp/90에너지 ≈ 0.45)·코어셀(500hp/220에너지 ≈ 0.44) 소모품이 쓰던 비율을 그대로 물려받되 자원으로 통화만 바꿨다. 낼 수 있는 만큼만 채운다(부분 수리 가능) — 강화와 달리 깎인 체력은 매번 다른 양이라 전액이 아니면 아예 안 되는 규칙이면 애매하게 몇 안 되는 자원이 계속 묶인다.",
+  "repairResourcePerHp": 0.45,
   "tiers": [
     {
       "cost": { "resource": 250, "energy": 60 },

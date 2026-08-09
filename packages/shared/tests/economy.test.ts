@@ -87,17 +87,70 @@ describe('World — 제작', () => {
     expect(world.getCore().resource).toBe(0); // 정확히 다 썼다
   });
 
-  it('꺼내 가기 전에는 다음 제작을 걸 수 없다', () => {
+  it('같은 물건이면 결과 칸에 쌓인다 — 연속으로 만들 수 있다', () => {
     const world = worldWithPlayerAtCore();
     const recipe = craftingData.recipes.find((entry) => entry.id === 'axe_t1')!;
     grantGauges(world, recipe.cost.resource * 2, 0);
+    const perCraft = recipe.count ?? 1;
 
     world.craftItem('p1', recipe.id);
     finishCraft(world);
-    world.craftItem('p1', recipe.id); // 결과가 남아 있어 거절된다
+    world.craftItem('p1', recipe.id);
+    finishCraft(world);
 
-    expect(world.getCore().resource).toBe(recipe.cost.resource);
+    expect(world.getPlayers().get('p1')!.craftOutput).toEqual({
+      itemId: recipe.itemId,
+      count: perCraft * 2,
+    });
+    expect(world.getCore().resource).toBe(0);
+  });
+
+  it('다른 물건은 쌓지 않는다 — 앞의 결과가 무엇이었는지 사라진다', () => {
+    const world = worldWithPlayerAtCore();
+    const first = craftingData.recipes.find((entry) => entry.id === 'axe_t1')!;
+    const other = craftingData.recipes.find(
+      (entry) => entry.itemId !== first.itemId && entry.requiresTier <= 1,
+    )!;
+    grantGauges(world, first.cost.resource + other.cost.resource, 999);
+
+    world.craftItem('p1', first.id);
+    finishCraft(world);
+    const resourceBefore = world.getCore().resource;
+    world.craftItem('p1', other.id); // 다른 물건이라 거절된다
+
     expect(world.getPlayers().get('p1')!.craftRecipeId).toBe('');
+    expect(world.getCore().resource).toBe(resourceBefore);
+  });
+
+  it('상한(outputStackLimit)을 넘길 만큼은 시작조차 하지 않는다 — 비용도 안 나간다', () => {
+    const world = worldWithPlayerAtCore();
+    const recipe = craftingData.recipes.find((entry) => entry.id === 'axe_t1')!;
+    grantGauges(world, recipe.cost.resource, 0);
+    // 칸이 이미 상한까지 찬 상태를 만든다.
+    world.getPlayers().get('p1')!.craftOutput = {
+      itemId: recipe.itemId,
+      count: craftingData.outputStackLimit,
+    };
+
+    world.craftItem('p1', recipe.id);
+
+    expect(world.getPlayers().get('p1')!.craftRecipeId).toBe('');
+    expect(world.getCore().resource).toBe(recipe.cost.resource);
+  });
+
+  it('결과를 꺼낼 때 다 못 들어간 나머지는 제작 칸에 남는다', () => {
+    const world = worldWithPlayerAtCore();
+    const recipe = craftingData.recipes.find((entry) => entry.id === 'fence')!;
+    const stackSize = itemsData[recipe.itemId]!.stackSize;
+    const player = world.getPlayers().get('p1')!;
+    // 상한 가까이 쌓아 두고, 인벤토리 한 칸에 한 개만 들어갈 자리를 만든다.
+    player.craftOutput = { itemId: recipe.itemId, count: stackSize + 5 };
+    const empty = player.inventory.toView().slots.findIndex((slot) => slot === null);
+
+    world.moveItem('p1', 'craft', 0, 'inventory', empty);
+
+    expect(player.inventory.slotAt(empty)).toEqual({ itemId: recipe.itemId, count: stackSize + 5 });
+    expect(player.craftOutput).toBeNull();
   });
 
   it('제작 칸에서 인벤토리로 꺼내 갈 수 있다(넣는 건 안 된다)', () => {

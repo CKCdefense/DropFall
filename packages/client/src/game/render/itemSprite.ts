@@ -25,8 +25,6 @@ const MATERIAL_FRAME: Record<string, string> = {
   carrot_cake: 'item_usable_carrot_cake_0',
   apple_juice: 'item_usable_apple_juice_0',
   lasagna: 'item_usable_lasagna_0',
-  repair_kit: 'item_consumable_repair_kit_0',
-  core_cell: 'item_consumable_core_cell_0',
   energy_cell: 'item_consumable_energy_cell_0',
   // drop_rare는 아틀라스에 'item_drop_rare_idle_0'로 들어있는데, drop_normal만
   // 'idle' 세그먼트가 빠진 'item_drop_normal__0'로 들어있다(에셋 소스의 이름표
@@ -106,6 +104,30 @@ function iconFit(frameWidth: number, frameHeight: number, boxSize: number, itemI
     offsetX,
     offsetY,
   };
+}
+
+/**
+ * 한 칸(boxSize)에 맞춘 배율·보정. **DOM(대기실)도 같은 계산을 쓴다** — 인벤토리에서
+ * 본 크기와 대기실에서 본 크기가 다르면 같은 물건인지 헷갈린다.
+ *
+ * 프레임 크기는 호출부가 준다. Phaser 쪽은 이미지에서 읽고, DOM 쪽은 아틀라스 JSON에서
+ * 읽어서 — 어느 쪽도 상대의 사정을 몰라도 되게 했다.
+ */
+/**
+ * 그림이 실제로 차지하는 영역(프레임 안 좌표). 무기만 값이 있고, 나머지는 캔버스를
+ * 꽉 채워서 없다 — DOM(대기실)이 프레임 대신 **그림만** 잘라낼 때 쓴다.
+ */
+export function itemArtBounds(itemId: string): WeaponVisual['artBounds'] {
+  return iconArtBounds(itemId);
+}
+
+export function itemIconFit(
+  itemId: string,
+  frameWidth: number,
+  frameHeight: number,
+  boxSize: number,
+): IconFit {
+  return iconFit(frameWidth, frameHeight, boxSize, itemId);
 }
 
 /** 회전·배율을 적용하고, 여백 보정만큼 위치를 되돌린다. */

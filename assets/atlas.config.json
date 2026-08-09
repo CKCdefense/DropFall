@@ -38,6 +38,14 @@
       ]
     }
   ],
+  "$exportComment": "아틀라스에 넣을 수 없는 **낱장 이미지**를 aseprite에서 PNG로 뽑는다. DOM(로비)은 Phaser가 아니라 CSS로 그리는데, CSS는 아틀라스 한 칸만 잘라 쓰기가 번거롭고 배경처럼 큰 그림은 아틀라스에 넣으면 시트가 통째로 커진다 — 그런 그림은 제 파일로 둔다.",
+  "export": [
+    {
+      "$comment": "로비 배경 위에 얹는 그림(행성 등). PNG로 바로 넣은 파일은 아래 copy가 가져간다.",
+      "from": "ui/backgrounds",
+      "to": "ui"
+    }
+  ],
   "copy": [
     {
       "$comment": "CSS border-image는 아틀라스 일부를 잘라 쓸 수 없어 개별 파일이 필요하다",

@@ -288,10 +288,11 @@ describe('World — 티모시 대사 트리거', () => {
   it('창고에 자원을 납품하면(moveItem) coreDeposit 이벤트가 그 플레이어를 향해 쌓인다', () => {
     const world = createTestWorld();
     world.addPlayer('p1', 10, 0); // 코어 상호작용 반경 안
-    world.moveItem('p1', 'storage', 3, 'inventory', 0); // 붕대 꺼내기(입고 아님 — 이벤트 없어야 한다)
+    world.moveItem('p1', 'storage', 3, 'inventory', 0); // 빈 칸에서 꺼내기(입고 아님 — 이벤트 없어야 한다)
     expect(world.drainCompanionPersonaEvents()).toHaveLength(0);
 
-    world.moveItem('p1', 'inventory', 0, 'storage', 4); // 다시 입고 — coreDeposit
+    // 참가 지급 붕대는 마지막 칸(3번)에 있다(loadout.json).
+    world.moveItem('p1', 'inventory', 3, 'storage', 4); // 입고 — coreDeposit
 
     const events = world.drainCompanionPersonaEvents();
     expect(events).toHaveLength(1);
@@ -302,10 +303,9 @@ describe('World — 티모시 대사 트리거', () => {
   it('창고에 자원을 납품하면(quickMoveItem) 마찬가지로 이벤트가 쌓인다', () => {
     const world = createTestWorld();
     world.addPlayer('p1', 10, 0);
-    world.moveItem('p1', 'storage', 3, 'inventory', 0);
-    world.drainCompanionPersonaEvents(); // 위 withdraw는 이벤트 없음 — 큐만 비워둔다
+    world.drainCompanionPersonaEvents(); // 큐를 비워 두고 시작한다
 
-    world.quickMoveItem('p1', 'inventory', 0); // 인벤토리 → 창고(반대편 자동)
+    world.quickMoveItem('p1', 'inventory', 3); // 지급 붕대(3번) → 창고(반대편 자동)
 
     const events = world.drainCompanionPersonaEvents();
     expect(events.some((e) => e.kind === 'coreDeposit' && e.playerId === 'p1')).toBe(true);

@@ -9,12 +9,14 @@ import {
   sanitizeNickname,
   sanitizeRoomName,
   JOBS,
+  jobStats,
   type JobId,
   type RoomListItem,
 } from '@dropfall/shared';
 import { createRoom, joinRoomByCode } from '../net/ColyseusConnection';
 import { LocalConnection } from '../net/LocalConnection';
-import { characterPortrait } from './characterPortrait';
+import { jobIcon } from './characterPortrait';
+import { jobKitText } from './jobKit';
 import { fetchRooms } from '../net/lobbyApi';
 import type { GameConnection } from '../net/GameConnection';
 import { assetAttr, hasAsset } from './assets';
@@ -319,18 +321,22 @@ export class LobbyApp {
    * 예전엔 이 단계가 통째로 없어서 혼자 하면 항상 기본 스탯으로만 시작했다.
    */
   private renderSolo(): HTMLElement {
+    /*
+     * 직업을 안 고르면 **시작 버튼이 아예 안 눌린다.**
+     *
+     * 예전엔 누를 수는 있고 "직업을 먼저 고르세요"라는 오류를 띄웠다 — 눌러 보고 나서야
+     * 안 되는 걸 아는 것보다, 눌리지 않는 편이 먼저 알려 준다.
+     */
+    const hasJob = this.soloJob !== null;
     const start = () => {
-      if (!this.soloJob) {
-        this.fail('직업을 먼저 고르세요.');
-        return;
-      }
+      if (!this.soloJob) return;
       this.startLocal(this.soloJob);
     };
 
     return el('div', { class: 'code-form' }, [
       el('div', { class: 'screen-head' }, [el('h2', {}, ['혼자하기'])]),
       el('div', { class: 'field-block' }, [
-        el('span', {}, ['직업']),
+        el('span', {}, ['직업 선택']),
         el(
           'div',
           { class: 'job-cards' },
@@ -344,13 +350,27 @@ export class LobbyApp {
                 'aria-pressed': selected ? 'true' : 'false',
               },
               [
-                el('span', { class: 'job-card-portrait' }, [
-                  // 아틀라스가 아직 안 왔으면 이름 첫 글자로 대신한다(대기실과 같은 규칙).
-                  characterPortrait(job.id) ??
-                    el('span', { class: 'slot-portrait-mark' }, [job.name.charAt(0)]),
+                /*
+                 * **초상화가 아니라 직업 아이콘**이다. 서 있는 전신은 세로를 많이 먹는데,
+                 * 이 카드는 이름·특성·지급품까지 담아야 한다 — 아이콘은 그 크기에서
+                 * 읽히게 그려져 있어 같은 자리에 더 많은 것을 넣을 수 있다.
+                 */
+                el('span', { class: 'job-card-icon' }, [
+                  jobIcon(job.id) ?? el('span', { class: 'job-cell-mark' }, [job.name.charAt(0)]),
                 ]),
                 el('span', { class: 'job-card-name' }, [job.name]),
                 el('span', { class: 'job-card-summary' }, [job.summary]),
+                el('span', { class: 'job-card-stats' }, [
+                  `체력 ${jobStats(job.id).maxHp} · 기력 ${jobStats(job.id).maxStamina}`,
+                ]),
+                // 고유 특성 한 줄. 무엇이 다른 직업인지가 여기서 갈린다.
+                el('span', { class: 'job-card-trait' }, [jobStats(job.id).trait ?? ' ']),
+                /*
+                 * 지급품은 **글자로** 적는다. 칸 그림은 인게임 퀵슬롯과 자리를 맞추려는
+                 * 것인데, 이 카드는 폭이 좁아 칸이 알아볼 수 없을 만큼 작아진다 —
+                 * 그럴 바에는 이름을 읽는 편이 낫다(대기실은 카드가 넓어 칸 그대로 쓴다).
+                 */
+                el('span', { class: 'job-card-kit' }, [jobKitText(job.id)]),
               ],
             );
             card.addEventListener('click', () => {
@@ -363,8 +383,9 @@ export class LobbyApp {
         ),
       ]),
       this.companionToggle(),
-      el('div', { class: 'modal-actions' }, [
-        this.button('시작', 'primary', start),
+      // 시작·뒤로는 **가로로 나란히, 맨 아래**에 둔다(§.modal-actions-row).
+      el('div', { class: 'modal-actions modal-actions-row' }, [
+        this.button('시작', 'primary', start, !hasJob),
         this.button('뒤로', 'primary', () => this.goTitle()),
       ]),
     ]);
@@ -388,7 +409,7 @@ export class LobbyApp {
       box,
       el('span', { class: 'checkbox-box' }),
       el('span', { class: 'checkbox-text' }, [
-        '티모시 데려가기',
+        el('span', { class: 'checkbox-label' }, ['티모시 데려가기']),
         el('span', { class: 'checkbox-hint' }, ['자원을 대신 모아 주는 AI 동반자']),
       ]),
     ]);

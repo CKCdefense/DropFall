@@ -339,6 +339,10 @@ export class ColyseusConnection implements GameConnection {
 
   readonly solo = false;
 
+  setCompanion(enabled: boolean): void {
+    this.room.send(LobbyMessage.SET_COMPANION, { enabled });
+  }
+
   reviveGhost(targetId: string): void {
     this.room.send('reviveGhost', { targetId });
   }
@@ -357,6 +361,10 @@ export class ColyseusConnection implements GameConnection {
 
   upgradeCore(): void {
     this.room.send('upgradeCore', {});
+  }
+
+  repairCore(): void {
+    this.room.send('repairCore', {});
   }
 
   coreInteract(): void {

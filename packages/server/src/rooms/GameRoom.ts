@@ -40,6 +40,7 @@ import {
   type QuickMoveItemMessage,
   type ShopBuyMessage,
   type SpendStatPointMessage,
+  type SetCompanionMessage,
   type ReviveGhostMessage,
   reviveData,
   type JoinRoomOptions,
@@ -184,6 +185,10 @@ export class GameRoom extends Room {
       if (this.state.phase !== RoomPhase.PLAYING) return;
       this.world.upgradeCore(client.sessionId);
     },
+    repairCore: (client: Client) => {
+      if (this.state.phase !== RoomPhase.PLAYING) return;
+      this.world.repairCore(client.sessionId);
+    },
     coreInteract: () => {
       if (this.state.phase !== RoomPhase.PLAYING) return;
       // 성공 여부(쿨다운 통과)는 World가 판단한다 — 여기선 그냥 요청만 넘긴다.
@@ -233,6 +238,15 @@ export class GameRoom extends Room {
       player.isReady = payload.ready;
     },
 
+    [LobbyMessage.SET_COMPANION]: (client: Client, payload: SetCompanionMessage) => {
+      if (this.state.phase !== RoomPhase.LOBBY) return;
+      // 방 설정이라 방장만 바꾼다 — 참가자가 남의 방 구성을 흔들 수는 없다.
+      if (client.sessionId !== this.state.hostSessionId) return;
+      if (typeof payload?.enabled !== 'boolean') return;
+
+      this.state.companionEnabled = payload.enabled;
+    },
+
     [LobbyMessage.START_GAME]: (client: Client) => {
       const reason = this.getStartRejection(client.sessionId);
       if (reason) {
@@ -262,9 +276,12 @@ export class GameRoom extends Room {
     this.state.roomName = roomName;
     this.state.hasPassword = this.password.length > 0;
 
-    // 티모시는 방 설정이다 — 아무도 안 들어온 지금 정해야 월드가 한 번만 세워진다.
+    /*
+     * 티모시는 방을 만들 때의 기본값일 뿐이다 — **확정은 시작 버튼을 누를 때**다
+     * (§startGame). 방장이 대기실에서 마음을 바꿀 수 있게 되면서, 여기서 월드를
+     * 다시 세우면 그때마다 자원 배치가 통째로 새로 뽑힌다.
+     */
     this.state.companionEnabled = options?.companion !== false;
-    if (!this.state.companionEnabled) this.world = new World({ companion: false });
 
     // GET /rooms(방 목록)가 읽는 값. 비밀번호 자체는 절대 넣지 않는다.
     await this.setMetadata({
@@ -347,6 +364,8 @@ export class GameRoom extends Room {
 
   private startGame(): void {
     this.state.phase = RoomPhase.PLAYING;
+    // 대기실에서 마지막으로 정해진 값이 여기서 월드에 반영된다.
+    this.world.setCompanionEnabled(this.state.companionEnabled);
     // 직업은 로비에서 정해진다 — 시뮬레이션은 참가 시점엔 알 수 없으므로 여기서
     // 한 번 넘긴다. 기초 스탯(체력·공격력·스태미나)이 이때 확정된다.
     for (const [id, player] of this.state.players) {
@@ -540,17 +559,27 @@ export class GameRoom extends Room {
       let schema = this.state.monsters.get(id);
       if (!schema) {
         schema = new MonsterSchema();
+        // 스폰 시점에 한 번만 정해지는 값 — 타입은 바뀌지 않고, 최대 체력도 고정이다.
         schema.type = monster.type;
         schema.maxHp = monster.maxHp;
-      schema.attacking = monster.attackAnimTimer > 0;
-      schema.attackAnim = monster.attackAnim;
-      schema.attackSeq = monster.attackSeq;
-      schema.facingLeft = monster.facingX < 0;
         this.state.monsters.set(id, schema);
       }
       schema.x = monster.x;
       schema.y = monster.y;
       schema.hp = monster.hp;
+      /*
+       * 동작·방향은 **매 틱** 실어야 한다.
+       *
+       * 한동안 이 네 줄이 위의 `if (!schema)` 안에 들어가 있었다(들여쓰기만 바깥처럼
+       * 보였다). 그러면 스폰된 순간의 값이 그대로 굳어서, 멀티에서는 몬스터가 영원히
+       * 같은 방향을 보고 attackSeq가 절대 안 바뀐다 — 클라이언트는 그 번호가 **바뀌는
+       * 순간**에 공격 모션을 트니까(§EntityRenderer.updateMonsterAnim) 공격 애니메이션이
+       * 한 번도 재생되지 않는다. 혼자하기는 월드 엔티티를 직접 읽어서 멀쩡했다.
+       */
+      schema.attacking = monster.attackAnimTimer > 0;
+      schema.attackAnim = monster.attackAnim;
+      schema.attackSeq = monster.attackSeq;
+      schema.facingLeft = monster.facingX < 0;
 
       const telegraph = describeBossTelegraph(monster, monstersData[monster.type]);
       schema.telegraphKind = telegraph?.kind ?? '';

@@ -47,6 +47,7 @@ export const LobbyMessage = {
   SELECT_JOB: 'selectJob',
   SET_READY: 'setReady',
   START_GAME: 'startGame',
+  SET_COMPANION: 'setCompanion',
 } as const;
 
 export interface SelectJobMessage {
@@ -55,6 +56,16 @@ export interface SelectJobMessage {
 
 export interface SetReadyMessage {
   ready: boolean;
+}
+
+/**
+ * 티모시를 데려갈지. **방장만** 바꿀 수 있고 대기실에서만 통한다.
+ *
+ * 방을 만들 때 정하던 것을 대기실로 옮긴 이유는, 사람이 모이고 직업을 고르고 나서야
+ * "동반자가 필요한 구성인가"가 보이기 때문이다 — 방을 만드는 순간에는 아직 아무도 없다.
+ */
+export interface SetCompanionMessage {
+  enabled: boolean;
 }
 
 /**

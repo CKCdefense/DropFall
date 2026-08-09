@@ -9,6 +9,7 @@ import {
   itemOfSlot,
   weaponsData,
 } from '@dropfall/shared';
+import { AudioManager, queueAudio, type FootstepSurface } from '../audio/AudioManager';
 import type {
   BuildingView,
   ColonyView,
@@ -60,6 +61,7 @@ export class GameScene extends Phaser.Scene {
   /** 건축 아이템을 들었을 때 커서 칸을 비추는 표시. */
   private placement!: PlacementPreview;
   private input_!: InputController;
+  private audio!: AudioManager;
   private isFollowing = false;
   private collisionDebugVisible = false;
   /** 내 캐릭터 클라이언트 예측(docs/backend/55) — 첫 스냅샷에서 내 좌표로 지연 초기화한다. */
@@ -96,6 +98,9 @@ export class GameScene extends Phaser.Scene {
     queueUiFrames(this);
     // HUD 게이지 껍데기(체력·코어·보스 바)와 라벨 아이콘. 없으면 단색 사각형으로 떨어진다.
     queueHudAtlas(this);
+    // 효과음(발소리·전투·몬스터·부활). 배경음악은 여기서 안 올린다 — AudioManager가
+    // 국면이 실제로 왔을 때 그때 불러온다(§AudioManager 주석).
+    queueAudio(this);
   }
 
   create(): void {
@@ -125,10 +130,15 @@ export class GameScene extends Phaser.Scene {
     // 낮·밤 하늘. 모든 월드 오브젝트 위에 얹히는 화면 고정 오버레이라 depth로 관리한다.
     this.dayNight = new DayNightOverlay(this);
     this.placement = new PlacementPreview(this);
+    this.audio = new AudioManager(this);
     this.input_ = new InputController(
       this,
       this.connection,
-      () => this.entityRenderer.playAttack(this.connection.sessionId),
+      (weaponId) => {
+        this.entityRenderer.playAttack(this.connection.sessionId);
+        this.audio.notifyAttack(weaponId);
+      },
+      () => this.audio.notifyEmptyFire(),
       // HudScene이 등록한다. 씬 시작 순서와 무관하도록 매번 registry에서 꺼내 쓴다.
       () => (this.registry.get(CORE_INTERACT_KEY) as (() => boolean) | undefined)?.() ?? false,
       (x, y) =>
@@ -163,11 +173,17 @@ export class GameScene extends Phaser.Scene {
       this.entityRenderer.setCollisionDebugVisible(this.collisionDebugVisible);
     });
 
+    // 음소거(M). 아직 별도 설정창이 없어서 임시로 키 하나만 둔다.
+    this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.M).on('down', () => {
+      this.audio.toggleMute();
+    });
+
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.scale.off(Phaser.Scale.Events.RESIZE, this.applyZoom, this);
       this.scale.off(Phaser.Scale.Events.RESIZE, this.resizeDayNight, this);
       this.entityRenderer.destroy();
       this.terrain?.destroy();
+      this.audio.stopAll();
     });
   }
 
@@ -219,6 +235,24 @@ export class GameScene extends Phaser.Scene {
     // 건축 구역 포장 — 반경이 바뀐 순간에만 실제로 다시 그린다(TerrainLayer 참고).
     this.terrain?.setBuildRadius(snapshot.status.coreBuildRadius);
     this.dayNight.update(snapshot.status, this.cameras.main, delta, portableLights(snapshot));
+
+    // 배경음악·부활·몬스터 소리는 나 자신이 아직 없어도(첫 스냅샷 도착 전) 계속 돈다 —
+    // 국면·팀원 상태는 나와 무관하게 존재한다. 발소리만 내 위치가 있어야 의미가 있다.
+    // 코어 마당 포장 안이면 "타일" 소리다 — TerrainLayer의 courtyard는 지형이 아니라
+    // 반경으로만 정해지는 별도 레이어라 여기서 직접 반경으로 판정한다.
+    const footstepSurface: FootstepSurface | undefined = localOverride
+      ? Math.hypot(localOverride.x, localOverride.y) <= snapshot.status.coreBuildRadius
+        ? 'tile'
+        : (this.terrain?.terrainKindAt(localOverride.x, localOverride.y) ?? 'grass')
+      : undefined;
+    this.audio.update(
+      snapshot.status,
+      snapshot.players,
+      snapshot.monsters,
+      me,
+      me ? this.input_.isMoving : false,
+      footstepSurface,
+    );
 
     if (!me) return;
 

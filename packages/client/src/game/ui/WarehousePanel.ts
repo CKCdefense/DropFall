@@ -2,7 +2,16 @@ import Phaser from 'phaser';
 import { STORAGE_SLOT_COUNT, itemOfSlot, type InventorySlot } from '@dropfall/shared';
 import type { PanelBuilder } from './Modal';
 import { SlotIcon } from '../render/itemSprite';
-import { BODY_TEXT, DIM_TEXT, FONT, FONT_SMALL, PANEL_STROKE, SIZE_BODY, SIZE_SMALL } from './theme';
+import {
+  BODY_TEXT,
+  DIM_TEXT,
+  FONT,
+  FONT_SMALL,
+  PANEL_STROKE,
+  SIZE_BODY,
+  SIZE_SMALL,
+  forceSetText,
+} from './theme';
 
 const CELL = 62;
 /** 아이콘이 칸 테두리·개수 글자와 겹치지 않게 남기는 여백(px). */
@@ -161,7 +170,10 @@ export class WarehousePanel {
       // 아이콘이 있으면 그림이 이름을 대신한다. 없을 때만 이름 두 글자로 버틴다.
       this.icons[index].setItem(slot?.itemId ?? null);
       const showIcon = this.icons[index].isShowing;
-      this.labels[index].setText(showIcon || !item ? '' : item.name.slice(0, 2));
+      // setText()만으로는 드물게 화면이 안 갱신되고 이전 글자에 멈추는 경우가
+      // 있었다(코어 충전 칸에서 실측·재현, CorePanel.setChargeSlots 참고) —
+      // 같은 패턴(칸 여러 개를 매 프레임 setText로 채움)이라 여기도 forceSetText로 바꾼다.
+      forceSetText(this.labels[index], showIcon || !item ? '' : item.name.slice(0, 2));
       this.counts[index].setText(slot && slot.count > 1 ? String(slot.count) : '');
     }
 

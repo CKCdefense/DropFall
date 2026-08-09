@@ -11,6 +11,7 @@ import {
   craftingData,
   levelsData,
   reviveData,
+  type LoadoutEntry,
   xpToNextLevel,
   itemsData,
   jobStats,
@@ -71,7 +72,7 @@ import {
   type MeleeHit,
   type ProjectileEntity,
 } from './combat';
-import { Inventory, type InventorySlot } from './inventory';
+import { Inventory, SLOT_COUNT, type InventorySlot } from './inventory';
 import { CoreStorage, STORAGE_SLOT_COUNT } from './storage';
 import { coreDistance, isWithinCoreInteract } from './coreShape';
 import { ExploredMap } from './explored';
@@ -161,7 +162,7 @@ export const BARE_HANDS_WEAPON_ID = 'fist';
 // 같은 배율을 알아야 한다 — 값이 갈라지면 스프린트 중 매 프레임 되당김이 보인다.
 export const SPRINT_SPEED_MULTIPLIER = 1.6;
 /** 달리는 동안 초당 소모되는 스태미나. 기본 100이면 약 5초 전력질주다. */
-const SPRINT_STAMINA_DRAIN = 20;
+const SPRINT_STAMINA_DRAIN = 40;
 /** 걷거나 멈춰 있을 때 초당 회복량. 소모보다 느려야 "아껴 쓴다"는 판단이 생긴다. */
 const STAMINA_REGEN = 12;
 /**
@@ -226,6 +227,30 @@ const CORE_RESPAWN_Y = 48;
  * 여기도 같이 고쳐야 하고, 안 고치면 조용히 아무 일도 일어나지 않는다.
  */
 const AID_ITEM_ID = 'aid_kit';
+
+/**
+ * 지급품 목록을 인벤토리에 채운다.
+ *
+ * 칸을 명시한 항목(`slot`)은 **그 칸에 그대로** 놓는다 — "1번칸에 무기"가 곧 조작
+ * 습관이라, 순서대로 채우면 직업마다 무기 칸이 달라진다. 칸을 안 적은 항목만 빈 칸을
+ * 찾아 들어간다.
+ *
+ * @param playerCount `perPlayer` 항목의 배수. 인원수에 비례하는 지급품(의무병 붕대)에 쓴다.
+ */
+function fillLoadout(
+  inventory: Inventory,
+  entries: readonly LoadoutEntry[],
+  playerCount: number,
+): void {
+  for (const entry of entries) {
+    const count = entry.perPlayer ? entry.count * playerCount : entry.count;
+    if (entry.slot === undefined) {
+      inventory.add(entry.itemId, count);
+      continue;
+    }
+    inventory.placeAt(entry.slot, { itemId: entry.itemId, count });
+  }
+}
 
 /** 개발 커맨드로 몬스터를 부를 때 코어에서 띄우는 거리(px). 바로 옆에 붙여 놓으면 코어가 즉사한다. */
 const DEV_SPAWN_RADIUS = 160;
@@ -902,6 +927,9 @@ export class World {
    * 깨진 적이 있다. 자원 보충은 콜로니 위치와 무관하므로 뒤로 미뤄도 안전하다.
    */
   startColonies(count: number): void {
+    // 인원이 확정되는 유일한 시점이다 — 인원수에 비례하는 지급품(의무병 붕대)을 여기서
+    // 다시 센다. 지급은 4칸을 통째로 다시 쓰므로 두 번 불려도 결과가 같다.
+    for (const player of this.players.values()) this.giveJobLoadout(player);
     this.colonies.seed(count, this.rng);
     this.rebuildColonyObstacleCells();
     this.seedResourceNodes(count);
@@ -937,7 +965,7 @@ export class World {
 
   addPlayer(id: string, x = 0, y = 0): void {
     const inventory = new Inventory();
-    for (const entry of loadoutData.playerStarting) inventory.add(entry.itemId, entry.count);
+    fillLoadout(inventory, loadoutData.playerStarting, 1);
 
     const stats = jobStats('');
     this.players.set(id, {
@@ -983,6 +1011,20 @@ export class World {
    * 직업을 확정한다. 로비에서 고르므로 참가 시점엔 알 수 없다 — 게임이 시작될 때
    * 호출자가 정확히 한 번 알려준다. 체력·스태미나는 새 최대치로 가득 채운다(시작 전이다).
    */
+  /**
+   * 티모시를 데려갈지 정한다. **게임이 시작되기 전에만** 부른다(GameRoom.startGame).
+   *
+   * 예전엔 World를 만들 때 한 번 정하고 끝이었는데, 대기실에서 방장이 마음을 바꿀 수 있게
+   * 되면서 "확정되는 시점"이 뒤로 밀렸다 — 자원 배치까지 다시 하지 않도록 상태만 바꾼다.
+   *
+   * 켜면 처음 자리(코어 옆)에서 다시 시작한다. 중간에 껐다 켰을 때 죽은 자리에 서 있는
+   * 것보다 자연스럽고, 대기실에서만 부르는 값이라 게임 중 상태를 지울 걱정도 없다.
+   */
+  setCompanionEnabled(enabled: boolean): void {
+    if (enabled === (this.companion.state !== 'absent')) return;
+    this.companion = createCompanion(0, 0, enabled);
+  }
+
   setPlayerJob(playerId: string, job: string): void {
     const player = this.players.get(playerId);
     if (!player) return;
@@ -990,6 +1032,21 @@ export class World {
     const stats = jobStats(job);
     player.hp = stats.maxHp + player.maxHpBonus;
     player.stamina = this.playerMaxStamina(player);
+    this.giveJobLoadout(player);
+  }
+
+  /**
+   * 직업 지급품을 퀵슬롯에 채운다. **4칸을 통째로 다시 쓴다** — 직업을 바꿔 고르면
+   * 앞 직업의 무기가 남아 있으면 안 되고, 지급품은 어차피 그 직업의 시작 상태다.
+   *
+   * 대기실에서 직업을 고를 때마다 불리고, 인원이 확정되는 시점(startColonies)에 한 번 더
+   * 불린다 — 의무병의 붕대가 **인원수만큼**이라 마지막 인원으로 다시 세어야 맞는다.
+   */
+  private giveJobLoadout(player: PlayerEntity): void {
+    const entries = loadoutData.byJob[player.job];
+    if (!entries) return;
+    for (let index = 0; index < SLOT_COUNT; index += 1) player.inventory.takeAt(index);
+    fillLoadout(player.inventory, entries, Math.max(1, this.players.size));
   }
 
   /**
@@ -1074,7 +1131,8 @@ export class World {
     if (amount <= 0) return;
     for (const player of this.players.values()) {
       if (player.hp <= 0) continue;
-      player.xp += amount;
+      // 직업 배수(병사 1.2)는 **받는 쪽에** 곱한다 — 남의 몫을 뺏지 않고 제 몫만 늘어난다.
+      player.xp += Math.round(amount * (jobStats(player.job).xpMultiplier ?? 1));
       // 한 번에 두 레벨이 오를 수도 있다(보스). while로 남는 경험치까지 흘려보낸다.
       while (player.xp >= xpToNextLevel(player.level)) {
         player.xp -= xpToNextLevel(player.level);
@@ -1122,6 +1180,9 @@ export class World {
   playerSpeedMultiplier(player: PlayerEntity): number {
     const sprint = player.sprinting && player.stamina > 0 ? SPRINT_SPEED_MULTIPLIER : 1;
     return (
+      // 직업 고유 이동속도(탐색꾼 1.1). **걷는 속도 자체**를 올리므로 달리기 배수와
+      // 곱해진다 — 달릴 때도 그만큼 앞선다.
+      (jobStats(player.job).speedMultiplier ?? 1) *
       (1 + player.staminaBonus) *
       (player.speedBuffTimer > 0 ? player.speedBuffMultiplier : 1) *
       sprint
@@ -1356,7 +1417,7 @@ export class World {
       if (this.applyMeleeHitToDownedAlly(player, result.meleeHit)) return;
       this.applyMeleeHit(result.meleeHit);
       this.applyMeleeHitToResourceNode(player, result.meleeHit, weaponId);
-      this.applyMeleeHitToRepair(result.meleeHit, weaponId);
+      this.applyMeleeHitToRepair(player, result.meleeHit, weaponId);
       this.applyMeleeHitToBuilding(result.meleeHit, weaponId);
     }
   }
@@ -1371,7 +1432,7 @@ export class World {
    * 자원 노드와 같은 이유로 **가장 가까운 하나만** 고친다 — 한 번 휘둘러 벽 다섯 개가
    * 같이 차오르면 수리에 드는 자원이 의미를 잃는다.
    */
-  private applyMeleeHitToRepair(hit: MeleeHit, weaponId: string): void {
+  private applyMeleeHitToRepair(player: PlayerEntity, hit: MeleeHit, weaponId: string): void {
     if (weaponsData[weaponId]?.toolFamily !== 'hammer') return;
 
     let target: BuildingEntity | undefined;
@@ -1387,8 +1448,17 @@ export class World {
     if (!target) return;
 
     const data = buildingsData[target.type];
-    if (this.core.resource < data.repairCost) return;
-    this.core.resource -= data.repairCost;
+    /*
+     * 엔지니어는 수리 자원이 절반이다. **올림**하는 이유는 자원이 정수이기도 하고,
+     * 비용 2짜리 울타리가 0이 되면 수리가 공짜가 되어 방벽을 유지할 이유 자체가
+     * 사라지기 때문이다 — 싸지는 것과 공짜가 되는 것은 다르다.
+     */
+    const cost = Math.max(
+      1,
+      Math.ceil(data.repairCost * (jobStats(player.job).repairCostMultiplier ?? 1)),
+    );
+    if (this.core.resource < cost) return;
+    this.core.resource -= cost;
     target.hp = Math.min(target.maxHp, target.hp + data.repairPerHit);
   }
 
@@ -1531,7 +1601,9 @@ export class World {
       // 티어가 올라도 계열은 같다 — 도끼 T1/T2/T3 모두 나무를 캔다.
       // 맨손(harvestsAny)은 종류를 안 가리는 대신 데미지가 매우 낮다.
       const weapon = weaponsData[weaponId];
-      if (!weapon?.harvestsAny && data.requiredTool !== weapon?.toolFamily) continue;
+      // 토마호크처럼 여러 계열을 캐는 도구가 있다(toolFamilies). 안 적었으면 계열 하나다.
+      const families = weapon?.toolFamilies ?? (weapon?.toolFamily ? [weapon.toolFamily] : []);
+      if (!weapon?.harvestsAny && !families.includes(data.requiredTool)) continue;
       if (!withinMeleeArc(hit, node.x, node.y, data.hitRadius)) continue;
       const distance = Math.hypot(node.x - hit.originX, node.y - hit.originY);
       if (distance >= targetDistance) continue;
@@ -1619,6 +1691,16 @@ export class World {
     if (!Number.isInteger(fromIndex) || !Number.isInteger(toIndex)) return;
     if (from === to && fromIndex === toIndex) return;
 
+    /*
+     * 제작 결과 칸은 **꺼내 가기만** 된다.
+     *
+     * 예전엔 placeAt이 되돌려서 거절했는데, 그 자리는 "다 못 들어간 나머지를 원래
+     * 자리로 되돌리는" 경로와 같은 문이다. 결과가 스택 상한에 걸려 일부만 들어가면
+     * 나머지가 거절당해 조용히 사라졌다(결과가 6개일 때는 드물었지만, 한 칸에 100개까지
+     * 쌓이게 된 지금은 흔한 일이다). 넣는 이동은 여기서 아예 시작하지 않는다.
+     */
+    if (to === 'craft') return;
+
     // 창고와 충전 슬롯은 둘 다 코어의 것이라 코어 앞에서만 만질 수 있다.
     const touchesCore = from !== 'inventory' || to !== 'inventory';
     if (touchesCore && !this.isNearCore(player)) return;
@@ -1663,7 +1745,21 @@ export class World {
           player.craftOutput = null;
           return slot;
         },
-        placeAt: (_index, incoming) => incoming, // 되돌린다 = 여기엔 못 넣는다
+        /*
+         * 되돌리기 전용이다 — 플레이어가 여기로 옮기는 이동은 moveItem이 먼저 막는다.
+         * 다 못 들어간 나머지를 도로 받아야 아이템이 사라지지 않는다.
+         */
+        placeAt: (index, incoming) => {
+          if (index !== 0) return incoming;
+          const output = player.craftOutput;
+          if (!output) {
+            player.craftOutput = incoming;
+            return null;
+          }
+          if (output.itemId !== incoming.itemId) return incoming;
+          output.count += incoming.count;
+          return null;
+        },
       };
     }
     return {
@@ -1852,6 +1948,27 @@ export class World {
   }
 
   /**
+   * 코어 수리. 자원을 체력으로 바꾼다(게임 흐름 피드백 — 예전엔 상점에 뜬 수리
+   * 소모품을 사서 써야 했는데, 그날 진열이 안 뜨면 아예 수리할 방법이 없었다).
+   * 강화와 달리 **낼 수 있는 만큼만** 채운다 — 깎인 체력은 매번 다른 양이라
+   * "전액이 아니면 아예 안 된다"로 하면 애매하게 모자란 자원이 계속 묶인다.
+   */
+  repairCore(playerId: string): void {
+    const player = this.players.get(playerId);
+    if (!player || player.hp <= 0 || !this.isNearCore(player)) return;
+
+    const missing = this.core.maxHp - this.core.hp;
+    if (missing <= 0) return;
+
+    const affordableHp = Math.floor(this.core.resource / coreUpgradesData.repairResourcePerHp);
+    const healAmount = Math.min(missing, affordableHp);
+    if (healAmount <= 0) return;
+
+    this.core.resource -= Math.ceil(healAmount * coreUpgradesData.repairResourcePerHp);
+    this.core.hp += healAmount;
+  }
+
+  /**
    * 제작 시작. 재료는 코어 게이지에서 **즉시** 나가고 결과물은 craftSeconds 뒤에
    * 창고로 들어간다.
    *
@@ -1868,11 +1985,22 @@ export class World {
     if (!player || player.hp <= 0 || !this.isNearCore(player)) return;
     if (typeof recipeId !== 'string') return;
     if (player.craftRecipeId) return; // 이미 만드는 중
-    if (player.craftOutput) return; // 앞서 만든 걸 아직 안 가져갔다
 
     const recipe = craftingData.recipes.find((entry) => entry.id === recipeId);
     if (!recipe) return;
     if (this.core.tier < recipe.requiresTier) return;
+    // 직업 전용 레시피(의무병 붕대). 목록에는 보이되 남이 누르면 아무 일도 안 일어난다.
+    if (recipe.requiresJob && player.job !== recipe.requiresJob) return;
+    /*
+     * 결과 칸에 **같은 물건이면 쌓는다.**
+     *
+     * 예전엔 칸이 차 있으면 무조건 거절했다. 울타리는 한 번에 여섯 개씩 나오는데
+     * 스무 개를 두르려면 네 번을 만들어야 하고, 그때마다 꺼내 옮겨야 했다 — 제작
+     * 시간보다 정리하는 시간이 길었다.
+     *
+     * 다른 물건이면 여전히 거절한다. 섞어 쌓으면 앞의 결과가 무엇이었는지 사라진다.
+     */
+    if (!this.craftOutputRoom(player, recipe.itemId, recipe.count ?? 1)) return;
     if (!this.spendCoreCost(recipe.cost)) return;
 
     player.craftRecipeId = recipe.id;
@@ -1908,9 +2036,13 @@ export class World {
        * 어딘가에 섞여 들어가 무엇이 새로 생겼는지 알 수 없다. 꺼내 가는 건 드래그
        * 한 번이면 된다.
        *
-       * 시작할 때 결과 칸이 비어 있음을 이미 확인했으므로 여기서 덮어쓸 걱정은 없다.
+       * 시작할 때 자리를 이미 확인했으므로(§craftOutputRoom) 여기서는 쌓기만 한다.
+       * 만드는 도중에 결과를 꺼내 갔을 수도 있어서 "같은 물건인가"를 다시 본다.
        */
-      player.craftOutput = { itemId: recipe.itemId, count: recipe.count ?? 1 };
+      const count = recipe.count ?? 1;
+      const output = player.craftOutput;
+      if (output && output.itemId === recipe.itemId) output.count += count;
+      else player.craftOutput = { itemId: recipe.itemId, count };
     }
   }
 
@@ -2694,6 +2826,18 @@ export class World {
   }
 
   /** 자원 노드를 지형 위에 확률적으로 채운다(부족분만). 클래스 상단 상수 주석 참고. */
+  /**
+   * 인원수에 따른 보스 체력 배수. 잡몹은 마릿수(scaledSpawnCount)로 늘지만 보스는
+   * 한 마리뿐이라 체력이 그 자리를 대신한다(waves.json의 bossHpScaling).
+   *
+   * 플레이어가 하나도 없을 수는 없지만(스폰은 밤에만 일어난다) 0명일 때 배수가
+   * base로 떨어지지 않게 최소 1명으로 본다.
+   */
+  private bossHpScale(): number {
+    const { base, perPlayer } = wavesData.bossHpScaling;
+    return base + perPlayer * Math.max(1, this.players.size);
+  }
+
   private seedResourceNodes(playerCount: number): void {
     this.seedResourceOnTerrain('wood', playerCount);
     this.seedResourceOnTerrain('stone', playerCount);
@@ -2830,6 +2974,13 @@ export class World {
   private addMonster(type: MonsterType, x: number, y: number): string {
     const data = monstersData[type];
     const id = `monster_${nextMonsterId++}`;
+    /*
+     * 보스 체력은 **스폰 시점의 인원수**로 정해지고, 그 뒤로는 안 바뀐다.
+     *
+     * 매 틱 다시 계산하면 한 명이 접속을 끊는 순간 보스 체력이 줄어드는(혹은 늘어나는)
+     * 이상한 일이 벌어진다 — 싸우는 도중에 상대의 체력 바가 저 혼자 움직이면 안 된다.
+     */
+    const hp = isBossType(type) ? Math.round(data.hp * this.bossHpScale()) : data.hp;
     // 스폰 직후엔 코어를 향해 걷기 시작하니, 초기 시야 방향도 코어 쪽으로 잡아둔다.
     const distanceToCore = Math.hypot(x, y);
     const facingX = distanceToCore > 0 ? -x / distanceToCore : 0;
@@ -2839,8 +2990,8 @@ export class World {
       type,
       x,
       y,
-      hp: data.hp,
-      maxHp: data.hp,
+      hp,
+      maxHp: hp,
       attackCooldown: 0,
       facingX,
       facingY,
@@ -3000,10 +3151,10 @@ export class World {
   }
 
   /**
-   * 코어에서 유령을 되살린다 — **낮에만**, 에너지를 치르고.
+   * 코어에서 유령을 되살린다 — **낮에만**, 자원을 치르고.
    *
    * 밤을 막는 이유는 이게 "다시 해 보자"의 값이지 전투 중 자원이 아니어서다. 밤에도
-   * 되면 에너지가 곧 목숨이 되어, 죽어도 그 자리에서 계속 밀어 넣는 소모전이 된다.
+   * 되면 자원이 곧 목숨이 되어, 죽어도 그 자리에서 계속 밀어 넣는 소모전이 된다.
    *
    * @param playerId 버튼을 누른 사람(살아 있고 코어 옆이어야 한다).
    * @param targetId 되살릴 유령.
@@ -3016,9 +3167,9 @@ export class World {
 
     const target = this.players.get(targetId);
     if (!target || target.lifeState !== 'ghost') return false;
-    if (this.core.energy < reviveData.coreReviveEnergy) return false;
+    if (this.core.resource < reviveData.coreReviveResource) return false;
 
-    this.core.energy -= reviveData.coreReviveEnergy;
+    this.core.resource -= reviveData.coreReviveResource;
     this.revivePlayer(target, CORE_RESPAWN_X, CORE_RESPAWN_Y);
     return true;
   }
@@ -3095,6 +3246,19 @@ export class World {
     if (this.solo) return;
     const allDown = [...this.players.values()].every((player) => player.hp <= 0);
     if (allDown) this.waveManager.markDefeat();
+  }
+
+  /**
+   * 제작 결과 칸에 이만큼 더 담을 자리가 있는가.
+   *
+   * 부분적으로는 받지 않는다 — 여섯 개 중 두 개만 담기면 나머지 넷이 어디로 갔는지
+   * 설명할 길이 없다. 자리가 모자라면 아예 시작하지 않아서 비용도 나가지 않는다.
+   */
+  private craftOutputRoom(player: PlayerEntity, itemId: string, count: number): boolean {
+    const output = player.craftOutput;
+    if (!output) return count <= craftingData.outputStackLimit;
+    if (output.itemId !== itemId) return false;
+    return output.count + count <= craftingData.outputStackLimit;
   }
 
   /** 고갈된 자원 노드의 리스폰 타이머를 감소시키고, 다 되면 채집 가능 상태로 되돌린다. */
@@ -4230,19 +4394,28 @@ export class World {
   }
 
   /**
-   * 몬스터가 (x,y)에 있다고 가정했을 때 자원 노드/콜로니와 겹치는지 검사한다.
+   * 몬스터가 (x,y)에 있다고 가정했을 때 자원 노드/콜로니/코어와 겹치는지 검사한다.
    * `isBlockedForPlayer`와 같은 모양이지만 반경이 `HIT_RADIUS`(플레이어 고정값) 대신
    * 인자로 받은 몬스터 반경(`monsterRadius(monster)`, 타입마다 다름)이다.
    *
    * 건축물은 여기서 다루지 않는다 — 몬스터에게 건축물은 "부수는 대상"이라
    * `findBlockingBuildingInRange`가 따로 처리한다(가로막으면 멈추는 게 아니라
-   * 공격해서 없앤다). 코어도 다루지 않는다 — 몬스터의 목표 자체라 막으면 안 된다
-   * (docs/backend/38).
+   * 공격해서 없앤다).
+   *
+   * 코어는 **막는다** — 처음엔(docs/backend/38) "몬스터의 목표 자체라 막으면 안
+   * 된다"며 뺐는데, 그 판단은 몬스터가 실제로 코어를 향해 걸어갈 때만 맞았다.
+   * 아그로가 걸려 **플레이어를 쫓을 때**는 목표가 코어가 아니어서, 코어 반대편에
+   * 선 플레이어를 향해 그냥 직선으로 걸으면 아무것도 안 막아 코어를 그대로
+   * 뚫고 지나갔다(스크린샷 제보 — 몬스터가 코어 받침대를 통과해 반대쪽으로
+   * 나갔다). 코어를 향해 걷는 쪽은 걱정할 필요가 없다 — `attackRange`가 모든
+   * 몬스터 타입에서 `hitRadius`(=몬스터 반경)보다 크므로, 코어 발자국에 실제로
+   * 부딪히기 전에 항상 먼저 공격 사거리 조건(§tickMonsterAI)에 걸려 이동 자체를
+   * 멈추고 공격으로 넘어간다 — 이 판정에 닿을 일이 없다.
    */
   /**
-   * `crushes`가 true면 자원 노드/콜로니를 통과한다(거구 보스). 회피가 물리적으로
-   * 불가능한 덩치라 막아봐야 갈리기만 하고, 거대한 보스가 나무 한 그루에 멈춰 서는
-   * 그림도 이상하다(§MonsterData.crushesObstacles).
+   * `crushes`가 true면 자원 노드/콜로니/코어를 전부 통과한다(거구 보스). 회피가
+   * 물리적으로 불가능한 덩치라 막아봐야 갈리기만 하고, 거대한 보스가 나무 한
+   * 그루에 멈춰 서는 그림도 이상하다(§MonsterData.crushesObstacles).
    */
   private isBlockedForMonster(
     x: number,
@@ -4260,6 +4433,7 @@ export class World {
     for (const colony of this.colonies.values()) {
       if (circlesOverlap(x, y, colony.x, colony.y, monsterR + COLONY_RADIUS)) return true;
     }
+    if (coreDistance(x, y) < monsterR) return true;
     return false;
   }
 
@@ -4293,6 +4467,12 @@ export class World {
         nearestGap = gap;
         nearest = { x: colony.x, y: colony.y };
       }
+    }
+    // 코어(8각형이지만 원점 대칭에 가까워 접선 방향엔 원점 근사로 충분하다 —
+    // §findNearestObstacleCenterForPlayer와 같은 근거). 마지막 후보라 갱신 후
+    // 다시 비교할 일이 없다.
+    if (coreDistance(x, y) < nearestGap) {
+      nearest = { x: 0, y: 0 };
     }
 
     return nearest;

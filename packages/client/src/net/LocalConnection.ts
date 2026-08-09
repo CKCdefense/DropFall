@@ -160,6 +160,9 @@ export class LocalConnection implements GameConnection {
 
   readonly solo = true;
 
+  /** 혼자하기는 대기실이 없다 — 티모시는 시작할 때 정해지고 바뀌지 않는다. */
+  setCompanion(): void {}
+
   reviveGhost(targetId: string): void {
     this.world.reviveGhostAtCore(LOCAL_SESSION_ID, targetId);
   }
@@ -170,6 +173,10 @@ export class LocalConnection implements GameConnection {
 
   upgradeCore(): void {
     this.world.upgradeCore(LOCAL_SESSION_ID);
+  }
+
+  repairCore(): void {
+    this.world.repairCore(LOCAL_SESSION_ID);
   }
 
   coreInteract(): void {

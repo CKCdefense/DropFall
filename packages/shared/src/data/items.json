@@ -1,5 +1,5 @@
 {
-  "$comment": "아이템 카탈로그. 무기는 itemId == weaponId 규약(클라 아이콘이 WEAPON_VISUALS를 그대로 쓴다). rarity+buyPrice가 둘 다 있어야 상점 로테이션 후보가 된다.",
+  "$comment": "아이템 카탈로그. 무기는 itemId == weaponId 규약(클라 아이콘이 WEAPON_VISUALS를 그대로 쓴다). rarity+buyPrice가 둘 다 있어야 상점 로테이션 후보가 된다. 코어 수리(옛 repair_kit/core_cell 소모품)는 상점 등장 운에 기대지 않도록 코어 메뉴의 직접 버튼(World.repairCore)으로 옮겼다 — coreHealAmount 필드 자체는 남겨 뒀다(다른 소모품이 나중에 다시 쓸 수 있다).",
   "wood": {
     "name": "나무",
     "kind": "material",
@@ -110,7 +110,7 @@
     "weaponId": "rifle",
     "stackSize": 1,
     "rarity": "rare",
-    "buyPrice": 150
+    "buyPrice": 110
   },
   "revolver": {
     "name": "리볼버",
@@ -142,7 +142,7 @@
     "weaponId": "double_barrel_shotgun",
     "stackSize": 1,
     "rarity": "epic",
-    "buyPrice": 260
+    "buyPrice": 230
   },
   "assault_rifle": {
     "name": "돌격 소총",
@@ -158,7 +158,7 @@
     "weaponId": "pump_shotgun",
     "stackSize": 1,
     "rarity": "legendary",
-    "buyPrice": 480
+    "buyPrice": 420
   },
   "sniper_rifle": {
     "name": "저격 라이플",
@@ -166,7 +166,7 @@
     "weaponId": "sniper_rifle",
     "stackSize": 1,
     "rarity": "legendary",
-    "buyPrice": 520
+    "buyPrice": 365
   },
   "minigun": {
     "name": "미니건",
@@ -282,22 +282,6 @@
     "stackSize": 2,
     "rarity": "epic",
     "buyPrice": 120
-  },
-  "repair_kit": {
-    "name": "수리키트",
-    "kind": "consumable",
-    "coreHealAmount": 200,
-    "stackSize": 5,
-    "rarity": "rare",
-    "buyPrice": 90
-  },
-  "core_cell": {
-    "name": "코어셀",
-    "kind": "consumable",
-    "coreHealAmount": 500,
-    "stackSize": 3,
-    "rarity": "epic",
-    "buyPrice": 220
   },
   "energy_cell": {
     "name": "에너지셀",

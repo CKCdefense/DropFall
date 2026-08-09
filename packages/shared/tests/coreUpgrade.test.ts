@@ -184,3 +184,87 @@ describe('World — 코어 업그레이드', () => {
     expect(world.getBuildings().size).toBe(1); // 이제는 지어진다
   });
 });
+
+describe('World — 코어 수리', () => {
+  /** 코어 체력을 임의로 깎는다(직접 맞아서 닳는 것과 결과가 같다). */
+  function damageCore(world: World, amount: number): void {
+    const core = world.getCore() as { hp: number };
+    core.hp = Math.max(0, core.hp - amount);
+  }
+
+  it('낼 수 있는 자원만큼 체력을 채우고, 그만큼만 자원을 깎는다', () => {
+    const world = new World();
+    world.addPlayer('p1', 0, 0);
+    damageCore(world, 100);
+    grantGauges(world, 999999, 0);
+
+    const hpBefore = world.getCore().hp;
+    world.repairCore('p1');
+
+    const core = world.getCore();
+    expect(core.hp).toBe(core.maxHp); // 다 채웠다
+    expect(core.hp).toBeGreaterThan(hpBefore);
+    expect(core.resource).toBe(999999 - Math.ceil(100 * coreUpgradesData.repairResourcePerHp));
+  });
+
+  it('자원이 모자라면 낼 수 있는 만큼만 부분적으로 채운다', () => {
+    const world = new World();
+    world.addPlayer('p1', 0, 0);
+    damageCore(world, 100);
+    // 100hp를 다 채우기엔 모자라지만, 일부는 채울 수 있는 자원.
+    const partial = Math.ceil(100 * coreUpgradesData.repairResourcePerHp) - 5;
+    grantGauges(world, partial, 0);
+
+    const hpBefore = world.getCore().hp;
+    world.repairCore('p1');
+
+    const core = world.getCore();
+    expect(core.hp).toBeGreaterThan(hpBefore);
+    expect(core.hp).toBeLessThan(core.maxHp); // 다 못 채웠다
+    expect(core.resource).toBeLessThan(partial); // 그래도 뭔가는 썼다
+  });
+
+  it('이미 꽉 찼으면 자원이 있어도 아무 일도 안 일어난다', () => {
+    const world = new World();
+    world.addPlayer('p1', 0, 0);
+    grantGauges(world, 999999, 0);
+
+    world.repairCore('p1');
+
+    expect(world.getCore().resource).toBe(999999); // 안 깎였다
+  });
+
+  it('자원이 0이면 아무 일도 안 일어난다', () => {
+    const world = new World();
+    world.addPlayer('p1', 0, 0);
+    damageCore(world, 100);
+    grantGauges(world, 0, 0);
+
+    const hpBefore = world.getCore().hp;
+    world.repairCore('p1');
+
+    expect(world.getCore().hp).toBe(hpBefore);
+  });
+
+  it('코어에서 멀면 수리할 수 없다', () => {
+    const world = new World();
+    world.addPlayer('p1', 900, 900);
+    damageCore(world, 100);
+    grantGauges(world, 999999, 0);
+
+    const hpBefore = world.getCore().hp;
+    world.repairCore('p1');
+
+    expect(world.getCore().hp).toBe(hpBefore);
+    expect(world.getCore().resource).toBe(999999);
+  });
+
+  it('존재하지 않는 플레이어의 요청은 무시된다', () => {
+    const world = new World();
+    damageCore(world, 100);
+    grantGauges(world, 999999, 0);
+
+    expect(() => world.repairCore('ghost')).not.toThrow();
+    expect(world.getCore().resource).toBe(999999);
+  });
+});

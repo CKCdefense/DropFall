@@ -55,6 +55,15 @@
 | [backend/67-work-report-colony-ranged-engagement-bug.md](backend/67-work-report-colony-ranged-engagement-bug.md) | 작업 보고서 — 원거리 무기로 콜로니를 farm하면 트리클 없이 즉시 정화되던 버그 수정(engagedTimer 유예 추가) |
 | [backend/68-design-proposal-bullet-pierce.md](backend/68-design-proposal-bullet-pierce.md) | 구현 기획서 — 무기별 총알 관통 횟수 도입, 근접 광역 vs 원거리 탄약제약 트레이드오프 분석(→ backend/69에서 구현) |
 | [backend/69-work-report-bullet-pierce-and-reload.md](backend/69-work-report-bullet-pierce-and-reload.md) | 작업 보고서 — 무기별 총알 관통 횟수 구현(backend/68 대안 C) + 전 원거리 무기 재장전 절반 단축 |
+| [backend/70-work-report-craft-output-stacking.md](backend/70-work-report-craft-output-stacking.md) | 작업 보고서 — 제작 결과 칸에 같은 물건 쌓기(상한 100), 되돌리기 경로에서 초과분이 사라지던 버그 수정 |
+| [backend/71-work-report-drop-rate-monster-count-ranged-value.md](backend/71-work-report-drop-rate-monster-count-ranged-value.md) | 작업 보고서 — 부품 드랍률 50%+개수 증가, 몬스터 수 하향(baseMultiplier 3→2), 원거리 무기 가성비 2차 조정(rifle/sniper_rifle/샷건 2종) |
+| [backend/72-work-report-job-balance.md](backend/72-work-report-job-balance.md) | 작업 보고서 — 직업별 고유 능력(경험치·이동속도·수리비·전용 레시피)과 전용 시작 장비, 스태미나 2.5초, 토마호크 채집 겸용화 |
+| [backend/72-work-report-pickup-key-and-quickslot-click.md](backend/72-work-report-pickup-key-and-quickslot-click.md) | 작업 보고서 — 줍기 전용 키(스페이스) 추가, 퀵슬롯 좌클릭으로 무기 장착(SlotDrag.onClickSelect) |
+| [backend/71-work-report-monster-anim-multiplayer-bug.md](backend/71-work-report-monster-anim-multiplayer-bug.md) | 작업 보고서 — 멀티에서만 몬스터 공격 모션·방향 전환이 안 되던 버그(스키마 필드가 스폰 시점에만 대입됨) 수정 + 회귀 테스트 |
+| [backend/73-work-report-slot-label-render-staleness-bug.md](backend/73-work-report-slot-label-render-staleness-bug.md) | 작업 보고서 — 퀵무브/충전 칸 라벨이 화면에 고착되는 Phaser Text 렌더링 버그, Playwright 실측 재현으로 원인 특정·수정 |
+| [backend/74-work-report-core-repair-and-ghost-resource-revive.md](backend/74-work-report-core-repair-and-ghost-resource-revive.md) | 작업 보고서 — 코어 수리를 상점 소모품에서 코어 메뉴 버튼으로 전환(부분 수리), 유령 부활 통화를 에너지→자원으로 변경 + 부활 UI 신설 |
+| [backend/75-work-report-audio-system.md](backend/75-work-report-audio-system.md) | 작업 보고서 — 게임 사운드 시스템 신설(발소리·전투·몬스터·부활 효과음 + 국면별 배경음악 지연 로드·교차페이드), Playwright 실측 검증 |
+| [backend/76-work-report-monster-core-pass-through-bug.md](backend/76-work-report-monster-core-pass-through-bug.md) | 작업 보고서 — 플레이어를 쫓는 몬스터가 코어를 뚫고 반대편으로 통과하던 버그 수정(isBlockedForMonster에 코어 추가), 회귀 테스트로 재현·검증 |
 
 ### 역할 C — 클라이언트/렌더/UI 작업 문서 ([frontend/](frontend/))
 
@@ -80,6 +89,7 @@
 | [frontend/18-work-report-attack-fx-gating.md](frontend/18-work-report-attack-fx-gating.md) | 작업 보고서 — 연타 시 쿨다운을 무시하고 나오던 공격 연출 수정(재장전·빈 탄창 포함) |
 | [frontend/19-work-report-fx-alignment-and-title-weight.md](frontend/19-work-report-fx-alignment-and-title-weight.md) | 작업 보고서 — 소모품 이펙트 발밑 정렬, 레벨업 연출 미니멀화, 중앙 문구 볼드·확대 |
 | [frontend/20-work-report-downed-visuals.md](frontend/20-work-report-downed-visuals.md) | 작업 보고서 — 쓰러진 캐릭터를 발밑 축으로 눕히고, 하단 바 위에 HELP!·부활/유령 카운터·구조 게이지 표시 |
+| [frontend/21-work-report-waiting-room-redesign.md](frontend/21-work-report-waiting-room-redesign.md) | 작업 보고서 — 대기실을 와이어프레임(강하 준비)대로 재구성, 직업 아이콘·행성·배경 에셋 연결, 대기실에서 티모시 on/off |
 
 ## 한 줄 요약
 

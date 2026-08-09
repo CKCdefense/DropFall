@@ -82,6 +82,8 @@ export class InputController {
   private readonly nextFireAt = new Map<string, number>();
   /** 이번에 누른 동안 건축물을 이미 놓았는지. 홀드 연타 방지용. */
   private placedThisPress = false;
+  /** 직전 프레임에 좌클릭을 누르고 있었는지. "새로 눌렀다"(빈 탄창 클릭음)를 가리는 데 쓴다. */
+  private wasHolding = false;
 
   private readonly keys: Record<
     'up' | 'down' | 'left' | 'right' | 'sprint' | 'interact',
@@ -102,8 +104,13 @@ export class InputController {
     /** 공격 순간 호출된다. 총구 화염·휘두르기처럼 즉시 반응해야 하는 연출에 쓴다. */
     private readonly onAttack?: (weaponId: string) => void,
     /**
-     * E를 눌렀을 때 먼저 호출된다. true를 돌려주면(예: 코어 모달을 열었다) 줍기를
-     * 건너뛴다 — 코어 앞에서 E가 두 가지 일을 동시에 하지 않게 하는 장치다.
+     * 탄창이 빈 채로 방아쇠를 당긴 그 순간(첫 클릭에만) 호출된다. 홀드 중 매 프레임
+     * 부르면 안 되므로 §updateFire가 "새로 눌렀다"를 따로 가려낸다.
+     */
+    private readonly onEmptyFire?: (weaponId: string) => void,
+    /**
+     * E를 눌렀을 때 호출된다(코어 모달 열기·닫기, 쓰러진 동료 구조 등). 줍기는
+     * 스페이스로 분리돼 있어(§SPACE 핸들러) 이 콜백의 반환값과는 무관하다.
      */
     private readonly onInteract?: () => boolean,
     /**
@@ -144,11 +151,16 @@ export class InputController {
       this.connection.voteSkipDay();
     });
 
-    // 상호작용(E). 무엇을 할지는 서 있는 위치가 정한다 — 코어 옆이면 창고를 열고,
-    // 아니면 바닥 드롭을 줍는다. 키를 늘리는 대신 맥락으로 나누는 편이 조작이 단순하다.
-    // 채집(자원 노드 타격)은 좌클릭 근접 공격이라 이 키와 무관하다.
+    // 상호작용(E) — 코어 창 열기·닫기, 쓰러진 동료 구조.
     keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.E).on('down', () => {
-      if (this.onInteract?.()) return;
+      this.onInteract?.();
+    });
+
+    // 줍기(스페이스). 예전엔 E 하나가 "앞의 것에 손을 댄다"를 전부 맡아서, 코어 앞에
+    // 떨어진 드롭을 밟고 있으면 줍기와 창 열기가 서로 순서를 양보하느라 둘 다 답답했다.
+    // 키를 나누면 "무엇을 할지"를 플레이어가 고르므로 그 다툼 자체가 없어진다(게임
+    // 흐름 피드백 — E가 WASD 바로 옆이라 이동하면서 줍기가 어렵다는 지적).
+    keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE).on('down', () => {
       this.connection.pickUp();
     });
 
@@ -224,6 +236,11 @@ export class InputController {
     return this.equipped.kind;
   }
 
+  /** 이동키를 하나라도 누르고 있는가. 발소리 SFX가 "지금 걷고 있나"를 물을 때 쓴다. */
+  get isMoving(): boolean {
+    return this.keys.up.isDown || this.keys.down.isDown || this.keys.left.isDown || this.keys.right.isDown;
+  }
+
   /**
    * 채팅/개발자 콘솔처럼 텍스트 입력이 뜰 때 부른다. `keyboard.enabled = false`만으로는
    * 부족하다 — Phaser는 그 순간부터 keyup 이벤트도 무시하므로, 입력을 여는 순간 이동키를
@@ -267,6 +284,8 @@ export class InputController {
 
     const pointer = this.scene.input.activePointer;
     const holding = pointer.leftButtonDown() && !this.isPointerOverHud?.(pointer.x, pointer.y);
+    const freshPress = holding && !this.wasHolding;
+    this.wasHolding = holding;
     if (!holding) {
       this.placedThisPress = false;
       return;
@@ -284,7 +303,14 @@ export class InputController {
     }
 
     if (kind !== 'weapon' || !weaponId) return;
-    if (!this.canAttack(self, weaponId)) return;
+    if (!this.canAttack(self, weaponId)) {
+      // 막힌 이유가 "탄창이 비어서"일 때만, 그것도 새로 누른 순간에만 빈 탄창 소리를 낸다 —
+      // 재장전 중이거나 그냥 쿨다운 중일 때 홀드하고 있으면 매 프레임 걸려서 시끄러워진다.
+      if (freshPress && self.hp > 0 && self.reloadRemaining <= 0 && self.ammoMagazine > 0 && self.ammo <= 0) {
+        this.onEmptyFire?.(weaponId);
+      }
+      return;
+    }
 
     this.nextFireAt.set(weaponId, this.clock + fireIntervalMs(weaponId));
     this.connection.fire();

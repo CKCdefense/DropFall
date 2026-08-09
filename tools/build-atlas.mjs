@@ -127,6 +127,33 @@ function buildAtlas(aseprite, atlas) {
   console.log(`  - ${atlas.name}: ${files.length}개 원본 → ${atlas.name}.png / .json`);
 }
 
+/**
+ * 아틀라스에 넣지 않고 **낱장 PNG로 뽑는다.**
+ *
+ * DOM(로비)은 Phaser가 아니라 CSS로 그리는데, CSS는 아틀라스 한 칸만 잘라 쓰기가
+ * 번거롭고 배경처럼 큰 그림은 아틀라스에 넣으면 시트가 통째로 커진다. 그런 그림은
+ * 제 파일로 두는 편이 낫다.
+ *
+ * 같은 디렉터리의 PNG 원본은 여기서 건드리지 않는다 — 그건 copy가 그대로 가져간다.
+ */
+function exportSingles(aseprite, group) {
+  const files = collect(join(SRC, group.from), ['.aseprite', '.ase']);
+  if (files.length === 0) {
+    console.log(`  - ${group.from}: 낱장 원본 없음, 건너뜀`);
+    return;
+  }
+
+  const to = join(OUT, group.to);
+  mkdirSync(to, { recursive: true });
+
+  for (const file of files) {
+    const out = join(to, basename(file).replace(/\.(aseprite|ase)$/i, '.png'));
+    execFileSync(aseprite, ['-b', file, '--save-as', out], { stdio: 'inherit' });
+  }
+
+  console.log(`  - ${group.from} → assets/${group.to}: 낱장 ${files.length}개`);
+}
+
 function copyGroup(group) {
   const from = join(SRC, group.from);
   const extensions = group.extensions ?? ['.png'];
@@ -174,6 +201,7 @@ function main() {
     }
     console.log(`  Aseprite: ${aseprite}`);
     for (const atlas of config.atlases) buildAtlas(aseprite, atlas);
+    for (const group of config.export ?? []) exportSingles(aseprite, group);
   }
 
   console.log('[atlas] 개별 파일 복사');
