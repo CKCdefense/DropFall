@@ -113,6 +113,14 @@ function iconFit(frameWidth: number, frameHeight: number, boxSize: number, itemI
  * 프레임 크기는 호출부가 준다. Phaser 쪽은 이미지에서 읽고, DOM 쪽은 아틀라스 JSON에서
  * 읽어서 — 어느 쪽도 상대의 사정을 몰라도 되게 했다.
  */
+/**
+ * 그림이 실제로 차지하는 영역(프레임 안 좌표). 무기만 값이 있고, 나머지는 캔버스를
+ * 꽉 채워서 없다 — DOM(대기실)이 프레임 대신 **그림만** 잘라낼 때 쓴다.
+ */
+export function itemArtBounds(itemId: string): WeaponVisual['artBounds'] {
+  return iconArtBounds(itemId);
+}
+
 export function itemIconFit(
   itemId: string,
   frameWidth: number,

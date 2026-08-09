@@ -1,5 +1,5 @@
 import type { JobId } from '@dropfall/shared';
-import { itemFrame, itemIconFit } from '../game/render/itemSprite';
+import { itemArtBounds, itemFrame } from '../game/render/itemSprite';
 import { resolveAssetUrl } from './assets';
 import { el } from './dom';
 
@@ -61,19 +61,23 @@ export function itemIcon(itemId: string, boxSize = ITEM_ICON_BOX): HTMLElement |
   if (!name || !frame) return null;
 
   /*
-   * 아이콘 원본은 재료 64px·무기 128px로 제각각이라 **칸에 맞춰 줄여야** 한다. 배율은
-   * 인게임과 같은 계산(itemIconFit)을 쓰고, 무기처럼 캔버스 안에서 그림이 치우친 것은
-   * 그 보정만큼 밀어 가운데에 세운다.
+   * **프레임이 아니라 그림만 잘라낸다.**
    *
-   * 인게임이 길쭉한 아이콘에 주는 기울기는 여기서 쓰지 않는다 — 대기실 칸이 훨씬 작아
-   * 기울여 봐야 알아보기만 어려워진다.
+   * 무기 시트는 235×62 캔버스에 그림이 한쪽으로 치우쳐 들어 있다. 프레임 전체를 잘라
+   * 놓고 어긋난 만큼 밀어내는 방법도 써 봤는데, 그 요소는 칸보다 훨씬 넓어서 flex가
+   * **가로로 찌그러뜨렸다** — 배경은 그대로인데 창만 좁아져 리볼버가 칸 왼쪽에 걸쳤다.
+   *
+   * 그림 영역(artBounds)만큼만 잘라내면 요소가 칸을 넘지 않으니 찌그러질 일도, 밀어낼
+   * 일도 없다. 배율은 그림의 긴 변이 칸에 딱 맞는 값이다.
    */
-  const fit = itemIconFit(itemId, frame.frame.w, frame.frame.h, boxSize);
-  const node = cropFrame(name, 'item-icon', fit.scale);
-  if (node && (fit.offsetX !== 0 || fit.offsetY !== 0)) {
-    node.style.transform = `translate(${fit.offsetX * fit.scale}px, ${fit.offsetY * fit.scale}px)`;
-  }
-  return node;
+  const art = itemArtBounds(itemId) ?? { x: 0, y: 0, width: frame.frame.w, height: frame.frame.h };
+  const scale = boxSize / Math.max(art.width, art.height);
+
+  return cropRect(
+    { x: frame.frame.x + art.x, y: frame.frame.y + art.y, w: art.width, h: art.height },
+    'item-icon',
+    scale,
+  );
 }
 
 /**
@@ -92,22 +96,30 @@ const ITEM_ICON_BOX = 30;
  */
 function cropFrame(frameName: string, className: string, scale?: number): HTMLElement | null {
   const frame = atlas?.frames[frameName];
-  if (!atlas || !frame) return null;
+  if (!frame) return null;
+  const { x, y, w, h } = frame.frame;
+  return cropRect({ x, y, w, h }, className, scale);
+}
+
+/** 아틀라스 위의 **임의 사각형**을 잘라낸 요소. 프레임 전체일 수도, 그 일부일 수도 있다. */
+function cropRect(
+  rect: { x: number; y: number; w: number; h: number },
+  className: string,
+  scale?: number,
+): HTMLElement | null {
+  if (!atlas) return null;
 
   const node = el('div', { class: className });
   if (scale !== undefined) node.style.setProperty('--crop-scale', `${scale}`);
-  const { x, y, w, h } = frame.frame;
 
   // 배경 이미지를 프레임 크기에 맞춰 확대한 뒤, 원하는 칸이 보이도록 밀어낸다.
   // 배율은 CSS가 정한다(--crop-scale) — 초상화와 아이콘이 같은 코드를 쓰되 크기는
   // 각자 자리에 맞게 다르다.
-  node.style.setProperty('--frame-w', `${w}`);
-  node.style.setProperty('--frame-h', `${h}`);
   node.style.backgroundImage = `url('${resolveAssetUrl('assets/atlas/game.png')}')`;
   node.style.backgroundSize = `calc(${atlas.meta.size.w} * var(--crop-scale) * 1px) calc(${atlas.meta.size.h} * var(--crop-scale) * 1px)`;
-  node.style.backgroundPosition = `calc(${-x} * var(--crop-scale) * 1px) calc(${-y} * var(--crop-scale) * 1px)`;
-  node.style.width = `calc(${w} * var(--crop-scale) * 1px)`;
-  node.style.height = `calc(${h} * var(--crop-scale) * 1px)`;
+  node.style.backgroundPosition = `calc(${-rect.x} * var(--crop-scale) * 1px) calc(${-rect.y} * var(--crop-scale) * 1px)`;
+  node.style.width = `calc(${rect.w} * var(--crop-scale) * 1px)`;
+  node.style.height = `calc(${rect.h} * var(--crop-scale) * 1px)`;
 
   return node;
 }

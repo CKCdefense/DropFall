@@ -148,10 +148,14 @@
   min-height: 0;
 }
 
+/*
+ * 줄 사이를 넉넉히 벌린다. 남는 세로를 카드 **아래에 몰아 두면** 빈 판처럼 보이는데,
+ * 줄 간격으로 나눠 쓰면 같은 공간이 여백이 아니라 짜임새로 읽힌다.
+ */
 .slot {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: clamp(6px, 1.3vh, 14px);
   min-width: 0;
   min-height: 0;
   padding: clamp(5px, 0.8vh, 9px);
@@ -179,7 +183,12 @@
   justify-content: center;
   flex: 1;
   min-height: 0;
-  max-height: 48%;
+  /*
+   * 남는 세로는 **사진이 마저 먹는다.** 줄 간격을 벌리고도 남는 몫을 카드 아래에 두면
+   * 그만큼이 빈 판으로 보인다 — 상한을 조금 열어 사진이 채우게 하되, 사진이 카드를
+   * 독차지하지는 않게 절반 근처에서 멈춘다.
+   */
+  max-height: 56%;
   border: 2px solid var(--panel-line);
   background: rgba(10, 12, 17, 0.5);
   overflow: hidden;
@@ -260,7 +269,7 @@
 .slot-detail {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
   flex: none;
   min-height: 3em;
   font-size: clamp(11px, 1.05vw, 14px);
@@ -281,16 +290,15 @@
 /* ------------------------------------------------------- 지급품(퀵슬롯 4칸) */
 
 /*
- * 지급품 줄은 카드 **아래쪽에 붙되 바닥에서 조금 뜬다.** 남는 세로는 위쪽(특성과 사이)에
- * 두고, 아래에는 여백만 남긴다 — 테두리에 딱 붙으면 잘린 것처럼 보인다.
+ * 지급품 줄은 **글자 바로 아래**에 붙는다. 카드 바닥으로 내려 두면(margin-top: auto)
+ * 특성과 지급품 사이가 통째로 비어, 한 카드가 위아래 두 덩어리로 갈라져 보인다 —
+ * 둘 다 "이 직업이 무엇인가"를 말하는 값이라 붙어 있어야 한 묶음으로 읽힌다.
  */
 .slot-kit {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 4px;
   flex: none;
-  margin-top: auto;
-  margin-bottom: clamp(4px, 1vh, 10px);
 }
 
 .kit-cell {
