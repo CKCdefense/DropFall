@@ -115,6 +115,18 @@ const MONSTER_SFX_RANGE = 560;
 
 const MONSTER_GROWL_KEYS: SfxKey[] = ['monster1', 'monster2', 'monster3'];
 
+/**
+ * 몬스터 스폰/growl이 울릴 때 배경음악을 잠깐 낮춘다(더킹). 밤 곡(0.32)이 낮춰 둔
+ * 콜로니 소리(0.2~0.25)보다 커서, 밤이 되는 순간 콜로니 소리가 음악에 묻히는 문제가
+ * 있었다(제보) — 절대 음량을 서로 맞추는 대신, 그 소리가 나는 순간만 음악을 살짝
+ * 죽였다 살리는 편이 더 안정적이다(국면마다 배경음악 볼륨이 달라도 매번 다시 잴
+ * 필요가 없다).
+ */
+const BGM_DUCK_MULTIPLIER = 0.4;
+const BGM_DUCK_DOWN_MS = 120;
+const BGM_DUCK_HOLD_MS = 450;
+const BGM_DUCK_UP_MS = 400;
+
 /** 근접 무기 id·계열 → 휘두르기 SFX. 몽둥이만 전용음이 있고, 도끼 계열(toolFamily)은
  * 도끼 전용음을, 나머지는 공용 휘두르기음을 쓴다. */
 function meleeSwingKey(weaponId: string): SfxKey {
@@ -282,6 +294,32 @@ export class AudioManager {
     this.scene.tweens.add({ targets: sound, volume: BGM_VOLUME[key], duration: BGM_FADE_MS });
   }
 
+  /**
+   * 지금 도는 배경음악을 잠깐 낮췄다 되돌린다(§BGM_DUCK_MULTIPLIER). 낮추는 중에 또
+   * 더킹이 걸리면(연속 growl 등) 기존 트윈을 지우고 처음부터 다시 잰다 — 두 트윈이
+   * 같은 volume 속성을 동시에 건드리면 서로 덮어써서 어느 쪽도 끝까지 안 간다.
+   */
+  private duckBgm(): void {
+    const bgm = this.currentBgm;
+    const key = this.currentBgmKey;
+    if (!bgm || !key) return;
+
+    const normalVolume = BGM_VOLUME[key];
+    this.scene.tweens.killTweensOf(bgm);
+    this.scene.tweens.add({
+      targets: bgm,
+      volume: normalVolume * BGM_DUCK_MULTIPLIER,
+      duration: BGM_DUCK_DOWN_MS,
+      onComplete: () => {
+        this.scene.time.delayedCall(BGM_DUCK_HOLD_MS, () => {
+          // 대기하는 사이 국면이 바뀌어 이 트랙이 더 이상 재생 중이 아니면 건드리지 않는다.
+          if (this.currentBgm !== bgm) return;
+          this.scene.tweens.add({ targets: bgm, volume: normalVolume, duration: BGM_DUCK_UP_MS });
+        });
+      },
+    });
+  }
+
   // ------------------------------------------------------------------ 부활/쓰러짐
 
   private updateLifeStates(players: PlayerView[]): void {
@@ -333,11 +371,13 @@ export class AudioManager {
     if (spawned && now - this.lastSpawnSfxAt >= MONSTER_SFX_MIN_GAP_MS) {
       this.lastSpawnSfxAt = now;
       this.playSfx('monsterSpawn');
+      this.duckBgm(); // 밤 배경음악이 이 소리보다 커서 묻혀 들리던 문제(제보) — 잠깐 낮춘다.
     }
     if (attacked && now - this.lastGrowlSfxAt >= MONSTER_SFX_MIN_GAP_MS) {
       this.lastGrowlSfxAt = now;
       const key = MONSTER_GROWL_KEYS[Math.floor(Math.random() * MONSTER_GROWL_KEYS.length)]!;
       this.playSfx(key);
+      this.duckBgm();
     }
   }
 
