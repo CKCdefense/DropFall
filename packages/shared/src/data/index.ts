@@ -256,8 +256,12 @@ const WeaponDataSchema = z.object({
   pellets: z.number().int().min(2).optional(),
   /** ranged 전용: 산탄이 퍼지는 전체 각도(도). pellets가 있을 때만 의미 있다. */
   spreadDeg: z.number().positive().max(90).optional(),
-  /** ranged 전용: 관통 — 투사체가 몬스터를 뚫고 계속 날아간다(각 몬스터는 1회만 피해). */
-  pierce: z.boolean().optional(),
+  /**
+   * ranged 전용: 관통 횟수 — 몬스터를 맞힌 뒤에도 이 숫자만큼 더 몬스터를 뚫고
+   * 지나간다(첫 타격 포함 총 pierceCount+1마리까지, 각 몬스터는 1회만 피해).
+   * 0/미지정이면 첫 타격에 소멸한다(docs/backend/68).
+   */
+  pierceCount: z.number().int().nonnegative().optional(),
   /**
    * ranged 전용: 점사 모드 스펙. 있는 무기만 점사 토글이 가능하다(돌격소총).
    * 점사 1회 = 방아쇠 1번 = count발이 interval 간격으로 나간다. 탄약도 발당 소모.

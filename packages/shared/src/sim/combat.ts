@@ -23,11 +23,12 @@ export interface ProjectileEntity {
   /** 이 사거리(px)를 넘으면 소멸한다 */
   remainingRange: number;
   /**
-   * 관통 여부. true면 몬스터를 맞혀도 소멸하지 않고 계속 날아간다 —
-   * 대신 같은 몬스터를 두 번 때리지 않도록 맞힌 id를 hitIds에 쌓는다.
+   * 남은 관통 횟수(docs/backend/68). 몬스터를 맞힐 때마다 1씩 줄어들고, 0인 채로
+   * 맞히면 그 자리에서 소멸한다 — 대신 같은 몬스터를 두 번 때리지 않도록 맞힌
+   * id를 hitIds에 쌓는다.
    */
-  pierce: boolean;
-  /** pierce 전용: 이미 피해를 준 몬스터 id. 비관통 투사체는 만들 필요가 없어 옵셔널. */
+  pierceRemaining: number;
+  /** 관통 전용: 이미 피해를 준 몬스터 id. 관통 없는 투사체는 만들 필요가 없어 옵셔널. */
   hitIds?: Set<string>;
   /**
    * 직전 틱의 위치. 충돌을 점이 아니라 **선분**(직전 위치 → 현재 위치)으로 판정하기
@@ -213,8 +214,8 @@ export function resolveFire(request: FireRequest): FireResult {
       angle,
       damage: weapon.damage,
       remainingRange: range,
-      pierce: weapon.pierce ?? false,
-      hitIds: weapon.pierce ? new Set() : undefined,
+      pierceRemaining: weapon.pierceCount ?? 0,
+      hitIds: (weapon.pierceCount ?? 0) > 0 ? new Set() : undefined,
       prevX: request.x + cos * offset,
       prevY: request.y + sin * offset,
     });

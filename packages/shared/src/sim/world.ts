@@ -4724,10 +4724,11 @@ export class World {
       if (projectile.hitIds?.has(monsterId)) continue;
       if (projectileSweepHits(projectile, monster.x, monster.y, monsterRadius(monster))) {
         this.damageMonster(monsterId, monster.hp - projectile.damage);
-        if (!projectile.pierce) {
+        if (projectile.pierceRemaining <= 0) {
           this.projectiles.delete(projectileId);
           return true;
         }
+        projectile.pierceRemaining -= 1;
         projectile.hitIds?.add(monsterId);
         hitAny = true;
       }

@@ -1,5 +1,5 @@
 {
-  "$comment": "무기 재설계(2026-08). 티어 N/R/E/L. 근접: damage/fireRate/range/arc(+채집·조명). 원거리: damage(펠릿당)/fireRate/magazine/reloadTime/projectileSpeed/maxRange/muzzleOffset(+pellets/spreadDeg/pierce/burst). muzzleOffset은 클라 스프라이트 그립~총구 실측(weaponFx.ts) 기준.",
+  "$comment": "무기 재설계(2026-08). 티어 N/R/E/L. 근접: damage/fireRate/range/arc(+채집·조명). 원거리: damage(펠릿당)/fireRate/magazine/reloadTime/projectileSpeed/maxRange/muzzleOffset(+pellets/spreadDeg/pierceCount/burst). muzzleOffset은 클라 스프라이트 그립~총구 실측(weaponFx.ts) 기준. reloadTime은 2026-08 밸런스 패스에서 전 원거리 무기 절반으로 단축(docs/backend/68) — 몰려오는 몹 앞에서 재장전 다운타임이 너무 길다는 피드백. pierceCount는 같은 패스에서 신설(무기별 관통 횟수, 근접 광역 대응).",
   "fist": {
     "name": "맨손",
     "type": "melee",
@@ -86,10 +86,11 @@
     "damage": 10,
     "fireRate": 1.6,
     "magazine": 1,
-    "reloadTime": 1.2,
+    "reloadTime": 0.6,
     "projectileSpeed": 380,
     "maxRange": 280,
-    "muzzleOffset": 23
+    "muzzleOffset": 23,
+    "pierceCount": 1
   },
   "shuriken": {
     "name": "표창",
@@ -98,10 +99,11 @@
     "damage": 12,
     "fireRate": 2.5,
     "magazine": 3,
-    "reloadTime": 1.2,
+    "reloadTime": 0.6,
     "projectileSpeed": 360,
     "maxRange": 200,
-    "muzzleOffset": 17
+    "muzzleOffset": 17,
+    "pierceCount": 1
   },
   "crossbow": {
     "name": "석궁",
@@ -110,10 +112,11 @@
     "damage": 26,
     "fireRate": 1.4,
     "magazine": 1,
-    "reloadTime": 1.8,
+    "reloadTime": 0.9,
     "projectileSpeed": 480,
     "maxRange": 300,
-    "muzzleOffset": 42
+    "muzzleOffset": 42,
+    "pierceCount": 2
   },
   "rifle": {
     "name": "장전식 소총",
@@ -122,10 +125,11 @@
     "damage": 42,
     "fireRate": 1.2,
     "magazine": 1,
-    "reloadTime": 2.6,
+    "reloadTime": 1.3,
     "projectileSpeed": 640,
     "maxRange": 400,
-    "muzzleOffset": 45
+    "muzzleOffset": 45,
+    "pierceCount": 3
   },
   "revolver": {
     "name": "리볼버",
@@ -134,10 +138,11 @@
     "damage": 20,
     "fireRate": 2.5,
     "magazine": 6,
-    "reloadTime": 1.5,
+    "reloadTime": 0.75,
     "projectileSpeed": 520,
     "maxRange": 280,
-    "muzzleOffset": 29
+    "muzzleOffset": 29,
+    "pierceCount": 2
   },
   "handgun": {
     "name": "권총",
@@ -146,10 +151,11 @@
     "damage": 13,
     "fireRate": 5,
     "magazine": 10,
-    "reloadTime": 1.0,
+    "reloadTime": 0.5,
     "projectileSpeed": 500,
     "maxRange": 280,
-    "muzzleOffset": 25
+    "muzzleOffset": 25,
+    "pierceCount": 1
   },
   "smg": {
     "name": "기관단총",
@@ -158,7 +164,7 @@
     "damage": 8,
     "fireRate": 10,
     "magazine": 15,
-    "reloadTime": 1.0,
+    "reloadTime": 0.5,
     "projectileSpeed": 520,
     "maxRange": 210,
     "muzzleOffset": 26
@@ -170,7 +176,7 @@
     "damage": 9,
     "fireRate": 2.0,
     "magazine": 2,
-    "reloadTime": 2.2,
+    "reloadTime": 1.1,
     "projectileSpeed": 460,
     "maxRange": 150,
     "muzzleOffset": 46,
@@ -184,10 +190,11 @@
     "damage": 16,
     "fireRate": 6,
     "magazine": 20,
-    "reloadTime": 1.6,
+    "reloadTime": 0.8,
     "projectileSpeed": 600,
     "maxRange": 400,
     "muzzleOffset": 33,
+    "pierceCount": 1,
     "burst": {
       "count": 3,
       "interval": 0.07
@@ -200,7 +207,7 @@
     "damage": 12,
     "fireRate": 1.6,
     "magazine": 6,
-    "reloadTime": 1.8,
+    "reloadTime": 0.9,
     "projectileSpeed": 460,
     "maxRange": 190,
     "muzzleOffset": 43,
@@ -214,11 +221,11 @@
     "damage": 90,
     "fireRate": 0.8,
     "magazine": 7,
-    "reloadTime": 2.2,
+    "reloadTime": 1.1,
     "projectileSpeed": 900,
     "maxRange": 900,
     "muzzleOffset": 55,
-    "pierce": true
+    "pierceCount": 20
   },
   "minigun": {
     "name": "미니건",
@@ -227,7 +234,7 @@
     "damage": 18,
     "fireRate": 12,
     "magazine": 100,
-    "reloadTime": 4.5,
+    "reloadTime": 2.25,
     "projectileSpeed": 620,
     "maxRange": 520,
     "muzzleOffset": 49

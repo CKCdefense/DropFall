@@ -84,11 +84,21 @@ describe('resolveFire', () => {
     expect(Math.max(...angles)).toBeCloseTo(spread / 2, 5);
   });
 
-  it('관통 무기의 투사체는 pierce 플래그와 명중 기록을 들고 나간다', () => {
+  it('관통 무기의 투사체는 pierceRemaining과 명중 기록을 들고 나간다', () => {
     const result = resolveFire({ playerId: 'p1', weaponId: 'sniper_rifle', x: 0, y: 0, aimAngle: 0 });
 
-    expect(result.projectiles![0]!.pierce).toBe(true);
+    expect(result.projectiles![0]!.pierceRemaining).toBe(weaponsData.sniper_rifle.pierceCount);
     expect(result.projectiles![0]!.hitIds?.size).toBe(0);
+  });
+
+  it('관통이 없는 무기의 투사체는 pierceRemaining이 0이고 hitIds가 없다', () => {
+    // minigun은 pierceCount가 없다(docs/backend/68 — 이미 연사·장탄으로 무리 대응이 되는
+    // 무기라 관통을 제외했다).
+    expect(weaponsData.minigun.pierceCount).toBeUndefined();
+    const result = resolveFire({ playerId: 'p1', weaponId: 'minigun', x: 0, y: 0, aimAngle: 0 });
+
+    expect(result.projectiles![0]!.pierceRemaining).toBe(0);
+    expect(result.projectiles![0]!.hitIds).toBeUndefined();
   });
 
   it('존재하지 않는 무기 id는 빈 결과를 반환한다(클라이언트 입력 불신)', () => {
