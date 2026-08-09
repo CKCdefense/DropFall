@@ -252,6 +252,7 @@ export class GameScene extends Phaser.Scene {
       me,
       me ? this.input_.isMoving : false,
       footstepSurface,
+      me && this.input_.isFiring ? this.input_.weaponId : undefined,
     );
 
     if (!me) return;

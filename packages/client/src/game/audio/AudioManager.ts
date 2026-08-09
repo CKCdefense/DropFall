@@ -148,6 +148,12 @@ function rangedFireKey(weaponId: string): SfxKey {
   return 'gunPistol';
 }
 
+/** 지금 손에 든 게 gunAuto 카테고리(기관단총·돌격소총·미니건)인가. */
+function isGunAutoWeapon(weaponId: string): boolean {
+  const weapon = weaponsData[weaponId];
+  return weapon?.type === 'ranged' && rangedFireKey(weaponId) === 'gunAuto';
+}
+
 /** 1일차 밤(보스 없음)만 고정곡, 2~5일차는 각자 다른 보스곡 — 5일차보다 뒤는 없다
  * (5개 웨이브가 끝이라 그 이상은 승리 처리). */
 function nightBgmKey(currentWave: number): BgmKey {
@@ -184,6 +190,8 @@ export class AudioManager {
 
   private footstepKey?: SfxKey;
   private footstepSound?: Phaser.Sound.BaseSound;
+  /** 지금 도는 gunAuto 인스턴스(있으면). 쏘는 동안만 살아 있다 — §updateAutoFire. */
+  private autoFireSound?: Phaser.Sound.BaseSound;
 
   private readonly lastLifeState = new Map<string, PlayerView['lifeState']>();
   private readonly knownMonsterIds = new Set<string>();
@@ -211,12 +219,26 @@ export class AudioManager {
     this.currentBgmKey = undefined;
     this.pendingBgmKey = undefined;
     this.stopFootsteps();
+    this.stopAutoFire();
   }
 
-  /** InputController의 onAttack — 실제로 나간 공격에만 붙는다(§InputController.updateFire). */
+  /**
+   * InputController의 onAttack — 실제로 나간 공격에만 붙는다(§InputController.updateFire).
+   *
+   * `gunAuto`(기관총류: 기관단총·돌격소총·미니건)는 한 발짜리 클릭음이 아니라 몇 초짜리
+   * "연사" 통짜 클립이다(§gun-auto.wav) — 그래서 **발마다 새로 걸지 않는다.** 한 발만
+   * 쏴도 늘 이 클립을 처음부터 끝까지 다 들려주면, 실제로는 총알 하나 나갔는데 12발짜리
+   * 연사음이 통째로 들린다(제보). 대신 쏘는 "동안"에만 계속 도는 것 하나만 두고, 이미
+   * 돌고 있으면 그대로 흘려보낸다 — 실제로 멈추는 시점은 §updateAutoFire가 매 프레임
+   * "아직도 쏘는 중인가"를 봐서 정한다(방아쇠를 놓는 순간 바로 끊긴다).
+   */
   notifyAttack(weaponId: string): void {
     const weapon = weaponsData[weaponId];
     if (!weapon) return;
+    if (weapon.type === 'ranged' && isGunAutoWeapon(weaponId)) {
+      this.ensureAutoFireSound();
+      return;
+    }
     this.playSfx(weapon.type === 'melee' ? meleeSwingKey(weaponId) : rangedFireKey(weaponId));
   }
 
@@ -228,6 +250,9 @@ export class AudioManager {
   /**
    * 매 프레임 호출. 배경음악·몬스터·부활 상태처럼 "스냅샷을 보고 판단하는" 소리는
    * 전부 여기서 처리한다 — 이벤트 훅을 따로 늘리지 않고 이전 프레임과 비교해서 찾는다.
+   *
+   * @param firingWeaponId 지금 좌클릭을 누르고 있는 채로 손에 든 무기 id. 안 쏘고
+   *   있으면(버튼을 뗐거나 me가 없으면) undefined — gunAuto가 언제 멈출지 판단하는 데만 쓴다.
    */
   update(
     status: WorldStatus,
@@ -236,12 +261,14 @@ export class AudioManager {
     me: PlayerView | undefined,
     localMoving: boolean,
     localSurface: FootstepSurface | undefined,
+    firingWeaponId: string | undefined,
   ): void {
     this.updateMusic(status.wavePhase, status.currentWave);
     this.updateLifeStates(players);
     this.updateMonsters(monsters, me);
     this.updateReload(me);
     this.updateFootsteps(me, localMoving, localSurface);
+    this.updateAutoFire(firingWeaponId);
   }
 
   // ------------------------------------------------------------------ 배경음악
@@ -387,6 +414,33 @@ export class AudioManager {
     const remaining = me?.reloadRemaining ?? 0;
     if (remaining > 0 && this.lastReloadRemaining <= 0) this.playSfx('gunReload');
     this.lastReloadRemaining = remaining;
+  }
+
+  // ------------------------------------------------------------------ 연사(gunAuto)
+
+  /** 이미 돌고 있으면 아무 것도 안 한다 — notifyAttack이 발마다 부르므로 여기서 걸러야 한다. */
+  private ensureAutoFireSound(): void {
+    if (this.muted || !this.scene.cache.audio.exists('gunAuto')) return;
+    if (this.autoFireSound?.isPlaying) return;
+    const sound = this.scene.sound.add('gunAuto', { volume: SFX_VOLUME.gunAuto });
+    sound.play();
+    this.autoFireSound = sound;
+  }
+
+  /**
+   * "아직도 쏘는 중인가"를 매 프레임 확인해 아니라면 즉시 끊는다. 클립이 다 끝나기를
+   * 기다리지 않는다 — 그걸 기다리면 방아쇠를 뗀 뒤에도 몇 초씩 계속 울리던 원래
+   * 문제로 되돌아간다.
+   */
+  private updateAutoFire(firingWeaponId: string | undefined): void {
+    if (!this.autoFireSound) return;
+    const stillFiring = firingWeaponId !== undefined && isGunAutoWeapon(firingWeaponId);
+    if (!stillFiring) this.stopAutoFire();
+  }
+
+  private stopAutoFire(): void {
+    this.autoFireSound?.destroy();
+    this.autoFireSound = undefined;
   }
 
   // ------------------------------------------------------------------ 발소리
