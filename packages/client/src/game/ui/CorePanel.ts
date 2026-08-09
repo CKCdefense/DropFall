@@ -1,5 +1,11 @@
 import Phaser from 'phaser';
-import { chargingData, itemOfSlot, type InventorySlot } from '@dropfall/shared';
+import {
+  chargingData,
+  coreUpgradesData,
+  itemOfSlot,
+  reviveData,
+  type InventorySlot,
+} from '@dropfall/shared';
 import type { PanelBuilder } from './Modal';
 import { SlotIcon } from '../render/itemSprite';
 import {
@@ -25,10 +31,19 @@ const VALUE_WIDTH = 96;
 
 /** 강화 버튼은 이 탭에서 제일 큰 물건이다 — 여기서 할 "그 일"이라 눈에 먼저 들어와야 한다. */
 const UPGRADE_HEIGHT = 52;
+/** 수리는 강화 옆에 나란히 놓는 절반짜리 버튼이다 — 둘 다 코어에 자원을 쓰는 같은 층위의 결정이다. */
+const ACTION_GAP = 12;
 
 const CHARGE_CELL = 62;
 const CHARGE_GAP = 10;
 const ICON_INSET = 12;
+
+/** 유령 부활 칸 — 최대 인원(4) - 나 = 팀원 3명분. 강화·충전보다 훨씬 가벼운 목록이라
+ * 별도 구역 테두리 없이 제목 한 줄 + 버튼 한 줄로 붙인다. */
+const GHOST_SLOTS = 3;
+const GHOST_TITLE_GAP = 18;
+const GHOST_ROW_HEIGHT = 36;
+const GHOST_GAP = 10;
 
 /** 게이지 색 — 체력(붉음)·자원(초록)·에너지(청록)를 성격대로 나눈다. */
 const HP_COLOR = 0xd9756b;
@@ -113,12 +128,16 @@ class Gauge {
  */
 export class CorePanel {
   onUpgrade: () => void = () => {};
+  onRepair: () => void = () => {};
+  onReviveGhost: (targetId: string) => void = () => {};
 
   private readonly hpGauge: Gauge;
   private readonly resourceGauge: Gauge;
   private readonly energyGauge: Gauge;
   private readonly upgradeLabel: Phaser.GameObjects.Text;
   private readonly upgradeBox: Phaser.GameObjects.NineSlice | Phaser.GameObjects.Rectangle;
+  private readonly repairLabel: Phaser.GameObjects.Text;
+  private readonly repairBox: Phaser.GameObjects.NineSlice | Phaser.GameObjects.Rectangle;
   private readonly commentaryText: Phaser.GameObjects.Text;
 
   private readonly cells: ChargeCellHandle[] = [];
@@ -129,6 +148,13 @@ export class CorePanel {
   private openCount = 0;
   /** 거절 깜빡임이 도는 중인 칸. 그동안은 스냅샷이 테두리를 덮어쓰지 않는다. */
   private readonly rejecting = new Set<number>();
+
+  /** 유령 부활 칸. targetId가 null이면 그 자리에 유령이 없다(비어 있음/락 표시). */
+  private readonly ghostCells: {
+    box: Phaser.GameObjects.NineSlice | Phaser.GameObjects.Rectangle;
+    label: Phaser.GameObjects.Text;
+    targetId: string | null;
+  }[] = [];
 
   constructor(private readonly builder: PanelBuilder) {
     const scene = builder.scene;
@@ -157,24 +183,40 @@ export class CorePanel {
       ENERGY_COLOR,
     );
 
-    // --- 강화 -------------------------------------------------------------
+    // --- 강화 · 수리 --------------------------------------------------------
+    // 둘 다 "코어에 자원을 쓰는 결정"이라 나란히 반씩 놓는다 — 세로로 쌓으면 그때마다
+    // 탭의 남은 높이(충전·유령 부활)가 줄어들어 창이 점점 빡빡해진다.
     const upgradeY = gaugeHeight + SECTION_GAP;
+    const actionWidth = (builder.width - SECTION_PAD * 2 - ACTION_GAP) / 2;
     this.upgradeBox = builder.addButton(
       SECTION_PAD,
       upgradeY,
-      builder.width - SECTION_PAD * 2,
+      actionWidth,
       UPGRADE_HEIGHT,
       '',
       () => this.onUpgrade(),
     );
     this.upgradeLabel = scene.add
-      .text(builder.width / 2, upgradeY + UPGRADE_HEIGHT / 2, '코어 강화', {
+      .text(SECTION_PAD + actionWidth / 2, upgradeY + UPGRADE_HEIGHT / 2, '코어 강화', {
         fontFamily: FONT,
-        fontSize: `${SIZE_BODY + 4}px`,
+        fontSize: `${SIZE_BODY}px`,
         color: BODY_TEXT,
       })
       .setOrigin(0.5, 0.5);
     builder.add(this.upgradeLabel);
+
+    const repairX = SECTION_PAD + actionWidth + ACTION_GAP;
+    this.repairBox = builder.addButton(repairX, upgradeY, actionWidth, UPGRADE_HEIGHT, '', () =>
+      this.onRepair(),
+    );
+    this.repairLabel = scene.add
+      .text(repairX + actionWidth / 2, upgradeY + UPGRADE_HEIGHT / 2, '코어 수리', {
+        fontFamily: FONT,
+        fontSize: `${SIZE_BODY}px`,
+        color: BODY_TEXT,
+      })
+      .setOrigin(0.5, 0.5);
+    builder.add(this.repairLabel);
 
     // --- 충전 -------------------------------------------------------------
     const chargeY = upgradeY + UPGRADE_HEIGHT + SECTION_GAP;
@@ -225,8 +267,34 @@ export class CorePanel {
       this.labels.push(label);
     }
 
+    // --- 유령 부활 ----------------------------------------------------------
+    // 낮에만, 팀원이 자원을 치르고 되살린다(World.reviveGhostAtCore). 유령이 없으면
+    // 세 칸 다 빈 채로 흐리게 남는다 — 강화·충전처럼 "지금은 못 하는" 상태도 항상 보인다.
+    const ghostY = chargeY + chargeHeight + SECTION_GAP;
+    builder.addSectionTitle(SECTION_PAD, ghostY, `유령 부활  (자원 ${reviveData.coreReviveResource})`);
+
+    const ghostRowY = ghostY + GHOST_TITLE_GAP;
+    const ghostCellWidth = (builder.width - SECTION_PAD * 2 - GHOST_GAP * (GHOST_SLOTS - 1)) / GHOST_SLOTS;
+    for (let index = 0; index < GHOST_SLOTS; index += 1) {
+      const x = SECTION_PAD + index * (ghostCellWidth + GHOST_GAP);
+      const box = builder.addButton(x, ghostRowY, ghostCellWidth, GHOST_ROW_HEIGHT, '', () => {
+        const targetId = this.ghostCells[index]?.targetId;
+        if (targetId) this.onReviveGhost(targetId);
+      });
+      box.disableInteractive();
+      const label = scene.add
+        .text(x + ghostCellWidth / 2, ghostRowY + GHOST_ROW_HEIGHT / 2, '-', {
+          fontFamily: FONT_SMALL,
+          fontSize: `${SIZE_SMALL}px`,
+          color: DIM_TEXT,
+        })
+        .setOrigin(0.5, 0.5);
+      builder.add(label);
+      this.ghostCells.push({ box, label, targetId: null });
+    }
+
     // --- 코어 AI 대사 ------------------------------------------------------
-    const commentaryY = chargeY + chargeHeight + SECTION_GAP;
+    const commentaryY = ghostRowY + GHOST_ROW_HEIGHT + SECTION_GAP;
     this.commentaryText = scene.add
       .text(SECTION_PAD, commentaryY, '', {
         fontFamily: FONT_SMALL,
@@ -256,17 +324,62 @@ export class CorePanel {
     if (!status.upgradeAvailable) {
       this.upgradeLabel.setText('최고 단계').setColor(DIM_TEXT);
       this.upgradeBox.disableInteractive();
-      return;
+    } else {
+      // 모자란 쪽을 색으로 알린다 — 비용만 적어 두면 눌러 보고 나서야 안 된다는 걸 안다.
+      const affordable =
+        status.coreResource >= status.upgradeResourceCost &&
+        status.coreEnergy >= status.upgradeEnergyCost;
+      this.upgradeLabel
+        .setText(`코어 강화  자원${status.upgradeResourceCost}·에너지${status.upgradeEnergyCost}`)
+        .setColor(affordable ? BODY_TEXT : DIM_TEXT);
+      this.upgradeBox.setInteractive({ useHandCursor: true });
     }
 
-    // 모자란 쪽을 색으로 알린다 — 비용만 적어 두면 눌러 보고 나서야 안 된다는 걸 안다.
-    const affordable =
-      status.coreResource >= status.upgradeResourceCost &&
-      status.coreEnergy >= status.upgradeEnergyCost;
-    this.upgradeLabel
-      .setText(`코어 강화   자원 ${status.upgradeResourceCost} · 에너지 ${status.upgradeEnergyCost}`)
-      .setColor(affordable ? BODY_TEXT : DIM_TEXT);
-    this.upgradeBox.setInteractive({ useHandCursor: true });
+    // 수리는 강화와 달리 "다 못 채워도" 낼 수 있는 만큼은 항상 된다 — 버튼이 막히는
+    // 조건은 둘뿐이다: 이미 꽉 찼거나, 자원이 아예 0이거나.
+    const missing = status.coreMaxHp - status.coreHp;
+    if (missing <= 0) {
+      forceSetText(this.repairLabel, '코어 수리  최대치');
+      this.repairLabel.setColor(DIM_TEXT);
+      this.repairBox.disableInteractive();
+    } else {
+      const fullCost = Math.ceil(missing * coreUpgradesData.repairResourcePerHp);
+      const canRepair = status.coreResource > 0;
+      forceSetText(
+        this.repairLabel,
+        `코어 수리  자원${Math.min(fullCost, status.coreResource)}/${fullCost}`,
+      );
+      this.repairLabel.setColor(canRepair ? BODY_TEXT : DIM_TEXT);
+      if (canRepair) this.repairBox.setInteractive({ useHandCursor: true });
+      else this.repairBox.disableInteractive();
+    }
+  }
+
+  /**
+   * 유령이 된 팀원 목록. 최대 {@link GHOST_SLOTS}명분만 칸이 있다(4인방 기준 나를 뺀
+   * 나머지 전부) — 그 이상은 방 정원 자체가 안 된다.
+   *
+   * @param ghosts 유령 상태인 팀원들(나 자신은 넘기지 않는다 — 내가 유령이면 이 창을
+   *   열 수 있는 처지가 아니다).
+   * @param resource 지금 코어 자원 게이지. 칸마다 되살릴 수 있는지 색으로 알린다.
+   */
+  setGhosts(ghosts: { id: string; nickname: string }[], resource: number): void {
+    const affordable = resource >= reviveData.coreReviveResource;
+    this.ghostCells.forEach((cell, index) => {
+      const ghost = ghosts[index];
+      if (!ghost) {
+        cell.targetId = null;
+        forceSetText(cell.label, '-');
+        cell.label.setColor(DIM_TEXT);
+        cell.box.disableInteractive();
+        return;
+      }
+      cell.targetId = ghost.id;
+      forceSetText(cell.label, ghost.nickname);
+      cell.label.setColor(affordable ? BODY_TEXT : DIM_TEXT);
+      if (affordable) cell.box.setInteractive({ useHandCursor: true });
+      else cell.box.disableInteractive();
+    });
   }
 
   /**

@@ -184,6 +184,10 @@ export class GameRoom extends Room {
       if (this.state.phase !== RoomPhase.PLAYING) return;
       this.world.upgradeCore(client.sessionId);
     },
+    repairCore: (client: Client) => {
+      if (this.state.phase !== RoomPhase.PLAYING) return;
+      this.world.repairCore(client.sessionId);
+    },
     coreInteract: () => {
       if (this.state.phase !== RoomPhase.PLAYING) return;
       // 성공 여부(쿨다운 통과)는 World가 판단한다 — 여기선 그냥 요청만 넘긴다.

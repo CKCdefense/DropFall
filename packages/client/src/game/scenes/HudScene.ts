@@ -572,6 +572,8 @@ export class HudScene extends Phaser.Scene {
     // 강화는 코어 탭 안의 큰 버튼이다 — 예전엔 별도 창(UpgradeModal)이었는데,
     // "얼마 모였나"를 보고 "올릴까"를 정하는 사이에 창을 갈아타야 했다.
     this.coreModal.onUpgrade = () => this.connection.upgradeCore();
+    this.coreModal.onRepair = () => this.connection.repairCore();
+    this.coreModal.onReviveGhost = (targetId: string) => this.connection.reviveGhost(targetId);
     this.characterModal.onSpendPoint = (stat) => this.connection.spendStatPoint(stat);
     this.coreModal.onCraft = (recipeId: string) => this.connection.craft(recipeId);
     this.coreModal.onPurchase = (itemId: string) => this.connection.shopBuy(itemId);
@@ -884,6 +886,14 @@ export class HudScene extends Phaser.Scene {
     this.updateCore(status, snapshot.players.length);
     this.coreModal.setCoreStatus(status);
     this.coreModal.setChargeSlots(status.coreCharge, status.openChargeSlots);
+    // 유령 부활 칸 — 나 자신은 목록에서 뺀다(내가 유령이면 이 창을 열 수 있는
+    // 처지가 아니지만, 그 경우에도 굳이 목록에 나를 넣어 보여줄 이유가 없다).
+    this.coreModal.setGhosts(
+      snapshot.players
+        .filter((player) => player.id !== this.connection.sessionId && player.lifeState === 'ghost')
+        .map((player) => ({ id: player.id, nickname: player.nickname })),
+      status.coreResource,
+    );
     this.updateCinematic(status);
     this.waveDial.update(status);
     this.updateBossBar(snapshot);

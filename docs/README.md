@@ -61,6 +61,7 @@
 | [backend/72-work-report-pickup-key-and-quickslot-click.md](backend/72-work-report-pickup-key-and-quickslot-click.md) | 작업 보고서 — 줍기 전용 키(스페이스) 추가, 퀵슬롯 좌클릭으로 무기 장착(SlotDrag.onClickSelect) |
 | [backend/71-work-report-monster-anim-multiplayer-bug.md](backend/71-work-report-monster-anim-multiplayer-bug.md) | 작업 보고서 — 멀티에서만 몬스터 공격 모션·방향 전환이 안 되던 버그(스키마 필드가 스폰 시점에만 대입됨) 수정 + 회귀 테스트 |
 | [backend/73-work-report-slot-label-render-staleness-bug.md](backend/73-work-report-slot-label-render-staleness-bug.md) | 작업 보고서 — 퀵무브/충전 칸 라벨이 화면에 고착되는 Phaser Text 렌더링 버그, Playwright 실측 재현으로 원인 특정·수정 |
+| [backend/74-work-report-core-repair-and-ghost-resource-revive.md](backend/74-work-report-core-repair-and-ghost-resource-revive.md) | 작업 보고서 — 코어 수리를 상점 소모품에서 코어 메뉴 버튼으로 전환(부분 수리), 유령 부활 통화를 에너지→자원으로 변경 + 부활 UI 신설 |
 
 ### 역할 C — 클라이언트/렌더/UI 작업 문서 ([frontend/](frontend/))
 

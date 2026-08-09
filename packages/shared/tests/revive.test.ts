@@ -185,30 +185,30 @@ describe('부활 — AID', () => {
 });
 
 describe('부활 — 코어에서 유령 되살리기', () => {
-  /** p1은 코어 옆에 살아 있고, p2는 유령이다. 에너지는 충분히 채워 둔다. */
-  function ghostAtCore(energy = reviveData.coreReviveEnergy): World {
+  /** p1은 코어 옆에 살아 있고, p2는 유령이다. 자원은 충분히 채워 둔다. */
+  function ghostAtCore(resource = reviveData.coreReviveResource): World {
     const world = new World();
     world.addPlayer('p1', 0, 55); // 코어(원점) 상호작용 거리 안 — 발자국 아래 27px + 여유 32px
     world.addPlayer('p2', 600, 600);
     knockDown(world, 'p2');
     world.tick(reviveData.ghostSeconds + 0.1);
-    world.runDevCommand('p1', `energy ${energy}`);
+    world.runDevCommand('p1', `resource ${resource}`);
     return world;
   }
 
-  it('낮에 코어 옆에서 누르면 에너지를 치르고 되살아난다', () => {
+  it('낮에 코어 옆에서 누르면 자원을 치르고 되살아난다', () => {
     const world = ghostAtCore();
     expect(world.reviveGhostAtCore('p1', 'p2')).toBe(true);
 
     const target = world.getPlayers().get('p2')!;
     expect(target.lifeState).toBe('alive');
-    expect(world.getCore().energy).toBe(0);
+    expect(world.getCore().resource).toBe(0);
     // 코어 앞에서 다시 시작한다.
     expect(Math.hypot(target.x, target.y)).toBeLessThan(100);
   });
 
-  it('에너지가 모자라면 아무 일도 일어나지 않는다', () => {
-    const world = ghostAtCore(reviveData.coreReviveEnergy - 1);
+  it('자원이 모자라면 아무 일도 일어나지 않는다', () => {
+    const world = ghostAtCore(reviveData.coreReviveResource - 1);
     expect(world.reviveGhostAtCore('p1', 'p2')).toBe(false);
     expect(world.getPlayers().get('p2')!.lifeState).toBe('ghost');
   });
@@ -219,7 +219,7 @@ describe('부활 — 코어에서 유령 되살리기', () => {
     expect(world.reviveGhostAtCore('p1', 'p2')).toBe(false);
   });
 
-  it('밤에는 되살릴 수 없다 — 전투 중 에너지가 곧 목숨이 되면 안 된다', () => {
+  it('밤에는 되살릴 수 없다 — 전투 중 자원이 곧 목숨이 되면 안 된다', () => {
     const world = ghostAtCore();
     world.tick(wavesData.dayDuration + 0.001);
     expect(world.getWavePhase()).toBe('night');
@@ -233,10 +233,10 @@ describe('부활 — 코어에서 유령 되살리기', () => {
     world.addPlayer('p1', 0, 55);
     world.addPlayer('p2', 600, 600);
     knockDown(world, 'p2');
-    world.runDevCommand('p1', `energy ${reviveData.coreReviveEnergy}`);
+    world.runDevCommand('p1', `resource ${reviveData.coreReviveResource}`);
 
     expect(world.reviveGhostAtCore('p1', 'p2')).toBe(false);
-    expect(world.getCore().energy).toBe(reviveData.coreReviveEnergy);
+    expect(world.getCore().resource).toBe(reviveData.coreReviveResource);
   });
 });
 

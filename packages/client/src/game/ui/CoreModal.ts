@@ -57,8 +57,20 @@ export class CoreModal extends Modal {
     this.core.onUpgrade = handler;
   }
 
+  set onRepair(handler: () => void) {
+    this.core.onRepair = handler;
+  }
+
+  set onReviveGhost(handler: (targetId: string) => void) {
+    this.core.onReviveGhost = handler;
+  }
+
   setCoreStatus(status: Parameters<CorePanel['setStatus']>[0]): void {
     this.core.setStatus(status);
+  }
+
+  setGhosts(ghosts: { id: string; nickname: string }[], resource: number): void {
+    this.core.setGhosts(ghosts, resource);
   }
 
   setChargeSlots(slots: (InventorySlot | null)[], openCount: number): void {

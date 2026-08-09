@@ -1934,6 +1934,27 @@ export class World {
   }
 
   /**
+   * 코어 수리. 자원을 체력으로 바꾼다(게임 흐름 피드백 — 예전엔 상점에 뜬 수리
+   * 소모품을 사서 써야 했는데, 그날 진열이 안 뜨면 아예 수리할 방법이 없었다).
+   * 강화와 달리 **낼 수 있는 만큼만** 채운다 — 깎인 체력은 매번 다른 양이라
+   * "전액이 아니면 아예 안 된다"로 하면 애매하게 모자란 자원이 계속 묶인다.
+   */
+  repairCore(playerId: string): void {
+    const player = this.players.get(playerId);
+    if (!player || player.hp <= 0 || !this.isNearCore(player)) return;
+
+    const missing = this.core.maxHp - this.core.hp;
+    if (missing <= 0) return;
+
+    const affordableHp = Math.floor(this.core.resource / coreUpgradesData.repairResourcePerHp);
+    const healAmount = Math.min(missing, affordableHp);
+    if (healAmount <= 0) return;
+
+    this.core.resource -= Math.ceil(healAmount * coreUpgradesData.repairResourcePerHp);
+    this.core.hp += healAmount;
+  }
+
+  /**
    * 제작 시작. 재료는 코어 게이지에서 **즉시** 나가고 결과물은 craftSeconds 뒤에
    * 창고로 들어간다.
    *
@@ -3097,10 +3118,10 @@ export class World {
   }
 
   /**
-   * 코어에서 유령을 되살린다 — **낮에만**, 에너지를 치르고.
+   * 코어에서 유령을 되살린다 — **낮에만**, 자원을 치르고.
    *
    * 밤을 막는 이유는 이게 "다시 해 보자"의 값이지 전투 중 자원이 아니어서다. 밤에도
-   * 되면 에너지가 곧 목숨이 되어, 죽어도 그 자리에서 계속 밀어 넣는 소모전이 된다.
+   * 되면 자원이 곧 목숨이 되어, 죽어도 그 자리에서 계속 밀어 넣는 소모전이 된다.
    *
    * @param playerId 버튼을 누른 사람(살아 있고 코어 옆이어야 한다).
    * @param targetId 되살릴 유령.
@@ -3113,9 +3134,9 @@ export class World {
 
     const target = this.players.get(targetId);
     if (!target || target.lifeState !== 'ghost') return false;
-    if (this.core.energy < reviveData.coreReviveEnergy) return false;
+    if (this.core.resource < reviveData.coreReviveResource) return false;
 
-    this.core.energy -= reviveData.coreReviveEnergy;
+    this.core.resource -= reviveData.coreReviveResource;
     this.revivePlayer(target, CORE_RESPAWN_X, CORE_RESPAWN_Y);
     return true;
   }

@@ -693,6 +693,8 @@ const CoreUpgradesDataSchema = z.object({
   /** 강화 전 자원/에너지 게이지 상한. 강화할 때마다 tiers의 보너스가 누적된다. */
   baseMaxResource: z.number().int().positive(),
   baseMaxEnergy: z.number().int().positive(),
+  /** 코어 수리(코어 메뉴 버튼) — 체력 1을 채우는 데 드는 자원. */
+  repairResourcePerHp: z.number().positive(),
   tiers: z.array(CoreUpgradeTierSchema).min(1),
 });
 
@@ -767,7 +769,7 @@ const ReviveDataSchema = z.object({
   rescueRadius: z.number().positive(),
   /** 1이면 "죽는 편이 이득"이 되므로 반드시 1보다 작다(§REVIVE_HP_RATIO와 같은 이유). */
   reviveHpRatio: z.number().positive().max(1),
-  coreReviveEnergy: z.number().int().nonnegative(),
+  coreReviveResource: z.number().int().nonnegative(),
 });
 
 export const reviveData = loadData(ReviveDataSchema, reviveJson);

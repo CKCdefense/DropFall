@@ -172,6 +172,10 @@ export class LocalConnection implements GameConnection {
     this.world.upgradeCore(LOCAL_SESSION_ID);
   }
 
+  repairCore(): void {
+    this.world.repairCore(LOCAL_SESSION_ID);
+  }
+
   coreInteract(): void {
     this.world.requestCoreInteraction();
   }

@@ -359,6 +359,10 @@ export class ColyseusConnection implements GameConnection {
     this.room.send('upgradeCore', {});
   }
 
+  repairCore(): void {
+    this.room.send('repairCore', {});
+  }
+
   coreInteract(): void {
     this.room.send('coreInteract', {});
   }

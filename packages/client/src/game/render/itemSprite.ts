@@ -25,8 +25,6 @@ const MATERIAL_FRAME: Record<string, string> = {
   carrot_cake: 'item_usable_carrot_cake_0',
   apple_juice: 'item_usable_apple_juice_0',
   lasagna: 'item_usable_lasagna_0',
-  repair_kit: 'item_consumable_repair_kit_0',
-  core_cell: 'item_consumable_core_cell_0',
   energy_cell: 'item_consumable_energy_cell_0',
   // drop_rare는 아틀라스에 'item_drop_rare_idle_0'로 들어있는데, drop_normal만
   // 'idle' 세그먼트가 빠진 'item_drop_normal__0'로 들어있다(에셋 소스의 이름표

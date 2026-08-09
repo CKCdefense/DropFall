@@ -330,6 +330,11 @@ export interface GameConnection {
    */
   upgradeCore(): void;
   /**
+   * 코어 수리 요청. 부족한 체력만큼 자원을 체력으로 바꾼다 — 낼 수 있는 만큼만
+   * 채워지므로(부분 수리) 자원이 모자라도 요청 자체는 항상 보낼 수 있다.
+   */
+  repairCore(): void;
+  /**
    * 코어 앞에서 상호작용(모달 열기)했음을 알린다. 서버가 쿨다운을 판단해 코어 AI
    * 페르소나 대사를 새로 생성할지 정한다 — 여기선 그냥 요청만 보낸다.
    */
@@ -340,7 +345,7 @@ export interface GameConnection {
   craft(recipeId: string): void;
   /** 스탯 포인트 하나를 쓴다. 몇 점 남았는지 판단은 서버가 한다. */
   spendStatPoint(stat: 'maxHp' | 'attack' | 'stamina'): void;
-  /** 코어에서 유령이 된 동료를 되살린다(낮·에너지 소모). */
+  /** 코어에서 유령이 된 동료를 되살린다(낮·자원 소모). */
   reviveGhost(targetId: string): void;
   /**
    * 혼자하기인가. 쓰러졌을 때 안내 문구가 갈린다 — 혼자면 "곧 코어에서 일어난다"이고
