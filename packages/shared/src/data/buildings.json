@@ -48,8 +48,8 @@
     "hp": 40,
     "blocksMovement": false,
     "blocksProjectile": false,
-    "slowMultiplier": 0.8,
-    "wearPerMonsterSecond": 3
+    "slowMultiplier": 0.6,
+    "wearPerMonsterSecond": 4.5
   },
   "stone_spike": {
     "repairPerHit": 12,
@@ -57,8 +57,8 @@
     "hp": 90,
     "blocksMovement": false,
     "blocksProjectile": false,
-    "slowMultiplier": 0.7,
-    "wearPerMonsterSecond": 3
+    "slowMultiplier": 0.5,
+    "wearPerMonsterSecond": 4.5
   },
   "iron_spike": {
     "repairPerHit": 25,
@@ -66,7 +66,7 @@
     "hp": 180,
     "blocksMovement": false,
     "blocksProjectile": false,
-    "slowMultiplier": 0.6,
-    "wearPerMonsterSecond": 3
+    "slowMultiplier": 0.4,
+    "wearPerMonsterSecond": 4.5
   }
 }
