@@ -854,6 +854,11 @@ export class World {
     shopStock: [],
   };
   private elapsedSeconds = 0;
+  /**
+   * 오늘 상점을 몇 번 돌렸는가. 리롤 비용이 이 값만큼 오른다(§rerollShop).
+   * 낮이 바뀌면 0으로 돌아간다 — 어제의 값이 남으면 이튿날 첫 리롤부터 비싸진다.
+   */
+  private shopRerolls = 0;
   /** 이번 낮 페이즈에 스킵 투표를 던진 플레이어 id 집합. 만장일치면 skipDay()를 부른다. */
   private skipVotes = new Set<string>();
   /** 팀이 밝힌 지역(explored.ts). 누가 봤든 전원이 공유한다. */
@@ -1183,6 +1188,8 @@ export class World {
       // 직업 고유 이동속도(탐색꾼 1.1). **걷는 속도 자체**를 올리므로 달리기 배수와
       // 곱해진다 — 달릴 때도 그만큼 앞선다.
       (jobStats(player.job).speedMultiplier ?? 1) *
+      // 스파이크 위에서는 느려진다 — 몬스터와 같은 규칙이다(§spikeSlowAt).
+      this.spikeSlowAt(player.x, player.y) *
       (1 + player.staminaBonus) *
       (player.speedBuffTimer > 0 ? player.speedBuffMultiplier : 1) *
       sprint
@@ -1502,6 +1509,50 @@ export class World {
   }
 
   /** 건축물을 지우고 길찾기를 다시 계산한다. 부순 경로가 여럿이라 한 곳에 모았다. */
+  /**
+   * 이 지점을 밟고 있을 때 곱해지는 스파이크 감속 배수(없으면 1).
+   *
+   * 몬스터와 플레이어가 **같은 함수**를 쓴다 — 스파이크는 적아를 가리지 않는 바닥이라,
+   * 두 경로가 따로 계산하면 언젠가 한쪽만 고쳐져 "플레이어만 느려진다"류의 버그가 된다.
+   */
+  private spikeSlowAt(x: number, y: number): number {
+    const { cx, cy } = worldToCell(x, y);
+    const building = this.buildings.at(cx, cy);
+    return building ? (buildingsData[building.type].slowMultiplier ?? 1) : 1;
+  }
+
+  /**
+   * 스파이크 마모 — 위에 선 몬스터 수 × 시간만큼 내구도가 닳는다.
+   *
+   * 밟는 순간 한 번 깎는 방식(통행세)도 생각했지만, 그러면 빠른 몬스터일수록 스파이크가
+   * 오래 버티는 이상한 역전이 생긴다. **체류 시간**으로 닳게 하면 감속 자체가 마모를
+   * 앞당긴다 — 좋은 스파이크일수록(더 느리게 만들수록) 더 빨리 닳는 자연스러운 균형이다.
+   *
+   * 몬스터를 한 번 돌며 칸별 마릿수를 세고, 그 칸의 스파이크만 깎는다 — 스파이크마다
+   * 전체 몬스터를 뒤지면 O(스파이크 × 몬스터)가 된다.
+   */
+  private tickSpikeWear(dtSeconds: number): void {
+    if (this.monsters.size === 0) return;
+
+    const counts = new Map<string, number>();
+    for (const monster of this.monsters.values()) {
+      const { cx, cy } = worldToCell(monster.x, monster.y);
+      const key = `${cx},${cy}`;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+
+    for (const building of [...this.buildings.values()]) {
+      const wear = buildingsData[building.type].wearPerMonsterSecond;
+      if (wear === undefined) continue;
+      const { cx, cy } = worldToCell(building.x, building.y);
+      const standing = counts.get(`${cx},${cy}`) ?? 0;
+      if (standing === 0) continue;
+      building.hp -= wear * standing * dtSeconds;
+      // 다 닳아 부서진 스파이크는 아무것도 남기지 않는다 — 해머로 뜯어야 회수된다.
+      if (building.hp <= 0) this.removeBuilding(building);
+    }
+  }
+
   private removeBuilding(building: BuildingEntity): void {
     this.buildings.remove(building.id);
     this.recomputeFlowField();
@@ -1804,19 +1855,36 @@ export class World {
    * 달성된다.
    */
   discardFromStorage(playerId: string, index: unknown): void {
+    this.discardItem(playerId, 'storage', index);
+  }
+
+  /**
+   * 창고 **또는 인벤토리** 칸 하나를 비운다(폐기).
+   *
+   * 화면에서는 아래 폐기 구역에 물건을 끌어다 놓는 조작이다. 끌어다 놓는 출발지가
+   * 창고일 수도 인벤토리일 수도 있어서 컨테이너를 받는다 — 예전에는 창고 전용이라
+   * 인벤토리가 꽉 찼을 때는 일단 창고로 옮긴 뒤에야 버릴 수 있었다.
+   *
+   * 충전·제작 칸은 받지 않는다. 그쪽은 "넣어 둔 것"이라 빼는 조작(moveItem)이 이미
+   * 있고, 버리는 것과 빼는 것이 같은 몸짓이면 실수로 지우게 된다.
+   */
+  discardItem(playerId: string, container: unknown, index: unknown): void {
     const player = this.players.get(playerId);
     if (!player || player.hp <= 0) return;
+    if (container !== 'inventory' && container !== 'storage') return;
     if (!Number.isInteger(index)) return;
-    // 창고를 만지는 다른 조작(moveItem/quickMoveItem)과 같은 규칙 — 코어 앞이어야 한다.
+    // 폐기 구역은 코어 창을 열어야 보인다 — 창고를 만지는 다른 조작(moveItem/
+    // quickMoveItem)과 같은 규칙으로 코어 앞을 요구한다.
     if (!this.isNearCore(player)) return;
 
-    const slot = this.core.storage.slotAt(index as number);
+    const bag = container === 'storage' ? this.core.storage : player.inventory;
+    const slot = bag.slotAt(index as number);
     if (!slot) return;
 
     // 칸을 비우기 **전에** 내용을 복사해 둔다 — slotAt은 살아 있는 칸을 그대로 돌려주므로,
     // 먼저 지우면 그 참조의 count가 0이 되어 아무것도 안 떨어진다(실제로 그랬다).
     const { itemId, count } = slot;
-    this.core.storage.removeAt(index as number, count);
+    bag.removeAt(index as number, count);
     this.dropItem(itemId, count, player.x, player.y);
   }
 
@@ -2075,6 +2143,35 @@ export class World {
     this.core.energy -= price;
   }
 
+  /**
+   * 지금 리롤하는 데 드는 에너지. 돌릴수록 오른다(shop.json의 base + step × 횟수).
+   *
+   * 화면도 이 값을 그대로 보여준다 — 비용 계산이 두 곳에 있으면 "버튼엔 20이라
+   * 적혔는데 30이 나갔다"가 된다.
+   */
+  getShopRerollCost(): number {
+    const { base, step } = shopData.rerollCost;
+    return base + step * this.shopRerolls;
+  }
+
+  /**
+   * 에너지를 내고 오늘의 진열을 다시 뽑는다.
+   *
+   * 사는 것과 같은 조건(살아 있고 코어 앞)을 건다 — 상점을 만지는 행위라 같은 문을
+   * 지나야 한다. 성공하면 다음 리롤이 그만큼 비싸진다.
+   */
+  rerollShop(playerId: string): void {
+    const player = this.players.get(playerId);
+    if (!player || player.hp <= 0 || !this.isNearCore(player)) return;
+
+    const cost = this.getShopRerollCost();
+    if (this.core.energy < cost) return;
+
+    this.core.energy -= cost;
+    this.shopRerolls += 1;
+    this.rollShopStock();
+  }
+
   // ---------------------------------------------------------------- 코어 충전
 
   /** 에너지를 상한까지만 더한다. 콜로니 정화·보스 처치·충전이 모두 이 문을 지난다. */
@@ -2328,6 +2425,7 @@ export class World {
     this.skipVotes.clear();
     // 하루가 지나면 상점 물건이 통째로 바뀐다. 오늘 못 산 전설은 오늘로 끝이다.
     this.rollShopStock();
+    this.shopRerolls = 0;
     // 정화된 콜로니는 재보급, 살아남은 콜로니는 성장(§settleColoniesOnDayBegan).
     this.settleColoniesOnDayBegan();
   }
@@ -2542,6 +2640,7 @@ export class World {
     this.tickCompanion(dtSeconds);
     this.tickQueuedCompanionMessages();
     this.tickResourceNodes(dtSeconds);
+    this.tickSpikeWear(dtSeconds);
     // tickMonsters() 다음에 불러야 한다 — 이번 틱에 죽은 수호대가 guardIds에서
     // 이미 빠진 뒤여야 정화 판정이 한 틱 늦지 않는다.
     this.tickColonyGuards(dtSeconds);
@@ -4656,12 +4755,20 @@ export class World {
     speed: number,
     dtSeconds: number,
   ): void {
+    /*
+     * 스파이크 감속. 추격·순찰·복귀·돌진이 전부 이 깔때기를 지나므로 여기 한 줄이면
+     * 어떤 이동이든 같은 규칙을 받는다. **보스는 예외다** — 밤의 결승전이 바닥재에
+     * 붙잡히면 방벽 3배 피해(§BOSS_WALL_DAMAGE_MULTIPLIER)로 열어 둔 길이 도로 막힌다.
+     */
+    const slowed = isBossType(monster.type)
+      ? speed
+      : speed * this.spikeSlowAt(monster.x, monster.y);
     // 아래 본문 안의 여러 return 지점(자유 이동/축 슬라이딩/접선 미끄러짐/탈출 점프)
     // 중 어느 쪽으로 끝나든 monster.x/y가 바뀔 수 있다 — try/finally로 감싸서
     // "몬스터 위치가 바뀌면 그리드도 같이 바뀐다"를 한 곳에서 보장한다(개별 return마다
     // 그리드 갱신 호출을 넣으면 새 return이 추가될 때 빠뜨리기 쉽다).
     try {
-      this.moveMonsterInner(monster, dirX, dirY, speed, dtSeconds);
+      this.moveMonsterInner(monster, dirX, dirY, slowed, dtSeconds);
     } finally {
       this.monsterGrid.updateEntry(monster.id, monster.x, monster.y);
     }

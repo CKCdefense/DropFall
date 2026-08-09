@@ -991,7 +991,7 @@
     "sourceSize": { "w": 32, "h": 32 },
     "duration": 100
    },
-   "stone_wall_front_0": {
+   "spikes_spike_front_0": {
     "frame": { "x": 925, "y": 609, "w": 32, "h": 32 },
     "rotated": false,
     "trimmed": false,
@@ -999,8 +999,32 @@
     "sourceSize": { "w": 32, "h": 32 },
     "duration": 100
    },
-   "stone_wall_side_0": {
+   "spikes_stone_spike_front_0": {
     "frame": { "x": 958, "y": 609, "w": 32, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
+    "sourceSize": { "w": 32, "h": 32 },
+    "duration": 100
+   },
+   "spikes_iron_spike_front_0": {
+    "frame": { "x": 826, "y": 611, "w": 32, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
+    "sourceSize": { "w": 32, "h": 32 },
+    "duration": 100
+   },
+   "stone_wall_front_0": {
+    "frame": { "x": 1, "y": 614, "w": 32, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
+    "sourceSize": { "w": 32, "h": 32 },
+    "duration": 100
+   },
+   "stone_wall_side_0": {
+    "frame": { "x": 34, "y": 614, "w": 32, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
@@ -1016,7 +1040,7 @@
     "duration": 100
    },
    "stone_fence_side_0": {
-    "frame": { "x": 826, "y": 611, "w": 32, "h": 32 },
+    "frame": { "x": 991, "y": 626, "w": 32, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
@@ -1032,7 +1056,7 @@
     "duration": 100
    },
    "wood_wall_side_0": {
-    "frame": { "x": 958, "y": 609, "w": 32, "h": 32 },
+    "frame": { "x": 34, "y": 614, "w": 32, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
@@ -1048,7 +1072,7 @@
     "duration": 100
    },
    "wood_fence_side_0": {
-    "frame": { "x": 826, "y": 611, "w": 32, "h": 32 },
+    "frame": { "x": 991, "y": 626, "w": 32, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
@@ -1072,7 +1096,7 @@
     "duration": 100
    },
    "stone_full_0": {
-    "frame": { "x": 1, "y": 614, "w": 32, "h": 32 },
+    "frame": { "x": 1024, "y": 626, "w": 32, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
@@ -1080,7 +1104,7 @@
     "duration": 100
    },
    "stone_cracked_0": {
-    "frame": { "x": 34, "y": 614, "w": 32, "h": 32 },
+    "frame": { "x": 1057, "y": 626, "w": 32, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
@@ -1088,7 +1112,7 @@
     "duration": 100
    },
    "stone_broken_0": {
-    "frame": { "x": 991, "y": 626, "w": 32, "h": 32 },
+    "frame": { "x": 1090, "y": 626, "w": 32, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
@@ -1728,7 +1752,7 @@
     "duration": 100
    },
    "fx_gather_shard_1": {
-    "frame": { "x": 1024, "y": 626, "w": 24, "h": 24 },
+    "frame": { "x": 1123, "y": 626, "w": 24, "h": 24 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 24 },
@@ -1736,7 +1760,7 @@
     "duration": 100
    },
    "fx_gather_shard_2": {
-    "frame": { "x": 1049, "y": 626, "w": 24, "h": 24 },
+    "frame": { "x": 1148, "y": 626, "w": 24, "h": 24 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 24 },
@@ -1744,7 +1768,7 @@
     "duration": 100
    },
    "fx_gather_shard_3": {
-    "frame": { "x": 1074, "y": 626, "w": 24, "h": 24 },
+    "frame": { "x": 1173, "y": 626, "w": 24, "h": 24 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 24 },
@@ -1752,7 +1776,7 @@
     "duration": 100
    },
    "fx_gather_shard_4": {
-    "frame": { "x": 1099, "y": 626, "w": 24, "h": 24 },
+    "frame": { "x": 1198, "y": 626, "w": 24, "h": 24 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 24 },
@@ -1840,7 +1864,7 @@
     "duration": 100
    },
    "fx_hurt_hit_0": {
-    "frame": { "x": 1124, "y": 626, "w": 24, "h": 24 },
+    "frame": { "x": 1223, "y": 626, "w": 24, "h": 24 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 24 },
@@ -1848,7 +1872,7 @@
     "duration": 100
    },
    "fx_hurt_hit_1": {
-    "frame": { "x": 1149, "y": 626, "w": 24, "h": 24 },
+    "frame": { "x": 1248, "y": 626, "w": 24, "h": 24 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 24 },
@@ -1856,7 +1880,7 @@
     "duration": 100
    },
    "fx_hurt_hit_2": {
-    "frame": { "x": 1174, "y": 626, "w": 24, "h": 24 },
+    "frame": { "x": 1273, "y": 626, "w": 24, "h": 24 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 24 },
@@ -1864,7 +1888,7 @@
     "duration": 100
    },
    "fx_hurt_hit_3": {
-    "frame": { "x": 1199, "y": 626, "w": 24, "h": 24 },
+    "frame": { "x": 1298, "y": 626, "w": 24, "h": 24 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 24 },
@@ -1872,7 +1896,7 @@
     "duration": 100
    },
    "fx_hurt_hit_4": {
-    "frame": { "x": 1224, "y": 626, "w": 24, "h": 24 },
+    "frame": { "x": 1323, "y": 626, "w": 24, "h": 24 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 24 },
@@ -1880,7 +1904,7 @@
     "duration": 100
    },
    "fx_hurt_hit_5": {
-    "frame": { "x": 1249, "y": 626, "w": 24, "h": 24 },
+    "frame": { "x": 1348, "y": 626, "w": 24, "h": 24 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 24 },
@@ -2165,6 +2189,9 @@
    { "name": "wood_fence_side", "from": 3, "to": 3, "direction": "forward", "color": "#000000ff" },
    { "name": "stone_wall_front", "from": 4, "to": 4, "direction": "forward", "color": "#000000ff" },
    { "name": "stone_wall_side", "from": 5, "to": 5, "direction": "forward", "color": "#000000ff" },
+   { "name": "spike_front", "from": 0, "to": 0, "direction": "forward", "color": "#000000ff" },
+   { "name": "stone_spike_front", "from": 1, "to": 1, "direction": "forward", "color": "#000000ff" },
+   { "name": "iron_spike_front", "from": 2, "to": 2, "direction": "forward", "color": "#000000ff" },
    { "name": "wall_front", "from": 0, "to": 0, "direction": "forward", "color": "#000000ff" },
    { "name": "wall_side", "from": 1, "to": 1, "direction": "forward", "color": "#000000ff" },
    { "name": "fence_front", "from": 2, "to": 2, "direction": "forward", "color": "#000000ff" },

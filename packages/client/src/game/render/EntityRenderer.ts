@@ -153,6 +153,10 @@ const BUILDING_SPRITE: Record<string, { h: string; v: string }> = {
   stone_wall: { h: 'build_tier_stone_wall_front_0', v: 'build_tier_stone_wall_side_0' },
   iron_fence: { h: 'build_tier_iron_fence_front_0', v: 'build_tier_iron_fence_side_0' },
   iron_wall: { h: 'build_tier_iron_wall_front_0', v: 'build_tier_iron_wall_side_0' },
+  // spikes.aseprite: 바닥에 눕는 판이라 방향이 없다 — h/v 둘 다 같은 프레임을 쓴다.
+  spike: { h: 'spikes_spike_front_0', v: 'spikes_spike_front_0' },
+  stone_spike: { h: 'spikes_stone_spike_front_0', v: 'spikes_stone_spike_front_0' },
+  iron_spike: { h: 'spikes_iron_spike_front_0', v: 'spikes_iron_spike_front_0' },
 };
 
 /** 건축물 타입별 플레이스홀더 표현. 울타리는 낮고 얇게, 벽은 크고 두껍게 그려서 구분한다. */
@@ -163,6 +167,10 @@ const BUILDING_STYLE: Record<string, { color: number; size: number }> = {
   stone_wall: { color: 0x696a6a, size: 16 },
   iron_fence: { color: 0xa6b0be, size: 12 },
   iron_wall: { color: 0x747e8c, size: 16 },
+  // 스파이크는 벽·울타리보다 납작하게 — 막는 물건이 아니라 밟는 물건이다.
+  spike: { color: 0xb08a5c, size: 8 },
+  stone_spike: { color: 0x8a8c8c, size: 8 },
+  iron_spike: { color: 0xa6b0be, size: 8 },
 };
 const BUILDING_FALLBACK = { color: 0x6b6f78, size: 14 };
 

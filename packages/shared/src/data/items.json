@@ -2,30 +2,35 @@
   "$comment": "아이템 카탈로그. 무기는 itemId == weaponId 규약(클라 아이콘이 WEAPON_VISUALS를 그대로 쓴다). rarity+buyPrice가 둘 다 있어야 상점 로테이션 후보가 된다. 코어 수리(옛 repair_kit/core_cell 소모품)는 상점 등장 운에 기대지 않도록 코어 메뉴의 직접 버튼(World.repairCore)으로 옮겼다 — coreHealAmount 필드 자체는 남겨 뒀다(다른 소모품이 나중에 다시 쓸 수 있다).",
   "wood": {
     "name": "나무",
+    "flavor": "아직 수액 냄새가 난다.",
     "kind": "material",
     "stackSize": 200,
     "sellPrice": 1
   },
   "stone": {
     "name": "돌",
+    "flavor": "깨진 자리가 날카롭다.",
     "kind": "material",
     "stackSize": 200,
     "sellPrice": 1
   },
   "drop_normal": {
     "name": "부품",
+    "flavor": "어디에 쓰였는지 모른다.",
     "kind": "material",
     "stackSize": 200,
     "sellPrice": 4
   },
   "drop_rare": {
     "name": "희귀부품",
+    "flavor": "만든 사람은 남지 않았다.",
     "kind": "material",
     "stackSize": 200,
     "sellPrice": 25
   },
   "bat": {
     "name": "뭉둥이",
+    "flavor": "손잡이에 이름이 새겨져 있다.",
     "kind": "weapon",
     "weaponId": "bat",
     "stackSize": 1,
@@ -34,6 +39,7 @@
   },
   "stone_spear": {
     "name": "돌창",
+    "flavor": "가장 오래된 답.",
     "kind": "weapon",
     "weaponId": "stone_spear",
     "stackSize": 1,
@@ -42,6 +48,7 @@
   },
   "fire_axe": {
     "name": "소방 도끼",
+    "flavor": "불을 끄러 갔던 사람의 것.",
     "kind": "weapon",
     "weaponId": "fire_axe",
     "stackSize": 1,
@@ -50,6 +57,7 @@
   },
   "knife": {
     "name": "군용 나이프",
+    "flavor": "칼집이 손에 익는다.",
     "kind": "weapon",
     "weaponId": "knife",
     "stackSize": 1,
@@ -58,6 +66,7 @@
   },
   "machete": {
     "name": "마체테",
+    "flavor": "길을 내려고 만들어졌다.",
     "kind": "weapon",
     "weaponId": "machete",
     "stackSize": 1,
@@ -66,6 +75,7 @@
   },
   "tomahauk": {
     "name": "토마호크",
+    "flavor": "던지면 돌아오지 않는다.",
     "kind": "weapon",
     "weaponId": "tomahauk",
     "stackSize": 1,
@@ -74,6 +84,7 @@
   },
   "beamsword": {
     "name": "빔소드",
+    "flavor": "켤 때 나는 소리가 다르다.",
     "kind": "weapon",
     "weaponId": "beamsword",
     "stackSize": 1,
@@ -82,6 +93,7 @@
   },
   "slingshot": {
     "name": "새총",
+    "flavor": "고무 냄새가 아직 난다.",
     "kind": "weapon",
     "weaponId": "slingshot",
     "stackSize": 1,
@@ -90,6 +102,7 @@
   },
   "shuriken": {
     "name": "표창",
+    "flavor": "누가 여기까지 가져왔을까.",
     "kind": "weapon",
     "weaponId": "shuriken",
     "stackSize": 1,
@@ -98,6 +111,7 @@
   },
   "crossbow": {
     "name": "석궁",
+    "flavor": "조용한 게 필요할 때가 있다.",
     "kind": "weapon",
     "weaponId": "crossbow",
     "stackSize": 1,
@@ -106,6 +120,7 @@
   },
   "rifle": {
     "name": "장전식 소총",
+    "flavor": "한 발마다 손이 간다.",
     "kind": "weapon",
     "weaponId": "rifle",
     "stackSize": 1,
@@ -114,6 +129,7 @@
   },
   "revolver": {
     "name": "리볼버",
+    "flavor": "실린더 돌아가는 소리.",
     "kind": "weapon",
     "weaponId": "revolver",
     "stackSize": 1,
@@ -122,6 +138,7 @@
   },
   "handgun": {
     "name": "권총",
+    "flavor": "허리춤이 허전하지 않다.",
     "kind": "weapon",
     "weaponId": "handgun",
     "stackSize": 1,
@@ -130,6 +147,7 @@
   },
   "smg": {
     "name": "기관단총",
+    "flavor": "총열이 금방 뜨거워진다.",
     "kind": "weapon",
     "weaponId": "smg",
     "stackSize": 1,
@@ -138,6 +156,7 @@
   },
   "double_barrel_shotgun": {
     "name": "더블배럴 샷건",
+    "flavor": "쏘고 나면 세상이 조용하다.",
     "kind": "weapon",
     "weaponId": "double_barrel_shotgun",
     "stackSize": 1,
@@ -146,6 +165,7 @@
   },
   "assault_rifle": {
     "name": "돌격 소총",
+    "flavor": "군용. 출처는 묻지 않는다.",
     "kind": "weapon",
     "weaponId": "assault_rifle",
     "stackSize": 1,
@@ -154,6 +174,7 @@
   },
   "pump_shotgun": {
     "name": "펌프 샷건",
+    "flavor": "소리만으로 물러서게 한다.",
     "kind": "weapon",
     "weaponId": "pump_shotgun",
     "stackSize": 1,
@@ -162,6 +183,7 @@
   },
   "sniper_rifle": {
     "name": "저격 라이플",
+    "flavor": "멀리 있는 것도 이쪽을 본다.",
     "kind": "weapon",
     "weaponId": "sniper_rifle",
     "stackSize": 1,
@@ -170,6 +192,7 @@
   },
   "minigun": {
     "name": "미니건",
+    "flavor": "혼자 들 물건이 아니었다.",
     "kind": "weapon",
     "weaponId": "minigun",
     "stackSize": 1,
@@ -178,6 +201,7 @@
   },
   "bandage": {
     "name": "붕대",
+    "flavor": "감으면 일단 걸을 수 있다.",
     "kind": "consumable",
     "healPercent": 0.3,
     "stackSize": 5,
@@ -186,6 +210,7 @@
   },
   "painkiller": {
     "name": "진통제",
+    "flavor": "아픈 걸 잊게 해 줄 뿐이다.",
     "kind": "consumable",
     "hpFloorSeconds": 3,
     "stackSize": 3,
@@ -194,6 +219,7 @@
   },
   "pills": {
     "name": "알약",
+    "flavor": "라벨이 벗겨져 있다.",
     "kind": "consumable",
     "healPercent": 0.5,
     "stackSize": 3,
@@ -202,6 +228,7 @@
   },
   "aid_kit": {
     "name": "AID",
+    "flavor": "제대로 갖춰진 것.",
     "kind": "consumable",
     "healPercent": 1,
     "stackSize": 2,
@@ -210,6 +237,7 @@
   },
   "adrenaline": {
     "name": "아드레날린",
+    "flavor": "심장이 먼저 대답한다.",
     "kind": "consumable",
     "speedMultiplier": 1.5,
     "speedSeconds": 10,
@@ -219,6 +247,7 @@
   },
   "chocolate": {
     "name": "초콜릿",
+    "flavor": "포장지만 바랬다.",
     "kind": "consumable",
     "statBonus": {
       "stat": "stamina",
@@ -230,6 +259,7 @@
   },
   "donut": {
     "name": "도넛",
+    "flavor": "누가 아침을 두고 갔다.",
     "kind": "consumable",
     "statBonus": {
       "stat": "maxHp",
@@ -241,6 +271,7 @@
   },
   "nuggets": {
     "name": "너겟",
+    "flavor": "식어도 먹을 만하다.",
     "kind": "consumable",
     "statBonus": {
       "stat": "attack",
@@ -252,6 +283,7 @@
   },
   "carrot_cake": {
     "name": "당근 케이크",
+    "flavor": "생일이었던 흔적.",
     "kind": "consumable",
     "statBonus": {
       "stat": "maxHp",
@@ -263,6 +295,7 @@
   },
   "apple_juice": {
     "name": "사과주스",
+    "flavor": "마지막 한 병.",
     "kind": "consumable",
     "statBonus": {
       "stat": "stamina",
@@ -274,6 +307,7 @@
   },
   "lasagna": {
     "name": "라자냐",
+    "flavor": "아직 만드는 사람이 있다.",
     "kind": "consumable",
     "statBonus": {
       "stat": "attack",
@@ -285,6 +319,7 @@
   },
   "energy_cell": {
     "name": "에너지셀",
+    "flavor": "코어가 좋아하는 맛.",
     "kind": "consumable",
     "energyAmount": 3,
     "stackSize": 3,
@@ -293,84 +328,119 @@
   },
   "axe_t1": {
     "name": "돌도끼",
+    "flavor": "나무를 이기려면 필요하다.",
     "kind": "weapon",
     "weaponId": "axe_t1",
     "stackSize": 1
   },
   "axe_t2": {
     "name": "도끼 T2",
+    "flavor": "날이 제대로 서 있다.",
     "kind": "weapon",
     "weaponId": "axe_t2",
     "stackSize": 1
   },
   "axe_t3": {
     "name": "도끼 T3",
+    "flavor": "쓰던 사람이 아꼈던 티가 난다.",
     "kind": "weapon",
     "weaponId": "axe_t3",
     "stackSize": 1
   },
   "pickax_t1": {
     "name": "돌 곡괭이",
+    "flavor": "돌로 돌을 깬다.",
     "kind": "weapon",
     "weaponId": "pickax_t1",
     "stackSize": 1
   },
   "pickax_t2": {
     "name": "곡괭이 T2",
+    "flavor": "손잡이가 손에 감긴다.",
     "kind": "weapon",
     "weaponId": "pickax_t2",
     "stackSize": 1
   },
   "pickax_t3": {
     "name": "곡괭이 T3",
+    "flavor": "바위의 결을 찾아낸다.",
     "kind": "weapon",
     "weaponId": "pickax_t3",
     "stackSize": 1
   },
   "hammer_t1": {
     "name": "망치 T1",
+    "flavor": "세우는 데 쓰는 물건.",
     "kind": "weapon",
     "weaponId": "hammer_t1",
     "stackSize": 1
   },
   "hammer_t2": {
     "name": "망치 T2",
+    "flavor": "못을 아끼게 해 준다.",
     "kind": "weapon",
     "weaponId": "hammer_t2",
     "stackSize": 1
   },
   "fence": {
     "name": "나무 울타리",
+    "flavor": "없는 것보단 낫다.",
     "kind": "building",
     "buildingType": "fence",
     "stackSize": 20
   },
   "wall": {
     "name": "나무 벽",
+    "flavor": "안이 안 보이면 족하다.",
     "kind": "building",
     "buildingType": "wall",
     "stackSize": 20
   },
+  "spike": {
+    "name": "나무 스파이크",
+    "flavor": "밟고 지나가라고 깔아 둔 것이다.",
+    "kind": "building",
+    "buildingType": "spike",
+    "stackSize": 20
+  },
+  "stone_spike": {
+    "name": "돌 스파이크",
+    "flavor": "발 디딜 때마다 후회하게 된다.",
+    "kind": "building",
+    "buildingType": "stone_spike",
+    "stackSize": 20
+  },
+  "iron_spike": {
+    "name": "철 스파이크",
+    "flavor": "지나가는 것 자체가 실수다.",
+    "kind": "building",
+    "buildingType": "iron_spike",
+    "stackSize": 20
+  },
   "stone_fence": {
     "name": "돌 울타리",
+    "flavor": "밀어도 밀리지 않는다.",
     "kind": "building",
     "buildingType": "stone_fence",
     "stackSize": 20
   },
   "stone_wall": {
     "name": "돌 벽",
+    "flavor": "무게가 곧 안심이다.",
     "kind": "building",
     "buildingType": "stone_wall",
     "stackSize": 20
   },
   "iron_fence": {
     "name": "철 울타리",
+    "flavor": "녹은 나중 문제다.",
     "kind": "building",
     "buildingType": "iron_fence",
     "stackSize": 20
   },
   "iron_wall": {
     "name": "철 벽",
+    "flavor": "여기까지가 우리 땅이다.",
     "kind": "building",
     "buildingType": "iron_wall",
     "stackSize": 20

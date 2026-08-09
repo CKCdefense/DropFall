@@ -488,6 +488,14 @@ const BuildingDataSchema = z.object({
   blocksMovement: z.boolean(),
   /** 투사체 차단 여부(기술명세 §5.2) — 데이터만 있고 충돌 처리는 아직 미구현 */
   blocksProjectile: z.boolean(),
+
+  /*
+   * 스파이크 전용 — 벽의 반대로, **막지 않고 늦춘다.** 없는 건축물은 아무 효과도 없다.
+   */
+  /** 밟는 동안 곱해지는 속도 배수(0.8 = 20% 감속). 보스는 제외, 플레이어는 포함이다. */
+  slowMultiplier: z.number().positive().max(1).optional(),
+  /** 위에 선 몬스터 1마리가 1초에 깎는 내구도. 마릿수만큼 곱해서 닳는다. */
+  wearPerMonsterSecond: z.number().positive().optional(),
 });
 
 const BuildingsDataSchema = z.record(z.string(), BuildingDataSchema);
@@ -564,6 +572,16 @@ const ItemDataSchema = z.object({
   sellPrice: z.number().int().nonnegative().optional(),
   /** 상점에서 살 때 드는 돈. 없으면 상점에 진열되지 않는다. */
   buyPrice: z.number().int().positive().optional(),
+  /**
+   * 한 줄짜리 곁들임 글.
+   *
+   * **성능을 말하지 않는다** — 회복량이나 위력을 적으면 물건을 살지 말지가 계산으로
+   * 끝나고, 진열대를 들여다볼 이유가 사라진다. 물건이 어디서 왔는지, 손에 쥐면 어떤
+   * 느낌인지 같은 단편만 남겨 사는 쪽이 궁금해지게 둔다.
+   *
+   * 상세 칸 한 줄에 들어가야 하므로 18자 안쪽으로 쓴다(11px × 18자 ≈ 198px).
+   */
+  flavor: z.string().optional(),
 });
 
 const ItemsDataSchema = z.record(z.string(), ItemDataSchema);
@@ -850,6 +868,14 @@ const ShopDataSchema = z.object({
    * 전설 1 : 나머지 합 9가 되게 둔다.
    */
   rarityWeights: z.record(z.enum(['common', 'rare', 'epic', 'legendary']), z.number().positive()),
+  /**
+   * 리롤 비용(에너지). `base + step × 오늘 이미 돌린 횟수`로 오른다 — 값이 고정이면
+   * 에너지가 남는 한 계속 돌리는 게 최적이라 "오늘의 진열"이 의미를 잃는다.
+   */
+  rerollCost: z.object({
+    base: z.number().nonnegative(),
+    step: z.number().nonnegative(),
+  }),
 });
 
 export type ItemRarity = NonNullable<ItemData['rarity']>;
