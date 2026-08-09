@@ -1,5 +1,5 @@
 {
-  "$comment": "무기 재설계(2026-08). 티어 N/R/E/L. 근접: damage/fireRate/range/arc(+채집·조명). 원거리: damage(펠릿당)/fireRate/magazine/reloadTime/projectileSpeed/maxRange/muzzleOffset(+pellets/spreadDeg/pierceCount/burst). muzzleOffset은 클라 스프라이트 그립~총구 실측(weaponFx.ts) 기준. reloadTime은 2026-08 밸런스 패스에서 전 원거리 무기 절반으로 단축(docs/backend/68) — 몰려오는 몹 앞에서 재장전 다운타임이 너무 길다는 피드백. pierceCount는 같은 패스에서 신설(무기별 관통 횟수, 근접 광역 대응). 그래도 여전히 원거리가 약하다는 후속 피드백(docs/backend/70)으로 damage(rifle/pump_shotgun/double_barrel_shotgun/sniper_rifle)와 items.json의 buyPrice(같은 4종)를 함께 조정 — '탄약당 위력 ÷ 상점가'가 무기 중 최하위였던 넷만 골라 다른 무기 중간값 수준으로 맞췄다(계산 근거는 backend/70).",
+  "$comment": "무기 재설계(2026-08). 티어 N/R/E/L. 근접: damage/fireRate/range/arc(+채집·조명). 원거리: damage(펠릿당)/fireRate/magazine/reloadTime/projectileSpeed/maxRange/muzzleOffset(+pellets/spreadDeg/pierceCount/burst). muzzleOffset은 클라 스프라이트 그립~총구 실측(weaponFx.ts) 기준. reloadTime은 2026-08 밸런스 패스에서 전 원거리 무기 절반으로 단축(docs/backend/68) — 몰려오는 몹 앞에서 재장전 다운타임이 너무 길다는 피드백. pierceCount는 같은 패스에서 신설(무기별 관통 횟수, 근접 광역 대응). 그래도 여전히 원거리가 약하다는 후속 피드백(docs/backend/71)으로 damage(rifle/pump_shotgun/double_barrel_shotgun/sniper_rifle)와 items.json의 buyPrice(같은 4종)를 함께 조정 — '탄약당 위력 ÷ 상점가'가 무기 중 최하위였던 넷만 골라 다른 무기 중간값 수준으로 맞췄다(계산 근거는 backend/71).",
   "fist": {
     "name": "맨손",
     "type": "melee",

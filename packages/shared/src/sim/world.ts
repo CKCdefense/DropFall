@@ -1619,6 +1619,16 @@ export class World {
     if (!Number.isInteger(fromIndex) || !Number.isInteger(toIndex)) return;
     if (from === to && fromIndex === toIndex) return;
 
+    /*
+     * 제작 결과 칸은 **꺼내 가기만** 된다.
+     *
+     * 예전엔 placeAt이 되돌려서 거절했는데, 그 자리는 "다 못 들어간 나머지를 원래
+     * 자리로 되돌리는" 경로와 같은 문이다. 결과가 스택 상한에 걸려 일부만 들어가면
+     * 나머지가 거절당해 조용히 사라졌다(결과가 6개일 때는 드물었지만, 한 칸에 100개까지
+     * 쌓이게 된 지금은 흔한 일이다). 넣는 이동은 여기서 아예 시작하지 않는다.
+     */
+    if (to === 'craft') return;
+
     // 창고와 충전 슬롯은 둘 다 코어의 것이라 코어 앞에서만 만질 수 있다.
     const touchesCore = from !== 'inventory' || to !== 'inventory';
     if (touchesCore && !this.isNearCore(player)) return;
@@ -1663,7 +1673,21 @@ export class World {
           player.craftOutput = null;
           return slot;
         },
-        placeAt: (_index, incoming) => incoming, // 되돌린다 = 여기엔 못 넣는다
+        /*
+         * 되돌리기 전용이다 — 플레이어가 여기로 옮기는 이동은 moveItem이 먼저 막는다.
+         * 다 못 들어간 나머지를 도로 받아야 아이템이 사라지지 않는다.
+         */
+        placeAt: (index, incoming) => {
+          if (index !== 0) return incoming;
+          const output = player.craftOutput;
+          if (!output) {
+            player.craftOutput = incoming;
+            return null;
+          }
+          if (output.itemId !== incoming.itemId) return incoming;
+          output.count += incoming.count;
+          return null;
+        },
       };
     }
     return {
@@ -1868,11 +1892,20 @@ export class World {
     if (!player || player.hp <= 0 || !this.isNearCore(player)) return;
     if (typeof recipeId !== 'string') return;
     if (player.craftRecipeId) return; // 이미 만드는 중
-    if (player.craftOutput) return; // 앞서 만든 걸 아직 안 가져갔다
 
     const recipe = craftingData.recipes.find((entry) => entry.id === recipeId);
     if (!recipe) return;
     if (this.core.tier < recipe.requiresTier) return;
+    /*
+     * 결과 칸에 **같은 물건이면 쌓는다.**
+     *
+     * 예전엔 칸이 차 있으면 무조건 거절했다. 울타리는 한 번에 여섯 개씩 나오는데
+     * 스무 개를 두르려면 네 번을 만들어야 하고, 그때마다 꺼내 옮겨야 했다 — 제작
+     * 시간보다 정리하는 시간이 길었다.
+     *
+     * 다른 물건이면 여전히 거절한다. 섞어 쌓으면 앞의 결과가 무엇이었는지 사라진다.
+     */
+    if (!this.craftOutputRoom(player, recipe.itemId, recipe.count ?? 1)) return;
     if (!this.spendCoreCost(recipe.cost)) return;
 
     player.craftRecipeId = recipe.id;
@@ -1908,9 +1941,13 @@ export class World {
        * 어딘가에 섞여 들어가 무엇이 새로 생겼는지 알 수 없다. 꺼내 가는 건 드래그
        * 한 번이면 된다.
        *
-       * 시작할 때 결과 칸이 비어 있음을 이미 확인했으므로 여기서 덮어쓸 걱정은 없다.
+       * 시작할 때 자리를 이미 확인했으므로(§craftOutputRoom) 여기서는 쌓기만 한다.
+       * 만드는 도중에 결과를 꺼내 갔을 수도 있어서 "같은 물건인가"를 다시 본다.
        */
-      player.craftOutput = { itemId: recipe.itemId, count: recipe.count ?? 1 };
+      const count = recipe.count ?? 1;
+      const output = player.craftOutput;
+      if (output && output.itemId === recipe.itemId) output.count += count;
+      else player.craftOutput = { itemId: recipe.itemId, count };
     }
   }
 
@@ -3095,6 +3132,19 @@ export class World {
     if (this.solo) return;
     const allDown = [...this.players.values()].every((player) => player.hp <= 0);
     if (allDown) this.waveManager.markDefeat();
+  }
+
+  /**
+   * 제작 결과 칸에 이만큼 더 담을 자리가 있는가.
+   *
+   * 부분적으로는 받지 않는다 — 여섯 개 중 두 개만 담기면 나머지 넷이 어디로 갔는지
+   * 설명할 길이 없다. 자리가 모자라면 아예 시작하지 않아서 비용도 나가지 않는다.
+   */
+  private craftOutputRoom(player: PlayerEntity, itemId: string, count: number): boolean {
+    const output = player.craftOutput;
+    if (!output) return count <= craftingData.outputStackLimit;
+    if (output.itemId !== itemId) return false;
+    return output.count + count <= craftingData.outputStackLimit;
   }
 
   /** 고갈된 자원 노드의 리스폰 타이머를 감소시키고, 다 되면 채집 가능 상태로 되돌린다. */

@@ -365,7 +365,7 @@ const WaveEntrySchema = z.object({
  * baseMultiplier로 한 번 키우고, 인원당 증가폭(perPlayer)도 0.4 → 2로 훨씬 가파르게
  * 늘렸다(데모 준비도 리뷰 피드백 #2). 그런데 이번엔 반대로 "너무 많아서 어렵다"는
  * 피드백을 받았다(솔로 1웨이브 기준 63마리) — perPlayer(인원당 증가폭)는 그대로 두고
- * baseMultiplier만 3→2로 낮췄다(솔로 1웨이브 약 41마리, docs/backend/70).
+ * baseMultiplier만 3→2로 낮췄다(솔로 1웨이브 약 41마리, docs/backend/71).
  */
 const WavePlayerScalingSchema = z.object({
   /** waves.json의 spawns 숫자에 곱하는 기본 배율. */
@@ -771,6 +771,7 @@ const CraftRecipeSchema = z.object({
 const CraftingDataSchema = z.object({
   /** 제작 한 건에 걸리는 시간(초). 즉시 완성이면 밤이 오기 전 준비라는 압박이 없다. */
   craftSeconds: z.number().positive(),
+  outputStackLimit: z.number().int().positive(),
   recipes: z.array(CraftRecipeSchema),
 });
 
