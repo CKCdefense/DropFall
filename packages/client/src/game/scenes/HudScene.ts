@@ -487,11 +487,6 @@ export class HudScene extends Phaser.Scene {
     this.coreModal.isDragActive = () => this.slotDrag.isDragging();
     this.slotDrag.onMove = (from, fromIndex, to, toIndex) =>
       this.connection.moveItem(from, fromIndex, to, toIndex);
-    // 퀵슬롯을 한 번 클릭하면 그 칸을 든다 — 1~4 키와 같은 요청을 보낸다.
-    // 창고·충전·제작 칸에는 "든다"는 개념이 없어서 인벤토리(=퀵슬롯)만 받는다.
-    this.slotDrag.onClick = (container, index) => {
-      if (container === 'inventory') this.connection.selectSlot(index);
-    };
     /*
      * 퀵슬롯을 옮기지 않고 그냥 좌클릭만 하면 그 칸을 손에 든다 — 숫자키(1~4)와
      * 완전히 같은 동작이라 selectSlot을 그대로 재사용한다. 창고 등 다른 칸은
