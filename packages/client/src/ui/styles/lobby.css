@@ -132,9 +132,10 @@
   gap: var(--gap-sm);
 }
 
+/* 화면·모달 제목. 창이 커지면 같이 커진다 — 이 화면에서 가장 먼저 읽히는 글자다. */
 .screen-head h2 {
   margin: 0;
-  font-size: clamp(15px, 1.8vw, 19px);
+  font-size: clamp(19px, 2.3vw, 26px);
   color: var(--text);
   letter-spacing: 1px;
 }
