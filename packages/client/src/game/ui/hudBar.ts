@@ -243,3 +243,5 @@ export const ICON_CHECK_OFF = 'hud_icon_check_off_base_0';
 export const ICON_CHECK_ON = 'hud_icon_check_on_base_0';
 /** 창고 탭 아래 폐기 구역의 휴지통. 16px 원본이라 정수배로만 키운다. */
 export const ICON_TRASH = 'hud_icon_trash_base_0';
+/** 공격력 스탯 표식(한손검). 하트·번개와 나란히 서는 스탯 삼형제의 셋째다. */
+export const ICON_SWORD = 'hud_icon_sword_base_0';

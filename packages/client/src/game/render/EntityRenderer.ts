@@ -538,6 +538,13 @@ export class EntityRenderer {
   private readonly equipped = new Map<string, string>();
   /** 진행 중인 휘두르기. 끝나면 지운다. */
   private readonly swings = new Map<string, SwingState>();
+  /**
+   * 티모시가 자원을 캘 때의 휘두르기.
+   *
+   * `swings` 맵에 같이 넣지 않는 이유는 그 맵이 **플레이어 목록에 없는 id를 매 프레임
+   * 지우기** 때문이다(§syncPlayers 끝). 티모시는 플레이어가 아니라 지워진다.
+   */
+  private companionSwing: SwingState | null = null;
   private zoom = 1;
   /** 켜면 모든 플레이어 위에 실제 이동-충돌 판정 반경(원)을 겹쳐 그린다(디버그용). */
   private collisionDebugVisible = false;
@@ -580,6 +587,29 @@ export class EntityRenderer {
 
       if (isSwingFinished(swing)) this.swings.delete(id);
     }
+
+    this.advanceCompanionSwing(deltaMs);
+  }
+
+  /**
+   * 티모시의 휘두르기 한 프레임. 캐는 동안은 **끝나면 곧바로 다시 시작한다** — 채집은
+   * 한 번의 동작이 아니라 계속 두들기는 일이라, 플레이어의 단발 공격과 달리 반복된다.
+   */
+  private advanceCompanionSwing(deltaMs: number): void {
+    const swing = this.companionSwing;
+    if (!swing) return;
+
+    swing.elapsedMs += deltaMs;
+    if (!swing.fxPlayed && swing.elapsedMs >= SWING_STRIKE_DELAY_MS) {
+      swing.fxPlayed = true;
+      const part = this.companion?.getByName('swingFx');
+      if (part instanceof Phaser.GameObjects.Sprite) {
+        part.setVisible(true);
+        part.play(SWING_ANIM, true);
+        part.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => part.setVisible(false));
+      }
+    }
+    if (isSwingFinished(swing)) this.companionSwing = null;
   }
 
   /**
@@ -2300,7 +2330,33 @@ export class EntityRenderer {
     speech.setResolution(this.zoom);
     applyTextShadow(speech);
 
-    return this.scene.add.container(view.x, view.y, [body, label, speech]);
+    /*
+     * 손과 휘두르기 이펙트. **플레이어의 맨손 일습을 그대로** 붙인다 — 티모시는 도구
+     * 없이 캐므로 주먹 배치(WEAPON_VISUALS.fist)가 그대로 맞고, 같은 layoutWeapon을
+     * 쓰면 손 위치·좌우 반전 규칙을 두 벌로 관리하지 않아도 된다.
+     */
+    const parts: Phaser.GameObjects.GameObject[] = [body, label, speech];
+    if (this.hasCompanionSprite && this.hasWeapon && this.hasHands) {
+      parts.push(
+        this.scene.add
+          .sprite(0, 0, GAME_ATLAS, weaponVisual(BARE_HANDS_WEAPON_ID).frame)
+          .setTint(COMPANION_TINT)
+          .setName('aim'),
+        ...HAND_NAMES.map((name) =>
+          this.scene.add.sprite(0, 0, GAME_ATLAS, HAND_FRAME).setTint(COMPANION_TINT).setName(name),
+        ),
+      );
+      if (this.hasSwing) {
+        parts.push(
+          this.scene.add
+            .sprite(0, 0, GAME_ATLAS, `${SWING_ANIM}_0`)
+            .setName('swingFx')
+            .setVisible(false),
+        );
+      }
+    }
+
+    return this.scene.add.container(view.x, view.y, parts);
   }
 
   /**
@@ -2354,6 +2410,22 @@ export class EntityRenderer {
     } else {
       body.anims.stop();
       body.setFrame(idleFrame(COMPANION_SPRITE_JOB, direction));
+    }
+
+    /*
+     * 캐는 중이면 손을 휘두른다. **끝나는 대로 다시 시작한다**(advanceCompanionSwing) —
+     * 캐고 있다는 걸 한 번 휘두르고 마는 것으로는 알 수 없다. 예전엔 아무 동작도 없어서
+     * 자원 앞에 가만히 서 있는 것처럼 보였다.
+     */
+    if (view.state === 'harvesting' && !this.companionSwing) {
+      this.companionSwing = { elapsedMs: 0, fxPlayed: false };
+    }
+
+    const aim = container.getByName('aim');
+    if (aim instanceof Phaser.GameObjects.Sprite) {
+      const parts = this.readWeaponParts(container, aim);
+      layoutWeapon(parts, this.visualOf(BARE_HANDS_WEAPON_ID), angle, this.companionSwing);
+      orderWeaponAgainstBody(container, parts, angle);
     }
   }
 

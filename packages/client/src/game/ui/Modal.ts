@@ -29,10 +29,8 @@ const SECTION_FILL = 0x171a22;
  * 글자가 테두리 위로 올라타지 않는다.
  */
 const PAD = FRAME_INSET + 4;
-/** 닫기 버튼 글자 배율. 픽셀 폰트라 정수배만 쓴다(2배 = 획 두께도 2배). */
-const CLOSE_BUTTON_SCALE = 2;
-/** 제목 줄 아래에서 콘텐츠가 시작되는 y 오프셋(패널 기준). 제목 줄 = 드래그 손잡이. */
-const CONTENT_TOP = PAD + 18;
+/** 닫기 버튼 글자 배율. 픽셀 폰트라 정수배만 쓴다(3배 = 획 두께도 3배). */
+const CLOSE_BUTTON_SCALE = 3;
 
 /**
  * 탭 줄 — **서류철 탭**이다. 버튼이 아니라 "내용 판에 붙은 색인표"로 보여야 한다.
@@ -330,7 +328,10 @@ export class Modal {
       .setOrigin(0, 0);
 
     const tabbed = opts.tabs !== undefined && opts.tabs.length > 0;
-    const headerHeight = tabbed ? PAD + TAB_HEIGHT : CONTENT_TOP;
+    // 제목 줄 높이는 제목 글자 크기를 따라간다 — 고정값(18px)이던 시절엔 22px 제목이
+    // 콘텐츠 첫 상자 위로 4px 올라탔다.
+    const contentTop = PAD + (opts.titleSize ?? SIZE_BODY) + 8;
+    const headerHeight = tabbed ? PAD + TAB_HEIGHT : contentTop;
     // 내용 판. 탭이 이 판의 윗변에 얹히므로 판을 먼저 잡고 탭을 그 위에 그린다.
     const boardTop = PAD + TAB_HEIGHT;
     const boardHeight = this.panelHeight - PAD - boardTop;
@@ -351,26 +352,28 @@ export class Modal {
     // 닫기 버튼. 픽셀 폰트는 굵기 옵션이 없어서 **크기를 정수배로 키우는 것이 곧
     // 굵기**다 — 2배면 획이 1px에서 2px가 된다(1.5배 같은 값은 획이 뭉개진다).
     // 커진 글자만큼 히트 영역도 같이 넓어져서 누르기도 쉬워진다.
+    // 평소에도 밝은 본문색이다 — 흐린 회색은 "누를 수 있는 것"으로 안 읽혔다.
     const closeButton = scene.add
       .text(this.panelWidth - PAD, PAD, 'X', {
         fontFamily: FONT,
         fontSize: `${SIZE_BODY * CLOSE_BUTTON_SCALE}px`,
-        color: DIM_TEXT,
+        fontStyle: 'bold',
+        color: BODY_TEXT,
       })
       .setOrigin(1, 0)
       .setInteractive({ useHandCursor: true });
     closeButton.on('pointerover', () => closeButton.setColor(ACCENT));
-    closeButton.on('pointerout', () => closeButton.setColor(DIM_TEXT));
+    closeButton.on('pointerout', () => closeButton.setColor(BODY_TEXT));
     closeButton.on('pointerdown', () => this.close());
 
     this.contentHeight = tabbed
       ? boardHeight - BOARD_PAD * 2
-      : this.panelHeight - CONTENT_TOP - PAD;
+      : this.panelHeight - contentTop - PAD;
     if (tabbed) this.contentWidth = boardWidth - BOARD_PAD * 2;
 
     this.content = scene.add.container(
       tabbed ? PAD + BOARD_PAD : PAD,
-      tabbed ? boardTop + BOARD_PAD : CONTENT_TOP,
+      tabbed ? boardTop + BOARD_PAD : contentTop,
     );
     this.builder = new PanelBuilder(scene, this.content, this.contentWidth, this.contentHeight);
     this.root.add([panel, backdrop, titleBar]);

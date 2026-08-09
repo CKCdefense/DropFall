@@ -40,6 +40,13 @@ export interface MoveItemMessage {
   fromIndex: number;
   to: 'inventory' | 'storage';
   toIndex: number;
+  /**
+   * 옮길 개수. **없으면 칸을 통째로** 옮긴다(예전 동작).
+   *
+   * 값이 있어도 서버가 1..보유량으로 조인다 — 클라이언트가 개수를 주장할 수 없다.
+   * 낱개로 나누는 조작(Ctrl+드래그 = 절반)이 이 필드 하나로 표현된다.
+   */
+  count?: number;
 }
 
 /** 제작 요청. 어떤 레시피인지만 보낸다 — 티어·재료 검증은 전부 서버가 한다. */

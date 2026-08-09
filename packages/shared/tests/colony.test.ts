@@ -94,6 +94,13 @@ describe('World — 콜로니 배치', () => {
     expect(createTestWorld(7).getColonies().size).toBe(4);
   });
 
+  /*
+   * 90초인 이유: World를 20번 새로 만드는데(지형·자원 배치까지 도는 무거운 생성자)
+   * 단독으로도 십수 초가 걸린다. 전체 스위트는 파일 수십 개를 동시에 돌려 CPU를 나눠
+   * 쓰므로 같은 일이 몇 배로 늘어나 기본 20초를 넘긴다 — 실제로 그렇게 실패했다.
+   * 이 테스트는 느려진 걸 잡는 게 아니라 **배치 규칙**을 보는 것이라 경계에 붙여 둘
+   * 이유가 없다(economy.test.ts의 전설 비율 테스트와 같은 처방).
+   */
   it('어떤 두 콜로니 쌍도 minSpacing보다 가깝지 않다(여러 시드로 반복)', () => {
     for (let seed = 1; seed <= 20; seed += 1) {
       const colonies = [...createTestWorld(4, seed).getColonies().values()];
@@ -107,7 +114,7 @@ describe('World — 콜로니 배치', () => {
         }
       }
     }
-  });
+  }, 90_000);
 
   it('시드가 다르면 콜로니 위치도 달라진다(고정 위치가 아니다)', () => {
     const positions = (seed: number) =>

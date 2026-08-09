@@ -108,6 +108,11 @@ export class Inventory {
     return this.slots[index] ?? null;
   }
 
+  /** `slotAt`과 같다 — SlotAccess(§world.ts)가 요구하는 이름이다. */
+  peekAt(index: number): InventorySlot | null {
+    return this.slotAt(index);
+  }
+
   get selected(): InventorySlot | null {
     return this.slotAt(this.selectedIndex);
   }
@@ -172,11 +177,23 @@ export class Inventory {
    * 칸의 내용을 통째로 꺼낸다(칸은 비워진다). 드래그앤드롭처럼 "집어서 다른 곳에 놓는"
    * 조작에 쓴다 — add()는 빈 칸을 알아서 고르기 때문에 목적지를 지정할 수 없다.
    */
-  takeAt(index: number): InventorySlot | null {
+  /**
+   * 칸에서 물건을 꺼낸다. `count`를 주면 **그만큼만 떼고 나머지는 칸에 남긴다.**
+   *
+   * 개수를 안 주면 통째로 꺼낸다 — 옮기기의 기본은 여전히 "칸 하나가 통째로"다.
+   */
+  takeAt(index: number, count?: number): InventorySlot | null {
     const slot = this.slotAt(index);
     if (!slot) return null;
-    this.slots[index] = null;
-    return slot;
+
+    if (count === undefined || count >= slot.count) {
+      this.slots[index] = null;
+      return slot;
+    }
+
+    const taken = Math.max(1, Math.floor(count));
+    slot.count -= taken;
+    return { itemId: slot.itemId, count: taken };
   }
 
   /**

@@ -41,12 +41,17 @@ export interface DragCell {
  * 바뀐다. 유령/강조는 순수 연출이다.
  */
 export class SlotDrag {
-  /** 놓았을 때 호출된다. HudScene이 connection.moveItem으로 배선한다. */
+  /**
+   * 놓았을 때 호출된다. HudScene이 connection.moveItem으로 배선한다.
+   *
+   * `count`는 낱개로 나눠 옮길 때만 실린다(Ctrl+드래그 = 절반). 없으면 칸을 통째로다.
+   */
   onMove: (
     from: SlotContainer,
     fromIndex: number,
     to: SlotContainer,
     toIndex: number,
+    count?: number,
   ) => void = () => {};
 
   /**
@@ -92,6 +97,11 @@ export class SlotDrag {
   private readonly cells: DragCell[] = [];
   private source: DragCell | null = null;
   private ghost: Phaser.GameObjects.GameObject | null = null;
+  /**
+   * 나눠 집었을 때 고스트에 붙는 개수. **통째로 집으면 안 띄운다** — 칸에 이미 같은
+   * 숫자가 적혀 있어서, 늘 띄우면 무엇이 달라졌는지가 오히려 안 보인다.
+   */
+  private ghostCount: Phaser.GameObjects.Text | null = null;
   private hover: DragCell | null = null;
 
   constructor(private readonly scene: Phaser.Scene) {
@@ -106,10 +116,12 @@ export class SlotDrag {
       // 쉬프트를 누른 채 클릭하면 드래그 대신 반대편 컨테이너로 바로 옮긴다
       // (docs/backend/44). pointer.event는 네이티브 DOM 이벤트라 shiftKey를
       // 그대로 읽을 수 있다.
-      if ((pointer.event as MouseEvent | undefined)?.shiftKey) {
+      const event = pointer.event as MouseEvent | undefined;
+      if (event?.shiftKey) {
         this.quickMove(cell);
       } else {
-        this.beginDrag(cell);
+        // Ctrl은 **나눠 집기**다. 쉬프트(빨리 통째로)와 나란히 서는 수식키 문법이다.
+        this.beginDrag(cell, event?.ctrlKey === true);
       }
     });
   }
@@ -135,7 +147,16 @@ export class SlotDrag {
     this.onQuickMove(cell.container, cell.index);
   }
 
-  private beginDrag(cell: DragCell): void {
+  /**
+   * 이번 드래그가 **나눠 옮기기**인가(Ctrl을 누른 채 집었다).
+   *
+   * 집는 순간의 상태를 기억한다 — 놓는 순간에 다시 읽으면, 끌고 오는 도중에 손을
+   * 뗐다 눌렀다 한 것까지 반영되어 "반만 집었는데 다 옮겨졌다"가 된다. 무엇을 집었는지는
+   * 집을 때 정해져야 하고, 고스트도 그 개수로 떠 있다.
+   */
+  private splitting = false;
+
+  private beginDrag(cell: DragCell, splitting = false): void {
     if (cell.container === 'trash') return; // 폐기 구역에서는 집을 것도, 고를 것도 없다
     if (!cell.isActive()) return;
     const slot = this.getSlot(cell.container, cell.index);
@@ -147,6 +168,8 @@ export class SlotDrag {
     }
 
     this.source = cell;
+    // 한 개짜리(무기·도구)는 나눌 게 없다 — Ctrl을 눌러도 통째로 옮긴다.
+    this.splitting = splitting && slot.count > 1;
     const item = itemOfSlot(slot);
 
     // 집은 물건의 **그림**이 커서를 따라온다. 예전엔 이름표(글자)가 붙어 다녀서, 무엇을
@@ -169,6 +192,19 @@ export class SlotDrag {
         .setAlpha(GHOST_ALPHA)
         .setDepth(DEPTH_GHOST);
 
+    if (this.splitting) {
+      this.ghostCount = this.scene.add
+        .text(0, 0, `${Math.ceil(slot.count / 2)}`, {
+          fontFamily: FONT_SMALL,
+          fontSize: `${SIZE_SMALL}px`,
+          color: BODY_TEXT,
+          backgroundColor: '#14161d',
+          padding: { x: 3, y: 1 },
+        })
+        .setOrigin(0, 0)
+        .setDepth(DEPTH_GHOST + 1);
+    }
+
     const pointer = this.scene.input.activePointer;
     this.moveGhost(pointer.x, pointer.y);
   }
@@ -176,6 +212,8 @@ export class SlotDrag {
   /** 고스트는 Image이거나 Text라 공통 상위 타입에는 setPosition이 없다 — 한 곳에서 좁힌다. */
   private moveGhost(x: number, y: number): void {
     (this.ghost as Phaser.GameObjects.Components.Transform | null)?.setPosition(x, y);
+    // 개수는 그림 오른쪽 아래에 — 칸에 적히는 자리와 같다.
+    this.ghostCount?.setPosition(x + GHOST_SIZE / 4, y + GHOST_SIZE / 4);
   }
 
   private onPointerMove(pointer: Phaser.Input.Pointer): void {
@@ -206,6 +244,8 @@ export class SlotDrag {
     if (!this.source) return;
 
     const source = this.source;
+    // endDrag()가 상태를 지우므로 **먼저 붙잡아 둔다** — 아래에서 읽으면 늘 false다.
+    const splitting = this.splitting;
     const target = this.cellAt(pointer.x, pointer.y);
     this.endDrag();
 
@@ -226,13 +266,21 @@ export class SlotDrag {
     const slot = this.getSlot(source.container, source.index);
     if (slot && this.isRejected(target.container, target.index, slot.itemId)) return;
 
-    this.onMove(source.container, source.index, target.container, target.index);
+    /*
+     * 나눠 옮기기는 **올림 절반**이다(5개 → 3개). 홀수에서 내림하면 1개를 나눌 때
+     * 0개가 되어 아무 일도 일어나지 않는다 — 손은 움직였는데 결과가 없는 게 제일 나쁘다.
+     */
+    const count = splitting && slot ? Math.ceil(slot.count / 2) : undefined;
+    this.onMove(source.container, source.index, target.container, target.index, count);
   }
 
   private endDrag(): void {
     this.ghost?.destroy();
     this.ghost = null;
+    this.ghostCount?.destroy();
+    this.ghostCount = null;
     this.source = null;
+    this.splitting = false;
     if (this.hover?.container === 'storage') this.hover.box.setStrokeStyle(1, IDLE_STROKE);
     if (this.hover?.container === 'trash') this.onTrashHover(false);
     this.hover = null;

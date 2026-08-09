@@ -314,8 +314,14 @@ export class ColyseusConnection implements GameConnection {
     this.room.send('deposit', {});
   }
 
-  moveItem(from: SlotContainer, fromIndex: number, to: SlotContainer, toIndex: number): void {
-    this.room.send('moveItem', { from, fromIndex, to, toIndex });
+  moveItem(
+    from: SlotContainer,
+    fromIndex: number,
+    to: SlotContainer,
+    toIndex: number,
+    count?: number,
+  ): void {
+    this.room.send('moveItem', { from, fromIndex, to, toIndex, count });
   }
 
   placeHeldBuilding(cx: number, cy: number): void {

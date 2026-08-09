@@ -37,6 +37,8 @@ const WARNING_BLINK_MS = 320;
 const WARNING_COLOR = '#ff2b2b';
 const DAY_COLOR = '#ffffff';
 const CLEAR_COLOR = '#4bf28c';
+/** 패배. 경고(WARNING)와 같은 붉은 계열이되 한 단계 가라앉혀 "끝났다"로 읽히게 한다. */
+const OVER_COLOR = '#e2413f';
 
 /**
  * 문구 불투명도. 완전 불투명이면 화면에 붙인 스티커처럼 보여서, 살짝 비쳐 아래 장면과
@@ -45,6 +47,28 @@ const CLEAR_COLOR = '#4bf28c';
 const TITLE_ALPHA = 0.88;
 /** 경고가 깜빡일 때 어두워지는 쪽 알파. */
 const WARNING_DIM_ALPHA = 0.15;
+
+/**
+ * 패배 화면이 화면을 눌러 덮는 정도와, 그렇게 되기까지 걸리는 시간(ms).
+ *
+ * 완전 암전은 하지 않는다 — 코어가 무너진 자리와 몰려든 몬스터가 비쳐 보여야
+ * "왜 졌는지"가 남는다. 문구는 사라지지 않고 계속 걸려 있다(끝났다는 뜻이다).
+ */
+const OVER_VEIL_ALPHA = 0.72;
+const OVER_FADE_MS = 900;
+
+/** 안내 줄. 큰 문구 아래에 작게 붙는다 — 이 화면에서 할 수 있는 일이 하나뿐이라 한 줄이면 된다. */
+const OVER_HINT_SIZE = 22;
+const OVER_HINT_GAP = 96;
+const OVER_HINT_COLOR = '#cfd6e4';
+/**
+ * 안내가 뜨기까지의 유예(ms). 문구가 채 뜨기도 전에 "아무 키나 누르세요"가 같이
+ * 나오면, 마침 누르고 있던 키 하나에 화면이 통째로 넘어가 버린다.
+ *
+ * **입력을 받기 시작하는 시점도 이 값이다** — 안내가 보이기 전에 눌린 키가 먹으면
+ * 사용자에겐 "화면이 저절로 넘어갔다"가 된다. 그래서 HudScene이 이 상수를 같이 쓴다.
+ */
+export const GAME_OVER_HINT_DELAY_MS = 1200;
 
 /**
  * 문구의 세로 위치(화면 높이 비율). 정확한 한가운데(0.5)가 아니라 **조금 위**다 —
@@ -67,6 +91,8 @@ const TITLE_Y_RATIO = 0.43;
 export class CinematicOverlay {
   private readonly veil: Phaser.GameObjects.Rectangle;
   private readonly title: Phaser.GameObjects.Text;
+  /** 패배 화면의 안내 줄. 그때만 보인다. */
+  private readonly hint: Phaser.GameObjects.Text;
 
   /** 지금 띄워 둔 문구의 식별자. 같은 값이 다시 오면 무시한다. */
   private currentCue = '';
@@ -104,12 +130,25 @@ export class CinematicOverlay {
       .setScrollFactor(0)
       .setDepth(DEPTH + 1)
       .setAlpha(0);
+
+    this.hint = scene.add
+      .text(width / 2, height * TITLE_Y_RATIO + OVER_HINT_GAP, '', {
+        fontFamily: FONT,
+        fontSize: `${OVER_HINT_SIZE}px`,
+        fontStyle: 'bold',
+        color: OVER_HINT_COLOR,
+      })
+      .setOrigin(0.5, 0.5)
+      .setScrollFactor(0)
+      .setDepth(DEPTH + 1)
+      .setAlpha(0);
   }
 
   /** 화면 크기가 바뀌면 다시 부른다. */
   layout(width: number, height: number): void {
     this.veil.setSize(width, height);
     this.title.setPosition(width / 2, height * TITLE_Y_RATIO);
+    this.hint.setPosition(width / 2, height * TITLE_Y_RATIO + OVER_HINT_GAP);
   }
 
   /** 시작 암전 — 완전히 검은 상태에서 잠깐 머물다가 천천히 밝아진다. */
@@ -177,6 +216,38 @@ export class CinematicOverlay {
     this.stopBlink();
     this.currentCue = '';
     this.scene.tweens.add({ targets: this.title, alpha: 0, duration: 250 });
+  }
+
+  /**
+   * 패배. 화면을 반쯤 덮고 GAME OVER를 띄운 뒤, 잠시 뒤 안내 줄을 붙인다.
+   *
+   * 사라지지 않는다 — 다음 행동(아무 키나 입력)은 화면 바깥(HudScene)이 받는다.
+   * 이 클래스는 무엇을 보여줄지만 알고, 그 뒤에 무슨 일이 일어나는지는 모른다.
+   *
+   * @param hint 안내 줄 문구. 돌아갈 곳이 싱글/멀티에 따라 달라 호출부가 정한다.
+   */
+  showGameOver(hint: string): void {
+    if (!this.setCue('gameover')) return;
+
+    this.stopBlink();
+    this.scene.tweens.add({
+      targets: this.veil,
+      alpha: OVER_VEIL_ALPHA,
+      duration: OVER_FADE_MS,
+      ease: 'Sine.easeInOut',
+    });
+    this.title.setText('GAME OVER').setColor(OVER_COLOR).setAlpha(0);
+    this.scene.tweens.add({
+      targets: this.title,
+      alpha: TITLE_ALPHA,
+      duration: OVER_FADE_MS,
+      ease: 'Sine.easeOut',
+    });
+
+    this.hint.setText(hint).setAlpha(0);
+    this.scene.time.delayedCall(GAME_OVER_HINT_DELAY_MS, () => {
+      this.scene.tweens.add({ targets: this.hint, alpha: 1, duration: 400 });
+    });
   }
 
   /** 마지막 보스를 잡았을 때. 사라지지 않고 남는다 — 끝났다는 뜻이다. */

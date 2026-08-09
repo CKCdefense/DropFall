@@ -70,14 +70,21 @@ export class LobbyApp {
     this.render();
   }
 
-  /** 게임에서 로비로 돌아올 때 호출된다. */
-  reset(message = ''): void {
-    this.screen = 'title';
+  /**
+   * 게임에서 로비로 돌아올 때 호출된다.
+   *
+   * @param screen 돌아갈 화면. 기본은 타이틀이고, `'browse'`면 방 목록을 바로 띄우고
+   *   새로 고친다 — 멀티에서 한 판이 끝난 사람은 대개 다음 방을 찾으므로, 타이틀을
+   *   한 번 더 거치게 하는 건 걸음만 늘린다.
+   */
+  reset(message = '', screen: 'title' | 'browse' = 'title'): void {
+    this.screen = screen;
     this.errorMessage = message;
     this.statusMessage = '';
     this.pendingRoomCode = null;
     this.browseMode = 'list';
     this.render();
+    if (screen === 'browse') void this.refreshRooms();
   }
 
   // ---------------------------------------------------------------- rendering

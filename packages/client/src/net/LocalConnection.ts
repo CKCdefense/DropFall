@@ -134,8 +134,14 @@ export class LocalConnection implements GameConnection {
     this.world.pickUpNearestDrop(LOCAL_SESSION_ID);
   }
 
-  moveItem(from: SlotContainer, fromIndex: number, to: SlotContainer, toIndex: number): void {
-    this.world.moveItem(LOCAL_SESSION_ID, from, fromIndex, to, toIndex);
+  moveItem(
+    from: SlotContainer,
+    fromIndex: number,
+    to: SlotContainer,
+    toIndex: number,
+    count?: number,
+  ): void {
+    this.world.moveItem(LOCAL_SESSION_ID, from, fromIndex, to, toIndex, count);
   }
 
   placeHeldBuilding(cx: number, cy: number): void {

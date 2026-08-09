@@ -59,26 +59,34 @@ const NOTE_FONT_SIZE = SIZE_SMALL * 2;
  */
 const PANEL_WIDTH = 900;
 const PANEL_HEIGHT = 510;
-/** Modal이 내용 컨테이너를 창 안쪽으로 들여놓은 여백. 열 폭 계산에 같은 값을 쓴다. */
-const PAD_X = 28;
-/** 창 제목(22px)이 기본 머리 공간(38px)보다 커서, 내용을 그만큼 더 내린다. */
-const INSET_TOP = 14;
+/**
+ * 내용 컨테이너(이미 창 테두리에서 20px 안쪽) 안에 **추가로** 두는 여백.
+ * 글이 창 테두리에 붙어 있으면 판이 아니라 벽보처럼 읽힌다 — 합쳐서 46px의
+ * 외곽 패딩이 생기고, 그만큼 좁아진 내용이 저절로 가운데로 모인다.
+ */
+const MARGIN = 26;
+/** 제목 줄 높이는 Modal이 titleSize로 이미 확보한다 — 여기는 숨통만 조금 둔다. */
+const INSET_TOP = 4;
 /** 두 열 사이 간격. */
 const COLUMN_GAP = 28;
 /** 열 안에서 키캡 묶음이 차지하는 폭. 여기서 설명 글이 시작한다 — 줄마다 어긋나면 표로 안 읽힌다. */
-const KEYS_COLUMN = 190;
+const KEYS_COLUMN = 172;
 
 const CAP_GAP = 8;
-const ROW_GAP = 6;
-/** 구역 제목과 첫 줄 사이, 구역과 구역 사이. */
-const HEAD_GAP = 8;
-const SECTION_GAP = 6;
+/**
+ * 줄 사이는 좁히고 구역 사이는 넓혔다. 예전엔 둘이 거의 같아서(6/6) 네 구역이
+ * 한 덩어리로 흘러내려 어디서 갈리는지 안 보였고, 늘어난 세로가 아래 페이지 넘김
+ * 줄까지 밀어붙였다 — 묶음은 붙이고 묶음끼리 떼는 쪽이 짧으면서 더 잘 읽힌다.
+ */
+const ROW_GAP = 4;
+const HEAD_GAP = 6;
+const SECTION_GAP = 12;
 
 /** 아래 페이지 넘김 줄이 차지하는 높이. 내용은 이 위에서 끝나야 한다. */
 const NAV_HEIGHT = 44;
 
 /** 진행 안내 쪽 그림 칸 폭과 그림을 맞출 상자 크기. */
-const GUIDE_IMAGE_COLUMN = 96;
+const GUIDE_IMAGE_COLUMN = 88;
 const GUIDE_IMAGE_FIT = 52;
 
 interface GuideRow {
@@ -126,6 +134,7 @@ const SECTIONS: readonly GuideSection[] = [
       { keys: ['SPACE'], label: '줍기' },
       { keys: ['1', `${SLOT_COUNT}`], label: '퀵슬롯 선택', note: '슬롯 클릭도 같다' },
       { keys: ['SHIFT', '클릭'], label: '빠른 옮기기', note: '보고 있는 탭으로' },
+      { keys: ['CTRL', '드래그'], label: '절반 나누기', note: '여러 개 든 칸만' },
     ],
   },
   {
@@ -134,6 +143,7 @@ const SECTIONS: readonly GuideSection[] = [
       { keys: ['E'], label: '코어 창 열기', note: '코어 앞에서만' },
       { keys: ['E'], label: '동료 구조', note: '누르고 있는다' },
       { keys: ['V'], label: '낮 넘기기 투표', note: '전원 동의 필요' },
+      { keys: ['H'], label: '도움말 열기·닫기', note: '이 창이다' },
     ],
   },
 ];
@@ -256,7 +266,7 @@ export class GuideModal extends Modal {
   private buildNav(scene: Phaser.Scene): void {
     const textured =
       scene.textures.exists(HUD_ATLAS) && scene.textures.get(HUD_ATLAS).has(CAP_FRAME);
-    const centerX = (PANEL_WIDTH - PAD_X * 2) / 2;
+    const centerX = this.contentWidth / 2;
     const y = this.contentHeight - NAV_HEIGHT + 4;
 
     this.pageLabel = scene.add
@@ -316,11 +326,11 @@ export class GuideModal extends Modal {
     // 앞 절반은 왼쪽, 뒤 절반은 오른쪽 열에 쌓는다. 열마다 y를 따로 세면 한쪽이
     // 길어져도 다른 쪽이 딸려 내려가지 않는다.
     const half = Math.ceil(SECTIONS.length / 2);
-    const columnWidth = (PANEL_WIDTH - PAD_X * 2 - COLUMN_GAP) / 2;
+    const columnWidth = (this.contentWidth - MARGIN * 2 - COLUMN_GAP) / 2;
 
     SECTIONS.forEach((section, index) => {
       const column = index < half ? 0 : 1;
-      const left = column * (columnWidth + COLUMN_GAP);
+      const left = MARGIN + column * (columnWidth + COLUMN_GAP);
       let y = this.columnY[column];
 
       const head = scene.add
@@ -397,7 +407,13 @@ export class GuideModal extends Modal {
     return drawnWidth;
   }
 
-  /** 항목 이름 + 각주. 키캡 칸 오른쪽에 붙는다. 아랫변을 돌려준다. */
+  /**
+   * 항목 이름 + 각주. 키캡 칸 오른쪽에 붙는다. 아랫변을 돌려준다.
+   *
+   * @param keysEnd 키캡이 실제로 끝난 x. 보통은 고정 칸(KEYS_COLUMN)이면 충분하지만,
+   *   `SHIFT+클릭`처럼 넓은 키캡 두 장이 오면 그 칸을 넘어가 **글자를 덮는다**. 둘 중
+   *   오른쪽에서 시작해야 어떤 조합이 와도 겹치지 않는다.
+   */
   private addRowText(
     scene: Phaser.Scene,
     page: Phaser.GameObjects.Container,
@@ -405,9 +421,11 @@ export class GuideModal extends Modal {
     left: number,
     top: number,
     columnWidth: number,
+    keysEnd = 0,
   ): number {
+    const textLeft = Math.max(left + KEYS_COLUMN, keysEnd);
     const label = scene.add
-      .text(left + KEYS_COLUMN, top, row.label, {
+      .text(textLeft, top, row.label, {
         fontFamily: FONT_SMALL,
         fontSize: `${LABEL_FONT_SIZE}px`,
         color: BODY_TEXT,
@@ -418,11 +436,12 @@ export class GuideModal extends Modal {
     if (!row.note) return top + LABEL_FONT_SIZE;
 
     const note = scene.add
-      .text(left + KEYS_COLUMN, top + LABEL_FONT_SIZE + 4, row.note, {
+      .text(textLeft, top + LABEL_FONT_SIZE + 4, row.note, {
         fontFamily: FONT_SMALL,
         fontSize: `${NOTE_FONT_SIZE}px`,
         color: DIM_TEXT,
-        wordWrap: { width: columnWidth - KEYS_COLUMN },
+        // 글이 시작하는 자리가 밀린 만큼 접히는 폭도 줄어든다.
+        wordWrap: { width: columnWidth - (textLeft - left) },
       })
       .setOrigin(0, 0);
     page.add(note);
@@ -459,7 +478,8 @@ export class GuideModal extends Modal {
     // 글자 덩어리를 키캡 세로 가운데에 맞춘다.
     const textHeight = row.note ? LABEL_FONT_SIZE + 4 + NOTE_FONT_SIZE : LABEL_FONT_SIZE;
     const textTop = top + Math.max(2, (CAP_HEIGHT * KEYCAP_SCALE - textHeight) / 2);
-    const textBottom = this.addRowText(scene, page, row, left, textTop, columnWidth);
+    // 마지막 키캡 뒤에 붙은 CAP_GAP은 빼고 넘긴다 — 글자와의 간격은 아래에서 따로 준다.
+    const textBottom = this.addRowText(scene, page, row, left, textTop, columnWidth, x + CAP_GAP);
     return Math.max(top + CAP_HEIGHT * KEYCAP_SCALE, textBottom) + ROW_GAP;
   }
 
@@ -501,11 +521,11 @@ export class GuideModal extends Modal {
     page: Phaser.GameObjects.Container,
     spec: GuidePage,
   ): void {
-    const width = PANEL_WIDTH - PAD_X * 2;
+    const width = this.contentWidth - MARGIN * 2;
     let y = INSET_TOP;
 
     const title = scene.add
-      .text(0, y, spec.title, {
+      .text(MARGIN, y, spec.title, {
         fontFamily: FONT,
         fontSize: `${HEAD_FONT_SIZE}px`,
         fontStyle: 'bold',
@@ -529,7 +549,7 @@ export class GuideModal extends Modal {
     width: number,
   ): number {
     const image = this.guideImage(scene, entry);
-    const textLeft = GUIDE_IMAGE_COLUMN;
+    const textLeft = MARGIN + GUIDE_IMAGE_COLUMN;
 
     const head = scene.add
       .text(textLeft, top, entry.head, {
@@ -545,7 +565,7 @@ export class GuideModal extends Modal {
         fontFamily: FONT_SMALL,
         fontSize: `${NOTE_FONT_SIZE}px`,
         color: DIM_TEXT,
-        wordWrap: { width: width - textLeft },
+        wordWrap: { width: MARGIN + width - textLeft },
         lineSpacing: 4,
       })
       .setOrigin(0, 0);
@@ -560,7 +580,7 @@ export class GuideModal extends Modal {
       const frame = image.frame;
       const fit = Math.min(GUIDE_IMAGE_FIT / frame.width, GUIDE_IMAGE_FIT / frame.height, 3);
       image.setScale(fit);
-      image.setPosition(GUIDE_IMAGE_COLUMN / 2 - 8, top + rowHeight / 2);
+      image.setPosition(MARGIN + GUIDE_IMAGE_COLUMN / 2 - 8, top + rowHeight / 2);
       page.add(image);
     }
 

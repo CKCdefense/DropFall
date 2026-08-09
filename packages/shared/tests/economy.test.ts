@@ -234,15 +234,22 @@ describe('World — 제작', () => {
     expect(world.getCore().resource).toBe(recipe.cost.resource);
   });
 
-  it('울타리·벽은 한 번에 여섯 개가 나온다', () => {
+  it('울타리·벽은 한 번에 묶음으로 나온다(레시피의 count만큼)', () => {
     const world = worldWithPlayerAtCore();
     const recipe = craftingData.recipes.find((entry) => entry.id === 'fence')!;
     grantGauges(world, recipe.cost.resource, 0);
 
+    // 묶음 크기는 밸런스로 바뀌는 값이라(6 → 8) 숫자를 여기 박지 않고 데이터에서 읽는다 —
+    // 확인하려는 건 "한 번에 여러 개가 나온다"이지 그 개수가 몇이냐가 아니다.
+    expect(recipe.count).toBeGreaterThan(1);
+
     world.craftItem('p1', recipe.id);
     finishCraft(world);
 
-    expect(world.getPlayers().get('p1')!.craftOutput).toEqual({ itemId: 'fence', count: 6 });
+    expect(world.getPlayers().get('p1')!.craftOutput).toEqual({
+      itemId: 'fence',
+      count: recipe.count,
+    });
   });
 
   it('코어 티어가 모자란 레시피는 자원이 넘쳐도 만들 수 없다', () => {
@@ -383,25 +390,32 @@ describe('World — 상점 로테이션', () => {
   });
 
   it('실제로 뽑아봐도 전설 비율이 10% 근처다', () => {
-    // 한 판(3+3칸)에는 중복 제거가 걸려서 확률이 조금 달라진다 — **첫 칸**만 모으면
-    // 가중치 그대로의 분포가 나온다. World를 200번 새로 만드는 거라 기본 타임아웃(5초)
-    // 으로는 모자라서 넉넉히 준다.
-    //
-    // 90초인 이유: World 생성 한 번이 지형까지 만드느라 무겁다(단독 실행 ~24초).
-    // 전체 스위트는 파일 수십 개를 동시에 돌려서 CPU를 나눠 쓰므로 같은 일이 2배 넘게
-    // 걸린다 — 30초로는 부하에 따라 됐다 안 됐다 한다. 느려진 걸 잡는 테스트가 아니니
-    // 경계에 붙여 둘 이유가 없다.
+    /*
+     * 한 판(3+3칸)에는 중복 제거가 걸려서 확률이 조금 달라진다 — **첫 칸**만 모으면
+     * 가중치 그대로의 분포가 나온다.
+     *
+     * 표본은 **리롤로** 모은다. 예전엔 World를 200번 새로 만들어 첫 칸을 봤는데,
+     * 생성자가 지형·자원 배치까지 도는 무거운 작업이라 이 테스트 하나가 수십 초를
+     * 먹었고 전체 스위트 부하에서는 타임아웃으로 죽었다(90초를 줘도 모자랐다).
+     * 리롤은 진열만 다시 뽑는 같은 코드 경로(rollShopStock)라 분포가 같으면서,
+     * World는 한 번만 만들면 된다.
+     */
+    const world = worldWithPlayerAtCore();
+    const core = world.getCore() as { energy: number; shopStock: string[] };
+
     let legendary = 0;
     const ROUNDS = 200;
-    for (let seed = 1; seed <= ROUNDS; seed += 1) {
-      const first = new World({ rng: seededRng(seed * 7919) }).getCore().shopStock[0]!;
-      if (itemsData[first]!.rarity === 'legendary') legendary += 1;
+    for (let round = 0; round < ROUNDS; round += 1) {
+      if (itemsData[core.shopStock[0]!]!.rarity === 'legendary') legendary += 1;
+      // 리롤 비용은 돌릴수록 오르므로(§World.getShopRerollCost) 매번 넉넉히 채워 준다.
+      core.energy = 1_000_000;
+      world.rerollShop('p1');
     }
 
     // 200판이면 10%의 표준편차가 약 2.1%p다 — ±6%p 여유면 우연히 깨지지 않는다.
     expect(legendary / ROUNDS).toBeGreaterThan(0.04);
     expect(legendary / ROUNDS).toBeLessThan(0.16);
-  }, 90_000);
+  });
 
   it('같은 물건이 두 칸에 겹치지 않는다', () => {
     // 뽑기는 무작위라 한 판만 보면 우연히 통과할 수 있다 — 여러 시드로 반복해서 본다.

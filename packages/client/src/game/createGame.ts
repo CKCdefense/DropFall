@@ -21,6 +21,31 @@ export const CORE_INTERACT_KEY = 'coreInteract';
 export const INPUT_CONTROLLER_KEY = 'inputController';
 
 /**
+ * 게임을 끝내고 바깥 화면(로비 DOM)으로 돌아가 달라는 요청.
+ *
+ * Phaser 씬은 `main.ts`가 들고 있는 연결·화면 전환을 직접 만질 수 없다 — 씬을 파괴하는
+ * 쪽이 씬 안에 있으면 자기 발밑을 무너뜨리는 꼴이 된다. 그래서 DOM 이벤트 하나로
+ * "나가고 싶다"만 알리고, 실제 정리(게임 파괴 → 연결 종료 → 로비 표시)는 바깥이 한다.
+ * ESC 확인창이 이미 `window` 이벤트로 도는 것과 같은 결이다.
+ */
+export const EXIT_GAME_EVENT = 'dropfall:exit-game';
+
+/** 돌아갈 화면. 혼자하기는 타이틀로, 멀티는 다음 방을 고르도록 방 목록으로 보낸다. */
+export type ExitGameDestination = 'title' | 'browse';
+
+export function requestExitGame(to: ExitGameDestination): void {
+  /*
+   * **한 박자 미뤄서 보낸다.** 이 함수는 Phaser 입력 콜백 안에서 불리는데, 이벤트를
+   * 그 자리에서 던지면 바깥이 같은 호출 스택에서 `game.destroy()`를 부른다 — 입력을
+   * 처리하던 중에 그 입력 시스템이 통째로 사라지는 셈이다. 다음 태스크로 넘기면
+   * Phaser가 이번 프레임을 끝낸 뒤에 정리가 시작된다.
+   */
+  setTimeout(() => {
+    window.dispatchEvent(new CustomEvent<ExitGameDestination>(EXIT_GAME_EVENT, { detail: to }));
+  }, 0);
+}
+
+/**
  * GameScene이 매 프레임 갱신하는 내 캐릭터의 **예측 좌표**(`PlayerPredictor.
  * renderPosition`) — `{ x, y } | undefined`. HudScene은 이 값이 있으면 그걸,
  * 없으면(아직 예측이 초기화 전) 스냅샷의 보간 좌표를 대신 쓴다.

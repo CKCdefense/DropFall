@@ -1,6 +1,6 @@
 {
   "$comment": "제작 비용은 코어 게이지에서 나간다 — 창고의 나무·돌·드랍은 이제 '충전 재료'일 뿐 레시피가 직접 소비하지 않는다. 고티어는 에너지도 함께 요구해서 상점(에너지 소비)과 경쟁하게 만든다. 제작에는 시간이 든다(craftSeconds).",
-  "$countComment": "울타리·벽은 한 번에 6개씩 나온다. 한 개씩 만들게 하면 같은 버튼을 스무 번 누르게 된다 — 개당 비용은 그대로 두고 묶음만 키웠다.",
+  "$countComment": "울타리·벽은 한 번에 8개씩 나온다. 한 개씩 만들게 하면 같은 버튼을 스무 번 누르게 된다 — 묶음을 6에서 8로 키우면서 총액도 같은 비율로 올려 **개당 비용은 그대로** 뒀다. 예외는 벽 세 종(wall/stone_wall/iron_wall)으로, 거기서 개당 15%쯤 더 깎았다: 울타리는 총을 넘겨 쏠 수 있고(blocksProjectile false) 벽은 시야까지 막아서, 벽을 세우는 값이 비싸면 아예 안 쓰게 된다.",
   "craftSeconds": 2,
   "$stackComment": "제작 결과 칸이 담을 수 있는 최대 개수. 아이템 자체의 stackSize(울타리 20)와 별개로 크게 잡는다 — 울타리를 스무 개 넘게 두르는 건 흔한 일인데 여섯 개마다 꺼내 옮기게 하면 제작 시간보다 정리하는 시간이 길어진다. 꺼낼 때는 인벤토리·창고 각 칸의 stackSize를 그대로 지키므로, 이 값이 커도 소지 규칙은 그대로다.",
   "outputStackLimit": 100,
@@ -90,9 +90,9 @@
       "id": "fence",
       "itemId": "fence",
       "requiresTier": 1,
-      "count": 6,
+      "count": 8,
       "cost": {
-        "resource": 72
+        "resource": 96
       }
     },
     {
@@ -108,18 +108,18 @@
       "id": "wall",
       "itemId": "wall",
       "requiresTier": 1,
-      "count": 6,
+      "count": 8,
       "cost": {
-        "resource": 180
+        "resource": 200
       }
     },
     {
       "id": "stone_fence",
       "itemId": "stone_fence",
       "requiresTier": 2,
-      "count": 6,
+      "count": 8,
       "cost": {
-        "resource": 150
+        "resource": 200
       }
     },
     {
@@ -135,20 +135,20 @@
       "id": "stone_wall",
       "itemId": "stone_wall",
       "requiresTier": 2,
-      "count": 6,
+      "count": 8,
       "cost": {
-        "resource": 330,
-        "energy": 18
+        "resource": 380,
+        "energy": 20
       }
     },
     {
       "id": "iron_fence",
       "itemId": "iron_fence",
       "requiresTier": 3,
-      "count": 6,
+      "count": 8,
       "cost": {
-        "resource": 240,
-        "energy": 36
+        "resource": 320,
+        "energy": 48
       }
     },
     {
@@ -165,10 +165,10 @@
       "id": "iron_wall",
       "itemId": "iron_wall",
       "requiresTier": 3,
-      "count": 6,
+      "count": 8,
       "cost": {
-        "resource": 420,
-        "energy": 90
+        "resource": 480,
+        "energy": 100
       }
     }
   ]

@@ -37,8 +37,13 @@ export class CoreStorage {
     return this.inventory.slotAt(index);
   }
 
-  takeAt(index: number) {
-    return this.inventory.takeAt(index);
+  /** `slotAt`과 같다 — SlotAccess(§world.ts)가 요구하는 이름이다. */
+  peekAt(index: number) {
+    return this.inventory.slotAt(index);
+  }
+
+  takeAt(index: number, count?: number) {
+    return this.inventory.takeAt(index, count);
   }
 
   placeAt(index: number, incoming: InventorySlot) {

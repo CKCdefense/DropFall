@@ -30,10 +30,16 @@ describe('스파이크 — 통행과 감속', () => {
     }
   });
 
-  it('티어별 감속이 20/30/40%다', () => {
-    expect(buildingsData.spike!.slowMultiplier).toBeCloseTo(0.8);
-    expect(buildingsData.stone_spike!.slowMultiplier).toBeCloseTo(0.7);
-    expect(buildingsData.iron_spike!.slowMultiplier).toBeCloseTo(0.6);
+  it('티어별 감속이 40/50/60%다', () => {
+    expect(buildingsData.spike!.slowMultiplier).toBeCloseTo(0.6);
+    expect(buildingsData.stone_spike!.slowMultiplier).toBeCloseTo(0.5);
+    expect(buildingsData.iron_spike!.slowMultiplier).toBeCloseTo(0.4);
+  });
+
+  it('마모는 티어와 무관하게 초당 4.5 × 마릿수다', () => {
+    for (const type of ['spike', 'stone_spike', 'iron_spike']) {
+      expect(buildingsData[type]!.wearPerMonsterSecond).toBeCloseTo(4.5);
+    }
   });
 
   it('플레이어도 스파이크 위에서 같은 비율로 느려진다', () => {
