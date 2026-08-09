@@ -82,6 +82,14 @@
   --holo-dim: #2f7d55;
   --holo-glow: rgba(77, 255, 160, 0.35);
 
+  /*
+   * 같은 홀로그램이되 **되돌아가는 쪽**은 붉다(대기실 나가기). 초록이 "진행"이면
+   * 붉은 쪽은 "이탈"이라, 색만으로 두 방향이 갈린다.
+   */
+  --holo-red: #ff6b6b;
+  --holo-red-dim: #8a3b3b;
+  --holo-red-glow: rgba(255, 107, 107, 0.32);
+
   /* 대기실 배경과 그 위에 얹는 행성 */
   --asset-lobby-bg: none;
   --asset-lobby-planet: none;
