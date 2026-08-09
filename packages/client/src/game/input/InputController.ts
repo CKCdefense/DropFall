@@ -82,6 +82,8 @@ export class InputController {
   private readonly nextFireAt = new Map<string, number>();
   /** 이번에 누른 동안 건축물을 이미 놓았는지. 홀드 연타 방지용. */
   private placedThisPress = false;
+  /** 직전 프레임에 좌클릭을 누르고 있었는지. "새로 눌렀다"(빈 탄창 클릭음)를 가리는 데 쓴다. */
+  private wasHolding = false;
 
   private readonly keys: Record<
     'up' | 'down' | 'left' | 'right' | 'sprint' | 'interact',
@@ -101,6 +103,11 @@ export class InputController {
     private readonly connection: GameConnection,
     /** 공격 순간 호출된다. 총구 화염·휘두르기처럼 즉시 반응해야 하는 연출에 쓴다. */
     private readonly onAttack?: (weaponId: string) => void,
+    /**
+     * 탄창이 빈 채로 방아쇠를 당긴 그 순간(첫 클릭에만) 호출된다. 홀드 중 매 프레임
+     * 부르면 안 되므로 §updateFire가 "새로 눌렀다"를 따로 가려낸다.
+     */
+    private readonly onEmptyFire?: (weaponId: string) => void,
     /**
      * E를 눌렀을 때 호출된다(코어 모달 열기·닫기, 쓰러진 동료 구조 등). 줍기는
      * 스페이스로 분리돼 있어(§SPACE 핸들러) 이 콜백의 반환값과는 무관하다.
@@ -229,6 +236,11 @@ export class InputController {
     return this.equipped.kind;
   }
 
+  /** 이동키를 하나라도 누르고 있는가. 발소리 SFX가 "지금 걷고 있나"를 물을 때 쓴다. */
+  get isMoving(): boolean {
+    return this.keys.up.isDown || this.keys.down.isDown || this.keys.left.isDown || this.keys.right.isDown;
+  }
+
   /**
    * 채팅/개발자 콘솔처럼 텍스트 입력이 뜰 때 부른다. `keyboard.enabled = false`만으로는
    * 부족하다 — Phaser는 그 순간부터 keyup 이벤트도 무시하므로, 입력을 여는 순간 이동키를
@@ -272,6 +284,8 @@ export class InputController {
 
     const pointer = this.scene.input.activePointer;
     const holding = pointer.leftButtonDown() && !this.isPointerOverHud?.(pointer.x, pointer.y);
+    const freshPress = holding && !this.wasHolding;
+    this.wasHolding = holding;
     if (!holding) {
       this.placedThisPress = false;
       return;
@@ -289,7 +303,14 @@ export class InputController {
     }
 
     if (kind !== 'weapon' || !weaponId) return;
-    if (!this.canAttack(self, weaponId)) return;
+    if (!this.canAttack(self, weaponId)) {
+      // 막힌 이유가 "탄창이 비어서"일 때만, 그것도 새로 누른 순간에만 빈 탄창 소리를 낸다 —
+      // 재장전 중이거나 그냥 쿨다운 중일 때 홀드하고 있으면 매 프레임 걸려서 시끄러워진다.
+      if (freshPress && self.hp > 0 && self.reloadRemaining <= 0 && self.ammoMagazine > 0 && self.ammo <= 0) {
+        this.onEmptyFire?.(weaponId);
+      }
+      return;
+    }
 
     this.nextFireAt.set(weaponId, this.clock + fireIntervalMs(weaponId));
     this.connection.fire();
