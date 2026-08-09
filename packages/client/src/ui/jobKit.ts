@@ -43,3 +43,19 @@ export function jobKitRow(job: JobId | null): HTMLElement {
     }),
   );
 }
+
+/**
+ * 지급품을 **한 줄 글자**로. 칸 그림을 쓸 자리가 없을 때 쓴다(혼자하기 모달).
+ *
+ * 칸 번호는 적지 않는다 — 칸이 중요한 건 손이 그 자리를 찾아야 하는 인게임 이야기고,
+ * 여기서는 "무엇을 받는가"만 알면 된다. 순서는 여전히 칸 순서다.
+ */
+export function jobKitText(job: JobId): string {
+  return jobStartingItems(job)
+    .map((entry) => {
+      const name = itemsData[entry.itemId]?.name ?? entry.itemId;
+      if (entry.perPlayer) return `${name} ×인원`;
+      return entry.count > 1 ? `${name} ×${entry.count}` : name;
+    })
+    .join(' · ');
+}

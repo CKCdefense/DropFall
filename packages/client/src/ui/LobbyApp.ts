@@ -16,7 +16,7 @@ import {
 import { createRoom, joinRoomByCode } from '../net/ColyseusConnection';
 import { LocalConnection } from '../net/LocalConnection';
 import { jobIcon } from './characterPortrait';
-import { jobKitRow } from './jobKit';
+import { jobKitText } from './jobKit';
 import { fetchRooms } from '../net/lobbyApi';
 import type { GameConnection } from '../net/GameConnection';
 import { assetAttr, hasAsset } from './assets';
@@ -361,7 +361,12 @@ export class LobbyApp {
                 ]),
                 // 고유 특성 한 줄. 무엇이 다른 직업인지가 여기서 갈린다.
                 el('span', { class: 'job-card-trait' }, [jobStats(job.id).trait ?? ' ']),
-                jobKitRow(job.id),
+                /*
+                 * 지급품은 **글자로** 적는다. 칸 그림은 인게임 퀵슬롯과 자리를 맞추려는
+                 * 것인데, 이 카드는 폭이 좁아 칸이 알아볼 수 없을 만큼 작아진다 —
+                 * 그럴 바에는 이름을 읽는 편이 낫다(대기실은 카드가 넓어 칸 그대로 쓴다).
+                 */
+                el('span', { class: 'job-card-kit' }, [jobKitText(job.id)]),
               ],
             );
             card.addEventListener('click', () => {
@@ -400,7 +405,7 @@ export class LobbyApp {
       box,
       el('span', { class: 'checkbox-box' }),
       el('span', { class: 'checkbox-text' }, [
-        '티모시 데려가기',
+        el('span', { class: 'checkbox-label' }, ['티모시 데려가기']),
         el('span', { class: 'checkbox-hint' }, ['자원을 대신 모아 주는 AI 동반자']),
       ]),
     ]);
