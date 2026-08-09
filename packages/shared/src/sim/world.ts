@@ -1011,6 +1011,20 @@ export class World {
    * 직업을 확정한다. 로비에서 고르므로 참가 시점엔 알 수 없다 — 게임이 시작될 때
    * 호출자가 정확히 한 번 알려준다. 체력·스태미나는 새 최대치로 가득 채운다(시작 전이다).
    */
+  /**
+   * 티모시를 데려갈지 정한다. **게임이 시작되기 전에만** 부른다(GameRoom.startGame).
+   *
+   * 예전엔 World를 만들 때 한 번 정하고 끝이었는데, 대기실에서 방장이 마음을 바꿀 수 있게
+   * 되면서 "확정되는 시점"이 뒤로 밀렸다 — 자원 배치까지 다시 하지 않도록 상태만 바꾼다.
+   *
+   * 켜면 처음 자리(코어 옆)에서 다시 시작한다. 중간에 껐다 켰을 때 죽은 자리에 서 있는
+   * 것보다 자연스럽고, 대기실에서만 부르는 값이라 게임 중 상태를 지울 걱정도 없다.
+   */
+  setCompanionEnabled(enabled: boolean): void {
+    if (enabled === (this.companion.state !== 'absent')) return;
+    this.companion = createCompanion(0, 0, enabled);
+  }
+
   setPlayerJob(playerId: string, job: string): void {
     const player = this.players.get(playerId);
     if (!player) return;

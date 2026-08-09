@@ -40,6 +40,7 @@ import {
   type QuickMoveItemMessage,
   type ShopBuyMessage,
   type SpendStatPointMessage,
+  type SetCompanionMessage,
   type ReviveGhostMessage,
   reviveData,
   type JoinRoomOptions,
@@ -237,6 +238,15 @@ export class GameRoom extends Room {
       player.isReady = payload.ready;
     },
 
+    [LobbyMessage.SET_COMPANION]: (client: Client, payload: SetCompanionMessage) => {
+      if (this.state.phase !== RoomPhase.LOBBY) return;
+      // 방 설정이라 방장만 바꾼다 — 참가자가 남의 방 구성을 흔들 수는 없다.
+      if (client.sessionId !== this.state.hostSessionId) return;
+      if (typeof payload?.enabled !== 'boolean') return;
+
+      this.state.companionEnabled = payload.enabled;
+    },
+
     [LobbyMessage.START_GAME]: (client: Client) => {
       const reason = this.getStartRejection(client.sessionId);
       if (reason) {
@@ -266,9 +276,12 @@ export class GameRoom extends Room {
     this.state.roomName = roomName;
     this.state.hasPassword = this.password.length > 0;
 
-    // 티모시는 방 설정이다 — 아무도 안 들어온 지금 정해야 월드가 한 번만 세워진다.
+    /*
+     * 티모시는 방을 만들 때의 기본값일 뿐이다 — **확정은 시작 버튼을 누를 때**다
+     * (§startGame). 방장이 대기실에서 마음을 바꿀 수 있게 되면서, 여기서 월드를
+     * 다시 세우면 그때마다 자원 배치가 통째로 새로 뽑힌다.
+     */
     this.state.companionEnabled = options?.companion !== false;
-    if (!this.state.companionEnabled) this.world = new World({ companion: false });
 
     // GET /rooms(방 목록)가 읽는 값. 비밀번호 자체는 절대 넣지 않는다.
     await this.setMetadata({
@@ -351,6 +364,8 @@ export class GameRoom extends Room {
 
   private startGame(): void {
     this.state.phase = RoomPhase.PLAYING;
+    // 대기실에서 마지막으로 정해진 값이 여기서 월드에 반영된다.
+    this.world.setCompanionEnabled(this.state.companionEnabled);
     // 직업은 로비에서 정해진다 — 시뮬레이션은 참가 시점엔 알 수 없으므로 여기서
     // 한 번 넘긴다. 기초 스탯(체력·공격력·스태미나)이 이때 확정된다.
     for (const [id, player] of this.state.players) {

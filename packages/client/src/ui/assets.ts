@@ -28,6 +28,18 @@ export const IMAGE_ASSETS = {
     path: 'assets/ui/bg_landing.png',
     htmlClass: 'has-landing-bg',
   },
+  /** 대기실(강하 준비) 배경. 랜딩과 다른 그림이라 따로 둔다. */
+  lobbyBackground: {
+    cssVar: '--asset-lobby-bg',
+    path: 'assets/ui/lobby_background.png',
+    htmlClass: 'has-lobby-bg',
+  },
+  /** 대기실 오른쪽 판에 얹는 행성. 배경 위에 따로 떠 있어야 해서 낱장 파일이다. */
+  lobbyPlanet: {
+    cssVar: '--asset-lobby-planet',
+    path: 'assets/ui/lobby_planet.png',
+    htmlClass: 'has-lobby-planet',
+  },
   /** 모달 외곽 9-slice 프레임 */
   modal: { cssVar: '--asset-modal', path: 'assets/ui/title_modal.png' },
   /** 입력창 9-slice 프레임 */

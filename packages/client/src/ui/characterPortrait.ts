@@ -36,20 +36,38 @@ export async function loadCharacterAtlas(): Promise<void> {
 
 /** 해당 직업의 정면 첫 프레임을 잘라낸 요소. 프레임이 없으면 null */
 export function characterPortrait(job: JobId): HTMLElement | null {
-  const frame = atlas?.frames[`${job}_front_0`];
+  return cropFrame(`${job}_front_0`, 'portrait');
+}
+
+/**
+ * 직업 아이콘(character_icon.aseprite의 직업별 태그).
+ *
+ * 초상화(인게임 스프라이트)와 **다른 그림**이다 — 초상화는 서 있는 전신이라 작게 줄이면
+ * 뭉개지는데, 아이콘은 그 크기에서 읽히게 그려져 있다. 직업 선택 버튼처럼 작게 여러 개를
+ * 늘어놓는 자리에 쓴다.
+ */
+export function jobIcon(job: JobId): HTMLElement | null {
+  return cropFrame(`character_icon_${job}_0`, 'job-icon');
+}
+
+/** 아틀라스 PNG를 배경으로 깔고 한 프레임만큼 밀어 잘라낸 요소. */
+function cropFrame(frameName: string, className: string): HTMLElement | null {
+  const frame = atlas?.frames[frameName];
   if (!atlas || !frame) return null;
 
-  const node = el('div', { class: 'portrait' });
+  const node = el('div', { class: className });
   const { x, y, w, h } = frame.frame;
 
   // 배경 이미지를 프레임 크기에 맞춰 확대한 뒤, 원하는 칸이 보이도록 밀어낸다.
+  // 배율은 CSS가 정한다(--crop-scale) — 초상화와 아이콘이 같은 코드를 쓰되 크기는
+  // 각자 자리에 맞게 다르다.
   node.style.setProperty('--frame-w', `${w}`);
   node.style.setProperty('--frame-h', `${h}`);
   node.style.backgroundImage = `url('${resolveAssetUrl('assets/atlas/game.png')}')`;
-  node.style.backgroundSize = `calc(${atlas.meta.size.w} * var(--portrait-scale) * 1px) calc(${atlas.meta.size.h} * var(--portrait-scale) * 1px)`;
-  node.style.backgroundPosition = `calc(${-x} * var(--portrait-scale) * 1px) calc(${-y} * var(--portrait-scale) * 1px)`;
-  node.style.width = `calc(${w} * var(--portrait-scale) * 1px)`;
-  node.style.height = `calc(${h} * var(--portrait-scale) * 1px)`;
+  node.style.backgroundSize = `calc(${atlas.meta.size.w} * var(--crop-scale) * 1px) calc(${atlas.meta.size.h} * var(--crop-scale) * 1px)`;
+  node.style.backgroundPosition = `calc(${-x} * var(--crop-scale) * 1px) calc(${-y} * var(--crop-scale) * 1px)`;
+  node.style.width = `calc(${w} * var(--crop-scale) * 1px)`;
+  node.style.height = `calc(${h} * var(--crop-scale) * 1px)`;
 
   return node;
 }

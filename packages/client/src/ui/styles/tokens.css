@@ -73,6 +73,10 @@
   /* 랜딩 배경 이미지 */
   --asset-landing-bg: none;
 
+  /* 대기실 배경과 그 위에 얹는 행성 */
+  --asset-lobby-bg: none;
+  --asset-lobby-planet: none;
+
   /* ---- 간격 ---- */
   --gap-sm: 8px;
   --gap: 14px;

@@ -409,6 +409,8 @@ export interface GameConnection {
 
   getLobbyView(): LobbyView;
   selectJob(job: JobId): void;
+  /** 티모시를 데려갈지(대기실·방장 전용). 서버가 권한과 시점을 다시 검증한다. */
+  setCompanion(enabled: boolean): void;
   setReady(ready: boolean): void;
   /** 방장만 유효하다. 서버가 최종 판정하고 거절 사유를 onLobbyError로 돌려준다. */
   startGame(): void;

@@ -338,7 +338,7 @@
 }
 
 .job-card-portrait .portrait {
-  --portrait-scale: 2;
+  --crop-scale: 2;
 }
 
 .job-card-name {

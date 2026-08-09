@@ -1,11 +1,18 @@
 /*
- * 게임 로비(대기실).
+ * 게임 로비(대기실) — "강하 준비".
  *
- * 와이어프레임: 플레이어 슬롯 4개 가로 배치 / 아래에 채팅 영역 + Ready·Start 버튼.
- * 인원이 늘고 줄어도 슬롯 4칸은 항상 자리를 유지한다 — 레이아웃이 흔들리지 않게.
+ * 와이어프레임 배치:
+ *
+ *   강하 준비        방이름                  [나가기]
+ *   [슬롯][슬롯][슬롯][슬롯]      [행성 / 티모시]
+ *   [채팅]     직업 선택 ▣▣▣▣      [Ready/Start]
+ *
+ * 위 줄이 "누가 왔는가", 아래 줄이 "내가 무엇을 할 것인가"다. 슬롯 4칸은 인원이 늘고
+ * 줄어도 자리를 유지한다 — 사람이 들어올 때마다 레이아웃이 흔들리면 안 된다.
  */
 
 .waiting {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: clamp(10px, 2vh, 20px);
@@ -15,6 +22,34 @@
   overflow: hidden;
 }
 
+/*
+ * 배경. 랜딩과 **다른 그림**이라 따로 깐다 — 랜딩은 추락한 우주선을 올려다보는 그림이고
+ * 여기는 내려갈 행성을 앞에 둔 브리핑 화면이다.
+ *
+ * 에셋이 아직 없으면 이 규칙 자체가 안 걸려서(html.has-lobby-bg) 기존 배경이 그대로 남는다.
+ */
+.has-lobby-bg .waiting {
+  background-image: var(--asset-lobby-bg);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+/* 배경 위에 글자가 얹히므로 한 겹 어둡게 깔아 대비를 확보한다. */
+.has-lobby-bg .waiting::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(6, 8, 12, 0.82), rgba(6, 8, 12, 0.62));
+  pointer-events: none;
+}
+
+.has-lobby-bg .waiting > * {
+  position: relative;
+}
+
+/* ---------------------------------------------------------------- 머리줄 */
+
 .waiting-head {
   display: flex;
   align-items: center;
@@ -22,7 +57,15 @@
   flex: none;
 }
 
+/* "강하 준비" — 이 화면이 무엇인지. 방 이름보다 왼쪽에 작게 둔다. */
+.waiting-title {
+  color: var(--text-dim);
+  font-size: clamp(13px, 1.5vw, 16px);
+}
+
+/* 방 이름은 가운데다. 양옆이 비대칭이라 auto 여백으로 밀어 중앙에 세운다. */
 .waiting-room-name {
+  margin: 0 auto 0 auto;
   font-size: clamp(15px, 1.8vw, 19px);
 }
 
@@ -32,16 +75,27 @@
 }
 
 .waiting-leave {
-  margin-left: auto;
+  flex: none;
 }
 
-/* ---------------------------------------------------------------- 슬롯 */
+/* ---------------------------------------------------------------- 위 줄 */
+
+/*
+ * 슬롯 4칸 + 방 설정 판. 판은 슬롯 하나보다 조금 넓다 — 행성 그림이 들어가는 자리라
+ * 정사각에 가까워야 그림이 눌리지 않는다.
+ */
+.waiting-roster {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: clamp(8px, 1.5vw, 18px);
+  flex: 1;
+  min-height: 0;
+}
 
 .slots {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: clamp(8px, 1.5vw, 18px);
-  flex: 1;
   min-height: 0;
 }
 
@@ -63,7 +117,7 @@
   opacity: 0.45;
 }
 
-/* 캐릭터 초상화 자리. 스프라이트가 준비되면 .asset 슬롯으로 교체한다. */
+/* 캐릭터 초상화 자리. */
 .slot-portrait {
   position: relative;
   display: flex;
@@ -77,14 +131,14 @@
 
 /* 아틀라스에서 잘라낸 캐릭터 한 칸. 픽셀아트라 정수배로만 확대한다. */
 .portrait {
-  --portrait-scale: 3;
+  --crop-scale: 3;
   background-repeat: no-repeat;
   image-rendering: pixelated;
 }
 
 @media (max-height: 700px) {
   .portrait {
-    --portrait-scale: 2;
+    --crop-scale: 2;
   }
 }
 
@@ -124,18 +178,97 @@
   white-space: nowrap;
 }
 
-/* ---------------------------------------------------------------- 하단 */
+/* ------------------------------------------------------------ 방 설정 판 */
 
-.waiting-bottom {
+.room-panel {
   display: flex;
+  flex-direction: column;
+  /* 그림은 위, 토글은 아래 — 사이가 비면 그만큼 벌어진다(auto 여백). */
+  justify-content: space-between;
+  gap: 6px;
+  width: clamp(150px, 18vw, 230px);
+  min-height: 0;
+  padding: clamp(6px, 1vh, 12px);
+  border: calc(2px * var(--px)) solid var(--panel-line);
+  background: rgba(18, 20, 26, 0.6);
+}
+
+/*
+ * 행성 — 스캐너 화면 한 장.
+ *
+ * 그림이 **제 테두리와 좌표 텍스트까지 갖춘 완성된 화면**이라, 두 가지를 하지 않는다:
+ * 테두리를 덧대지 않고(겹쳐 보인다), 잘라내지 않는다(cover로 채우면 양옆 텍스트가
+ * 날아간다). 대신 그림의 가로세로비를 상자에 그대로 준다.
+ */
+.room-panel-art {
+  flex: none;
+  width: 100%;
+  aspect-ratio: 669 / 340;
+  background-image: var(--asset-lobby-planet);
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: contain;
+  image-rendering: pixelated;
+}
+
+/* 에셋이 없을 때만 빈 상자를 그려 자리를 보여준다. */
+html:not(.has-lobby-planet) .room-panel-art {
+  border: 2px solid var(--panel-line);
+  background-color: rgba(10, 12, 17, 0.5);
+}
+
+/* 티모시를 안 데려가는 판은 그림도 한 톤 죽인다 — 상태가 한눈에 보여야 한다. */
+.room-panel.is-off .room-panel-art {
+  filter: grayscale(0.7) brightness(0.7);
+}
+
+.companion-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  flex: none;
+  font-size: 13px;
+}
+
+.companion-toggle-state {
+  color: var(--text-dim);
+}
+
+.companion-toggle.is-on .companion-toggle-state {
+  color: var(--accent);
+}
+
+/* 방장이 아니면 못 누른다 — 회색으로 죽이되 상태는 그대로 읽히게 둔다. */
+.companion-toggle:disabled {
+  opacity: 0.75;
+  cursor: default;
+}
+
+.room-panel-note {
+  flex: none;
+  color: var(--text-dim);
+  font-size: 11px;
+  text-align: center;
+}
+
+/* ---------------------------------------------------------------- 아래 줄 */
+
+/*
+ * 채팅 / 직업 선택 / 시작. 가운데(직업 선택)를 auto로 두고 양옆을 고정폭으로 잡으면
+ * 채팅이 남는 자리를 다 먹으면서도 아이콘 줄은 항상 가운데에 선다.
+ */
+.waiting-bottom {
+  display: grid;
+  grid-template-columns: 1fr auto clamp(120px, 20vw, 180px);
+  align-items: stretch;
   gap: clamp(8px, 1.5vw, 18px);
   flex: none;
-  height: clamp(88px, 18vh, 140px);
+  height: clamp(96px, 19vh, 150px);
 }
 
 .chat-box {
   display: flex;
-  flex: 1;
   min-width: 0;
   padding: 10px 12px;
   border: calc(2px * var(--px)) solid var(--panel-line);
@@ -158,8 +291,6 @@
 }
 
 .action-button {
-  flex: none;
-  width: clamp(120px, 20vw, 180px);
   height: 100%;
   font-size: clamp(15px, 1.8vw, 20px);
 }
@@ -172,11 +303,10 @@
 
 .job-picker {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  flex: none;
-  flex-wrap: wrap;
-  gap: var(--gap-sm);
+  gap: 6px;
 }
 
 .job-picker-label {
@@ -184,14 +314,51 @@
   font-size: 13px;
 }
 
-.job-chip.is-selected {
-  color: var(--accent);
-  outline-color: var(--accent-dim);
+.job-picker-row {
+  display: flex;
+  gap: clamp(6px, 1vw, 14px);
+}
+
+/*
+ * 아이콘 한 칸. 글자 버튼(.btn)을 쓰지 않는 이유는 그 안쪽 여백이 아이콘 크기를
+ * 정하는 데 방해가 되어서다 — 여기서는 칸 크기가 곧 아이콘 크기다.
+ */
+.job-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: clamp(46px, 5.5vw, 68px);
+  height: clamp(46px, 5.5vw, 68px);
+  padding: 0;
+  border: 2px solid var(--panel-line);
+  background: rgba(10, 12, 17, 0.5);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.job-cell:hover {
+  border-color: var(--accent-dim);
+}
+
+.job-cell.is-selected {
+  border-color: var(--accent);
   box-shadow: inset 0 0 0 1px var(--accent-dim);
 }
 
-/* 방 설정 안내 한 줄(예: 티모시 없음). 직업 선택 바로 아래에 붙는다. */
-.waiting-note {
+/* 아이콘은 67x64라 원본 그대로도 칸에 거의 들어찬다 — 확대하지 않는다. */
+.job-icon {
+  --crop-scale: 1;
+  background-repeat: no-repeat;
+  image-rendering: pixelated;
+}
+
+.job-cell-mark {
+  color: var(--text-dim);
+  font-size: clamp(18px, 2.5vw, 26px);
+}
+
+.waiting-error {
   flex: none;
   text-align: center;
 }
