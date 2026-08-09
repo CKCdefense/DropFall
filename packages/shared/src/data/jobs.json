@@ -1,42 +1,46 @@
 {
-  "$comment": "직업별 기초 스탯. 스킬·특성은 아직 없다(추후 작업). base는 직업을 고르지 않았을 때의 기준값이자, 각 직업 수치를 읽을 때의 비교 기준이다.",
-
+  "$comment": "직업별 기초 스탯과 고유 능력. base는 직업을 고르지 않았을 때의 기준값이자, 각 직업 수치를 읽을 때의 비교 기준이다. 능력 배수는 전부 '기본값 1'이라, 값을 안 적으면 아무 효과도 없다.",
+  "$staminaComment": "스태미나는 달릴 때 초당 SPRINT_STAMINA_DRAIN(40)만큼 준다 — 100이면 2.5초, 80이면 2초, 125면 약 3.1초를 달린다.",
   "base": {
     "name": "생존자",
     "maxHp": 100,
     "attack": 0,
     "maxStamina": 100
   },
-
   "soldier": {
     "name": "병사",
-    "$role": "화력 — 맞고 버티며 밀어붙인다. 체력·공격력이 가장 높고 대신 오래 못 뛴다.",
-    "maxHp": 125,
+    "$role": "화력 — 맞고 버티며 밀어붙인다. 체력이 가장 높고 성장이 빠르다.",
+    "maxHp": 150,
     "attack": 8,
-    "maxStamina": 85
+    "maxStamina": 100,
+    "$xpComment": "경험치를 20% 더 받는다. 처치 경험치는 살아 있는 전원에게 같은 양이 들어가는데(levels.json), 그중 병사만 제 몫을 더 챙긴다 — 남의 몫을 뺏지 않는다.",
+    "xpMultiplier": 1.2
   },
-
   "searchman": {
     "name": "탐색꾼",
-    "$role": "정찰·채집 — 멀리 나갔다 돌아온다. 스태미나가 압도적이고 맷집이 약하다.",
-    "maxHp": 85,
+    "$role": "정찰·채집 — 멀리 나갔다 돌아온다. 가장 빠르고 가장 약하다.",
+    "maxHp": 70,
     "attack": 3,
-    "maxStamina": 170
+    "maxStamina": 125,
+    "$speedComment": "걷는 속도 자체가 10% 빠르다. 달리기 배수와 곱해지므로 달릴 때도 그만큼 앞선다.",
+    "speedMultiplier": 1.1
   },
-
   "medic": {
     "name": "의무병",
-    "$role": "치유·부활 — 아직 치유 능력이 없어 기초 스탯은 평균에 가깝다(치유는 추후 작업).",
-    "maxHp": 105,
+    "$role": "치유 — 팀의 소모품을 들고 다니고, 코어에서 붕대를 찍어낸다.",
+    "maxHp": 125,
     "attack": 2,
-    "maxStamina": 115
+    "maxStamina": 100,
+    "$craftComment": "붕대 레시피(crafting.json의 requiresJob)를 의무병만 쓸 수 있다. 코어 앞에서만 되는 일이라 전선에서 즉석으로 만들 수는 없다.",
+    "craftsBandage": true
   },
-
   "engineer": {
     "name": "엔지니어",
-    "$role": "건축·수리 — 전선 뒤에서 짓는다. 체력은 준수하고 공격·기동은 낮다.",
-    "maxHp": 115,
+    "$role": "건축·수리 — 전선 뒤에서 짓는다. 오래 못 뛰는 대신 방벽을 싸게 유지한다.",
+    "maxHp": 125,
     "attack": 4,
-    "maxStamina": 90
+    "maxStamina": 80,
+    "$repairComment": "해머 수리에 드는 자원이 절반이다. 자원은 정수라 올림한다 — 비용 2짜리 울타리가 0이 되면 수리가 공짜가 된다.",
+    "repairCostMultiplier": 0.5
   }
 }

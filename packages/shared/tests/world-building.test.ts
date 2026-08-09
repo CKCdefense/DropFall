@@ -369,13 +369,14 @@ describe('World — 코어 창고(moveItem)', () => {
     expect(storedCount(world, 'pickax_t1')).toBe(1);
   });
 
-  it('참가한 플레이어는 붕대 1개만 받는다(도구는 창고에서 꺼내 쓴다)', () => {
+  it('직업이 없는 플레이어는 붕대 1개만 받는다(도구는 창고에서 꺼내 쓴다)', () => {
     const world = createTestWorld();
     world.addPlayer('p1');
 
     const view = world.getPlayers().get('p1')!.inventory.toView();
-    expect(view.slots[0]).toEqual({ itemId: 'bandage', count: 1 });
-    expect(view.slots.slice(1).every((slot) => slot === null)).toBe(true);
+    // 소모품은 마지막 칸이 자리다 — 앞 칸은 무기·도구 몫으로 비워 둔다(loadout.json).
+    expect(view.slots[3]).toEqual({ itemId: 'bandage', count: 1 });
+    expect(view.slots.slice(0, 3).every((slot) => slot === null)).toBe(true);
   });
 
   it('코어 근처에서 창고 칸을 인벤토리 칸으로 끌면 옮겨진다', () => {
@@ -439,7 +440,7 @@ describe('World — 코어 창고(moveItem)', () => {
     const world = createTestWorld();
     world.addPlayer('p1', 10, 0);
     const inventory = world.getPlayers().get('p1')!.inventory;
-    inventory.add('bandage', 2);
+    inventory.placeAt(0, { itemId: 'bandage', count: 2 });
 
     world.moveItem('p1', 'inventory', 0, 'storage', 0); // 창고 0번 = 뭉둥이
 

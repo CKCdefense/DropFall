@@ -62,12 +62,14 @@
     "name": "토마호크",
     "type": "melee",
     "tier": "epic",
-    "damage": 40,
+    "damage": 14,
     "fireRate": 1.6,
     "range": 35,
     "arc": 110,
     "toolFamily": "axe",
-    "gatherMultiplier": 1.6
+    "$toolComment": "나무와 돌을 둘 다 캔다 — 탐색꾼이 도구 두 개를 들고 다니지 않아도 되게 하려는 것이다. 대신 전투력은 잡몹 2~3방 수준으로 낮췄다(예전 40).",
+    "toolFamilies": ["axe", "pickax"],
+    "gatherMultiplier": 2
   },
   "beamsword": {
     "name": "빔소드",

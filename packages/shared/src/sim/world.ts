@@ -11,6 +11,7 @@ import {
   craftingData,
   levelsData,
   reviveData,
+  type LoadoutEntry,
   xpToNextLevel,
   itemsData,
   jobStats,
@@ -71,7 +72,7 @@ import {
   type MeleeHit,
   type ProjectileEntity,
 } from './combat';
-import { Inventory, type InventorySlot } from './inventory';
+import { Inventory, SLOT_COUNT, type InventorySlot } from './inventory';
 import { CoreStorage, STORAGE_SLOT_COUNT } from './storage';
 import { coreDistance, isWithinCoreInteract } from './coreShape';
 import { ExploredMap } from './explored';
@@ -161,7 +162,7 @@ export const BARE_HANDS_WEAPON_ID = 'fist';
 // 같은 배율을 알아야 한다 — 값이 갈라지면 스프린트 중 매 프레임 되당김이 보인다.
 export const SPRINT_SPEED_MULTIPLIER = 1.6;
 /** 달리는 동안 초당 소모되는 스태미나. 기본 100이면 약 5초 전력질주다. */
-const SPRINT_STAMINA_DRAIN = 20;
+const SPRINT_STAMINA_DRAIN = 40;
 /** 걷거나 멈춰 있을 때 초당 회복량. 소모보다 느려야 "아껴 쓴다"는 판단이 생긴다. */
 const STAMINA_REGEN = 12;
 /**
@@ -226,6 +227,30 @@ const CORE_RESPAWN_Y = 48;
  * 여기도 같이 고쳐야 하고, 안 고치면 조용히 아무 일도 일어나지 않는다.
  */
 const AID_ITEM_ID = 'aid_kit';
+
+/**
+ * 지급품 목록을 인벤토리에 채운다.
+ *
+ * 칸을 명시한 항목(`slot`)은 **그 칸에 그대로** 놓는다 — "1번칸에 무기"가 곧 조작
+ * 습관이라, 순서대로 채우면 직업마다 무기 칸이 달라진다. 칸을 안 적은 항목만 빈 칸을
+ * 찾아 들어간다.
+ *
+ * @param playerCount `perPlayer` 항목의 배수. 인원수에 비례하는 지급품(의무병 붕대)에 쓴다.
+ */
+function fillLoadout(
+  inventory: Inventory,
+  entries: readonly LoadoutEntry[],
+  playerCount: number,
+): void {
+  for (const entry of entries) {
+    const count = entry.perPlayer ? entry.count * playerCount : entry.count;
+    if (entry.slot === undefined) {
+      inventory.add(entry.itemId, count);
+      continue;
+    }
+    inventory.placeAt(entry.slot, { itemId: entry.itemId, count });
+  }
+}
 
 /** 개발 커맨드로 몬스터를 부를 때 코어에서 띄우는 거리(px). 바로 옆에 붙여 놓으면 코어가 즉사한다. */
 const DEV_SPAWN_RADIUS = 160;
@@ -902,6 +927,9 @@ export class World {
    * 깨진 적이 있다. 자원 보충은 콜로니 위치와 무관하므로 뒤로 미뤄도 안전하다.
    */
   startColonies(count: number): void {
+    // 인원이 확정되는 유일한 시점이다 — 인원수에 비례하는 지급품(의무병 붕대)을 여기서
+    // 다시 센다. 지급은 4칸을 통째로 다시 쓰므로 두 번 불려도 결과가 같다.
+    for (const player of this.players.values()) this.giveJobLoadout(player);
     this.colonies.seed(count, this.rng);
     this.rebuildColonyObstacleCells();
     this.seedResourceNodes(count);
@@ -937,7 +965,7 @@ export class World {
 
   addPlayer(id: string, x = 0, y = 0): void {
     const inventory = new Inventory();
-    for (const entry of loadoutData.playerStarting) inventory.add(entry.itemId, entry.count);
+    fillLoadout(inventory, loadoutData.playerStarting, 1);
 
     const stats = jobStats('');
     this.players.set(id, {
@@ -990,6 +1018,21 @@ export class World {
     const stats = jobStats(job);
     player.hp = stats.maxHp + player.maxHpBonus;
     player.stamina = this.playerMaxStamina(player);
+    this.giveJobLoadout(player);
+  }
+
+  /**
+   * 직업 지급품을 퀵슬롯에 채운다. **4칸을 통째로 다시 쓴다** — 직업을 바꿔 고르면
+   * 앞 직업의 무기가 남아 있으면 안 되고, 지급품은 어차피 그 직업의 시작 상태다.
+   *
+   * 대기실에서 직업을 고를 때마다 불리고, 인원이 확정되는 시점(startColonies)에 한 번 더
+   * 불린다 — 의무병의 붕대가 **인원수만큼**이라 마지막 인원으로 다시 세어야 맞는다.
+   */
+  private giveJobLoadout(player: PlayerEntity): void {
+    const entries = loadoutData.byJob[player.job];
+    if (!entries) return;
+    for (let index = 0; index < SLOT_COUNT; index += 1) player.inventory.takeAt(index);
+    fillLoadout(player.inventory, entries, Math.max(1, this.players.size));
   }
 
   /**
@@ -1074,7 +1117,8 @@ export class World {
     if (amount <= 0) return;
     for (const player of this.players.values()) {
       if (player.hp <= 0) continue;
-      player.xp += amount;
+      // 직업 배수(병사 1.2)는 **받는 쪽에** 곱한다 — 남의 몫을 뺏지 않고 제 몫만 늘어난다.
+      player.xp += Math.round(amount * (jobStats(player.job).xpMultiplier ?? 1));
       // 한 번에 두 레벨이 오를 수도 있다(보스). while로 남는 경험치까지 흘려보낸다.
       while (player.xp >= xpToNextLevel(player.level)) {
         player.xp -= xpToNextLevel(player.level);
@@ -1122,6 +1166,9 @@ export class World {
   playerSpeedMultiplier(player: PlayerEntity): number {
     const sprint = player.sprinting && player.stamina > 0 ? SPRINT_SPEED_MULTIPLIER : 1;
     return (
+      // 직업 고유 이동속도(탐색꾼 1.1). **걷는 속도 자체**를 올리므로 달리기 배수와
+      // 곱해진다 — 달릴 때도 그만큼 앞선다.
+      (jobStats(player.job).speedMultiplier ?? 1) *
       (1 + player.staminaBonus) *
       (player.speedBuffTimer > 0 ? player.speedBuffMultiplier : 1) *
       sprint
@@ -1356,7 +1403,7 @@ export class World {
       if (this.applyMeleeHitToDownedAlly(player, result.meleeHit)) return;
       this.applyMeleeHit(result.meleeHit);
       this.applyMeleeHitToResourceNode(player, result.meleeHit, weaponId);
-      this.applyMeleeHitToRepair(result.meleeHit, weaponId);
+      this.applyMeleeHitToRepair(player, result.meleeHit, weaponId);
       this.applyMeleeHitToBuilding(result.meleeHit, weaponId);
     }
   }
@@ -1371,7 +1418,7 @@ export class World {
    * 자원 노드와 같은 이유로 **가장 가까운 하나만** 고친다 — 한 번 휘둘러 벽 다섯 개가
    * 같이 차오르면 수리에 드는 자원이 의미를 잃는다.
    */
-  private applyMeleeHitToRepair(hit: MeleeHit, weaponId: string): void {
+  private applyMeleeHitToRepair(player: PlayerEntity, hit: MeleeHit, weaponId: string): void {
     if (weaponsData[weaponId]?.toolFamily !== 'hammer') return;
 
     let target: BuildingEntity | undefined;
@@ -1387,8 +1434,17 @@ export class World {
     if (!target) return;
 
     const data = buildingsData[target.type];
-    if (this.core.resource < data.repairCost) return;
-    this.core.resource -= data.repairCost;
+    /*
+     * 엔지니어는 수리 자원이 절반이다. **올림**하는 이유는 자원이 정수이기도 하고,
+     * 비용 2짜리 울타리가 0이 되면 수리가 공짜가 되어 방벽을 유지할 이유 자체가
+     * 사라지기 때문이다 — 싸지는 것과 공짜가 되는 것은 다르다.
+     */
+    const cost = Math.max(
+      1,
+      Math.ceil(data.repairCost * (jobStats(player.job).repairCostMultiplier ?? 1)),
+    );
+    if (this.core.resource < cost) return;
+    this.core.resource -= cost;
     target.hp = Math.min(target.maxHp, target.hp + data.repairPerHit);
   }
 
@@ -1531,7 +1587,9 @@ export class World {
       // 티어가 올라도 계열은 같다 — 도끼 T1/T2/T3 모두 나무를 캔다.
       // 맨손(harvestsAny)은 종류를 안 가리는 대신 데미지가 매우 낮다.
       const weapon = weaponsData[weaponId];
-      if (!weapon?.harvestsAny && data.requiredTool !== weapon?.toolFamily) continue;
+      // 토마호크처럼 여러 계열을 캐는 도구가 있다(toolFamilies). 안 적었으면 계열 하나다.
+      const families = weapon?.toolFamilies ?? (weapon?.toolFamily ? [weapon.toolFamily] : []);
+      if (!weapon?.harvestsAny && !families.includes(data.requiredTool)) continue;
       if (!withinMeleeArc(hit, node.x, node.y, data.hitRadius)) continue;
       const distance = Math.hypot(node.x - hit.originX, node.y - hit.originY);
       if (distance >= targetDistance) continue;
@@ -1896,6 +1954,8 @@ export class World {
     const recipe = craftingData.recipes.find((entry) => entry.id === recipeId);
     if (!recipe) return;
     if (this.core.tier < recipe.requiresTier) return;
+    // 직업 전용 레시피(의무병 붕대). 목록에는 보이되 남이 누르면 아무 일도 안 일어난다.
+    if (recipe.requiresJob && player.job !== recipe.requiresJob) return;
     /*
      * 결과 칸에 **같은 물건이면 쌓는다.**
      *

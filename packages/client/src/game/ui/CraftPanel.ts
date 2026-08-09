@@ -143,6 +143,7 @@ export class CraftPanel {
   private selected = 0;
   /** 마지막으로 받은 창고 내용물(아이템 id → 개수)과 코어 티어. */
   private coreTier = 0;
+  private job = '';
   /** 코어 게이지 잔량. 모자란 쪽을 붉게 칠하는 데 쓴다. */
   private resource = 0;
   private energy = 0;
@@ -307,7 +308,17 @@ export class CraftPanel {
   }
 
   private recipesOfTier(tier: number): CraftRecipe[] {
-    return this.recipes.filter((recipe) => recipe.requiresTier === tier);
+    /*
+     * 직업 전용 레시피는 **아예 안 보여준다.**
+     *
+     * 잠금 표시(코어 티어처럼)로 두지 않은 이유는 성질이 달라서다 — 티어는 올리면
+     * 열리는 목표지만, 직업은 이 게임 안에서 바꿀 수 없다. 영영 못 누르는 칸을
+     * 띄워 두면 격자만 어지럽고 "왜 안 되지"만 남는다.
+     */
+    return this.recipes.filter(
+      (recipe) =>
+        recipe.requiresTier === tier && (!recipe.requiresJob || recipe.requiresJob === this.job),
+    );
   }
 
   private visibleRecipes(): CraftRecipe[] {
@@ -320,6 +331,8 @@ export class CraftPanel {
    */
   setContext(context: {
     coreTier: number;
+    /** 보는 사람의 직업. 직업 전용 레시피(의무병 붕대)를 목록에서 걸러낸다. */
+    job: string;
     resource: number;
     energy: number;
     craftingId: string;
@@ -327,6 +340,7 @@ export class CraftPanel {
     output: InventorySlot | null;
   }): void {
     this.coreTier = context.coreTier;
+    this.job = context.job;
     this.resource = context.resource;
     this.energy = context.energy;
     this.craftingId = context.craftingId;

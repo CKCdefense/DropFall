@@ -900,6 +900,7 @@ export class HudScene extends Phaser.Scene {
 
     this.coreModal.setCraftContext({
       coreTier: status.coreTier,
+      job: me?.job ?? '',
       resource: status.coreResource,
       energy: status.coreEnergy,
       craftingId: me?.craftRecipeId ?? '',

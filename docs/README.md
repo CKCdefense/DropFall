@@ -57,6 +57,7 @@
 | [backend/69-work-report-bullet-pierce-and-reload.md](backend/69-work-report-bullet-pierce-and-reload.md) | 작업 보고서 — 무기별 총알 관통 횟수 구현(backend/68 대안 C) + 전 원거리 무기 재장전 절반 단축 |
 | [backend/70-work-report-craft-output-stacking.md](backend/70-work-report-craft-output-stacking.md) | 작업 보고서 — 제작 결과 칸에 같은 물건 쌓기(상한 100), 되돌리기 경로에서 초과분이 사라지던 버그 수정 |
 | [backend/71-work-report-drop-rate-monster-count-ranged-value.md](backend/71-work-report-drop-rate-monster-count-ranged-value.md) | 작업 보고서 — 부품 드랍률 50%+개수 증가, 몬스터 수 하향(baseMultiplier 3→2), 원거리 무기 가성비 2차 조정(rifle/sniper_rifle/샷건 2종) |
+| [backend/72-work-report-job-balance.md](backend/72-work-report-job-balance.md) | 작업 보고서 — 직업별 고유 능력(경험치·이동속도·수리비·전용 레시피)과 전용 시작 장비, 스태미나 2.5초, 토마호크 채집 겸용화 |
 | [backend/72-work-report-pickup-key-and-quickslot-click.md](backend/72-work-report-pickup-key-and-quickslot-click.md) | 작업 보고서 — 줍기 전용 키(스페이스) 추가, 퀵슬롯 좌클릭으로 무기 장착(SlotDrag.onClickSelect) |
 | [backend/71-work-report-monster-anim-multiplayer-bug.md](backend/71-work-report-monster-anim-multiplayer-bug.md) | 작업 보고서 — 멀티에서만 몬스터 공격 모션·방향 전환이 안 되던 버그(스키마 필드가 스폰 시점에만 대입됨) 수정 + 회귀 테스트 |
 
