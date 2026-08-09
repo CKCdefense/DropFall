@@ -242,6 +242,15 @@ export class InputController {
   }
 
   /**
+   * 좌클릭을 지금 누르고 있는가(HUD 위는 제외). `updateFire`가 매 프레임 `wasHolding`을
+   * 그 프레임의 실제 상태로 갱신하므로 이름과 달리 "지금" 값이다 — 기관총류 SFX가
+   * "아직도 쏘는 중인가"를 물을 때 쓴다(§AudioManager.updateAutoFire).
+   */
+  get isFiring(): boolean {
+    return this.wasHolding;
+  }
+
+  /**
    * 채팅/개발자 콘솔처럼 텍스트 입력이 뜰 때 부른다. `keyboard.enabled = false`만으로는
    * 부족하다 — Phaser는 그 순간부터 keyup 이벤트도 무시하므로, 입력을 여는 순간 이동키를
    * 누르고 있었다면 `isDown`이 true에 박제돼 서버가 "마지막 입력을 계속 반복 적용"하는
