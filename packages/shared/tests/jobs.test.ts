@@ -7,6 +7,7 @@ import {
   jobsData,
   monstersData,
   resourcesData,
+  wavesData,
 } from '../src/data';
 import { worldToCell } from '../src/constants';
 
@@ -250,5 +251,66 @@ describe('토마호크 — 나무·돌 겸용, 두 번에 캔다', () => {
       expect(hits, type).toBeGreaterThanOrEqual(2);
       expect(hits, type).toBeLessThanOrEqual(3);
     }
+  });
+});
+
+describe('보스 체력 — 인원수 스케일링', () => {
+  /** 인원 n명으로 보스를 불러 그 최대 체력을 돌려준다. */
+  function bossHp(playerCount: number): number {
+    const world = new World();
+    for (let i = 0; i < playerCount; i += 1) world.addPlayer(`p${i}`, 500 + i * 40, 500);
+    world.runDevCommand('p0', 'spawn boss_demon 1');
+    return [...world.getMonsters().values()][0]!.maxHp;
+  }
+
+  /** waves.json이 정한 배수. */
+  function expected(playerCount: number): number {
+    const { base, perPlayer } = wavesData.bossHpScaling;
+    return Math.round(monstersData.boss_demon!.hp * (base + perPlayer * playerCount));
+  }
+
+  it('혼자면 데이터 그대로다', () => {
+    expect(bossHp(1)).toBe(monstersData.boss_demon!.hp);
+    expect(expected(1)).toBe(monstersData.boss_demon!.hp);
+  });
+
+  it('인원이 늘수록 체력이 오른다', () => {
+    expect(bossHp(2)).toBe(expected(2));
+    expect(bossHp(4)).toBe(expected(4));
+    expect(bossHp(4)).toBeGreaterThan(bossHp(2));
+  });
+
+  it('화력이 붙는 만큼 다 올리지는 않는다 — 여럿이 잡는 보람이 남아야 한다', () => {
+    const { base, perPlayer } = wavesData.bossHpScaling;
+    const fourPlayerScale = base + perPlayer * 4;
+    expect(fourPlayerScale).toBeGreaterThan(1);
+    expect(fourPlayerScale).toBeLessThan(4);
+  });
+
+  it('잡몹 체력은 인원수와 무관하다 — 잡몹은 마릿수로 늘어난다', () => {
+    const solo = new World();
+    solo.addPlayer('p0', 500, 500);
+    solo.runDevCommand('p0', 'spawn demon 1');
+
+    const party = new World();
+    for (let i = 0; i < 4; i += 1) party.addPlayer(`p${i}`, 500 + i * 40, 500);
+    party.runDevCommand('p0', 'spawn demon 1');
+
+    expect([...party.getMonsters().values()][0]!.maxHp).toBe(
+      [...solo.getMonsters().values()][0]!.maxHp,
+    );
+  });
+
+  it('스폰 뒤에 인원이 바뀌어도 보스 체력은 그대로다', () => {
+    const world = new World();
+    for (let i = 0; i < 4; i += 1) world.addPlayer(`p${i}`, 500 + i * 40, 500);
+    world.runDevCommand('p0', 'spawn boss_demon 1');
+    const boss = [...world.getMonsters().values()][0]!;
+    const before = boss.maxHp;
+
+    world.removePlayer('p3');
+    world.tick(0.5);
+
+    expect(boss.maxHp).toBe(before);
   });
 });

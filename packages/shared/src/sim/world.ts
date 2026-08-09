@@ -2791,6 +2791,18 @@ export class World {
   }
 
   /** 자원 노드를 지형 위에 확률적으로 채운다(부족분만). 클래스 상단 상수 주석 참고. */
+  /**
+   * 인원수에 따른 보스 체력 배수. 잡몹은 마릿수(scaledSpawnCount)로 늘지만 보스는
+   * 한 마리뿐이라 체력이 그 자리를 대신한다(waves.json의 bossHpScaling).
+   *
+   * 플레이어가 하나도 없을 수는 없지만(스폰은 밤에만 일어난다) 0명일 때 배수가
+   * base로 떨어지지 않게 최소 1명으로 본다.
+   */
+  private bossHpScale(): number {
+    const { base, perPlayer } = wavesData.bossHpScaling;
+    return base + perPlayer * Math.max(1, this.players.size);
+  }
+
   private seedResourceNodes(playerCount: number): void {
     this.seedResourceOnTerrain('wood', playerCount);
     this.seedResourceOnTerrain('stone', playerCount);
@@ -2927,6 +2939,13 @@ export class World {
   private addMonster(type: MonsterType, x: number, y: number): string {
     const data = monstersData[type];
     const id = `monster_${nextMonsterId++}`;
+    /*
+     * 보스 체력은 **스폰 시점의 인원수**로 정해지고, 그 뒤로는 안 바뀐다.
+     *
+     * 매 틱 다시 계산하면 한 명이 접속을 끊는 순간 보스 체력이 줄어드는(혹은 늘어나는)
+     * 이상한 일이 벌어진다 — 싸우는 도중에 상대의 체력 바가 저 혼자 움직이면 안 된다.
+     */
+    const hp = isBossType(type) ? Math.round(data.hp * this.bossHpScale()) : data.hp;
     // 스폰 직후엔 코어를 향해 걷기 시작하니, 초기 시야 방향도 코어 쪽으로 잡아둔다.
     const distanceToCore = Math.hypot(x, y);
     const facingX = distanceToCore > 0 ? -x / distanceToCore : 0;
@@ -2936,8 +2955,8 @@ export class World {
       type,
       x,
       y,
-      hp: data.hp,
-      maxHp: data.hp,
+      hp,
+      maxHp: hp,
       attackCooldown: 0,
       facingX,
       facingY,

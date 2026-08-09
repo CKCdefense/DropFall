@@ -409,6 +409,16 @@ const WavesDataSchema = z.object({
    */
   bossWarningSeconds: z.number().nonnegative(),
   playerScaling: WavePlayerScalingSchema,
+  /**
+   * 보스 체력 배수 = base + perPlayer × 인원.
+   *
+   * 보스는 웨이브마다 한 마리라 잡몹처럼 마릿수로 늘릴 수가 없다 — 체력이 그 자리를
+   * 대신한다. 일부러 **선형보다 낮게** 잡는 이유는 waves.json 주석 참고.
+   */
+  bossHpScaling: z.object({
+    base: z.number().positive(),
+    perPlayer: z.number().nonnegative(),
+  }),
   waves: z.array(WaveEntrySchema).min(1),
 });
 
