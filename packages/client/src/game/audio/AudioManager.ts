@@ -213,11 +213,20 @@ export class AudioManager {
     this.stopFootsteps();
   }
 
-  /** InputController의 onAttack — 실제로 나간 공격에만 붙는다(§InputController.updateFire). */
+  /**
+   * InputController의 onAttack — 실제로 나간 공격에만 붙는다(§InputController.updateFire).
+   *
+   * `gunAuto`(기관총류: 기관단총·돌격소총·미니건)는 한 발짜리 클릭음이 아니라 몇 초짜리
+   * "연사" 통짜 클립이다(§gun-auto.wav). 미니건처럼 초당 10발 넘게 쏘는 무기가 발마다
+   * 이걸 새로 겹쳐 재생하면, 쥐고 있는 몇 초 사이에 같은 클립 수십 겹이 쌓여 방아쇠를
+   * 떼고도 한참 계속 울렸다(제보 — "너무 자주 오래 들린다"). 그래서 이 카테고리만
+   * 예외로 둔다 — 이미 도는 인스턴스가 있으면 새로 걸지 않고 흘러가게 둔다.
+   */
   notifyAttack(weaponId: string): void {
     const weapon = weaponsData[weaponId];
     if (!weapon) return;
-    this.playSfx(weapon.type === 'melee' ? meleeSwingKey(weaponId) : rangedFireKey(weaponId));
+    const key = weapon.type === 'melee' ? meleeSwingKey(weaponId) : rangedFireKey(weaponId);
+    this.playSfx(key, { skipIfPlaying: key === 'gunAuto' });
   }
 
   /** InputController의 onEmptyFire — 탄창이 빈 채로 방아쇠를 당겼을 때 한 번만. */
@@ -435,8 +444,15 @@ export class AudioManager {
 
   // ------------------------------------------------------------------ 공용
 
-  private playSfx(key: SfxKey): void {
+  /**
+   * @param skipIfPlaying 이미 이 키로 재생 중인 인스턴스가 있으면 새로 걸지 않는다.
+   *   Phaser의 `sound.play()` 숏컷은 끝나면 스스로 destroy되므로(공식 문서), `get()`이
+   *   뭔가를 돌려준다는 건 아직 재생 중이라는 뜻이다 — 매번 새 인스턴스를 얹어 겹쳐
+   *   울리는 걸 막는 용도(연사 무기 등).
+   */
+  private playSfx(key: SfxKey, opts?: { skipIfPlaying?: boolean }): void {
     if (this.muted || !this.scene.cache.audio.exists(key)) return;
+    if (opts?.skipIfPlaying && this.scene.sound.get<Phaser.Sound.BaseSound>(key)?.isPlaying) return;
     this.scene.sound.play(key, { volume: SFX_VOLUME[key] });
   }
 }
