@@ -6,7 +6,7 @@ import { WaitingRoom } from './ui/WaitingRoom';
 import { loadImageAssets } from './ui/assets';
 import { loadCharacterAtlas } from './ui/characterPortrait';
 import { loadGameFonts } from './ui/fonts';
-import { createGame } from './game/createGame';
+import { EXIT_GAME_EVENT, createGame, type ExitGameDestination } from './game/createGame';
 import type { GameConnection } from './net/GameConnection';
 import { IS_LOCAL_MODE, readAutoEntry } from './net/config';
 import { createRoom, joinRoomByCode } from './net/ColyseusConnection';
@@ -55,7 +55,7 @@ function startGame(): void {
   game = createGame(gameRoot, connection);
 }
 
-function leaveRoom(message = ''): void {
+function leaveRoom(message = '', screen: ExitGameDestination = 'title'): void {
   game?.destroy(true);
   game = null;
 
@@ -64,8 +64,15 @@ function leaveRoom(message = ''): void {
 
   gameRoot.hidden = true;
   uiRoot.hidden = false;
-  lobby.reset(message);
+  lobby.reset(message, screen);
 }
+
+// 게임 안에서 "나가겠다"고 알려올 때(패배 화면에서 아무 키나 눌렀을 때) — 씬은 자기
+// 자신을 파괴할 수 없으므로 요청만 보내고, 정리는 여기서 한다(§createGame.EXIT_GAME_EVENT).
+window.addEventListener(EXIT_GAME_EVENT, (event) => {
+  if (!connection) return;
+  leaveRoom('', (event as CustomEvent<ExitGameDestination>).detail);
+});
 
 // ESC로 언제든 로비로 돌아올 수 있다(시연 중 막히는 상황을 만들지 않기 위한
 // 안전장치) — 다만 실수로 누른 ESC 한 번에 진행 중이던 판을 통째로 잃지 않도록,

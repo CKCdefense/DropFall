@@ -6,6 +6,7 @@ import {
   TILE_SIZE,
   hashString,
   minimapTerrainAt,
+  worldToCell,
 } from '@dropfall/shared';
 import type { PlayerView, WorldSnapshot } from '../../net/GameConnection';
 import { playerColors } from './playerColors';
@@ -148,15 +149,24 @@ export class Minimap {
     this.dots.fillStyle(CORE_COLOR, 1);
     this.dots.fillRect(centerX - 2, centerY - 2, 4, 4);
 
-    this.plot(snapshot.resourceNodes, RESOURCE_COLOR, 1);
+    /*
+     * 자원 노드와 콜로니는 **밝혀진 칸에 있는 것만** 찍는다.
+     *
+     * 안개는 "가 본 곳만 안다"는 약속인데, 시작하자마자 지도 전체에 나무·바위·둥지가
+     * 찍혀 있으면 그 약속이 첫 화면에서 깨진다 — 정찰이 팀에 기여하는 행동이라는
+     * 설계(§ExploredMap)도 같이 무의미해진다. 건축물은 팀이 직접 세운 것이라 가리지
+     * 않고, 몬스터는 "지금 어디서 오는가"가 곧 경보라 그대로 둔다.
+     */
+    this.plot(this.explored(snapshot.resourceNodes, snapshot.explored), RESOURCE_COLOR, 1);
     this.plot(snapshot.buildings, BUILDING_COLOR, 1);
+    const knownColonies = this.explored(snapshot.colonies, snapshot.explored);
     this.plot(
-      snapshot.colonies.filter((colony) => !colony.purified),
+      knownColonies.filter((colony) => !colony.purified),
       COLONY_COLOR,
       2,
     );
     this.plot(
-      snapshot.colonies.filter((colony) => colony.purified),
+      knownColonies.filter((colony) => colony.purified),
       COLONY_PURIFIED_COLOR,
       2,
     );
@@ -225,6 +235,24 @@ export class Minimap {
     }
 
     if (changed) this.fogTexture.refresh();
+  }
+
+  /**
+   * 아직 안 밝힌 칸에 있는 것을 걸러낸다.
+   *
+   * 판정 기준은 서버가 내려준 것과 **같은 비트맵**이다(§ExploredMap) — 미니맵이 따로
+   * 세는 게 아니라 안개를 뚫은 칸과 정확히 같은 칸만 통과시킨다.
+   */
+  private explored<T extends { x: number; y: number }>(
+    entities: readonly T[],
+    explored: ArrayLike<number>,
+  ): T[] {
+    return entities.filter((entity) => {
+      const { cx, cy } = worldToCell(entity.x, entity.y);
+      if (cx < 0 || cy < 0 || cx >= MAP_SIZE_TILES || cy >= MAP_SIZE_TILES) return false;
+      const index = cy * MAP_SIZE_TILES + cx;
+      return ((explored[index >> 3] ?? 0) & (1 << (index & 7))) !== 0;
+    });
   }
 
   /** 월드 좌표를 미니맵 안으로 옮겨 점을 찍는다. 범위를 벗어난 것은 그리지 않는다. */

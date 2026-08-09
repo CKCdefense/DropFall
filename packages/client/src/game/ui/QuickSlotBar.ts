@@ -9,8 +9,15 @@ import {
   HudBar,
   ICON_BOLT,
   ICON_HEART,
+  ICON_SWORD,
   hudIcon,
 } from './hudBar';
+import {
+  STAT_ATTACK_COLOR,
+  STAT_FULL,
+  STAT_HP_COLOR,
+  STAT_STAMINA_COLOR,
+} from './statDisplay';
 import {
   ACCENT,
   BODY_TEXT,
@@ -76,6 +83,19 @@ const BAR_LABEL = '#f2f5fa';
 /** 바 아래쪽에 남기는 여백(HudScene이 slotsBottom을 잡을 때 쓰는 값과 같다). */
 const BOTTOM_MARGIN = 28;
 
+/** 직업/스탯 칸 안 스탯 세 줄의 치수. 아이콘 원본 12px × 2배 = 24px. */
+const STAT_PAD = 10;
+const STAT_ICON_SOURCE = 12;
+const STAT_ICON_SCALE = 2;
+const STAT_ICON_GAP = 6;
+/**
+ * SP 알림 점멸. 경험치 바와 같은 금색이다 — "레벨이 줬다"는 소식이니 같은 계열이
+ * 맞고, 선택 강조(초록)와도 헷갈리지 않는다. 주기를 1초로 느리게 둬서 눈길만 끌고
+ * 거슬리지는 않게 한다.
+ */
+const SP_BLINK_STROKE = 0xd7b45a;
+const SP_BLINK_MS = 1000;
+
 /**
  * 화면 아래에서 이 바가 예약하는 높이(uiScale 1 기준).
  *
@@ -111,7 +131,18 @@ export class QuickSlotBar {
   private readonly icons: SlotIcon[] = [];
 
   private readonly profileBox: Phaser.GameObjects.Rectangle;
-  private readonly profileLabel: Phaser.GameObjects.Text;
+  /**
+   * 직업/스탯 칸 안의 스탯 세 줄(체력·스태미나·공격력) — 아이콘 + 미니 게이지.
+   * "직업/스탯"이라는 글자 대신 창을 열면 보게 될 내용의 축소판을 보여준다 —
+   * 무엇이 나오는 버튼인지 글자로 설명할 필요가 없어진다(캐릭터 창과 같은 눈금,
+   * §statDisplay).
+   */
+  private readonly statIcons: (Phaser.GameObjects.Image | null)[] = [];
+  private readonly statBars: HudBar[] = [];
+  /** SP 알림 점멸 상태. 칸을 눌러 창을 열면 꺼지고, 새 포인트가 생기면 다시 켜진다. */
+  private lastSp = 0;
+  private spSeen = true;
+  private profileHover = false;
 
   private readonly hpBar: HudBar;
   private readonly hpIcon: Phaser.GameObjects.Image | null;
@@ -138,17 +169,24 @@ export class QuickSlotBar {
       .setOrigin(0, 0)
       .setStrokeStyle(1, PANEL_STROKE)
       .setInteractive({ useHandCursor: true });
-    this.profileBox.on('pointerover', () => this.profileBox.setStrokeStyle(2, SELECTED_STROKE));
-    this.profileBox.on('pointerout', () => this.profileBox.setStrokeStyle(1, PANEL_STROKE));
-    this.profileBox.on('pointerdown', () => this.onProfile());
-    this.profileLabel = scene.add
-      .text(0, 0, '직업/스탯', {
-        fontFamily: FONT,
-        fontSize: `${SIZE_BODY}px`,
-        color: BODY_TEXT,
-        align: 'center',
-      })
-      .setOrigin(0.5, 0.5);
+    // 테두리는 update()가 매 프레임 정한다(호버 > SP 점멸 > 기본) — 이벤트에서 직접
+    // 칠하면 점멸과 서로 덮어써서 깜빡임이 뚝뚝 끊긴다.
+    this.profileBox.on('pointerover', () => {
+      this.profileHover = true;
+    });
+    this.profileBox.on('pointerout', () => {
+      this.profileHover = false;
+    });
+    this.profileBox.on('pointerdown', () => {
+      // 눌러서 창을 열었으면 알림은 할 일을 다 했다 — 점멸을 끈다.
+      this.spSeen = true;
+      this.onProfile();
+    });
+    // 스탯 세 줄. 게이지를 먼저, 아이콘을 나중에 만든다(나중 쪽이 위에 그려진다).
+    for (const frame of [ICON_HEART, ICON_BOLT, ICON_SWORD]) {
+      this.statBars.push(new HudBar(scene, BAR_SMALL));
+      this.statIcons.push(hudIcon(scene, frame));
+    }
 
     // 막대 둘. 체력은 왼쪽 절반, 스태미나는 오른쪽 절반을 덮는다(와이어프레임).
     // 아이콘·글자는 막대보다 **나중에** 만든다 — 먼저 만든 쪽이 아래에 깔린다.
@@ -234,10 +272,21 @@ export class QuickSlotBar {
 
     this.profileBox.setSize(size, size).setPosition(startX, top);
     this.profileBox.input?.hitArea?.setSize(size, size);
-    this.profileLabel
-      .setFontSize(SIZE_BODY * scale)
-      .setWordWrapWidth(size - 12 * scale)
-      .setPosition(startX + size / 2, top + size / 2);
+    // 스탯 세 줄 — 칸 안에서 위아래 균등 분할. 아이콘은 줄 세로 중앙, 게이지는 그 오른쪽.
+    {
+      const pad = STAT_PAD * scale;
+      const pitch = (size - pad * 2) / this.statBars.length;
+      const iconSize = STAT_ICON_SOURCE * STAT_ICON_SCALE * scale;
+      const barX = startX + pad + iconSize + STAT_ICON_GAP * scale;
+      const barWidth = startX + size - pad - barX;
+      this.statBars.forEach((bar, index) => {
+        const midY = top + pad + pitch * (index + 0.5);
+        // hudIcon의 origin은 (0, 0.5) — 왼쪽 변 기준으로 놓는다.
+        this.statIcons[index]?.setScale(STAT_ICON_SCALE * scale).setPosition(startX + pad, midY);
+        const barHeight = bar.heightAt(scale * HUD_BAR_SCALE);
+        bar.layout(barX, midY - barHeight / 2, barWidth, scale * HUD_BAR_SCALE);
+      });
+    }
 
     const slotsX = startX + size + gap;
     for (let index = 0; index < this.slotCount; index += 1) {
@@ -343,6 +392,35 @@ export class QuickSlotBar {
 
       this.keyLabels[index].setColor(isSelected ? ACCENT : DIM_TEXT);
     }
+
+    // --- 직업/스탯 칸: 스탯 게이지 + SP 알림 점멸 --------------------------
+    // 눈금(STAT_FULL)은 캐릭터 창과 같다 — 이 칸이 그 창의 축소판으로 읽혀야 한다.
+    this.statBars[0]!.setValue(
+      Math.min(1, (me?.maxHp ?? 0) / STAT_FULL.hp),
+      STAT_HP_COLOR,
+      this.barScale,
+    );
+    this.statBars[1]!.setValue(
+      Math.min(1, (me?.maxStamina ?? 0) / STAT_FULL.stamina),
+      STAT_STAMINA_COLOR,
+      this.barScale,
+    );
+    this.statBars[2]!.setValue(
+      Math.min(1, (me?.attack ?? 0) / STAT_FULL.attack),
+      STAT_ATTACK_COLOR,
+      this.barScale,
+    );
+
+    // 점멸은 "안 본 새 포인트"가 있을 때만 돈다. 칸을 눌러 창을 열면 꺼지고
+    // (pointerdown에서 spSeen = true), 또 레벨이 올라 포인트가 늘면 다시 켜진다.
+    const sp = me?.statPoints ?? 0;
+    if (sp > this.lastSp) this.spSeen = false;
+    if (sp === 0) this.spSeen = true; // 쓸 포인트가 없으면 알릴 것도 없다
+    this.lastSp = sp;
+    const blinkOn = !this.spSeen && Math.floor(this.scene.time.now / SP_BLINK_MS) % 2 === 0;
+    if (this.profileHover) this.profileBox.setStrokeStyle(2, SELECTED_STROKE);
+    else if (blinkOn) this.profileBox.setStrokeStyle(2, SP_BLINK_STROKE);
+    else this.profileBox.setStrokeStyle(1, PANEL_STROKE);
 
     // 최대치는 직업·음식으로 달라지므로 서버가 내려준 값을 그대로 쓴다.
     // 경험치는 "이번 레벨에 쌓인 양 / 다음 레벨까지"다. 다음 레벨까지의 양은 서버가

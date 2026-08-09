@@ -21,9 +21,10 @@ import {
   CORE_INTERACT_KEY,
   HUD_BLOCK_KEY,
   LOCAL_POSITION_KEY,
+  requestExitGame,
 } from '../createGame';
 import { ChatBox } from '../ui/ChatBox';
-import { CinematicOverlay } from '../ui/CinematicOverlay';
+import { CinematicOverlay, GAME_OVER_HINT_DELAY_MS } from '../ui/CinematicOverlay';
 import { CoreModal } from '../ui/CoreModal';
 import { CharacterModal } from '../ui/CharacterModal';
 import { SlotDrag } from '../ui/SlotDrag';
@@ -290,8 +291,10 @@ export class HudScene extends Phaser.Scene {
   private latestCharge: (InventorySlot | null)[] = [];
   private latestCraftOutput: InventorySlot | null = null;
 
-  /** 화면 연출(암전·DAY N·경고·클리어). */
+  /** 화면 연출(암전·DAY N·경고·클리어·패배). */
   private cinematic!: CinematicOverlay;
+  /** 패배 화면에 이미 들어갔는가. 스냅샷이 매 프레임 같은 페이즈를 들고 오므로 필요하다. */
+  private gameOver = false;
   /** 직전 스냅샷의 페이즈와 웨이브 — 아침이 "언제 왔는지"는 전이로만 알 수 있다. */
   private lastPhase = '';
   private lastWave = -1;
@@ -728,6 +731,46 @@ export class HudScene extends Phaser.Scene {
     return this.openModals().length > 0;
   }
 
+  /**
+   * 패배 화면으로 들어간다. 코어가 부서졌거나(전 모드) 멀티에서 전원이 쓰러졌을 때
+   * 서버가 페이즈를 'defeat'로 바꾸고, 화면은 그걸 보고 이 문을 지난다.
+   *
+   * **한 번만 지난다.** 스냅샷은 매 프레임 같은 페이즈를 들고 오므로, 막지 않으면
+   * 연출이 매 프레임 처음부터 다시 시작해 영원히 첫 프레임에 머문다.
+   */
+  private enterGameOver(): void {
+    if (this.gameOver) return;
+    this.gameOver = true;
+
+    // 창이 떠 있으면 큰 문구를 가린다. 어차피 여기서 할 수 있는 일은 나가는 것뿐이다.
+    // 채팅은 열려 있는 동안 전역 키보드를 꺼 두므로(§ChatBox.toggle) 같이 닫아야
+    // "아무 키나"가 실제로 아무 키나가 된다.
+    this.closeAllModals();
+    this.chatBox.close();
+
+    // 돌아갈 곳이 모드마다 다르다 — 혼자하기는 타이틀, 멀티는 다음 방을 고를 수 있게
+    // 방 목록이다. 안내 문구도 실제로 가는 곳을 그대로 말한다.
+    const solo = this.connection.isLocal;
+    this.cinematic.showGameOver(solo ? '아무 키나 눌러 타이틀로' : '아무 키나 눌러 로비로');
+
+    /*
+     * 입력은 **안내가 뜨는 시점부터** 받는다. 그 전에는 마침 누르고 있던 이동키 하나에
+     * 화면이 넘어가 버려서, 사용자에게는 "저절로 나가졌다"로 보인다.
+     *
+     * 클릭과 키를 둘 다 받되 한 번만 쓴다 — 어느 쪽이 먼저 오든 나머지 하나를 같이
+     * 떼어내지 않으면, 로비로 나간 뒤에도 죽은 씬의 핸들러가 남는다.
+     */
+    this.time.delayedCall(GAME_OVER_HINT_DELAY_MS, () => {
+      const leave = () => {
+        this.input.off(Phaser.Input.Events.POINTER_DOWN, leave);
+        this.input.keyboard?.off('keydown', leave);
+        requestExitGame(solo ? 'title' : 'browse');
+      };
+      this.input.on(Phaser.Input.Events.POINTER_DOWN, leave);
+      this.input.keyboard?.on('keydown', leave);
+    });
+  }
+
   /** 도움말 열기·닫기. `?` 버튼과 H 키가 같은 문을 쓴다. */
   private toggleGuide(): void {
     if (this.guideModal.isOpen()) this.guideModal.close();
@@ -755,7 +798,9 @@ export class HudScene extends Phaser.Scene {
     const phase = status.wavePhase;
     const day = Math.max(1, status.currentWave + (phase === 'day' ? 1 : 0));
 
-    if (phase === 'victory') {
+    if (phase === 'defeat') {
+      this.enterGameOver();
+    } else if (phase === 'victory') {
       this.cinematic.showClear();
     } else if (status.bossWarningRemaining > 0) {
       this.cinematic.showWarning();

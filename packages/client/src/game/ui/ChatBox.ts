@@ -100,6 +100,11 @@ export class ChatBox {
     return this.open;
   }
 
+  /** 밖에서 닫는다(패배 화면 등). 이미 닫혀 있으면 아무 일도 하지 않는다. */
+  close(): void {
+    if (this.open) this.toggle(false);
+  }
+
   /**
    * 서버(또는 로컬 폴백)에서 온 채팅 한 줄을 로그에 추가한다. 티모시 대사도 같은 로그를
    * 쓴다(GameScene의 onCompanionCommentary가 여기로도 넘겨준다) — variant로 이름 색만 구분한다.
