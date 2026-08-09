@@ -136,9 +136,15 @@ export class SlotDrag {
   }
 
   private beginDrag(cell: DragCell): void {
+    if (cell.container === 'trash') return; // 폐기 구역에서는 집을 것도, 고를 것도 없다
     if (!cell.isActive()) return;
     const slot = this.getSlot(cell.container, cell.index);
-    if (!slot) return; // 빈 칸은 집을 게 없다
+    if (!slot) {
+      // 빈 칸도 "그냥 눌렀다"로 본다 — 숫자키로 빈 칸을 골라 손을 비우는 동작이
+      // 클릭에서만 안 될 이유가 없다. 집을 것이 없으니 드래그는 시작하지 않는다.
+      this.onClickSelect(cell.container, cell.index);
+      return;
+    }
 
     this.source = cell;
     const item = itemOfSlot(slot);

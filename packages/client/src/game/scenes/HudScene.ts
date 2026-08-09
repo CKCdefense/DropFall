@@ -591,6 +591,9 @@ export class HudScene extends Phaser.Scene {
       if (this.chatBox.isOpen()) return true;
       // 투표 판을 누른 클릭이 월드로 새서 무기까지 휘두르면 안 된다.
       if (this.statusPanel.visible && this.statusPanel.getBounds().contains(x, y)) return true;
+      // 퀵슬롯 칸을 눌러 무기를 드는 클릭도 마찬가지다 — 물건이 든 칸은 드래그가
+      // 시작되며 저절로 막히지만, 빈 칸과 칸 사이 틈은 좌표로 막아야 한다.
+      if (this.quickSlots.containsPoint(x, y)) return true;
       return this.openModals().some((modal) => modal.containsPoint(x, y));
     });
 
@@ -984,6 +987,10 @@ export class HudScene extends Phaser.Scene {
     const isDay = status.wavePhase === 'day';
     const isNight = status.wavePhase === 'night';
     this.statusPanel.setVisible(isDay || isNight);
+    // 제목 줄 — 판을 만들고 자리도 잡아 놓고(레이아웃의 statusHeadBottom) 정작 글자를
+    // 넣는 코드가 없어 빈 줄로 떠 있었다. 코어 패널의 "코어 상태"와 같은 굵은 규격이다.
+    this.statusHeadText.setVisible(isDay || isNight);
+    if (isDay || isNight) this.statusHeadText.setText(isDay ? '낮 스킵' : '남은 적');
     // 투표는 낮에만 받는다(World.castSkipVote도 낮이 아니면 무시한다) — 밤에 손가락
     // 커서가 뜨면 누를 수 있는 것처럼 보인다.
     if (isDay) this.statusPanel.setInteractive({ useHandCursor: true });
