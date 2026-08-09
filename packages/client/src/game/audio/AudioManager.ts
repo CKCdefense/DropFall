@@ -72,7 +72,16 @@ const BGM_FILES = {
 
 type BgmKey = keyof typeof BGM_FILES;
 
-const BGM_VOLUME = 0.32;
+/** 곡마다 원본 마스터링 음량이 달라서(특히 낮 곡이 밤/보스곡보다 훨씬 크게 들어왔다)
+ * 한 볼륨으로 맞추면 안 된다 — 곡별로 따로 잡는다. */
+const BGM_VOLUME: Record<BgmKey, number> = {
+  day: 0.15,
+  'night-1': 0.32,
+  'night-2': 0.32,
+  'night-3': 0.32,
+  'night-4': 0.32,
+  'night-5': 0.32,
+};
 /** 국면이 바뀔 때 배경음악을 서서히 섞는 시간(ms). 뚝 끊기면 전환이 튄다. */
 const BGM_FADE_MS = 900;
 
@@ -90,11 +99,16 @@ const TERRAIN_FOOTSTEP: Record<FootstepSurface, SfxKey> = {
   stone: 'footstepDirt',
 };
 
-/** 발소리가 실제로 걸음처럼 들리도록 짧게 반복 재생한다(루프 파일이 아니다). */
-const FOOTSTEP_INTERVAL_MS = 340;
-
 /** 같은 순간 몬스터 여러 마리가 한꺼번에 스폰/공격해도 귀청이 터지지 않게 두는 최소 간격(ms). */
 const MONSTER_SFX_MIN_GAP_MS = 260;
+
+/**
+ * 몬스터 소리(스폰·공격 growl)가 들리는 최대 거리(px). 콜로니에서 멀리 떨어진 몬스터가
+ * 계속 싸우면 위치 감쇠 없이 전부 울려서 화면 밖에서도, 심지어 그 콜로니를 지나쳐 멀리
+ * 가도 "웅웅거리는" 소리가 끊이지 않았다(제보) — 화면에 어차피 안 보이는 소리를 낼
+ * 이유가 없으니 아예 범위 밖이면 울리지 않는다.
+ */
+const MONSTER_SFX_RANGE = 560;
 
 const MONSTER_GROWL_KEYS: SfxKey[] = ['monster1', 'monster2', 'monster3'];
 
@@ -153,8 +167,8 @@ export class AudioManager {
    * (짧은 시간에 국면이 왔다 갔다 하면 리스너가 여러 번 걸려 같은 곡이 겹쳐 재생된다). */
   private loadingBgmKey?: BgmKey;
 
-  private footstepKind?: SfxKey;
-  private footstepNextAt = 0;
+  private footstepKey?: SfxKey;
+  private footstepSound?: Phaser.Sound.BaseSound;
 
   private readonly lastLifeState = new Map<string, PlayerView['lifeState']>();
   private readonly knownMonsterIds = new Set<string>();
@@ -177,10 +191,11 @@ export class AudioManager {
   /** 씬을 나갈 때(대기실로 복귀 등) 부른다 — 안 그러면 배경음악이 게임 화면을 떠나서도
    * 계속 흐른다(사운드 매니저가 씬이 아니라 게임 인스턴스에 붙어 있어서). */
   stopAll(): void {
-    this.currentBgm?.stop();
+    this.currentBgm?.destroy();
     this.currentBgm = undefined;
     this.currentBgmKey = undefined;
     this.pendingBgmKey = undefined;
+    this.stopFootsteps();
   }
 
   /** InputController의 onAttack — 실제로 나간 공격에만 붙는다(§InputController.updateFire). */
@@ -209,7 +224,7 @@ export class AudioManager {
   ): void {
     this.updateMusic(status.wavePhase, status.currentWave);
     this.updateLifeStates(players);
-    this.updateMonsters(monsters);
+    this.updateMonsters(monsters, me);
     this.updateReload(me);
     this.updateFootsteps(me, localMoving, localSurface);
   }
@@ -232,7 +247,10 @@ export class AudioManager {
         targets: old,
         volume: 0,
         duration: BGM_FADE_MS,
-        onComplete: () => old.stop(),
+        // stop이 아니라 destroy — 낮/밤을 여러 날 반복하면 멈춘 트랙 인스턴스가
+        // sound.sounds 목록에 계속 쌓인다. 재생 중인 것도 아니고 다시 쓸 일도
+        // 없으니(다음에 같은 국면이 오면 새로 만든다) 아예 치운다.
+        onComplete: () => old.destroy(),
       });
     }
     this.currentBgm = undefined;
@@ -258,7 +276,7 @@ export class AudioManager {
     const sound = this.scene.sound.add(key, { loop: true, volume: 0 });
     sound.play();
     this.currentBgm = sound;
-    this.scene.tweens.add({ targets: sound, volume: BGM_VOLUME, duration: BGM_FADE_MS });
+    this.scene.tweens.add({ targets: sound, volume: BGM_VOLUME[key], duration: BGM_FADE_MS });
   }
 
   // ------------------------------------------------------------------ 부활/쓰러짐
@@ -278,19 +296,28 @@ export class AudioManager {
 
   // ------------------------------------------------------------------ 몬스터
 
-  private updateMonsters(monsters: MonsterView[]): void {
+  /**
+   * 스폰·공격 growl 둘 다 **내 캐릭터 반경 안(MONSTER_SFX_RANGE)의 몬스터일 때만** 센다.
+   * 콜로니 하나가 계속 수호대를 돌리며 서로 싸우면(트리클 스폰) attackSeq가 쉴 새 없이
+   * 바뀌는데, 거리를 안 보면 그 콜로니를 완전히 벗어나도(화면 밖이어도) 계속 울려서
+   * "웅웅거리는 소리가 안 꺼진다"는 제보로 이어졌다.
+   */
+  private updateMonsters(monsters: MonsterView[], me: PlayerView | undefined): void {
     const now = this.scene.time.now;
     let spawned = false;
     let attacked = false;
 
     for (const monster of monsters) {
-      if (!this.knownMonsterIds.has(monster.id)) {
-        this.knownMonsterIds.add(monster.id);
-        spawned = true;
-      }
+      const known = this.knownMonsterIds.has(monster.id);
+      if (!known) this.knownMonsterIds.add(monster.id);
+
       const lastSeq = this.lastAttackSeq.get(monster.id);
       this.lastAttackSeq.set(monster.id, monster.attackSeq);
-      if (lastSeq !== undefined && lastSeq !== monster.attackSeq) attacked = true;
+      const justAttacked = lastSeq !== undefined && lastSeq !== monster.attackSeq;
+
+      if (!me || Math.hypot(monster.x - me.x, monster.y - me.y) > MONSTER_SFX_RANGE) continue;
+      if (!known) spawned = true;
+      if (justAttacked) attacked = true;
     }
     // 사라진 몬스터는 추적을 접는다 — 안 그러면 두 맵이 영원히 자란다.
     if (this.knownMonsterIds.size > monsters.length) {
@@ -325,6 +352,12 @@ export class AudioManager {
    * 내 캐릭터 발소리만 낸다(원격 팀원은 대상 밖) — 자기 행동에 대한 즉각적인 피드백이
    * 목적이라, 위치 기반 음량 감쇠 없이 그냥 들리는 지금 단계에서는 남의 발소리까지
    * 섞으면 시끄럽기만 하다.
+   *
+   * 발소리 파일은 짧은 "쿵" 한 번이 아니라 몇 초짜리 걷기 소리다. 그래서 매 프레임(혹은
+   * 일정 간격마다) 새로 재생을 걸면, 앞의 재생이 아직 끝나기 전에 다음 재생이 겹쳐서
+   * 계속 울리는 것처럼 들렸다(제보) — **한 번 걸어서 loop로 틀어 두고**, 걷기를 멈추거나
+   * 지형이 바뀔 때만 멈추고 다시 튼다. 새로 안 트는 한(이미 같은 소리가 돌고 있으면)
+   * 아무 것도 안 한다.
    */
   private updateFootsteps(
     me: PlayerView | undefined,
@@ -333,21 +366,28 @@ export class AudioManager {
   ): void {
     const alive = !!me && me.hp > 0 && me.lifeState === 'alive';
     if (!alive || !moving || !surface) {
-      this.footstepNextAt = 0;
+      this.stopFootsteps();
       return;
     }
 
     const key = TERRAIN_FOOTSTEP[surface];
-    const now = this.scene.time.now;
-    if (key !== this.footstepKind) {
-      // 지형이 바뀌면 다음 걸음부터 바로 새 소리로 — 늦게 갈아타면 눈(화면)과 귀가 어긋난다.
-      this.footstepKind = key;
-      this.footstepNextAt = now;
-    }
-    if (now < this.footstepNextAt) return;
+    if (key === this.footstepKey && this.footstepSound?.isPlaying) return; // 이미 같은 소리가 돌고 있다.
 
-    this.footstepNextAt = now + FOOTSTEP_INTERVAL_MS;
-    this.playSfx(key);
+    this.stopFootsteps();
+    if (this.muted || !this.scene.cache.audio.exists(key)) return;
+
+    const sound = this.scene.sound.add(key, { loop: true, volume: SFX_VOLUME[key] });
+    sound.play();
+    this.footstepSound = sound;
+    this.footstepKey = key;
+  }
+
+  private stopFootsteps(): void {
+    // destroy — 지형을 넘나들 때마다 새 인스턴스를 만드므로, 멈춘 걸 그대로 두면
+    // sound.sounds 목록에 계속 쌓인다.
+    this.footstepSound?.destroy();
+    this.footstepSound = undefined;
+    this.footstepKey = undefined;
   }
 
   // ------------------------------------------------------------------ 공용
