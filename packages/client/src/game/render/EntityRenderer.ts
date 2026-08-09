@@ -406,8 +406,18 @@ const STILL_GRACE_FRAMES = 6;
  */
 const DOWNED_TILT = Math.PI / 2;
 
-/** 살아있지 않은 플레이어(쓰러짐·유령)의 불투명도. */
-const DOWNED_ALPHA = 0.35;
+/**
+ * 쓰러진 몸의 고정 자세. 정면(카메라 쪽) 그림을 눕히면 **하늘을 보고 누운** 자세가 된다.
+ * 좌우 반전도 하지 않는다 — 쓰러진 사람에게는 조준 방향이 없다.
+ */
+const DOWNED_POSE = { direction: 'front', flipX: false } as const;
+
+/**
+ * 유령의 불투명도. **쓰러짐에는 쓰지 않는다** — 누운 그림 자체가 이미 상태를 말하는데
+ * 반투명까지 얹으면 바닥에 녹아 어디 쓰러졌는지 잘 안 보인다. 유령은 반대로, 서 있는
+ * 그림이라 이 투명도가 산 사람과 구분해 주는 유일한 표시다.
+ */
+const GHOST_ALPHA = 0.35;
 
 /** 닉네임 라벨을 머리 위로 띄우는 거리(월드 단위). 캐릭터 32px 중 그림은 y 2~29에 있다. */
 const LABEL_OFFSET_SPRITE = 30;
@@ -745,8 +755,8 @@ export class EntityRenderer {
       }
       sprite.setData('levelUpSeq', player.levelUpSeq);
 
-      // 쓰러지거나 유령이면 흐리게 — 부활 대상임을 한눈에 보이게 한다.
-      sprite.setAlpha(player.lifeState === 'alive' ? 1 : DOWNED_ALPHA);
+      // 유령만 흐리게 — 쓰러진 몸은 누운 그림 자체가 상태를 말한다(§GHOST_ALPHA).
+      sprite.setAlpha(player.lifeState === 'ghost' ? GHOST_ALPHA : 1);
 
       // 무기는 서버가 정한다. 무기가 아닌 걸 들었으면 맨손이다 — 소모품을 든 동안에도
       // 좌클릭으로 때릴 수 있으므로(서버의 BARE_HANDS_WEAPON_ID) 그림도 맨손이어야 한다.
@@ -1105,7 +1115,18 @@ export class EntityRenderer {
     if (!(body instanceof Phaser.GameObjects.Sprite)) return;
 
     const job = spritePrefix(player.job);
-    const { direction, flipX } = directionFromAngle(player.aimAngle);
+    const downed = player.lifeState === 'downed';
+    /*
+     * **쓰러진 몸은 커서를 따라가지 않는다.**
+     *
+     * 살아 있을 때는 조준 방향이 곧 몸의 방향이지만, 쓰러진 사람에게는 조준이라는 게
+     * 없다 — 그런데도 커서를 따라 좌우가 뒤집히고 누운 쪽이 바뀌면 시체가 빙글 도는
+     * 그림이 된다. 눕는 순간의 방향으로 굳혀 두지 않고 **아예 한 자세로 고정한다**:
+     * 정면(카메라 쪽) 그림을 눕히면 하늘을 보고 누운 자세가 된다.
+     */
+    const { direction, flipX } = downed
+      ? DOWNED_POSE
+      : directionFromAngle(player.aimAngle);
     body.setFlipX(flipX);
 
     const previous = this.lastPositions.get(player.id);
@@ -1130,13 +1151,12 @@ export class EntityRenderer {
      * **쓰러지면 눕는다.**
      *
      * 원점이 발밑(PLAYER_ORIGIN_Y 0.94)이라 그 점을 축으로 90도 돌리면 발은 제자리에
-     * 두고 몸만 옆으로 눕는다 — 넘어진 자세가 그대로 나온다. 눕는 쪽은 보고 있던
-     * 방향이다(등을 보이며 뒤로 자빠지는 것보다 자연스럽다).
+     * 두고 몸만 옆으로 눕는다 — 넘어진 자세가 그대로 나온다. 각도도 방향과 마찬가지로
+     * **한 쪽으로 고정**이다(위 DOWNED_POSE 참고).
      *
-     * 유령은 눕히지 않는다. 떠다니는 상태라 서 있는 그림이 맞고, 흐린 알파만으로
-     * 이미 산 사람과 구분된다.
+     * 유령은 눕히지 않는다. 떠다니는 상태라 서 있는 그림이 맞다.
      */
-    body.setRotation(player.lifeState === 'downed' ? (flipX ? -DOWNED_TILT : DOWNED_TILT) : 0);
+    body.setRotation(downed ? DOWNED_TILT : 0);
 
     if (walking) {
       const key = walkAnimKey(job, direction);
