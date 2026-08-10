@@ -352,7 +352,16 @@ export class InputController {
 
     this.elapsed += delta;
     if (this.elapsed < SEND_INTERVAL_MS) return;
-    this.elapsed = 0;
+    /*
+     * 0으로 리셋하지 않고 나머지를 이월한다. 리셋하면 (프레임 시간 나머지)가 매번
+     * 증발해서 전송률이 조용히 떨어진다 — 144Hz 모니터면 6.9ms×3 프레임 = 20.8ms마다
+     * 전송하고 4.2ms를 버려 실효 48Hz가 된다. 예측(PlayerPredictor)은 전송 1회당
+     * 고정 스텝(1/60초)씩만 전진하므로, 그만큼 서버보다 계속 뒤처져 재조정마다
+     * 미세하게 앞으로 당겨졌다(고주사율에서만 보이는 고무줄, docs/frontend/23).
+     * 큰 프레임 드랍 뒤에 밀린 횟수만큼 몰아 보내지는 않는다(%=) — 서버는 어차피
+     * 마지막 입력을 반복 적용하므로 놓친 주기는 보낼 가치가 없다.
+     */
+    this.elapsed %= SEND_INTERVAL_MS;
 
     this.seq += 1;
     const input = this.buildInput();

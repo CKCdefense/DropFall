@@ -15,7 +15,7 @@ import {
   type PlayerInputMessage,
 } from '@dropfall/shared';
 import type { GameConnection, LobbyView, PlayerView, RoomInfo, WorldSnapshot } from './GameConnection';
-import { SnapshotInterpolator } from './SnapshotInterpolator';
+import { LOCAL_INTERP_DELAY_MS, SnapshotInterpolator } from './SnapshotInterpolator';
 
 const LOCAL_SESSION_ID = 'local-player';
 // 코어 충돌 반경(PLAYER_CORE_COLLISION_RADIUS=46) 안에서 태어나면 이동이 전부
@@ -55,8 +55,9 @@ export class LocalConnection implements GameConnection {
   private companionCommentaryCallback?: (text: string, playerId: string) => void;
   /** 혼자라 대화 상대는 없지만, UI가 그대로 동작하도록 보낸 즉시 자기 자신에게 되돌려준다. */
   private chatCallback?: (message: { playerId: string; nickname: string; text: string }) => void;
-  /** world.tick()도 서버와 동일하게 TICK_RATE라 같은 보간이 필요하다(SnapshotInterpolator 참고). */
-  private readonly interpolator = new SnapshotInterpolator();
+  /** world.tick()도 서버와 동일하게 TICK_RATE라 같은 보간이 필요하다. 지연은 오프라인용
+   * 짧은 값을 쓴다 — 네트워크 지터가 없는데 온라인 지연을 그대로 쓰면 몬스터만 늦게 보인다. */
+  private readonly interpolator = new SnapshotInterpolator(LOCAL_INTERP_DELAY_MS);
   private readonly nickname: string;
   private job: JobId | '' = '';
   private readonly companionEnabled: boolean;
