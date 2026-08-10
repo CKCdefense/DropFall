@@ -323,15 +323,16 @@ this.cameras.main.setZoom(computeCameraZoom(this.scale.width, this.scale.height)
        ┌──────────────────┴──────────────────┐
        │                                     │
   [ 클라이언트 ]                        [ 게임 서버 ]
-  https://<id>.github.io/DropFall/     wss://<서버-tailnet-hostname>
-  https://dropfall.<도메인>              └ Colyseus (홈서버 :2567)
-   (둘 다 동일 빌드 산출물)                  Tailscale Funnel 경유
+  https://dropfall.bomun.dev/          wss://dropfall-ws.bomun.dev
+   └ GitHub Pages (커스텀 도메인)         └ Colyseus (홈서버 :2567)
+  https://<id>.github.io/DropFall/
+   (기본 도메인 — 위로 301 리다이렉트)
 ```
 
 | 대상 | 위치 | 비고 |
 |---|---|---|
-| 클라이언트 (주) | **GitHub Pages** | 공모전 제출 링크. `main` 머지 시 Actions 자동 배포 |
-| 클라이언트 (부) | **홈서버** (Caddy 정적 서빙) | 자체 도메인 접속용. Pages 장애 시 대체 |
+| 클라이언트 (주) | **GitHub Pages** (커스텀 도메인 `dropfall.bomun.dev`) | 공모전 제출 링크. `main` 머지 시 Actions 자동 배포 |
+| 클라이언트 (부) | **홈서버** (Caddy 정적 서빙) | Pages 장애 시 대체 |
 | 게임 서버 | **홈서버** (Colyseus) | Tailscale Funnel로 `wss://` 노출 |
 | 에셋 | 클라 번들에 포함 | 별도 CDN 불필요 |
 

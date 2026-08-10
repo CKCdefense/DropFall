@@ -9,7 +9,7 @@ DropFall
 | 장르 | 실시간 디펜스(협동) |
 | 플랫폼 | Web Browser |
 | 개발 형태 | 3인 팀 |
-| 플레이 링크 | [GitHub Pages 배포 URL] https://ckcdefense.github.io/DropFall/ |
+| 플레이 링크 | https://dropfall.bomun.dev/ |
 | 플레이 영상 | [YouTube URL] |
 
 ---
@@ -144,7 +144,7 @@ AI 동료 **티모시**는 이 빈자리를 메우기 위한 장치입니다. �
 ## 실행 방법
 
 ### 플레이 링크
-- [[GitHub Pages 배포 URL](https://ckcdefense.github.io/DropFall/)]
+- https://dropfall.bomun.dev/
 
 ### 실행 절차
 1. 플레이 링크 접속
