@@ -26,9 +26,9 @@ import type {
  * 매 프레임 "지금 아는 최신 상태"를 그대로 그리면 같은 좌표를 여러 프레임 반복하다가
  * 한 번에 튀는 식으로 보여서 뚝뚝 끊겨 보인다.
  *
- * 최근 스냅샷을 타임스탬프와 함께 버퍼에 쌓아두고, "지금보다 INTERP_DELAY_MS 전" 시점을
+ * 최근 스냅샷을 타임스탬프와 함께 버퍼에 쌓아두고, "지금보다 보간 지연만큼 전" 시점을
  * 두 스냅샷 사이에서 선형 보간해서 그리면 매 프레임 부드럽게 움직인다. 대가로 화면에 보이는
- * 위치가 실제보다 INTERP_DELAY_MS만큼 늦게 반영된다.
+ * 위치가 실제보다 그 지연만큼 늦게 반영된다.
  *
  * 지연의 기준은 **스냅샷이 도착하는 주기(PATCH_RATE)** 다. 서버 내부 틱(TICK_RATE)이 아니다 —
  * 보간은 "도착한 스냅샷 두 개 사이"를 채우는 일이라 서버가 내부적으로 몇 번 계산했는지와는
@@ -36,19 +36,36 @@ import type {
  * 지연(33ms)이 실제 도착 간격(63ms)보다 짧아져 프레임의 47%가 외삽으로 그려진 적이 있다
  * (docs/frontend/05).
  *
- * 2주기 여유를 두는 이유: 1주기만 두면 버퍼가 스냅샷 두 개 사이를 딱 채우는 수준이라
- * 네트워크 지터로 다음 스냅샷이 조금만 늦게 와도 보간할 "미래" 스냅샷이 없어진다.
- *
- * ColyseusConnection과 LocalConnection 양쪽 다 상태 갱신 주기가 동일해서 같은 문제를
- * 겪는다 — 그래서 이 클래스는 전송 방식과 무관하게 재사용한다.
+ * 지연의 크기는 전송 방식마다 다르다(아래 두 상수) — 그래서 생성자 인자로 받는다.
+ * 보간 로직 자체는 어느 쪽이든 동일해서 클래스는 그대로 재사용한다.
  */
 
-const INTERP_DELAY_PATCHES = 2;
-const INTERP_DELAY_MS = (INTERP_DELAY_PATCHES * 1000) / PATCH_RATE;
+/**
+ * 온라인(ColyseusConnection) 기본 지연.
+ *
+ * 이 버퍼가 흡수해야 하는 것은 도착 주기만이 아니라 **네트워크 지터**다. 예전엔 도착
+ * 주기의 2배(`2 × 1000 / PATCH_RATE`)로만 잡았는데, 그러면 PATCH_RATE를 올릴수록
+ * (20Hz→50Hz) 지터 허용치가 100ms→40ms로 같이 줄어드는 거꾸로 된 관계가 된다 —
+ * 전송을 자주 할수록 흔들림에 약해질 이유가 없다. 실제로 40ms에서, 릴레이 경유 회선의
+ * 수십 ms급 지터가 그대로 "몹 순간이동"으로 증폭되는 제보가 나왔다(docs/frontend/23).
+ *
+ * 그래서 시간 기준 120ms로 고정한다. 반응성 걱정으로 좁힐 필요가 없다 — 내 캐릭터는
+ * 예측(PlayerPredictor)으로 즉시 그려져 이 지연과 무관하고, 대가는 원격 엔티티가
+ * 120ms 늦게 보이는 것뿐이다(협동 PvE라 정밀 조준 대상이 아니다). PATCH_RATE를 크게
+ * 낮추는 실험을 하더라도 버퍼가 도착 간격 2개는 덮도록 하한만 같이 둔다.
+ */
+export const NETWORK_INTERP_DELAY_MS = Math.max(120, (2 * 1000) / PATCH_RATE);
+
+/**
+ * 오프라인(LocalConnection) 지연. 네트워크가 없어 지터가 사실상 0이므로 시뮬 틱(60Hz)
+ * 간격 2개 + 프레임 오차만 덮으면 된다 — 온라인과 같은 120ms를 쓰면 아무 이유 없이
+ * 몬스터가 그만큼 늦게 보인다(docs/backend/47이 남겨둔 오프라인 미세 최적화).
+ */
+export const LOCAL_INTERP_DELAY_MS = 50;
 /** 이보다 오래된 스냅샷은 버린다. 재접속 등으로 버퍼가 무한히 쌓이는 것을 막는다. */
 const MAX_BUFFER_AGE_MS = 1000;
 /**
- * 지연 마진(INTERP_DELAY_MS)보다 새 스냅샷이 늦게 도착하면(네트워크 지터, 프레임 타이밍 등)
+ * 지연 마진(delayMs)보다 새 스냅샷이 늦게 도착하면(네트워크 지터, 프레임 타이밍 등)
  * 보간할 "미래" 스냅샷이 없어 그대로 멈춰버린다 — 마진을 늘리면 반응성이 다시 나빠지니,
  * 대신 마지막 두 스냅샷의 속도로 잠깐 외삽(dead reckoning)해서 멈추지 않게 한다.
  * 이 시간을 넘어서도 새 스냅샷이 안 오면(재접속·끊김 등) 엉뚱한 방향으로 계속 튀어나갈
@@ -219,6 +236,9 @@ const EMPTY_STATUS: WorldStatus = {
 };
 
 export class SnapshotInterpolator {
+  /** @param delayMs 보간 지연. 전송 방식의 지터 특성에 맞춰 고른다(파일 상단 두 상수). */
+  constructor(private readonly delayMs: number = NETWORK_INTERP_DELAY_MS) {}
+
   private readonly buffer: BufferedSnapshot[] = [];
   /** blendList/extrapolateList는 배열에 써야 해서, 단일 객체(companion)용 스크래치 버퍼를 하나 둔다. */
   private readonly companionScratch: CompanionView[] = [];
@@ -273,7 +293,7 @@ export class SnapshotInterpolator {
     }
   }
 
-  /** 매 렌더 프레임 호출. INTERP_DELAY_MS만큼 과거 시점을 보간(또는 필요시 외삽)해 돌려준다. */
+  /** 매 렌더 프레임 호출. delayMs만큼 과거 시점을 보간(또는 필요시 외삽)해 돌려준다. */
   sample(now: number = performance.now()): WorldSnapshot {
     const last = this.buffer[this.buffer.length - 1];
     if (!last) return this.output;
@@ -283,7 +303,7 @@ export class SnapshotInterpolator {
     // 안개는 보간할 값이 아니다 — 위치처럼 섞으면 의미가 없고, 항상 최신 상태를 쓴다.
     this.output.explored = last.explored;
 
-    const renderTime = now - INTERP_DELAY_MS;
+    const renderTime = now - this.delayMs;
 
     // 버퍼 부족: 다음 스냅샷이 아직 안 왔다. 짧은 지터면 마지막 속도로 외삽하고,
     // 너무 오래 끌면(재접속 등) 엉뚱하게 튀지 않도록 그냥 마지막 위치에 고정한다.
