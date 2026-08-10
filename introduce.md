@@ -10,7 +10,7 @@ DropFall
 | 플랫폼 | Web Browser |
 | 개발 형태 | 3인 팀 |
 | 플레이 링크 | https://dropfall.bomun.dev/ |
-| 플레이 영상 | [YouTube URL] |
+| 플레이 영상 | https://youtu.be/xAgh99q5S-8 |
 
 ---
 
@@ -160,8 +160,8 @@ AI 동료 **티모시**는 이 빈자리를 메우기 위한 장치입니다. �
 
 ## 플레이 영상
 
-- YouTube 링크: [YouTube URL]
-- 영상 길이: [예: 약 45초]
+- YouTube 링크: https://youtu.be/xAgh99q5S-8
+- 영상 길이: 약 57초
 
 ## 추후 계획
 

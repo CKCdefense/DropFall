@@ -41,3 +41,4 @@ packages/client/public/assets/atlas/monsters.json
 assets/fonts/*.ttf
 assets/fonts/*.ttc
 assets/fonts/*.bdf
+~$*
