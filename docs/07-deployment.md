@@ -83,8 +83,15 @@ sudo reboot
 > CORS 헤더 자체를 건드리지 않고 넘어가는 바람에 Express/Colyseus가 자체
 > 기본으로 붙이는 `Access-Control-Allow-Origin: *`가 그대로 노출된다(실제
 > 배포 중 `curl`로 확인된 문제 — 코드 로직 자체를 고치는 건 별도 후속
-> 작업으로 남겨 둠). `.env`에 `CLIENT_ORIGIN=https://<Pages 오리진>`
+> 작업으로 남겨 둠). `.env`에 `CLIENT_ORIGIN=https://dropfall.bomun.dev`
 > (경로 없이 scheme+host만)을 반드시 넣어서 막아 둔다.
+>
+> **클라이언트 도메인을 바꾸면 이 값도 반드시 같이 바꿔야 한다.** 서버는
+> `CLIENT_ORIGIN` 값을 그대로 `Access-Control-Allow-Origin` 헤더로 내보내는데,
+> 브라우저는 이 값이 실제 요청 오리진과 **정확히 일치할 때만** 응답을 통과시킨다.
+> 값이 옛 도메인으로 남아 있으면 게임 화면은 뜨지만 방 목록 조회·생성·입장이
+> 전부 CORS로 막혀서 "로비에서 아무것도 안 되는" 상태가 된다. 값을 고친 뒤에는
+> `sudo systemctl restart dropfall-server`로 반영한다.
 
 `scripts/deploy-server.sh`(이 리포에 커밋돼 있음)를 한 번 수동으로 실행해서
 정상 동작을 확인해 둔다 — 이후 CI가 실행하는 것과 완전히 같은 스크립트다.
@@ -174,7 +181,7 @@ ssh-copy-id -i dropfall_deploy_key.pub <서버-계정명>@<서버-tailscale-ip>
 | Secret | `DEPLOY_SSH_KEY` | §4에서 만든 개인키 전체 내용 | 서버 SSH 접속 |
 | Variable | `DEPLOY_SSH_USER` | 서버 로그인 계정명 | SSH 접속 계정 |
 | Variable | `TS_SERVER_HOST` | 서버의 Tailscale IP/MagicDNS 이름 | SSH 접속 대상 |
-| Variable | `VITE_SERVER_URL` | `wss://<머신명>.<tailnet-이름>.ts.net` (§2, 예: `wss://lab.tailcecca7.ts.net`) | 클라이언트 빌드에 굽는 서버 주소 |
+| Variable | `VITE_SERVER_URL` | 현재 값: `wss://dropfall-ws.bomun.dev` (자체 도메인 전환 전에는 Tailscale Funnel 주소 `wss://<머신명>.<tailnet-이름>.ts.net`을 썼다) | 클라이언트 빌드에 굽는 서버 주소 |
 
 ## 6. 워크플로 요약
 
